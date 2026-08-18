@@ -5,7 +5,9 @@
 
 'use strict';
 
-import { validate_model, compile_model } from '../../steer/files/usr/share/steer/model.uc';
+import {
+	validate_model, compile_model, collect_source_mac_bindings
+} from '../../steer/files/usr/share/steer/model.uc';
 import { compile_firewall } from '../../steer/files/usr/share/steer/firewall.uc';
 
 let failures = 0;
@@ -173,6 +175,7 @@ function base_model() {
 				domain_match: [],
 				ip_match: [],
 				source_ip_cidr: [],
+				source_mac_address: [],
 				network: [],
 				protocol: [],
 				port: [],
@@ -294,6 +297,86 @@ model.rules[0].ip_match = [ 'geoip:../cn' ];
 result = validate_model(model);
 expect(!result.ok && has_issue(result, 'INVALID_GEO_CATEGORY'),
 	'合并目的 IP 字段对 GeoIP 分类执行相同的路径边界校验');
+
+model = base_model();
+model.rules = [ {
+	id: 'device_rule', name: 'Device rule', enabled: true, default: false,
+	inbound: [], domain_match: [], ip_match: [],
+	source_ip_cidr: [], source_mac_address: [ '02:00:00:00:00:10' ],
+	network: [], protocol: [], port: [],
+	dns_profile: 'direct_dns', outbound: 'direct'
+}, model.rules[0] ];
+result = validate_model(model);
+expect(result.ok && !has_issue(result, 'DNS_PROJECTION_EMPTY', 'warnings'),
+	'客户端 MAC 是 DNS 与 Route 都可观察的普通规则字段');
+let mac_bindings = collect_source_mac_bindings(model);
+expect(length(mac_bindings) == 1 && mac_bindings[0].address == '02:00:00:00:00:10' &&
+	mac_bindings[0].tproxy_port == 49152 && mac_bindings[0].dns_port == 49153,
+	'MAC 分类入口按规范化地址稳定分配独立端口');
+compiled = compile_model(model);
+let mac_route = find_route_by_inbound(
+	compiled.sing_box.route.rules, mac_bindings[0].tproxy_tag, 'steer-out-direct');
+let mac_dns = find_by_inbound(compiled.sing_box.dns.rules, mac_bindings[0].dns_tag);
+expect(mac_route != null && find_group(mac_route, 'source_mac_address') == null,
+	'sing-box 1.13 后端把 source_mac_address 降级为隐藏 TPROXY inbound');
+expect(mac_dns != null && find_group(mac_dns, 'inbound').inbound[0] == mac_bindings[0].tproxy_tag &&
+	find_group(mac_dns, 'inbound').inbound[1] == mac_bindings[0].dns_tag,
+	'MAC 规则的 DNS 投影同时保留连接解析和 53 端口查询上下文');
+expect(find_by(compiled.sing_box.inbounds, 'tag', mac_bindings[0].tproxy_tag).listen == '::' &&
+	find_by(compiled.sing_box.inbounds, 'tag', mac_bindings[0].dns_tag).listen == '::',
+	'MAC 分类的隐藏入口同时监听 IPv4 与 IPv6');
+let native_mac_compiled = compile_model(model, { source_mac_backend: 'sing-box-1.14-native' });
+let native_mac_route = find_action_rule(
+	native_mac_compiled.sing_box.route.rules, 'outbound', 'steer-out-direct');
+expect(native_mac_compiled.ok && length(native_mac_compiled.source_mac_bindings) == 0 &&
+	find_group(native_mac_route, 'source_mac_address').source_mac_address[0] ==
+		'02:00:00:00:00:10',
+	'预留的 sing-box 1.14 后端直接生成同名原生 source_mac_address 字段');
+
+let mac_firewall = compile_firewall(model.main, [ 'br-lan' ], 'steer', mac_bindings);
+expect(mac_firewall.ok && index(mac_firewall.config,
+	'ether saddr 02:00:00:00:00:10 meta l4proto { tcp, udp } th dport 53 counter redirect to :49153') >= 0 &&
+	index(mac_firewall.config,
+	'ether saddr 02:00:00:00:00:10 meta l4proto { tcp, udp } meta mark set') >= 0 &&
+	index(mac_firewall.config, 'tproxy to :49152') >= 0,
+	'nftables 在协议族判断前用同一 ether saddr 规则分类双栈 DNS 与业务流量');
+
+model = base_model();
+model.rules = [ {
+	id: 'bad_mac', enabled: true, default: false,
+	inbound: [], domain_match: [], ip_match: [], source_ip_cidr: [],
+	source_mac_address: [ '02:00:00:00:00' ], network: [], protocol: [], port: [],
+	dns_profile: 'direct_dns', outbound: 'direct'
+}, model.rules[0] ];
+result = validate_model(model);
+expect(!result.ok && has_issue(result, 'INVALID_SOURCE_MAC_ADDRESS'),
+	'非法客户端 MAC 地址阻止应用');
+
+model = base_model();
+push(model.local_proxies, {
+	id: 'local_entry', enabled: true, protocol: 'mixed',
+	listen: '127.0.0.1', listen_port: 1090
+});
+model.rules = [ {
+	id: 'conflicting_sources', enabled: true, default: false,
+	inbound: [ 'local_entry' ], domain_match: [], ip_match: [], source_ip_cidr: [],
+	source_mac_address: [ '02:00:00:00:00:10' ], network: [], protocol: [], port: [],
+	dns_profile: 'direct_dns', outbound: 'direct'
+}, model.rules[0] ];
+result = validate_model(model);
+expect(!result.ok && has_issue(result, 'INCOMPATIBLE_SOURCE_SELECTORS'),
+	'客户端 MAC 与本地代理 inbound 的不可能交集会被明确拒绝');
+
+model = base_model();
+model.rules = [ {
+	id: 'ipv6_validation', enabled: true, default: false,
+	inbound: [], domain_match: [], ip_match: [],
+	source_ip_cidr: [ '2001:db8::10/128', '::::/128' ], source_mac_address: [],
+	network: [], protocol: [], port: [], dns_profile: 'direct_dns', outbound: 'direct'
+}, model.rules[0] ];
+result = validate_model(model);
+expect(!result.ok && has_issue(result, 'INVALID_IP_CIDR'),
+	'压缩 IPv6 可用但非法冒号序列不会再通过字面量校验');
 
 let firewall = compile_firewall(model.main, [ 'br-lan', 'br-guest', 'br-lan' ]);
 expect(firewall.ok && length(firewall.devices) == 2,

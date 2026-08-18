@@ -132,6 +132,7 @@ Steer 已对 GeoSite/GeoIP 实现候选校验和 last-known-good，但尚无订�
 
 - 来自受管 LAN 的 IPv4/IPv6 TCP、普通 UDP、QUIC/HTTP3；
 - LAN GUA 发往公共 IPv4/IPv6 的 UDP/TCP 53；
+- 源 MAC 规则对同一客户端的 IPv4、IPv6、SLAAC、临时地址和传统 DNS 保持同一 DNS/Route 决策；
 - LAN 客户端 UDP/123 不命中系统 NTP 旁路；
 - VLESS Reality/Vision、Hysteria2 和 Trojan 的真实远端连接；
 - 核心/DNS 崩溃、开机坏 UCI、LKG 回退、firewall reload、接口重建；

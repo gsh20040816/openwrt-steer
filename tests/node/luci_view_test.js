@@ -259,6 +259,9 @@ async function main() {
 		'Rules must not create a choice-only MultiValue without candidates');
 	const summary = options.find((option) => option.name == '_match');
 	assert.ok(summary, 'Ordinary rules retain an explicit match summary');
+	const sourceMac = options.find((option) => option.name == 'source_mac_address');
+	assert.ok(sourceMac && sourceMac.datatype == 'macaddr' && sourceMac.modalonly,
+		'Rules expose a validated source MAC field without asking users for IP aliases');
 	const defaultSection = environment.maps[0].sections.find((section) =>
 		section.filter?.('default'));
 	assert.ok(defaultSection &&

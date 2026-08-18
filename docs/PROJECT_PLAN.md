@@ -230,9 +230,14 @@ Bootstrap DNS 是启动根：只能使用 IP 字面量，由 SmartDNS 和 sing-b
 
 ### 6.5 客户端身份
 
-首版设备策略以稳定 IPv4、IPv6 地址或 CIDR 为真实匹配依据。
+设备策略可以使用源 IP/CIDR 或源 MAC。源 MAC 在受管 LAN 的 ingress 上按以太网头直接匹配，
+不解析为邻居表中的当前 IP，因此同一规则自然覆盖 IPv4、IPv6、SLAAC 和临时地址。MAC 只描述
+当前二层链路上的客户端，不承诺跨路由、隧道或 MAC 随机化后的持久身份。
 
-LuCI 可以使用 DHCP 租约辅助选择设备，但不把动态 MAC 邻居追踪包装成可靠身份，也不隐式修改 DHCP 静态租约。
+UCI 字段固定为 `source_mac_address`，与 sing-box 1.14 的原生规则字段同名。当前 sing-box 1.13
+基线由 nftables 把每个 MAC 降级为专用双栈 DNS/TPROXY inbound；切换 1.14 原生能力时只替换
+编译后端，不迁移用户规则。外部后端不得使用 MAC→IP 邻居解析，也不隐式修改 DHCP 静态租约。
+源 MAC 与本地代理 inbound 属于互斥的流量来源，不能在同一规则中组合。
 
 ### 6.6 第一版 LuCI 信息结构
 
@@ -372,6 +377,10 @@ SSR、Hysteria1 和 WireGuard 不作为默认公网抗审查节点协议目标�
 
 受管客户端必须根据 OpenWrt zone 解析得到的实际 ingress interface/device 识别，不能通过“源地址是否属于私有地址集合”间接推断。该规则同时适用于 IPv4、ULA、link-local 和动态前缀委派得到的公网 IPv6 GUA。DNS 重定向还必须显式排除 WAN ingress，覆盖 UDP 与 TCP 53，并在接口重建或 IPv6 前缀变化后保持成立。
 
+源 MAC 分类必须位于同一个 `table inet` 接管边界中，在协议族判断前用 `ether saddr` 选择专用
+入口；IPv4 与 IPv6 不得生成两套语义不同的设备规则。未命中 MAC 专用入口的流量继续进入通用
+双栈入口。
+
 ### 12.3 与其他代理插件的关系
 
 Steer 排他拥有透明代理链路。启用前需要检测：
@@ -475,6 +484,7 @@ Why? 不是独立实现的第二套路由器。它必须复用与配置编译相
 - 配置升级、失败 Apply、进程崩溃和开机恢复；
 - 其他代理冲突检测；
 - 来自每个受管 zone 的 IPv4、ULA、link-local 和 GUA 客户端对公共 IPv4/IPv6 DNS 发起 UDP/TCP 53 查询时均进入 Steer DNS 链，WAN ingress 不得进入；
+- 同一源 MAC 的 IPv4、IPv6、SLAAC 与临时地址同时命中所选 DNS Profile 和 Route，其他 MAC 继续按后续规则执行；
 - IPv6 委派前缀变化、接口重建和防火墙 reload 后，受管 zone 的 DNS 接管语义保持不变；
 - flow offload 旁路检查；
 - 凭据、日志和备份边界；

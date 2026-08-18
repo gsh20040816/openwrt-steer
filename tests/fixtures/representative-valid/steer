@@ -150,6 +150,13 @@ config rule 'client_direct'
 	option dns_profile 'direct_dns'
 	option outbound 'direct'
 
+config rule 'device_direct'
+	option name 'Example device direct'
+	option enabled '1'
+	list source_mac_address '02:00:00:00:00:10'
+	option dns_profile 'direct_dns'
+	option outbound 'direct'
+
 config rule 'service_proxy'
 	option name 'Example service proxy'
 	option enabled '1'

@@ -206,6 +206,7 @@ function matchSummary(sectionId) {
 	const inbounds = asList(uci.get('steer', sectionId, 'inbound'));
 	const domains = asList(uci.get('steer', sectionId, 'domain_match')).length;
 	const clients = asList(uci.get('steer', sectionId, 'source_ip_cidr')).length;
+	const macs = asList(uci.get('steer', sectionId, 'source_mac_address')).length;
 	const addresses = asList(uci.get('steer', sectionId, 'ip_match')).length;
 	const networks = asList(uci.get('steer', sectionId, 'network'));
 	const ports = asList(uci.get('steer', sectionId, 'port')).length;
@@ -215,13 +216,15 @@ function matchSummary(sectionId) {
 		parts.push(_('%d domain patterns').format(domains));
 	if (clients)
 		parts.push(_('%d client ranges').format(clients));
+	if (macs)
+		parts.push(_('%d client MAC addresses').format(macs));
 	if (addresses)
 		parts.push(_('%d destination IP expressions').format(addresses));
 	if (networks.length)
 		parts.push(networks.join('/').toUpperCase());
 	if (ports)
 		parts.push(_('%d ports').format(ports));
-	if (!inbounds.length && !domains && !clients && (addresses || networks.length || ports))
+	if (!inbounds.length && !domains && !clients && !macs && (addresses || networks.length || ports))
 		parts.push(_('DNS continues to the next rule'));
 	return parts.length ? parts.join(', ') : _('No match condition');
 }
@@ -353,6 +356,11 @@ return view.extend({
 		o.modalonly = true;
 		o.datatype = 'cidr';
 		o.description = _('Use stable DHCP leases or stable IPv6 addresses when a rule belongs to one device.');
+
+		o = s.taboption('match', form.DynamicList, 'source_mac_address', _('Client MAC address'));
+		o.modalonly = true;
+		o.datatype = 'macaddr';
+		o.description = _('Matches LAN clients before IP routing, so the same rule covers IPv4, IPv6, SLAAC and temporary addresses. It cannot be combined with a local proxy inbound.');
 
 		o = s.taboption('match', form.MultiValue, 'network', _('Network'));
 		o.modalonly = true;

@@ -5,7 +5,10 @@
 
 'use strict';
 
-import { load_uci_model, validate_model, compile_model, collect_geo_rule_sets } from '/usr/share/steer/model.uc';
+import {
+	load_uci_model, validate_model, compile_model, collect_geo_rule_sets,
+	collect_source_mac_bindings
+} from '/usr/share/steer/model.uc';
 import { compile_firewall } from '/usr/share/steer/firewall.uc';
 
 function usage() {
@@ -134,7 +137,8 @@ if (command == 'compile-firewall') {
 		offset = 3;
 	}
 
-	const result = compile_firewall(model.main, slice(ARGV, offset), table_name);
+	const result = compile_firewall(
+		model.main, slice(ARGV, offset), table_name, collect_source_mac_bindings(model));
 	if (!result.ok) {
 		warn(`${result.code}: ${result.message}\n`);
 		exit(1);

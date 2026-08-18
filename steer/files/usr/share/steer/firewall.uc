@@ -73,6 +73,34 @@ function valid_device(value) {
 		match(value, /^[A-Za-z0-9_.:-]+$/) != null;
 }
 
+function valid_mac_address(value) {
+	return type(value) == 'string' &&
+		match(value, /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/) != null;
+}
+
+function valid_port(value) {
+	return type(value) == 'int' && value >= 1 && value <= 65535;
+}
+
+function valid_mac_bindings(bindings, main) {
+	let addresses = {};
+	let ports = {};
+	ports[main.tproxy_port] = true;
+	ports[main.dns_port] = true;
+
+	for (let binding in (bindings || [])) {
+		if (!valid_mac_address(binding.address) ||
+		    !valid_port(binding.tproxy_port) || !valid_port(binding.dns_port) ||
+		    addresses[binding.address] != null || ports[binding.tproxy_port] != null ||
+		    ports[binding.dns_port] != null || binding.tproxy_port == binding.dns_port)
+			return false;
+		addresses[binding.address] = true;
+		ports[binding.tproxy_port] = true;
+		ports[binding.dns_port] = true;
+	}
+	return true;
+}
+
 function unique_devices(devices) {
 	let seen = {};
 	let result = [];
@@ -106,8 +134,9 @@ function render_set(name, type_name, elements, quote) {
 	]);
 }
 
-export function compile_firewall(main, requested_devices, table_name) {
+export function compile_firewall(main, requested_devices, table_name, source_mac_bindings) {
 	table_name ??= 'steer';
+	source_mac_bindings ??= [];
 
 	if (!valid_table_name(table_name))
 		return { ok: false, code: 'INVALID_TABLE_NAME', message: 'nftables 表名无效' };
@@ -117,6 +146,8 @@ export function compile_firewall(main, requested_devices, table_name) {
 		return { ok: false, code: 'INVALID_DEVICE', message: 'firewall zone 解析出了非法设备名' };
 	if (length(devices) == 0)
 		return { ok: false, code: 'NO_MANAGED_DEVICE', message: '受管 firewall zone 当前没有实际设备' };
+	if (!valid_mac_bindings(source_mac_bindings, main))
+		return { ok: false, code: 'INVALID_MAC_BINDING', message: '客户端 MAC 分类入口无效' };
 
 	const mask = main.mark_mask;
 	const inverse_mask = (~mask) & 0xffffffff;
@@ -157,10 +188,15 @@ export function compile_firewall(main, requested_devices, table_name) {
 		'	}',
 		'',
 		'\tchain dns_prerouting {',
-		'\t\ttype nat hook prerouting priority dstnat + 1; policy accept;',
+		'\t\ttype nat hook prerouting priority dstnat + 1; policy accept;'
+	];
+	for (let binding in source_mac_bindings)
+		push(lines,
+			`\t\tiifname @managed_devices ether saddr ${binding.address} meta l4proto { tcp, udp } th dport 53 counter redirect to :${binding.dns_port}`);
+	push(lines,
 		`\t\tiifname @managed_devices meta l4proto { tcp, udp } th dport 53 counter redirect to :${main.dns_port}`,
 		'\t}'
-	];
+	);
 
 	if (main.router_proxy) {
 		push(lines,
@@ -198,7 +234,12 @@ export function compile_firewall(main, requested_devices, table_name) {
 		'\t\tiifname @managed_devices goto tproxy_eligible',
 		'\t}',
 		'',
-		'\tchain tproxy_eligible {',
+		'\tchain tproxy_eligible {'
+	);
+	for (let binding in source_mac_bindings)
+		push(lines,
+			`\t\tether saddr ${binding.address} meta l4proto { tcp, udp } meta mark set meta mark & ${hex32(inverse_mask)} | ${hex32(main.tproxy_mark)} tproxy to :${binding.tproxy_port} counter accept`);
+	push(lines,
 		`\t\tmeta l4proto { tcp, udp } meta mark set meta mark & ${hex32(inverse_mask)} | ${hex32(main.tproxy_mark)} tproxy to :${main.tproxy_port} counter accept`,
 		'\t}'
 	);

@@ -12,13 +12,15 @@
 - Bootstrap DNS 使用 IP 字面量和核心绕行 mark，业务上游的独立 mark 只防止 UDP/TCP 53 再劫持；
 - 路由器本机 UDP/123 在 output 普通规则标记前固定直连，且不放宽 LAN 客户端 NTP；
 - 混合规则分别生成 DNS 可见条件投影和完整 Route 投影；
+- 源 MAC 规则生成独立的双栈 DNS/TPROXY 入口，DNS 与 Route 投影保留同一客户端上下文；
+- 严格 IPv4/IPv6 字面量与 CIDR 校验，包括压缩 IPv6 和非法冒号序列；
 - 仅连接阶段规则不生成空 DNS 规则；
 - TPROXY 与 sing-box 绕行 mark 冲突；
 - firewall zone 实际设备去重、双栈 DNS/TPROXY 规则和空设备拒绝。
 
 本机尚未安装 ucode，因此该测试必须在目标 OpenWrt 或等价构建容器中执行。仅通过静态检查不能替代目标运行时验证。
 
-`tests/fixtures/representative-valid/steer` 使用完全虚构的名称、凭据、示例域名和文档地址，覆盖 VLESS + Reality + Vision、Hysteria2 端口跳跃、Trojan、双栈客户端规则、UDP 连接阶段规则、两个 DNS Profile、三条按 DNS 上游目标表达的普通规则和一条禁用规则。fixture 不映射任何私人部署配置。
+`tests/fixtures/representative-valid/steer` 使用完全虚构的名称、凭据、示例域名、文档地址和本地管理 MAC，覆盖 VLESS + Reality + Vision、Hysteria2 端口跳跃、Trojan、双栈客户端规则、源 MAC 规则、UDP 连接阶段规则、两个 DNS Profile、三条按 DNS 上游目标表达的普通规则和一条禁用规则。fixture 不映射任何私人部署配置。
 
 `tests/fixtures/local-proxy-valid/steer` 验证具名 mixed 本地代理入口，以及规则以入口为 DNS 和 Route 的共同匹配维度。该 fixture 只监听回环地址，不映射任何现有服务端口。
 

@@ -24,6 +24,7 @@ Steer 是面向 OpenWrt 的透明代理意图编译器和控制平面。它把�
 - LuCI 在浏览器本地解析单个 `vless://`、`hysteria2://`、`hy2://` 或 `trojan://` 分享链接，先显示不含凭据的审查结果再写入待提交 UCI；无法由当前节点模型保留的传输或安全参数会明确拒绝，不会静默丢弃；
 - 首批逻辑出口只支持单节点、直连和阻断；连接失败后的自动切换尚未实现。
 - 混合规则的 DNS 投影只使用查询阶段可见字段，Route 投影保留目标 IP、端口和 TCP/UDP；只有连接阶段条件时不会生成空 DNS 规则。
+- 源 MAC 是普通客户端条件：字段内多个 MAC 为 OR，并与其他非空字段 AND。当前 sing-box 1.13 基线由 nftables `ether saddr` 分类到专用双栈入口，不做 MAC→IP 解析；UCI 使用 1.14 原生字段名 `source_mac_address`，以后切换原生后端不迁移规则。
 - GeoSite/GeoIP 使用 Loyalsoldier 数据发布，定期转换为受控本地 sing-box 规则集；数据源不能携带 DNS、出口或 fallback 动作。
 
 更完整的设计、审计证据与开发边界见 [项目规划](docs/PROJECT_PLAN.md)；跨工具生命周期对照、
@@ -38,7 +39,7 @@ Steer 是面向 OpenWrt 的透明代理意图编译器和控制平面。它把�
 
 ## 当前状态
 
-当前后端已建立配置模型、严格校验、确定性编译和首个可运行的 OpenWrt 接管闭环。它能由 procd 启动一个 sing-box 与多个 SmartDNS 实例，按受管 firewall zone 的实际设备加载双栈 DNS/TPROXY 规则，并在 Apply 前执行原生检查。路由器本机 TCP、UDP 与传统 DNS 可由同一总开关进入普通 Rules；IANA 非全局可达目标在核心前旁路。GeoSite/GeoIP 使用版本锁定种子、独立源文件更新和 last-known-good 生成代；规则编辑器在合并后的域名和目的 IP 字段中动态补全合法分类，后端自动生成 sing-box 本地规则集，并用显式 logical OR/AND 固化“字段内 OR、字段间 AND”。首版 LuCI 已覆盖总览、普通规则、具名本地代理、DNS Profile、DNS Server、节点和逻辑出口，并通过专用 RPC 执行同一事务式 Apply。Nodes & Routes 页面还能在浏览器本地解析当前支持协议的单节点分享 URL；这不等于订阅 URL 导入或更新。更多故障注入和生产切换仍未完成，因此还不能称为生产可用版本。
+当前后端已建立配置模型、严格校验、确定性编译和首个可运行的 OpenWrt 接管闭环。它能由 procd 启动一个 sing-box 与多个 SmartDNS 实例，按受管 firewall zone 的实际设备加载双栈 DNS/TPROXY 规则，并在 Apply 前执行原生检查。路由器本机 TCP、UDP 与传统 DNS 可由同一总开关进入普通 Rules；IANA 非全局可达目标在核心前旁路。客户端 MAC 在二层入口分类，IPv4 和 IPv6 共用同一设备语义。GeoSite/GeoIP 使用版本锁定种子、独立源文件更新和 last-known-good 生成代；规则编辑器在合并后的域名和目的 IP 字段中动态补全合法分类，后端自动生成 sing-box 本地规则集，并用显式 logical OR/AND 固化“字段内 OR、字段间 AND”。首版 LuCI 已覆盖总览、普通规则、具名本地代理、DNS Profile、DNS Server、节点和逻辑出口，并通过专用 RPC 执行同一事务式 Apply。Nodes & Routes 页面还能在浏览器本地解析当前支持协议的单节点分享 URL；这不等于订阅 URL 导入或更新。更多故障注入和生产切换仍未完成，因此还不能称为生产可用版本。
 
 DNS 的对象关系固定为：普通规则选择 DNS Profile；一个 DNS Profile 对应一个由 Steer 管理的 SmartDNS 实例；SmartDNS 业务上游作为路由器本机连接进入同一套普通 Rules。DNS Server 自身没有出口字段，避免出现与规则并行的隐式路由语义。
 

@@ -39,7 +39,8 @@ const SECTION_OPTIONS = {
 	],
 	rule: [
 		'enabled', 'default', 'name', 'dns_profile', 'outbound', 'inbound',
-		'domain_match', 'ip_match', 'source_ip_cidr', 'network', 'protocol', 'port'
+		'domain_match', 'ip_match', 'source_ip_cidr', 'source_mac_address',
+		'network', 'protocol', 'port'
 	]
 };
 
@@ -127,7 +128,7 @@ function normalize_section(section, section_type) {
 		result.enabled = result.enabled == null ? true : as_bool(result.enabled);
 		result.default = as_bool(result.default);
 		for (let option in [
-			'inbound', 'domain_match', 'ip_match', 'source_ip_cidr',
+			'inbound', 'domain_match', 'ip_match', 'source_ip_cidr', 'source_mac_address',
 			'network', 'protocol', 'port'
 		])
 			result[option] = as_array(result[option]);
@@ -368,19 +369,7 @@ function validate_node(result, node) {
 }
 
 function is_ip_literal(value) {
-	if (!has_text(value))
-		return false;
-
-	if (match(value, /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) != null) {
-		const parts = split(value, '.');
-		for (let part in parts) {
-			if (int(part) < 0 || int(part) > 255)
-				return false;
-		}
-		return true;
-	}
-
-	return index(value, ':') >= 0 && match(value, /^[0-9A-Fa-f:]+$/) != null;
+	return has_text(value) && iptoarr(value) != null;
 }
 
 function validate_bootstrap(result, bootstrap) {
@@ -597,7 +586,7 @@ export function collect_geo_rule_sets(model, requested_kind) {
 
 function has_rule_match(rule) {
 	for (let option in [
-		'inbound', 'domain_match', 'ip_match', 'source_ip_cidr',
+		'inbound', 'domain_match', 'ip_match', 'source_ip_cidr', 'source_mac_address',
 		'network', 'protocol', 'port'
 	]) {
 		if (length(rule[option] || []) > 0)
@@ -608,11 +597,86 @@ function has_rule_match(rule) {
 }
 
 function has_dns_rule_match(rule) {
-	for (let option in [ 'inbound', 'domain_match', 'source_ip_cidr' ]) {
+	for (let option in [ 'inbound', 'domain_match', 'source_ip_cidr', 'source_mac_address' ]) {
 		if (length(rule[option] || []) > 0)
 			return true;
 	}
 	return false;
+}
+
+function mac_address_valid(value) {
+	return has_text(value) &&
+		match(value, /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/) != null;
+}
+
+function validate_source_mac_addresses(result, rule) {
+	for (let value in (rule.source_mac_address || [])) {
+		if (!mac_address_valid(value))
+			error(result, 'INVALID_SOURCE_MAC_ADDRESS', 'rule', rule.id,
+				'source_mac_address', `客户端 MAC 地址无效：${value}`);
+	}
+
+	if (length(rule.source_mac_address || []) && length(rule.inbound || []))
+		error(result, 'INCOMPATIBLE_SOURCE_SELECTORS', 'rule', rule.id, 'source_mac_address',
+			'客户端 MAC 与本地代理入口不能同时匹配');
+}
+
+function build_source_mac_bindings(model) {
+	let addresses = {};
+	for (let rule in (model.rules || [])) {
+		if (!rule.enabled || rule.default)
+			continue;
+		for (let value in (rule.source_mac_address || [])) {
+			if (mac_address_valid(value))
+				addresses[lc(value)] = true;
+		}
+	}
+	if (length(keys(addresses)) == 0)
+		return [];
+
+	let occupied = {};
+	occupied[model.main.tproxy_port] = true;
+	occupied[model.main.dns_port] = true;
+	for (let profile in (model.dns_profiles || [])) {
+		if (profile.enabled && profile.listen_port != null)
+			occupied[profile.listen_port] = true;
+	}
+	for (let proxy in (model.local_proxies || [])) {
+		if (proxy.enabled && proxy.listen_port != null)
+			occupied[proxy.listen_port] = true;
+	}
+
+	let cursor = 49152;
+	let next_port = () => {
+		for (let remaining = 64512; remaining > 0; remaining--) {
+			const port = cursor++;
+			if (cursor > 65535)
+				cursor = 1024;
+			if (occupied[port] == null) {
+				occupied[port] = true;
+				return port;
+			}
+		}
+		return null;
+	};
+
+	let result = [];
+	let index = 0;
+	for (let address in sort(keys(addresses))) {
+		const tproxy_port = next_port();
+		const dns_port = next_port();
+		if (tproxy_port == null || dns_port == null)
+			return null;
+		push(result, {
+			address,
+			tproxy_port,
+			dns_port,
+			tproxy_tag: `steer-mac-tproxy-${index}`,
+			dns_tag: `steer-mac-dns-${index}`
+		});
+		index++;
+	}
+	return result;
 }
 
 function ip_cidr_valid(value) {
@@ -730,6 +794,7 @@ function validate_rule(result, rule, outbound_index, dns_index, local_proxy_inde
 		validate_domain_matches(result, rule);
 		validate_destination_matches(result, rule);
 		validate_ip_cidrs(result, rule, 'source_ip_cidr');
+		validate_source_mac_addresses(result, rule);
 		validate_rule_ports(result, rule);
 		validate_rule_networks(result, rule);
 
@@ -874,6 +939,9 @@ export function validate_model(model) {
 		else
 			listen_ports[proxy.listen_port] = `local_proxy ${proxy.id}`;
 	}
+	if (build_source_mac_bindings(model) == null)
+		error(result, 'MAC_PORT_EXHAUSTED', 'steer', model.main.id, 'tproxy_port',
+			'没有足够的空闲监听端口用于客户端 MAC 分类入口');
 
 	let enabled_default_count = 0;
 	let seen_enabled_default = false;
@@ -941,6 +1009,22 @@ function dns_tag(id) {
 
 function local_proxy_tag(id) {
 	return `steer-local-${id}`;
+}
+
+/*
+ * sing-box 1.13 cannot match source_mac_address. Keep the public UCI field
+ * identical to sing-box 1.14 and isolate the temporary nftables-to-inbound
+ * lowering here, so the native backend can replace this function later.
+ */
+export function collect_source_mac_bindings(model) {
+	return build_source_mac_bindings(model);
+};
+
+function source_mac_binding_index(bindings) {
+	let result = {};
+	for (let binding in bindings)
+		result[binding.address] = binding;
+	return result;
 }
 
 function compile_local_proxy(proxy) {
@@ -1146,10 +1230,29 @@ function compile_destination_group(rule) {
 	return combine_match_fields(result, [ 'ip_cidr', 'rule_set' ]);
 }
 
-function compile_rule_match(rule) {
+function compile_source_mac_group(rule, mac_index, backend, dns_projection) {
+	if (!length(rule.source_mac_address || []))
+		return null;
+	if (backend == 'sing-box-1.14-native')
+		return { source_mac_address: map(rule.source_mac_address, lc) };
+
+	let inbounds = [];
+	for (let value in rule.source_mac_address) {
+		const binding = mac_index[lc(value)];
+		push(inbounds, binding.tproxy_tag);
+		if (dns_projection)
+			push(inbounds, binding.dns_tag);
+	}
+	return { inbound: inbounds };
+}
+
+function compile_rule_match(rule, mac_index, source_mac_backend) {
 	let groups = [];
 	if (length(rule.inbound || []))
 		push(groups, { inbound: map(rule.inbound, local_proxy_tag) });
+	const mac_group = compile_source_mac_group(rule, mac_index, source_mac_backend, false);
+	if (mac_group != null)
+		push(groups, mac_group);
 	if (length(rule.domain_match || []))
 		push(groups, compile_domain_group(rule));
 	if (length(rule.ip_match || []))
@@ -1167,10 +1270,13 @@ function compile_rule_match(rule) {
 	return combine_groups(groups, 'and');
 }
 
-function compile_dns_rule_match(rule) {
+function compile_dns_rule_match(rule, mac_index, source_mac_backend) {
 	let groups = [];
 	if (length(rule.inbound || []))
 		push(groups, { inbound: map(rule.inbound, local_proxy_tag) });
+	const mac_group = compile_source_mac_group(rule, mac_index, source_mac_backend, true);
+	if (mac_group != null)
+		push(groups, mac_group);
 	if (length(rule.domain_match || []))
 		push(groups, compile_domain_group(rule));
 	if (length(rule.source_ip_cidr || []))
@@ -1179,10 +1285,27 @@ function compile_dns_rule_match(rule) {
 	return length(groups) ? combine_groups(groups, 'and') : {};
 }
 
-export function compile_model(model) {
+export function compile_model(model, options) {
 	const validation = validate_model(model);
 	if (!validation.ok)
 		return { ok: false, validation };
+	const source_mac_backend = options?.source_mac_backend || 'nft-inbound';
+	if (!(source_mac_backend in [ 'nft-inbound', 'sing-box-1.14-native' ]))
+		return {
+			ok: false,
+			validation: {
+				ok: false,
+				errors: [ {
+					code: 'UNSUPPORTED_SOURCE_MAC_BACKEND',
+					object_type: 'model',
+					message: '不支持的客户端 MAC 编译后端'
+				} ],
+				warnings: []
+			}
+		};
+	const source_mac_bindings = source_mac_backend == 'nft-inbound' ?
+		build_source_mac_bindings(model) : [];
+	const mac_index = source_mac_binding_index(source_mac_bindings);
 
 	let config = {
 		log: {
@@ -1222,6 +1345,33 @@ export function compile_model(model) {
 			}
 		}
 	};
+
+	let mac_tproxy_tags = [];
+	let mac_dns_tags = [];
+	for (let binding in source_mac_bindings) {
+		push(config.inbounds, {
+			type: 'tproxy',
+			tag: binding.tproxy_tag,
+			listen: '::',
+			listen_port: binding.tproxy_port
+		});
+		push(config.inbounds, {
+			type: 'direct',
+			tag: binding.dns_tag,
+			listen: '::',
+			listen_port: binding.dns_port
+		});
+		push(mac_tproxy_tags, binding.tproxy_tag);
+		push(mac_dns_tags, binding.dns_tag);
+	}
+	if (length(mac_dns_tags))
+		push(config.route.rules, { inbound: mac_dns_tags, action: 'hijack-dns' });
+	if (length(mac_tproxy_tags))
+		push(config.route.rules, {
+			inbound: mac_tproxy_tags,
+			action: 'sniff',
+			timeout: '300ms'
+		});
 
 	let dns_server_index = {};
 	for (let server in model.dns_servers)
@@ -1287,12 +1437,12 @@ export function compile_model(model) {
 			continue;
 		}
 
-		let route_rule = compile_rule_match(rule);
+		let route_rule = compile_rule_match(rule, mac_index, source_mac_backend);
 		route_rule.action = 'route';
 		route_rule.outbound = outbound_tag(rule.outbound);
 		push(config.route.rules, route_rule);
 
-		let dns_rule = compile_dns_rule_match(rule);
+		let dns_rule = compile_dns_rule_match(rule, mac_index, source_mac_backend);
 		if (length(keys(dns_rule)) > 0) {
 			dns_rule.action = 'route';
 			dns_rule.server = rule.dns_profile == 'bootstrap' ?
@@ -1322,6 +1472,7 @@ export function compile_model(model) {
 	return {
 		ok: true,
 		validation,
+		source_mac_bindings,
 		sing_box: remove_empty(config),
 		smartdns_instances
 	};

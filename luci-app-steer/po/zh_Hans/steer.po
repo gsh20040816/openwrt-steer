@@ -13,6 +13,9 @@ msgstr ""
 msgid "%d client ranges"
 msgstr "%d 个客户端范围"
 
+msgid "%d client MAC addresses"
+msgstr "%d 个客户端 MAC 地址"
+
 msgid "%d domain patterns"
 msgstr "%d 个域名模式"
 
@@ -87,6 +90,9 @@ msgstr "选择由 Steer 管理的本地防火墙区域。规则、DNS 配置和�
 
 msgid "Client IP/CIDR"
 msgstr "客户端 IP/CIDR"
+
+msgid "Client MAC address"
+msgstr "客户端 MAC 地址"
 
 msgid "Configuration"
 msgstr "配置"
@@ -672,3 +678,6 @@ msgstr "每行填写一个表达式。纯文本表示关键词；full:、domain:
 
 msgid "Rules run from top to bottom. Entries inside one field are OR; all non-empty fields are AND. DNS evaluates only domain, inbound and client conditions."
 msgstr "规则从上到下执行。同一字段内的条目为或关系，所有非空字段之间为与关系。DNS 只判断域名、入站和客户端条件。"
+
+msgid "Matches LAN clients before IP routing, so the same rule covers IPv4, IPv6, SLAAC and temporary addresses. It cannot be combined with a local proxy inbound."
+msgstr "在 IP 路由前匹配局域网客户端，因此同一条规则同时覆盖 IPv4、IPv6、SLAAC 和临时地址。不能与本地代理入站同时使用。"

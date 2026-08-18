@@ -116,6 +116,12 @@ cp "$REPO_DIR/tests/fixtures/representative-valid/steer" /etc/config/steer
 steerctl validate > "$TEST_DIR/valid-result.json"
 steerctl compile-sing-box > "$TEST_DIR/sing-box.json"
 "$SING_BOX_BIN" check -c "$TEST_DIR/sing-box.json"
+grep -q '"tag": "steer-mac-tproxy-0"' "$TEST_DIR/sing-box.json"
+grep -q '"tag": "steer-mac-dns-0"' "$TEST_DIR/sing-box.json"
+if grep -q '"source_mac_address"' "$TEST_DIR/sing-box.json"; then
+	echo 'sing-box 1.13 candidate unexpectedly contains a 1.14-only source_mac_address field.' >&2
+	exit 1
+fi
 
 # LuCI adds a new UCI section at the physical end of the package. Default is a
 # semantic terminator, so model loading must still place the new ordinary rule
@@ -184,6 +190,9 @@ nft list table inet steer > "$TEST_DIR/steer-router-enabled.nft"
 grep -q 'type route hook output priority mangle' "$TEST_DIR/steer-router-enabled.nft"
 grep -q 'type nat hook output priority dstnat + 1' "$TEST_DIR/steer-router-enabled.nft"
 grep -q 'iifname "lo"' "$TEST_DIR/steer-router-enabled.nft"
+grep -q 'ether saddr 02:00:00:00:00:10' "$TEST_DIR/steer-router-enabled.nft"
+grep -q 'redirect to :49153' "$TEST_DIR/steer-router-enabled.nft"
+grep -q 'tproxy to :49152' "$TEST_DIR/steer-router-enabled.nft"
 
 uci set steer.main.router_proxy='0'
 uci commit steer

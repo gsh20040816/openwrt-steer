@@ -30,7 +30,7 @@ SING_BOX_BIN=/usr/bin/sing-box-1.13.14 \
 5. 执行 sing-box 原生 `check`；
 6. 分别启动 SmartDNS 实例并检查进程能保持运行；
 7. 通过 procd 启动 sing-box 与多个 SmartDNS 实例；
-8. 检查双栈 TPROXY 策略路由、按 `fw4 zone` 实际设备生成的 nftables 规则和 firewall4 reload 后恢复；
+8. 检查双栈 TPROXY 策略路由、按 `fw4 zone` 实际设备生成的 nftables 规则、源 MAC 专用双栈入口和 firewall4 reload 后恢复；
 9. 实际发起路由器本机 UDP/123 请求，确认系统 NTP 在普通规则标记前固定直连并由 RPC 报告计数；
 10. 确认 mark 冲突在切换前被拒绝且当前运行代保持健康；
 11. 确认通用悬空引用 fixture 必须失败；
@@ -38,7 +38,10 @@ SING_BOX_BIN=/usr/bin/sing-box-1.13.14 \
 
 该脚本会短暂写入 VM 的 `/usr/share/steer`、`/usr/libexec/steer`、`/usr/sbin/steerctl`、`/etc/init.d/steer`、`/etc/steer` 和 `/var/lib/steer`，并重载 VM 的 firewall4，因此只能在一次性测试 VM 中运行，不能直接在生产路由器执行。
 
-当前集成测试验证的是控制面启动、规则装载和切换前拒绝。真实客户端 TCP、普通 UDP、QUIC、IPv4/IPv6 GUA、flow offload 隔离和切换后故障回滚仍需在下一阶段的数据平面测试中补齐；未完成前不得据此批准生产切换。
+当前集成测试验证的是控制面启动、规则装载、源 MAC 外部编译结果和切换前拒绝。当前 KVM
+镜像没有 veth 模块，尚不能在单 VM 内构造独立 LAN 客户端；真实客户端 TCP、普通 UDP、QUIC、
+源 MAC 的 IPv4/IPv6 数据包、IPv4/IPv6 GUA、flow offload 隔离和切换后故障回滚仍需在带独立
+LAN 网卡/客户端 VM 的拓扑中补齐。未完成前不得据此批准生产切换。
 
 本机构建耗时只用于同一主机、同一 SDK 镜像下的优化前后 A/B，不能外推为 GitHub Actions
 耗时。CI 性能结论必须来自 GitHub 托管 runner 的实际工作流记录，并区分首次缓存未命中与后续
