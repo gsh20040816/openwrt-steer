@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+uci -q delete firewall.steer
+uci set firewall.steer=include
+uci set firewall.steer.type=script
+uci set firewall.steer.path=/usr/share/steer/firewall.include
+uci set firewall.steer.fw4_compatible=1
+uci commit firewall
+
+exit 0

@@ -1,0 +1,299 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -eu
+umask 077
+
+STATE_ROOT=/var/lib/steer/geodata
+SEED_ROOT=/usr/share/steer/geodata-seed
+CURRENT="$STATE_ROOT/current"
+STATUS_ROOT="$STATE_ROOT/status"
+LOCK_FILE=/var/lock/steer-geodata.lock
+API_URL=https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest
+GEOVIEW=/usr/bin/geoview
+SING_BOX=/usr/bin/sing-box
+
+log() {
+	logger -t steer-geodata -- "$*"
+}
+
+die() {
+	echo "steer-geodata: $*" >&2
+	log "$*"
+	exit 1
+}
+
+prepare() {
+	mkdir -p "$STATE_ROOT" "$STATUS_ROOT" /var/lock
+}
+
+rules_file() {
+	local kind="$1"
+	local output="$2"
+	steerctl list-geo-rules "$kind" > "$output"
+}
+
+compile_rules() {
+	local kind="$1"
+	local source="$2"
+	local list="$3"
+	local output="$4"
+	local id listed_kind category source_json tab
+	tab="$(printf '\t')"
+	mkdir -p "$output"
+	while IFS="$tab" read -r id listed_kind category; do
+		[ -n "$id" ] || continue
+		[ "$listed_kind" = "$kind" ] || die "规则集类型不一致：$id"
+		source_json="$output/$id.json"
+		if ! "$GEOVIEW" -action convert -input "$source" -type "$kind" \
+			-list "$category" -format json -strict -output "$source_json"; then
+			return 1
+		fi
+		if ! "$SING_BOX" rule-set compile --output "$output/$id.srs" "$source_json"; then
+			return 1
+		fi
+		rm -f "$source_json"
+	done < "$list"
+}
+
+activate_generation() {
+	local generation="$1"
+	local pending="$STATE_ROOT/current.new.$$"
+	ln -s "$generation" "$pending"
+	mv -fT "$pending" "$CURRENT"
+}
+
+generation_ready() {
+	local current="$1"
+	local required="$2"
+	local id kind category tab
+	[ -f "$current/rules.tsv" ] || return 1
+	cmp -s "$required" "$current/rules.tsv" || return 1
+	tab="$(printf '\t')"
+	while IFS="$tab" read -r id kind category; do
+		[ -n "$id" ] || continue
+		[ -s "$current/rules/$id.srs" ] || return 1
+	done < "$required"
+}
+
+ensure_active() {
+	local workspace required geosite_rules geoip_rules current source generation
+	workspace="$(mktemp -d /tmp/steer-geodata-ensure.XXXXXX)"
+	required="$workspace/rules.tsv"
+	geosite_rules="$workspace/geosite.tsv"
+	geoip_rules="$workspace/geoip.tsv"
+	steerctl list-geo-rules > "$required"
+	rules_file geosite "$geosite_rules"
+	rules_file geoip "$geoip_rules"
+	current=''
+	if [ -L "$CURRENT" ]; then
+		current="$(readlink -f "$CURRENT" 2>/dev/null || true)"
+		[ -d "$current" ] || current=''
+	fi
+
+	if [ -n "$current" ] && generation_ready "$current" "$required"; then
+		rm -rf "$workspace"
+		return 0
+	fi
+	if [ ! -s "$required" ] && [ -z "$current" ]; then
+		rm -rf "$workspace"
+		return 0
+	fi
+
+	if [ -n "$current" ]; then
+		source="$current"
+	else
+		source="$SEED_ROOT"
+	fi
+	[ -s "$source/geosite.dat" ] || die '缺少 GeoSite 种子或 last-known-good'
+	[ -s "$source/geoip.dat" ] || die '缺少 GeoIP 种子或 last-known-good'
+	[ -x "$GEOVIEW" ] || die "geoview 不可执行：$GEOVIEW"
+	[ -x "$SING_BOX" ] || die "sing-box 不可执行：$SING_BOX"
+
+	generation="$(mktemp -d "$STATE_ROOT/generation.XXXXXX")"
+	cp "$source/geosite.dat" "$generation/geosite.dat"
+	cp "$source/geoip.dat" "$generation/geoip.dat"
+	cp "$required" "$generation/rules.tsv"
+	[ ! -f "$source/geosite.version" ] || cp "$source/geosite.version" "$generation/geosite.version"
+	[ ! -f "$source/geoip.version" ] || cp "$source/geoip.version" "$generation/geoip.version"
+	if [ "$source" = "$SEED_ROOT" ] && [ -f "$SEED_ROOT/release" ]; then
+		cp "$SEED_ROOT/release" "$generation/geosite.version"
+		cp "$SEED_ROOT/release" "$generation/geoip.version"
+	fi
+	if ! compile_rules geosite "$generation/geosite.dat" "$geosite_rules" "$generation/rules"; then
+		rm -rf "$generation" "$workspace"
+		die 'GeoSite 分类缺失或转换失败'
+	fi
+	if ! compile_rules geoip "$generation/geoip.dat" "$geoip_rules" "$generation/rules"; then
+		rm -rf "$generation" "$workspace"
+		die 'GeoIP 分类缺失或转换失败'
+	fi
+	activate_generation "$generation"
+	rm -rf "$workspace"
+	log "已准备本地规则集生成代：$generation"
+}
+
+write_status() {
+	local kind="$1"
+	local state="$2"
+	local version="$3"
+	local message="$4"
+	local pending="$STATUS_ROOT/$kind.new.$$"
+	printf 'state=%s\nversion=%s\nmessage=%s\nupdated_at=%s\n' \
+		"$state" "$version" "$message" "$(date -Iseconds)" > "$pending"
+	mv -f "$pending" "$STATUS_ROOT/$kind"
+}
+
+download_type() {
+	local kind="$1"
+	local version="$2"
+	local directory="$3"
+	local base expected actual
+	base="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/$version"
+	uclient-fetch -q -O "$directory/$kind.dat" "$base/$kind.dat"
+	uclient-fetch -q -O "$directory/$kind.sha256sum" "$base/$kind.dat.sha256sum"
+	expected="$(awk 'NR == 1 { print $1 }' "$directory/$kind.sha256sum")"
+	actual="$(sha256sum "$directory/$kind.dat" | awk '{ print $1 }')"
+	[ -n "$expected" ] && [ "$actual" = "$expected" ]
+}
+
+stage_type() {
+	local kind="$1"
+	local version="$2"
+	local download="$3"
+	local candidate="$4"
+	local workspace="$5"
+	local list output id listed_kind category tab
+	list="$workspace/$kind.tsv"
+	output="$workspace/$kind-rules"
+	rules_file "$kind" "$list"
+	if ! download_type "$kind" "$version" "$download"; then
+		write_status "$kind" failed "$version" '下载或 SHA-256 校验失败'
+		return 1
+	fi
+	if cmp -s "$download/$kind.dat" "$candidate/$kind.dat"; then
+		write_status "$kind" current "$version" '已是当前版本'
+		return 2
+	fi
+	if ! compile_rules "$kind" "$download/$kind.dat" "$list" "$output"; then
+		write_status "$kind" blocked "$version" '分类缺失或转换失败；请检查引用规则'
+		return 1
+	fi
+	cp "$download/$kind.dat" "$candidate/$kind.dat"
+	printf '%s\n' "$version" > "$candidate/$kind.version"
+	tab="$(printf '\t')"
+	while IFS="$tab" read -r id listed_kind category; do
+		[ -n "$id" ] || continue
+		cp "$output/$id.srs" "$candidate/rules/$id.srs"
+	done < "$list"
+	touch "$workspace/$kind.staged"
+	write_status "$kind" staged "$version" '候选已通过校验'
+	return 0
+}
+
+update_data() {
+	local workspace api version previous candidate changed result
+	ensure_active
+	/usr/libexec/steer/runtime health-check || die '核心未处于健康状态，跳过联网更新'
+	workspace="$(mktemp -d /tmp/steer-geodata-update.XXXXXX)"
+	api="$workspace/release.json"
+	uclient-fetch -q -O "$api" "$API_URL" || die '无法取得上游 release 元数据'
+	version="$(jsonfilter -q -i "$api" -e '@.tag_name')"
+	case "$version" in
+		*[!0-9]*|'') die '上游 release 标签格式无效' ;;
+	esac
+	previous="$(readlink -f "$CURRENT")"
+	candidate="$(mktemp -d "$STATE_ROOT/generation.XXXXXX")"
+	cp -a "$previous"/. "$candidate"/
+	changed=0
+	for kind in geosite geoip; do
+		mkdir -p "$workspace/$kind-download"
+		result=0
+		stage_type "$kind" "$version" "$workspace/$kind-download" "$candidate" "$workspace" || result=$?
+		[ "$result" -ne 0 ] || changed=1
+	done
+
+	if [ "$changed" -eq 0 ]; then
+		rm -rf "$candidate" "$workspace"
+		log 'GeoSite/GeoIP 没有可激活的变化'
+		return 0
+	fi
+
+	activate_generation "$candidate"
+	if STEER_GEODATA_STAGED=1 steerctl apply; then
+		for kind in geosite geoip; do
+			[ ! -f "$workspace/$kind.staged" ] || \
+				write_status "$kind" active "$(cat "$candidate/$kind.version")" '已激活'
+		done
+		rm -rf "$workspace"
+		log "已激活 geodata 生成代：$candidate"
+		return 0
+	fi
+
+	activate_generation "$previous"
+	STEER_GEODATA_STAGED=1 steerctl apply >/dev/null 2>&1 || true
+	for kind in geosite geoip; do
+		[ ! -f "$workspace/$kind.staged" ] || \
+			write_status "$kind" failed "$version" '运行配置激活失败，已恢复上一代'
+	done
+	rm -rf "$workspace"
+	die '新 geodata 运行配置未通过健康检查，已恢复上一代'
+}
+
+schedule_updates() {
+	local hour minute second now jitter target delay
+	hour="$(date +%H)"; hour="${hour#0}"; [ -n "$hour" ] || hour=0
+	minute="$(date +%M)"; minute="${minute#0}"; [ -n "$minute" ] || minute=0
+	second="$(date +%S)"; second="${second#0}"; [ -n "$second" ] || second=0
+	now=$((hour * 3600 + minute * 60 + second))
+	jitter=$(($(date +%s) % 3600))
+	target=$((3 * 3600 + jitter))
+	[ "$target" -gt "$now" ] || target=$((target + 86400))
+	delay=$((target - now))
+	sleep "$delay"
+	while true; do
+		if [ "$(uci -q get steer.main.enabled || true)" = 1 ]; then
+			"$0" update || true
+		fi
+		sleep 86400
+	done
+}
+
+catalog() {
+	local kind="$1"
+	local source=''
+	case "$kind" in
+		geosite|geoip) ;;
+		*) die '分类目录类型只能是 geosite 或 geoip' ;;
+	esac
+	if [ -L "$CURRENT" ]; then
+		source="$(readlink -f "$CURRENT" 2>/dev/null || true)"
+	fi
+	if [ -z "$source" ] || [ ! -s "$source/$kind.dat" ]; then
+		source="$SEED_ROOT"
+	fi
+	[ -s "$source/$kind.dat" ] || die "缺少 $kind 数据文件"
+	[ -x "$GEOVIEW" ] || die "geoview 不可执行：$GEOVIEW"
+	"$GEOVIEW" -action extract -input "$source/$kind.dat" -type "$kind"
+}
+
+case "${1:-}" in
+	ensure)
+		prepare
+		exec 9>"$LOCK_FILE"
+		flock -x 9
+		ensure_active
+		;;
+	update)
+		prepare
+		exec 9>"$LOCK_FILE"
+		flock -x 9
+		update_data
+		;;
+	catalog) catalog "${2:-}" ;;
+	schedule)
+		prepare
+		schedule_updates
+		;;
+	*) die '用法：geodata ensure|update|catalog <geosite|geoip>|schedule' ;;
+esac

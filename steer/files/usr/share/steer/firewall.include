@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[ -f /var/run/steer/network.enabled ] || return 0
+/usr/libexec/steer/runtime firewall-reload || logger -t steer 'firewall4 重载后恢复 Steer 规则失败'

@@ -1,0 +1,341 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -eu
+
+RUN_ROOT=/var/run/steer
+ACTIVE_PATH="$RUN_ROOT/active.path"
+USE_ACTIVE="$RUN_ROOT/use-active"
+NETWORK_ENABLED="$RUN_ROOT/network.enabled"
+STATE_ROOT=/var/lib/steer
+LKG_DIR=/etc/steer/last-known-good
+LOCK_FILE=/var/lock/steer-apply.lock
+SING_BOX_BIN=/usr/bin/sing-box
+SMARTDNS_BIN=/usr/sbin/smartdns
+
+log() {
+	logger -t steer -- "$*"
+}
+
+die() {
+	echo "steer: $*" >&2
+	log "$*"
+	exit 1
+}
+
+ensure_directories() {
+	mkdir -p "$RUN_ROOT" "$STATE_ROOT/smartdns" /etc/steer /var/lock
+	chmod 0700 "$RUN_ROOT" /etc/steer
+}
+
+active_directory() {
+	[ -f "$ACTIVE_PATH" ] || return 1
+	local path
+	IFS= read -r path < "$ACTIVE_PATH"
+	case "$path" in
+		"$RUN_ROOT"/generation.*|"$LKG_DIR")
+			[ -d "$path" ] || return 1
+			printf '%s\n' "$path"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+activate_directory() {
+	local path="$1"
+	local pending="$ACTIVE_PATH.new.$$"
+	case "$path" in
+		"$RUN_ROOT"/generation.*|"$LKG_DIR") ;;
+		*) die "拒绝激活不受 Steer 管理的目录：$path" ;;
+	esac
+	[ -d "$path" ] || die "待激活目录不存在：$path"
+	printf '%s\n' "$path" > "$pending"
+	mv -f "$pending" "$ACTIVE_PATH"
+}
+
+check_conflicts() {
+	local service state
+	for service in passwall2 passwall openclash homeproxy momo; do
+		[ -x "/etc/init.d/$service" ] || continue
+		if "/etc/init.d/$service" enabled >/dev/null 2>&1; then
+			die "检测到已启用的透明代理服务 $service；请先明确停用它，Steer 不会自行修改其他服务"
+		fi
+		state="$(ubus call service list "{\"name\":\"$service\"}" 2>/dev/null || true)"
+		case "$state" in
+			*'"running": true'*)
+				die "检测到仍在运行的透明代理服务 $service；请先停止它"
+				;;
+		esac
+	done
+}
+
+resolve_devices() {
+	local output="$1"
+	local raw="$output.raw"
+	local zone zone_output device
+	: > "$raw"
+
+	for zone in $(uci -q get steer.main.managed_zone); do
+		zone_output="$output.zone.$$"
+		if ! fw4 -q zone "$zone" > "$zone_output"; then
+			rm -f "$zone_output"
+			die "受管 firewall zone 不存在：$zone"
+		fi
+		if [ ! -s "$zone_output" ]; then
+			rm -f "$zone_output"
+			die "受管 firewall zone 当前没有实际设备：$zone"
+		fi
+		while IFS= read -r device; do
+			[ -n "$device" ] && printf '%s\n' "$device" >> "$raw"
+		done < "$zone_output"
+		rm -f "$zone_output"
+	done
+
+	sort -u "$raw" > "$output"
+	rm -f "$raw"
+	[ -s "$output" ] || die '没有解析到任何受管 ingress 设备'
+}
+
+render_candidate() {
+	ensure_directories
+	check_conflicts
+	[ -x "$SING_BOX_BIN" ] || die "sing-box 不可执行：$SING_BOX_BIN"
+	[ -x "$SMARTDNS_BIN" ] || die "SmartDNS 不可执行：$SMARTDNS_BIN"
+
+	local candidate profile devices check_table
+	candidate="$(mktemp -d "$RUN_ROOT/generation.XXXXXX")"
+	chmod 0700 "$candidate"
+
+	if [ "${STEER_GEODATA_STAGED:-0}" != 1 ] && ! /usr/libexec/steer/geodata ensure; then
+		rm -rf "$candidate"
+		die 'GeoSite/GeoIP 本地规则集准备失败'
+	fi
+
+	if ! steerctl validate > "$candidate/validation.json"; then
+		rm -rf "$candidate"
+		die 'UCI 意图模型校验失败'
+	fi
+	if ! steerctl compile-sing-box > "$candidate/sing-box.json"; then
+		rm -rf "$candidate"
+		die 'sing-box 配置编译失败'
+	fi
+	if ! "$SING_BOX_BIN" check -c "$candidate/sing-box.json"; then
+		rm -rf "$candidate"
+		die 'sing-box 原生配置检查失败'
+	fi
+
+	if ! steerctl list-smartdns > "$candidate/smartdns.instances"; then
+		rm -rf "$candidate"
+		die 'DNS Profile 清单编译失败'
+	fi
+	while IFS= read -r profile; do
+		[ -n "$profile" ] || continue
+		if ! steerctl compile-smartdns "$profile" > "$candidate/smartdns-$profile.conf"; then
+			rm -rf "$candidate"
+			die "DNS Profile 编译失败：$profile"
+		fi
+	done < "$candidate/smartdns.instances"
+
+	devices="$candidate/managed.devices"
+	resolve_devices "$devices"
+	check_table="steer_check_$$"
+	if ! steerctl compile-firewall --table "$check_table" $(cat "$devices") > "$candidate/firewall.check.nft"; then
+		rm -rf "$candidate"
+		die '透明代理规则编译失败'
+	fi
+	if ! nft -c -f "$candidate/firewall.check.nft"; then
+		rm -rf "$candidate"
+		die 'nftables 原生规则检查失败'
+	fi
+	if ! steerctl compile-firewall $(cat "$devices") > "$candidate/firewall.nft"; then
+		rm -rf "$candidate"
+		die '透明代理正式规则编译失败'
+	fi
+	steerctl runtime-settings > "$candidate/runtime.json"
+	cp /etc/config/steer "$candidate/source-uci"
+	rm -f "$candidate/firewall.check.nft"
+	chmod 0600 "$candidate"/*
+	printf '%s\n' "$candidate"
+}
+
+runtime_value() {
+	local directory="$1"
+	local field="$2"
+	jsonfilter -q -i "$directory/runtime.json" -e "@['$field']"
+}
+
+route_stop() {
+	local directory mark mask table priority
+	directory="$(active_directory 2>/dev/null || true)"
+	[ -n "$directory" ] || return 0
+	mark="$(runtime_value "$directory" tproxy_mark)"
+	mask="$(runtime_value "$directory" mark_mask)"
+	table="$(runtime_value "$directory" route_table)"
+	priority="$(runtime_value "$directory" rule_priority)"
+	ip -4 rule del pref "$priority" fwmark "$mark/$mask" table "$table" >/dev/null 2>&1 || true
+	ip -6 rule del pref "$priority" fwmark "$mark/$mask" table "$table" >/dev/null 2>&1 || true
+	ip -4 route flush table "$table" >/dev/null 2>&1 || true
+	ip -6 route flush table "$table" >/dev/null 2>&1 || true
+}
+
+route_start() {
+	local directory mark mask table priority
+	directory="$(active_directory)"
+	mark="$(runtime_value "$directory" tproxy_mark)"
+	mask="$(runtime_value "$directory" mark_mask)"
+	table="$(runtime_value "$directory" route_table)"
+	priority="$(runtime_value "$directory" rule_priority)"
+	route_stop
+	ip -4 route replace local default dev lo table "$table"
+	ip -6 route replace local default dev lo table "$table"
+	ip -4 rule add pref "$priority" fwmark "$mark/$mask" table "$table"
+	ip -6 rule add pref "$priority" fwmark "$mark/$mask" table "$table"
+}
+
+firewall_load() {
+	local directory
+	directory="$(active_directory)"
+	[ -s "$directory/firewall.nft" ] || die '当前运行代缺少 firewall.nft'
+	nft delete table inet steer >/dev/null 2>&1 || true
+	nft -f "$directory/firewall.nft"
+}
+
+network_start() {
+	route_start
+	if ! firewall_load; then
+		route_stop
+		die '透明代理规则加载失败'
+	fi
+	touch "$NETWORK_ENABLED"
+}
+
+network_stop() {
+	rm -f "$NETWORK_ENABLED"
+	nft delete table inet steer >/dev/null 2>&1 || true
+	route_stop
+}
+
+instance_running() {
+	local state_file="$1"
+	local instance="$2"
+	[ "$(jsonfilter -q -i "$state_file" -e "@['steer']['instances']['$instance']['running']")" = 'true' ]
+}
+
+health_check() {
+	local directory state_file attempt profile healthy
+	directory="$(active_directory)"
+	state_file="$RUN_ROOT/service-state.json"
+	attempt=0
+	while [ "$attempt" -lt 6 ]; do
+		attempt=$((attempt + 1))
+		sleep 1
+		ubus call service list '{"name":"steer"}' > "$state_file" 2>/dev/null || true
+		healthy=1
+		instance_running "$state_file" core || healthy=0
+		while IFS= read -r profile; do
+			[ -n "$profile" ] || continue
+			instance_running "$state_file" "dns_$profile" || healthy=0
+		done < "$directory/smartdns.instances"
+		nft list table inet steer >/dev/null 2>&1 || healthy=0
+		if [ "$healthy" = 1 ]; then
+			rm -f "$state_file"
+			return 0
+		fi
+	done
+	rm -f "$state_file"
+	return 1
+}
+
+commit_lkg() {
+	local source="$1"
+	local pending=/etc/steer/last-known-good.new
+	local previous=/etc/steer/last-known-good.old
+	rm -rf "$pending" "$previous"
+	mkdir -p "$pending"
+	cp -a "$source"/. "$pending"/
+	chmod 0700 "$pending"
+	[ ! -d "$LKG_DIR" ] || mv "$LKG_DIR" "$previous"
+	mv "$pending" "$LKG_DIR"
+	rm -rf "$previous"
+}
+
+apply_configuration() {
+	ensure_directories
+	exec 9>"$LOCK_FILE"
+	flock -x 9
+
+	if [ "$(uci -q get steer.main.enabled || true)" != 1 ]; then
+		/etc/init.d/steer stop >/dev/null 2>&1 || true
+		echo 'Steer 已停用。'
+		return 0
+	fi
+
+	local candidate previous rollback_target
+	candidate="$(render_candidate)"
+	previous="$(active_directory 2>/dev/null || true)"
+	activate_directory "$candidate"
+	touch "$USE_ACTIVE"
+	if ubus call service list '{"name":"steer"}' 2>/dev/null | grep -q '"steer"'; then
+		/etc/init.d/steer restart
+	else
+		/etc/init.d/steer start
+	fi
+
+	if health_check; then
+		commit_lkg "$candidate"
+		log "已应用并记录 last-known-good：$candidate"
+		echo 'Steer 配置已应用。'
+		return 0
+	fi
+
+	log '新配置启动后健康检查失败，开始恢复上一运行代'
+	/etc/init.d/steer stop >/dev/null 2>&1 || true
+	rollback_target="$previous"
+	if [ -z "$rollback_target" ] || [ ! -d "$rollback_target" ]; then
+		rollback_target="$LKG_DIR"
+	fi
+	if [ -d "$rollback_target" ]; then
+		activate_directory "$rollback_target"
+		touch "$USE_ACTIVE"
+		/etc/init.d/steer start
+		if health_check; then
+			log "已恢复运行代：$rollback_target"
+			die '新配置未能稳定运行，已恢复上一运行代'
+		fi
+	fi
+	die '新配置未能稳定运行，而且没有可用的健康运行代可恢复'
+}
+
+command="${1:-}"
+case "$command" in
+	stage)
+		render_candidate
+		;;
+	activate)
+		[ -n "${2:-}" ] || die 'activate 缺少目录参数'
+		activate_directory "$2"
+		;;
+	active-directory)
+		active_directory
+		;;
+	network-start)
+		network_start
+		;;
+	network-stop)
+		network_stop
+		;;
+	firewall-reload)
+		[ -f "$NETWORK_ENABLED" ] && firewall_load
+		;;
+	health-check)
+		health_check
+		;;
+	apply)
+		apply_configuration
+		;;
+	*)
+		die '用法：runtime stage|activate <dir>|active-directory|network-start|network-stop|firewall-reload|health-check|apply'
+		;;
+esac

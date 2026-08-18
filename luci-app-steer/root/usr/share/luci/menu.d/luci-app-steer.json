@@ -1,0 +1,53 @@
+{
+	"admin/services/steer": {
+		"title": "Steer",
+		"order": 15,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [ "luci-app-steer" ],
+			"uci": { "steer": true }
+		}
+	},
+	"admin/services/steer/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "steer/overview"
+		}
+	},
+	"admin/services/steer/rules": {
+		"title": "Rules",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "steer/rules"
+		}
+	},
+	"admin/services/steer/dns": {
+		"title": "DNS",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "steer/dns"
+		}
+	},
+	"admin/services/steer/local-proxies": {
+		"title": "Local Proxies",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "steer/local-proxies"
+		}
+	},
+	"admin/services/steer/nodes": {
+		"title": "Nodes & Routes",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "steer/nodes"
+		}
+	}
+}

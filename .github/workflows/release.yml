@@ -1,0 +1,125 @@
+name: Build OpenWrt packages
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  x86_64:
+    name: OpenWrt 25.12.5 x86_64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Check Simplified Chinese coverage
+        run: python3 tests/check-luci-i18n.py
+
+      - name: Check share URL parser
+        run: node tests/node/share_url_test.js
+
+      - name: Check LuCI view regressions
+        run: node tests/node/luci_view_test.js
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+
+      - name: Build cached OpenWrt SDK image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        with:
+          context: .github/actions/openwrt-sdk
+          build-args: |
+            SDK_IMAGE=ghcr.io/openwrt/sdk:x86_64-25.12.5@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a
+          tags: steer-sdk:25.12.5-x86_64
+          cache-from: type=gha,scope=openwrt-sdk-25.12.5-x86_64
+          cache-to: type=gha,mode=max,scope=openwrt-sdk-25.12.5-x86_64
+          load: true
+
+      - name: Restore OpenWrt host toolchain cache
+        id: openwrt-host-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ${{ runner.temp }}/steer-openwrt-cache/dl
+            ${{ runner.temp }}/steer-openwrt-cache/build_dir-hostpkg
+            ${{ runner.temp }}/steer-openwrt-cache/staging_dir-hostpkg
+            ${{ runner.temp }}/steer-openwrt-cache/tmp/go-build
+          key: openwrt-hostpkg-v1-${{ runner.os }}-25.12.5-x86_64-c8a248ce-5caa62e0bc9f7fb9b0c12a23267bceb7724214dd
+
+      - name: Build packages
+        run: |
+          cache_dir="$RUNNER_TEMP/steer-openwrt-cache"
+          output_dir="$RUNNER_TEMP/steer-build-output"
+          source_dir="$RUNNER_TEMP/steer-source"
+          mkdir -p \
+            "$cache_dir/dl" \
+            "$cache_dir/build_dir-hostpkg" \
+            "$cache_dir/staging_dir-hostpkg" \
+            "$cache_dir/tmp/go-build" \
+            "$output_dir" \
+            "$source_dir"
+          # A checkout gives tracked files the checkout time. LuCI copies
+          # those mtimes into APK v3 metadata, so build the local feed from a
+          # git archive whose mtimes are fixed to the source commit.
+          git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_dir"
+          chmod -R a+rwx "$cache_dir" "$output_dir"
+          # actions/cache restores files as the runner user, while the SDK
+          # builds as buildbot. OpenWrt's install -d also chmods existing
+          # directories, so writable mode bits alone do not cross that UID
+          # boundary.
+          docker run --rm \
+            --user 0:0 \
+            --entrypoint /bin/sh \
+            --volume "$cache_dir:/cache" \
+            steer-sdk:25.12.5-x86_64 \
+            -c 'chown -R "$(id -u buildbot):$(id -g buildbot)" /cache'
+          docker run --rm \
+            --env "STEER_HOST_CACHE_HIT=${{ steps.openwrt-host-cache.outputs.cache-hit }}" \
+            --volume "$source_dir:/feed:ro" \
+            --volume "$output_dir:/artifacts" \
+            --volume "$cache_dir/dl:/builder/dl" \
+            --volume "$cache_dir/build_dir-hostpkg:/builder/build_dir/hostpkg" \
+            --volume "$cache_dir/staging_dir-hostpkg:/builder/staging_dir/hostpkg" \
+            --volume "$cache_dir/tmp:/builder/tmp" \
+            steer-sdk:25.12.5-x86_64
+          cp -R "$output_dir/bin" "$GITHUB_WORKSPACE/bin"
+          if [ -d "$output_dir/logs" ]; then
+            cp -R "$output_dir/logs" "$GITHUB_WORKSPACE/logs"
+          fi
+
+      - name: Collect exact release assets
+        env:
+          GEOVIEW_REF: 3c91926d360b8f49d47520639e574608318baf12
+          OPENWRT_RELEASE: 25.12.5
+          OPENWRT_TARGET: x86/64
+          SOURCE_REVISION: ${{ github.sha }}
+        run: ./scripts/collect-release-artifacts.sh
+
+      - name: Upload build evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: openwrt-25.12.5-x86_64-packages
+          path: |
+            dist/
+            logs/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish prerelease
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --generate-notes \
+            --prerelease \
+            --title "Steer $GITHUB_REF_NAME"

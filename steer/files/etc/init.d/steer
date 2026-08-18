@@ -1,0 +1,88 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+START=99
+STOP=10
+USE_PROCD=1
+
+RUNTIME=/usr/libexec/steer/runtime
+SING_BOX_BIN=/usr/bin/sing-box
+SMARTDNS_BIN=/usr/sbin/smartdns
+
+steer_enabled() {
+	config_load steer
+	local enabled
+	config_get_bool enabled main enabled 0
+	[ "$enabled" = 1 ]
+}
+
+# OpenWrt package installation calls enable and start automatically.  Treat
+# UCI as the authority so a freshly installed preview remains doubly disabled.
+enable() {
+	steer_enabled || return 0
+	local name err=1
+	name="$(basename "$initscript")"
+	[ -z "$START" ] || { ln -sf "../init.d/$name" "$IPKG_INSTROOT/etc/rc.d/S${START}${name##S[0-9][0-9]}" && err=0; }
+	[ -z "$STOP" ] || { ln -sf "../init.d/$name" "$IPKG_INSTROOT/etc/rc.d/K${STOP}${name##K[0-9][0-9]}" && err=0; }
+	return "$err"
+}
+
+enabled() {
+	steer_enabled || return 1
+	local name
+	name="$(basename "$initscript")"
+	{ [ -z "$START" ] || [ -L "$IPKG_INSTROOT/etc/rc.d/S${START}${name##S[0-9][0-9]}" ]; } &&
+		{ [ -z "$STOP" ] || [ -L "$IPKG_INSTROOT/etc/rc.d/K${STOP}${name##K[0-9][0-9]}" ]; }
+}
+
+start_service() {
+	config_load steer
+	local enabled active candidate profile
+	config_get_bool enabled main enabled 0
+	[ "$enabled" = 1 ] || return 0
+
+	if [ -f /var/run/steer/use-active ]; then
+		rm -f /var/run/steer/use-active
+		active="$($RUNTIME active-directory)" || return 1
+	else
+		candidate="$($RUNTIME stage)" || return 1
+		$RUNTIME activate "$candidate" || return 1
+		active="$candidate"
+	fi
+
+	procd_open_instance core
+	procd_set_param command "$SING_BOX_BIN" run -c "$active/sing-box.json"
+	procd_set_param file "$active/sing-box.json"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	while IFS= read -r profile; do
+		[ -n "$profile" ] || continue
+		procd_open_instance "dns_$profile"
+		procd_set_param command "$SMARTDNS_BIN" -f -x -c "$active/smartdns-$profile.conf" -p -
+		procd_set_param file "$active/smartdns-$profile.conf"
+		procd_set_param respawn 3600 5 5
+		procd_set_param stdout 1
+		procd_set_param stderr 1
+		procd_close_instance
+	done < "$active/smartdns.instances"
+}
+
+service_started() {
+	config_load steer
+	local enabled
+	config_get_bool enabled main enabled 0
+	[ "$enabled" = 1 ] || return 0
+	$RUNTIME network-start
+}
+
+service_stopped() {
+	$RUNTIME network-stop
+}
+
+reload_service() {
+	stop
+	start
+}
