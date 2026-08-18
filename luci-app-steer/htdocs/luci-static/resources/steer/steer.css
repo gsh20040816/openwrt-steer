@@ -21,6 +21,16 @@
 	background: color-mix(in srgb, var(--steer-route) 5%, transparent);
 }
 
+.steer-status--starting {
+	border-left-color: #b7791f;
+	background: color-mix(in srgb, #b7791f 7%, transparent);
+}
+
+.steer-status--error {
+	border-left-color: #b42318;
+	background: color-mix(in srgb, #b42318 7%, transparent);
+}
+
 .steer-status__lead,
 .steer-status__facts div {
 	display: flex;
@@ -42,11 +52,18 @@
 }
 
 .steer-status .is-running { color: var(--steer-dns); }
+.steer-status .is-starting { color: #8a5a00; }
 .steer-status .is-stopped { color: #b42318; }
+
+.steer-status__message {
+	margin-top: .35rem;
+	color: var(--steer-muted);
+	font-size: .85rem;
+}
 
 .steer-status__facts {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(7rem, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
 	gap: 1rem;
 	margin: 0;
 }
@@ -134,6 +151,17 @@
 
 .steer-geodata-alert p { margin: .25rem 0; }
 .steer-geodata-alert ul { margin: .45rem 0 0; }
+
+.steer-conflict-alert {
+	margin: 0 0 1rem;
+	padding: .9rem 1.1rem;
+	border: 1px solid color-mix(in srgb, #b42318 35%, transparent);
+	border-left: .35rem solid #b42318;
+	background: color-mix(in srgb, #b42318 6%, transparent);
+}
+
+.steer-conflict-alert p { margin: .45rem 0 0; }
+.steer-conflict-alert ul { margin: .45rem 0 0; }
 
 .steer-match-editor {
 	position: relative;

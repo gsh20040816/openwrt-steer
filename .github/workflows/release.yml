@@ -29,6 +29,9 @@ jobs:
       - name: Check LuCI view regressions
         run: node tests/node/luci_view_test.js
 
+      - name: Check LuCI apply and status interactions
+        run: node tests/node/steer_helper_test.js
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 

@@ -33,6 +33,7 @@
 `tests/fixtures/dangling-reference-invalid/steer` 使用通用示例域名验证悬空引用：`steerctl validate` 必须失败并报告 `DANGLING_OUTBOUND`。
 
 `tests/integration/run-openwrt-vm.sh` 在一次性 OpenWrt x86/64 VM 中执行完整集成检查。环境和安全边界见 `docs/DEVELOPMENT.md`。
+它还验证系统 SmartDNS 冲突会在网络接管前被拒绝、失败原因可由 LuCI RPC 读取，并验证应用总开关会同步 Steer 与 geodata 调度器的开机启动状态。
 
 `tests/check-luci-i18n.py` 要求简体中文语言包完整覆盖 LuCI JavaScript 文案和菜单标题，并拒绝空翻译、重复项与已经失去来源的旧翻译。PO 格式与占位符还需通过 `msgfmt --check-format --check-header`。
 
@@ -44,3 +45,6 @@ VLESS + Reality、Hysteria2/`hy2` 官方多端口、兼容 `mport` 和 IPv6、Tr
 编辑、合并字段的多行存储、当前行 GeoSite/GeoIP 动态补全、零节点时的路由编辑、悬空引用的
 可修复显示，以及可选面板不得把 `null` 渲染为页面文本。它是快速回归门禁，不能替代
 OpenWrt KVM 中对候选实时过滤、键盘与鼠标选择的真实浏览器检查。
+
+`tests/node/steer_helper_test.js` 锁定总览状态与应用交互：禁用状态不把替代服务误报为错误，
+启用失败时显示持久化原因和准确冲突服务，应用 RPC 完成后立即刷新状态卡而不是保留旧页面快照。

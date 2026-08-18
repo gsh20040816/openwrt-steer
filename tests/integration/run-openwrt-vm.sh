@@ -12,11 +12,27 @@ ORIGINAL_CONFIG="$TEST_DIR/original-steer"
 ORIGINAL_FIREWALL="$TEST_DIR/original-firewall"
 ORIGINAL_GEODATA="$TEST_DIR/original-geodata"
 HAD_GEODATA='0'
+SMARTDNS_WAS_ENABLED='0'
+SMARTDNS_WAS_RUNNING='0'
+SMARTDNS_STATE_CAPTURED='0'
 
 cleanup() {
 	status="$?"
 	trap - EXIT INT TERM
 	/etc/init.d/steer stop >/dev/null 2>&1 || true
+	if [ "$SMARTDNS_STATE_CAPTURED" = '1' ]; then
+		if [ "$SMARTDNS_WAS_ENABLED" = '1' ]; then
+			/etc/init.d/smartdns enable >/dev/null 2>&1 || true
+		else
+			/etc/init.d/smartdns disable >/dev/null 2>&1 || true
+		fi
+		if [ "$SMARTDNS_WAS_RUNNING" = '1' ]; then
+			/etc/init.d/smartdns start >/dev/null 2>&1 || true
+		else
+			/etc/init.d/smartdns stop >/dev/null 2>&1 || true
+		fi
+	fi
+	ip -6 address del 2001:db8:ffff::1/64 dev br-lan >/dev/null 2>&1 || true
 	ip -6 route del default dev br-lan metric 4096 >/dev/null 2>&1 || true
 	rm -rf /var/lib/steer/geodata
 	if [ "$HAD_GEODATA" = '1' ]; then
@@ -50,6 +66,16 @@ if [ ! -x "$SMARTDNS_BIN" ]; then
 	exit 1
 fi
 
+if /etc/init.d/smartdns enabled >/dev/null 2>&1; then
+	SMARTDNS_WAS_ENABLED='1'
+fi
+if ubus call service list '{"name":"smartdns"}' 2>/dev/null | grep -q '"running": true'; then
+	SMARTDNS_WAS_RUNNING='1'
+fi
+SMARTDNS_STATE_CAPTURED='1'
+/etc/init.d/smartdns stop >/dev/null 2>&1 || true
+/etc/init.d/smartdns disable >/dev/null 2>&1 || true
+
 if [ -f /etc/config/steer ]; then
 	cp /etc/config/steer "$ORIGINAL_CONFIG"
 fi
@@ -68,8 +94,10 @@ cp "$REPO_DIR/steer/files/usr/sbin/steerctl" /usr/sbin/steerctl
 cp "$REPO_DIR/steer/files/usr/libexec/steer/runtime" /usr/libexec/steer/runtime
 cp "$REPO_DIR/steer/files/usr/libexec/steer/geodata" /usr/libexec/steer/geodata
 cp "$REPO_DIR/steer/files/etc/init.d/steer" /etc/init.d/steer
+cp "$REPO_DIR/steer/files/etc/init.d/steer-geodata" /etc/init.d/steer-geodata
 cp "$REPO_DIR/steer/files/etc/uci-defaults/99-steer-firewall" /etc/uci-defaults/99-steer-firewall
-chmod 0755 /usr/sbin/steerctl /usr/libexec/steer/runtime /usr/libexec/steer/geodata /etc/init.d/steer \
+chmod 0755 /usr/sbin/steerctl /usr/libexec/steer/runtime /usr/libexec/steer/geodata \
+	/etc/init.d/steer /etc/init.d/steer-geodata \
 	/usr/share/steer/firewall.include /etc/uci-defaults/99-steer-firewall
 /etc/init.d/steer stop >/dev/null 2>&1 || true
 /etc/uci-defaults/99-steer-firewall
@@ -173,6 +201,25 @@ done
 
 uci set steer.main.enabled='1'
 uci commit steer
+
+# A separately managed system SmartDNS would compete with Steer's per-profile
+# instances. The failure must be explicit, persisted for LuCI and happen before
+# Steer takes over nftables or starts its core.
+/etc/init.d/smartdns enable
+if steerctl apply > "$TEST_DIR/smartdns-conflict.log" 2>&1; then
+	echo 'Steer unexpectedly started while the system SmartDNS was enabled.' >&2
+	exit 1
+fi
+grep -q '系统 SmartDNS 已启用' "$TEST_DIR/smartdns-conflict.log"
+ubus call luci.steer status > "$TEST_DIR/smartdns-conflict-status.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/smartdns-conflict-status.json" -e '@.runtime_state')" = 'failed' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/smartdns-conflict-status.json" -e '@.conflicts[0].name')" = 'smartdns' ]
+if nft list table inet steer >/dev/null 2>&1; then
+	echo 'Steer loaded nftables despite the system SmartDNS conflict.' >&2
+	exit 1
+fi
+/etc/init.d/smartdns disable
+
 ubus call luci.steer apply > "$TEST_DIR/luci-apply.json"
 if [ "$(jsonfilter -q -i "$TEST_DIR/luci-apply.json" -e '@.ok')" != 'true' ]; then
 	echo 'LuCI Apply failed:' >&2
@@ -182,8 +229,30 @@ fi
 ubus call luci.steer status > "$TEST_DIR/luci-status.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.core_running')" = 'true' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.network_loaded')" = 'true' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.runtime_state')" = 'active' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.desired_enabled')" = 'true' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.dns_running')" = \
 		"$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.dns_total')" ]
+/etc/init.d/steer enabled
+/etc/init.d/steer-geodata enabled
+/usr/libexec/steer/runtime health-check
+
+/etc/init.d/smartdns enable
+if steerctl apply > "$TEST_DIR/active-smartdns-conflict.log" 2>&1; then
+	echo 'Steer stayed active while the system SmartDNS became enabled.' >&2
+	exit 1
+fi
+grep -q 'Steer 已停止' "$TEST_DIR/active-smartdns-conflict.log"
+if nft list table inet steer >/dev/null 2>&1; then
+	echo 'Steer kept network interception after detecting an active conflict.' >&2
+	exit 1
+fi
+ubus call luci.steer status > "$TEST_DIR/active-smartdns-conflict-status.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/active-smartdns-conflict-status.json" -e '@.runtime_state')" = 'failed' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/active-smartdns-conflict-status.json" -e '@.core_running')" = 'false' ]
+/etc/init.d/smartdns disable
+ubus call luci.steer apply > "$TEST_DIR/restart-after-conflict.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/restart-after-conflict.json" -e '@.ok')" = 'true' ]
 /usr/libexec/steer/runtime health-check
 
 nft list table inet steer > "$TEST_DIR/steer-router-enabled.nft"
@@ -252,6 +321,11 @@ ubus call luci.steer status > "$TEST_DIR/router-status.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/router-status.json" -e '@.iana_registry_date')" = '2025-10-09' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/router-status.json" -e '@.router_ntp_direct_packets')" -ge '1' ]
 
+# The isolated VM has no delegated IPv6 prefix. Give the test interface a
+# documentation-only source address so the kernel actually emits the probe;
+# otherwise traceroute exits before the nftables output hook is reached.
+ip -6 address add 2001:db8:ffff::1/64 dev br-lan
+sleep 2
 ip -6 route add default dev br-lan metric 4096
 /usr/libexec/steer/runtime firewall-reload
 traceroute -6 -n -m 1 -q 1 -w 1 -p 443 2606:4700:4700::1111 \
@@ -259,8 +333,18 @@ traceroute -6 -n -m 1 -q 1 -w 1 -p 443 2606:4700:4700::1111 \
 nft list counter inet steer router_marked > "$TEST_DIR/router-ipv6-marked-counter.nft"
 nft list counter inet steer router_tproxied > "$TEST_DIR/router-ipv6-tproxied-counter.nft"
 ip -6 route del default dev br-lan metric 4096
-grep -Eq 'packets [1-9][0-9]*' "$TEST_DIR/router-ipv6-marked-counter.nft"
-grep -Eq 'packets [1-9][0-9]*' "$TEST_DIR/router-ipv6-tproxied-counter.nft"
+ip -6 address del 2001:db8:ffff::1/64 dev br-lan
+if ! grep -Eq 'packets [1-9][0-9]*' "$TEST_DIR/router-ipv6-marked-counter.nft"; then
+	echo 'Router-originated IPv6 UDP did not reach the Steer marking rule.' >&2
+	cat "$TEST_DIR/router-ipv6-udp.log" >&2
+	cat "$TEST_DIR/router-ipv6-marked-counter.nft" >&2
+	exit 1
+fi
+if ! grep -Eq 'packets [1-9][0-9]*' "$TEST_DIR/router-ipv6-tproxied-counter.nft"; then
+	echo 'Router-originated IPv6 UDP was marked but did not reach TPROXY.' >&2
+	cat "$TEST_DIR/router-ipv6-tproxied-counter.nft" >&2
+	exit 1
+fi
 
 active_before="$(/usr/libexec/steer/runtime active-directory)"
 [ -d /etc/steer/last-known-good ]
@@ -284,11 +368,20 @@ fi
 uci set steer.main.routing_mark='129'
 uci commit steer
 
-/etc/init.d/steer stop
+uci set steer.main.enabled='0'
+uci commit steer
+steerctl apply > "$TEST_DIR/disabled-apply.log"
 if nft list table inet steer >/dev/null 2>&1; then
-	echo 'Steer nftables table remained after service stop.' >&2
+	echo 'Steer nftables table remained after applying the disabled state.' >&2
 	exit 1
 fi
+if /etc/init.d/steer enabled || /etc/init.d/steer-geodata enabled; then
+	echo 'Steer boot entries remained enabled after applying the disabled state.' >&2
+	exit 1
+fi
+ubus call luci.steer status > "$TEST_DIR/disabled-status.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/disabled-status.json" -e '@.runtime_state')" = 'disabled' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/disabled-status.json" -e '@.desired_enabled')" = 'false' ]
 
 cp "$REPO_DIR/tests/fixtures/dangling-reference-invalid/steer" /etc/config/steer
 if steerctl validate > "$TEST_DIR/invalid-result.json"; then

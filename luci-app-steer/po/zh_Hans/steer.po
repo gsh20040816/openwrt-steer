@@ -499,6 +499,54 @@ msgstr "用户名和密码必须同时设置或同时留空。"
 msgid "Warning"
 msgstr "警告"
 
+msgid "Checking conflicts, generating configuration and verifying services."
+msgstr "正在检查服务冲突、生成配置并验证服务状态。"
+
+msgid "Configuration switch"
+msgstr "配置开关"
+
+msgid "Do not start another transparent proxy or the system SmartDNS while this check is running."
+msgstr "检查期间请勿启动其他透明代理或系统 SmartDNS。"
+
+msgid "Saving and applying this switch also synchronizes Steer startup at boot. Stop and disable other transparent proxies and the system SmartDNS before enabling it."
+msgstr "保存并应用此开关时会同步 Steer 的开机启动状态。启用前请先停止并禁用其他透明代理和系统 SmartDNS。"
+
+msgid "Starting Steer"
+msgstr "正在启动 Steer"
+
+msgid "Steer is blocked by conflicting services"
+msgstr "Steer 被冲突服务阻止"
+
+msgid "Steer is disabled"
+msgstr "Steer 已停用"
+
+msgid "Steer is starting"
+msgstr "Steer 正在启动"
+
+msgid "Steer is stopping"
+msgstr "Steer 正在停止"
+
+msgid "Steer is still running while disabled"
+msgstr "Steer 在配置已停用时仍在运行"
+
+msgid "Steer will not stop or disable another service automatically."
+msgstr "Steer 不会自动停止或禁用其他服务。"
+
+msgid "Stop and disable conflicting services before starting Steer"
+msgstr "启动 Steer 前请先停止并禁用以下冲突服务"
+
+msgid "The apply request failed before Steer returned a diagnostic message."
+msgstr "Steer 返回诊断信息前，应用请求已经失败。"
+
+msgid "The last apply failed"
+msgstr "上次应用失败"
+
+msgid "currently running"
+msgstr "正在运行"
+
+msgid "enabled at boot"
+msgstr "已设为开机启动"
+
 msgid "When enabled, the router’s own public TCP/UDP traffic and traditional DNS use the same ordered rules as managed clients."
 msgstr "启用后，路由器自身的公网 TCP/UDP 流量和传统 DNS 将与受管理客户端使用相同的有序规则。"
 

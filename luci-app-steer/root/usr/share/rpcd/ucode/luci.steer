@@ -67,9 +67,53 @@ function geodata_catalog(kind) {
 	};
 }
 
+function service_enabled(name) {
+	if (!access(`/etc/init.d/${name}`))
+		return false;
+
+	const process = popen(`/etc/init.d/${name} enabled >/dev/null 2>&1`);
+	if (!process)
+		return false;
+	process.read('all');
+	return process.close() === 0;
+}
+
+function service_running(name) {
+	const services = ubus.call('service', 'list', { name }) || {};
+	const instances = services?.[name]?.instances || {};
+	for (let instance in keys(instances))
+		if (instances[instance]?.running === true)
+			return true;
+	return false;
+}
+
+function service_conflicts() {
+	let result = [];
+	for (let name in [ 'passwall2', 'passwall', 'openclash', 'homeproxy', 'momo', 'smartdns' ]) {
+		const enabled = service_enabled(name);
+		const running = service_running(name);
+		if (enabled || running)
+			push(result, { name, enabled, running });
+	}
+	return result;
+}
+
+function runtime_state() {
+	const content = readfile('/var/run/steer/apply.state') || '';
+	const state = match(content, /state=([^\n]*)/);
+	const message = match(content, /message=([^\n]*)/);
+	const updated_at = match(content, /updated_at=([^\n]*)/);
+	return {
+		state: state == null ? 'unknown' : state[1],
+		message: message == null ? '' : message[1],
+		updated_at: updated_at == null ? '' : updated_at[1]
+	};
+}
+
 const methods = {
 	status: {
 		call: function() {
+			const model = load_uci_model('steer');
 			const services = ubus.call('service', 'list', { name: 'steer' }) || {};
 			const instances = services?.steer?.instances || {};
 			let dns_total = 0;
@@ -85,7 +129,9 @@ const methods = {
 
 			const bypass = nft_counter('system_bypass');
 			const ntp_direct = nft_counter('router_ntp_direct');
+			const lifecycle = runtime_state();
 			return {
+				desired_enabled: model?.main?.enabled === true,
 				core_running: instances?.core?.running === true,
 				dns_running,
 				dns_total,
@@ -97,6 +143,10 @@ const methods = {
 				iana_registry_date: bypass.iana_registry_date,
 				router_ntp_direct_packets: ntp_direct.packets,
 				router_ntp_direct_bytes: ntp_direct.bytes,
+				runtime_state: lifecycle.state,
+				runtime_message: lifecycle.message,
+				runtime_updated_at: lifecycle.updated_at,
+				conflicts: service_conflicts(),
 				geodata: {
 					geosite: geodata_status('geosite'),
 					geoip: geodata_status('geoip')

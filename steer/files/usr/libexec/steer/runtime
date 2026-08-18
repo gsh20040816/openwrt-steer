@@ -7,6 +7,8 @@ RUN_ROOT=/var/run/steer
 ACTIVE_PATH="$RUN_ROOT/active.path"
 USE_ACTIVE="$RUN_ROOT/use-active"
 NETWORK_ENABLED="$RUN_ROOT/network.enabled"
+APPLY_STATE="$RUN_ROOT/apply.state"
+APPLY_IN_PROGRESS="$RUN_ROOT/apply.in-progress"
 STATE_ROOT=/var/lib/steer
 LKG_DIR=/etc/steer/last-known-good
 LOCK_FILE=/var/lock/steer-apply.lock
@@ -17,9 +19,25 @@ log() {
 	logger -t steer -- "$*"
 }
 
+write_runtime_state() {
+	local state="$1"
+	local message="$2"
+	local pending
+	mkdir -p "$RUN_ROOT"
+	pending="$APPLY_STATE.new.$$"
+	printf 'state=%s\nmessage=%s\nupdated_at=%s\n' \
+		"$state" "$message" "$(date +%s)" > "$pending"
+	chmod 0600 "$pending"
+	mv -f "$pending" "$APPLY_STATE"
+}
+
 die() {
 	echo "steer: $*" >&2
 	log "$*"
+	if [ -f "$APPLY_IN_PROGRESS" ]; then
+		write_runtime_state failed "$*"
+		rm -f "$APPLY_IN_PROGRESS"
+	fi
 	exit 1
 }
 
@@ -55,17 +73,36 @@ activate_directory() {
 	mv -f "$pending" "$ACTIVE_PATH"
 }
 
+fail_conflict() {
+	local message="$1"
+	local steer_state
+	steer_state="$(ubus call service list '{"name":"steer"}' 2>/dev/null || true)"
+	if [ -f "$NETWORK_ENABLED" ] || echo "$steer_state" | grep -q '"running": true'; then
+		if ! /etc/init.d/steer stop >/dev/null 2>&1; then
+			die "$message；检测到 Steer 也在运行，但自动停止 Steer 失败，请立即手动停止"
+		fi
+		message="$message；为避免多个服务同时接管网络，Steer 已停止"
+	fi
+	die "$message"
+}
+
 check_conflicts() {
 	local service state
-	for service in passwall2 passwall openclash homeproxy momo; do
+	for service in passwall2 passwall openclash homeproxy momo smartdns; do
 		[ -x "/etc/init.d/$service" ] || continue
 		if "/etc/init.d/$service" enabled >/dev/null 2>&1; then
-			die "检测到已启用的透明代理服务 $service；请先明确停用它，Steer 不会自行修改其他服务"
+			if [ "$service" = smartdns ]; then
+				fail_conflict '检测到系统 SmartDNS 已启用；Steer 使用自己的 SmartDNS 实例，请先在“系统 → 启动项”中停止并禁用系统 SmartDNS'
+			fi
+			fail_conflict "检测到已启用的透明代理服务 $service；请先明确停用它，Steer 不会自行修改其他服务"
 		fi
 		state="$(ubus call service list "{\"name\":\"$service\"}" 2>/dev/null || true)"
 		case "$state" in
 			*'"running": true'*)
-				die "检测到仍在运行的透明代理服务 $service；请先停止它"
+				if [ "$service" = smartdns ]; then
+					fail_conflict '检测到系统 SmartDNS 仍在运行；Steer 使用自己的 SmartDNS 实例，请先停止并禁用系统 SmartDNS'
+				fi
+				fail_conflict "检测到仍在运行的透明代理服务 $service；请先停止它"
 				;;
 		esac
 	done
@@ -231,6 +268,7 @@ health_check() {
 	while [ "$attempt" -lt 6 ]; do
 		attempt=$((attempt + 1))
 		sleep 1
+		check_conflicts
 		ubus call service list '{"name":"steer"}' > "$state_file" 2>/dev/null || true
 		healthy=1
 		instance_running "$state_file" core || healthy=0
@@ -265,26 +303,55 @@ apply_configuration() {
 	ensure_directories
 	exec 9>"$LOCK_FILE"
 	flock -x 9
+	touch "$APPLY_IN_PROGRESS"
 
 	if [ "$(uci -q get steer.main.enabled || true)" != 1 ]; then
-		/etc/init.d/steer stop >/dev/null 2>&1 || true
+		write_runtime_state stopping '正在停止 Steer 并撤销网络接管'
+		if ! /etc/init.d/steer stop >/dev/null 2>&1; then
+			die 'Steer 服务停止失败'
+		fi
+		if ! /etc/init.d/steer disable >/dev/null 2>&1 ||
+		   ! /etc/init.d/steer-geodata disable >/dev/null 2>&1; then
+			die 'Steer 开机启动项禁用失败'
+		fi
+		rm -f "$APPLY_IN_PROGRESS"
+		write_runtime_state disabled 'Steer 已停用，网络接管已撤销'
 		echo 'Steer 已停用。'
 		return 0
 	fi
 
 	local candidate previous rollback_target
+	write_runtime_state applying '正在检查配置、服务冲突和 GeoSite/GeoIP 数据'
 	candidate="$(render_candidate)"
 	previous="$(active_directory 2>/dev/null || true)"
+	write_runtime_state applying '正在执行切换前最终冲突检查'
+	check_conflicts
 	activate_directory "$candidate"
 	touch "$USE_ACTIVE"
+	write_runtime_state applying '正在启动 sing-box、DNS Profile 和透明代理规则'
 	if ubus call service list '{"name":"steer"}' 2>/dev/null | grep -q '"steer"'; then
-		/etc/init.d/steer restart
+		if ! /etc/init.d/steer restart; then
+			die 'Steer 服务重启失败'
+		fi
 	else
-		/etc/init.d/steer start
+		if ! /etc/init.d/steer start; then
+			die 'Steer 服务启动失败'
+		fi
 	fi
 
+	write_runtime_state applying '正在验证核心、DNS Profile 和透明代理规则'
 	if health_check; then
-		commit_lkg "$candidate"
+		if ! /etc/init.d/steer enable >/dev/null 2>&1 ||
+		   ! /etc/init.d/steer-geodata enable >/dev/null 2>&1; then
+			/etc/init.d/steer stop >/dev/null 2>&1 || true
+			die 'Steer 已启动，但开机启动项启用失败；为避免状态不一致，已停止服务'
+		fi
+		if ! commit_lkg "$candidate"; then
+			/etc/init.d/steer stop >/dev/null 2>&1 || true
+			die 'Steer 已启动，但恢复点写入失败；为避免无法回滚，已停止服务'
+		fi
+		rm -f "$APPLY_IN_PROGRESS"
+		write_runtime_state active 'Steer 已启动并通过健康检查'
 		log "已应用并记录 last-known-good：$candidate"
 		echo 'Steer 配置已应用。'
 		return 0
@@ -297,9 +364,12 @@ apply_configuration() {
 		rollback_target="$LKG_DIR"
 	fi
 	if [ -d "$rollback_target" ]; then
+		check_conflicts
 		activate_directory "$rollback_target"
 		touch "$USE_ACTIVE"
-		/etc/init.d/steer start
+		if ! /etc/init.d/steer start; then
+			die '新配置启动失败，上一运行代也无法启动'
+		fi
 		if health_check; then
 			log "已恢复运行代：$rollback_target"
 			die '新配置未能稳定运行，已恢复上一运行代'

@@ -31,6 +31,7 @@ return view.extend({
 
 		o = s.taboption('general', form.Flag, 'enabled', _('Enable Steer'));
 		o.rmempty = false;
+		o.description = _('Saving and applying this switch also synchronizes Steer startup at boot. Stop and disable other transparent proxies and the system SmartDNS before enabling it.');
 
 		o = s.taboption('general', form.Flag, 'router_proxy', _('Proxy router traffic'));
 		o.default = '1';
