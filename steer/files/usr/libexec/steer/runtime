@@ -275,43 +275,38 @@ probe_log() {
 	log "健康检查：$*"
 }
 
-# 向 127.0.0.1:$port 发送一条 DNS A 查询，要求返回真实答案（ANCOUNT > 0）。
-# $1 = 端口，$2 = 长度前缀编码的 QNAME（printf 转义串）。
+# 用 dig 向 127.0.0.1:$port 查询 $domain 的 A 记录，要求返回真实 IPv4 答案。
+# 直接命中 Steer 的 sing-box DNS（1053），覆盖 DNS Profile 与上游链路。
 dns_probe() {
 	local port="$1"
-	local qname_hex="$2"
-	local query_file reply_file rc ancount
-	command -v socat >/dev/null 2>&1 || { probe_log "缺少 socat，无法执行 DNS 探测"; return 1; }
-	command -v hexdump >/dev/null 2>&1 || { probe_log "缺少 hexdump，无法执行 DNS 探测"; return 1; }
-	query_file="$(mktemp)"
-	reply_file="$(mktemp)"
-	{
-		printf '\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
-		printf "$qname_hex"
-		printf '\x00\x00\x01\x00\x01'
-	} > "$query_file"
-	socat -T 2 - "UDP4:127.0.0.1:$port" < "$query_file" > "$reply_file" 2>/dev/null
-	rc=$?
-	ancount="$(hexdump -v -s 6 -n 2 -e '2/1 "%d "' "$reply_file" 2>/dev/null)"
-	rm -f "$query_file" "$reply_file"
-	[ "$rc" = 0 ] && [ -n "$ancount" ] && [ "$ancount" != '0 0 ' ]
+	local domain="$2"
+	local answer
+	command -v dig >/dev/null 2>&1 || { probe_log "缺少 dig（bind-dig），无法执行 DNS 探测"; return 1; }
+	answer="$(dig @127.0.0.1 -p "$port" +time=2 +tries=1 -t A "$domain" +short 2>/dev/null |
+		grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+	[ -n "$answer" ]
 }
 
-# 通过 sing-box 默认出口做一次真实 HTTPS 抓取，验证代理出口可用。
-proxy_probe() {
-	local directory="$1"
-	local final probe_cfg
-	command -v timeout >/dev/null 2>&1 || return 1
-	final="$(jsonfilter -q -i "$directory/sing-box.json" -e '@.route.final')"
-	[ -n "$final" ] || return 1
-	probe_cfg="$RUN_ROOT/probe-inbounds.json"
-	printf '{"inbounds":[]}\n' > "$probe_cfg"
-	timeout 6 "$SING_BOX_BIN" tools fetch \
-		-c "$directory/sing-box.json" -c "$probe_cfg" \
-		-o "$final" https://1.1.1.1/ >/dev/null 2>&1
-	rc=$?
-	rm -f "$probe_cfg"
-	return "$rc"
+# 用 curl 发起真实 HTTP(S) 请求，验证 Steer 透明接管的数据面：
+# 先经 1053 拿到未被污染的 IP，再以 --resolve 走 Steer 的 TPROXY 出口链路。
+# $1 = URL，$2 = 期望的 HTTP 状态码。
+http_probe() {
+	local url="$1"
+	local expect="$2"
+	local host port ip code
+	command -v curl >/dev/null 2>&1 || { probe_log "缺少 curl，无法执行 HTTP 探测"; return 1; }
+	host="${url#*://}"
+	host="${host%%/*}"
+	case "$host" in
+		*:*) port="${host##*:}"; host="${host%%:*}" ;;
+		*) case "$url" in https://*) port=443 ;; *) port=80 ;; esac ;;
+	esac
+	ip="$(dig @127.0.0.1 -p 1053 +time=2 +tries=1 -t A "$host" +short 2>/dev/null |
+		grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+	[ -n "$ip" ] || return 1
+	code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 --noproxy '*' \
+		--resolve "$host:$port:$ip" "$url" 2>/dev/null)"
+	[ "$code" = "$expect" ]
 }
 
 health_check() {
@@ -332,13 +327,16 @@ health_check() {
 		done < "$directory/smartdns.instances"
 		nft list table inet steer >/dev/null 2>&1 || healthy=0
 		if [ "$healthy" = 1 ]; then
-			if dns_probe 1053 '\x03www\x05baidu\x03com\x00' &&
-			   dns_probe 1053 '\x03www\x08gstatic\x03com\x00' &&
-			   proxy_probe "$directory"; then
+			if dns_probe 1053 www.baidu.com &&
+			   dns_probe 1053 www.google.com &&
+			   dns_probe 1053 github.com &&
+			   http_probe 'http://www.baidu.com/' 200 &&
+			   http_probe 'https://www.google.com/generate_204' 204 &&
+			   http_probe 'https://github.com/' 200; then
 				rm -f "$state_file"
 				return 0
 			fi
-			probe_log "进程与规则就绪，但 DNS/代理端到端探测未通过（第 $attempt/$HEALTH_ATTEMPTS 次），继续等待"
+			probe_log "进程与规则就绪，但 baidu/google/github 端到端探测未通过（第 $attempt/$HEALTH_ATTEMPTS 次），继续等待"
 		fi
 	done
 	rm -f "$state_file"
