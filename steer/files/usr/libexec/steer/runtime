@@ -10,6 +10,7 @@ NETWORK_ENABLED="$RUN_ROOT/network.enabled"
 APPLY_STATE="$RUN_ROOT/apply.state"
 APPLY_IN_PROGRESS="$RUN_ROOT/apply.in-progress"
 BRIDGE_NF_STATE="$RUN_ROOT/bridge-nf.state"
+BLOCKED_MARKER="$RUN_ROOT/blocked"
 STATE_ROOT=/var/lib/steer
 LKG_DIR=/etc/steer/last-known-good
 LOCK_FILE=/var/lock/steer-apply.lock
@@ -31,6 +32,19 @@ write_runtime_state() {
 		"$state" "$message" "$(date +%s)" > "$pending"
 	chmod 0600 "$pending"
 	mv -f "$pending" "$APPLY_STATE"
+}
+
+# 写运行状态并同步 blocked 标记。blocked 标记用于阻止 start 的后续
+# service_started 阶段重新加载失败的接管规则（开机事务总失败时）。
+write_state() {
+	local state="$1"
+	local message="$2"
+	write_runtime_state "$state" "$message"
+	if [ "$state" = blocked ]; then
+		touch "$BLOCKED_MARKER"
+	else
+		rm -f "$BLOCKED_MARKER"
+	fi
 }
 
 die() {
@@ -319,11 +333,12 @@ dns_probe() {
 }
 
 # 用 curl 发起真实 HTTP(S) 请求，验证 Steer 透明接管的数据面：
-# 先经 1053 拿到未被污染的 IP，再以 --resolve 走 Steer 的 TPROXY 出口链路。
-# $1 = URL，$2 = 期望的 HTTP 状态码。
+# 先经 $3 指定的本机 DNS 端口拿到未被污染的 IP，再以 --resolve 走 Steer 的 TPROXY 出口链路。
+# 参数：$1 = URL，$2 = 期望的 HTTP 状态码，$3 = 本机 DNS 监听端口（来自运行代 runtime.json）。
 http_probe() {
 	local url="$1"
 	local expect="$2"
+	local dns_port="$3"
 	local host port ip code
 	command -v curl >/dev/null 2>&1 || { probe_log "缺少 curl，无法执行 HTTP 探测"; return 1; }
 	host="${url#*://}"
@@ -332,7 +347,7 @@ http_probe() {
 		*:*) port="${host##*:}"; host="${host%%:*}" ;;
 		*) case "$url" in https://*) port=443 ;; *) port=80 ;; esac ;;
 	esac
-	ip="$(dig @127.0.0.1 -p 1053 +time=2 +tries=1 -t A "$host" +short 2>/dev/null |
+	ip="$(dig @127.0.0.1 -p "$dns_port" +time=2 +tries=1 -t A "$host" +short 2>/dev/null |
 		grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
 	[ -n "$ip" ] || return 1
 	code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 --noproxy '*' \
@@ -341,8 +356,10 @@ http_probe() {
 }
 
 health_check() {
-	local directory state_file attempt profile healthy
+	local directory state_file attempt profile healthy dns_port
 	directory="$(active_directory)"
+	dns_port="$(runtime_value "$directory" dns_port)"
+	[ -n "$dns_port" ] || { probe_log "运行代缺少 dns_port，无法执行 DNS 探测"; return 1; }
 	state_file="$RUN_ROOT/service-state.json"
 	attempt=0
 	while [ "$attempt" -lt "$HEALTH_ATTEMPTS" ]; do
@@ -358,12 +375,12 @@ health_check() {
 		done < "$directory/smartdns.instances"
 		nft list table inet steer >/dev/null 2>&1 || healthy=0
 		if [ "$healthy" = 1 ]; then
-			if dns_probe 1053 www.baidu.com &&
-			   dns_probe 1053 www.google.com &&
-			   dns_probe 1053 github.com &&
-			   http_probe 'http://www.baidu.com/' 200 &&
-			   http_probe 'https://www.google.com/generate_204' 204 &&
-			   http_probe 'https://github.com/' 200; then
+			if dns_probe "$dns_port" www.baidu.com &&
+			   dns_probe "$dns_port" www.google.com &&
+			   dns_probe "$dns_port" github.com &&
+			   http_probe 'http://www.baidu.com/' 200 "$dns_port" &&
+			   http_probe 'https://www.google.com/generate_204' 204 "$dns_port" &&
+			   http_probe 'https://github.com/' 200 "$dns_port"; then
 				rm -f "$state_file"
 				return 0
 			fi
@@ -387,6 +404,79 @@ commit_lkg() {
 	rm -rf "$previous"
 }
 
+# 服务启动之后与 Apply 相同的收尾事务：端到端健康检查 -> 提交
+# last-known-good -> 写运行状态；失败时回退上一运行代或 LKG。
+# 模式:
+#   apply - 用户/面板触发的 apply（回退后仍以失败退出，供 RPC 感知）
+#   boot  - 开机事务（回退到 LKG 后视为成功；全部失败写出 blocked 并停止接管）
+post_start_verify() {
+	local candidate="$1"
+	local mode="${2:-apply}"
+	local previous="${3:-}"
+	local rollback_target
+
+	if health_check; then
+		if ! /etc/init.d/steer enable >/dev/null 2>&1 ||
+		   ! /etc/init.d/steer-geodata enable >/dev/null 2>&1; then
+			/etc/init.d/steer stop >/dev/null 2>&1 || true
+			log '开机启动项启用失败，已停止服务'
+			write_state failed 'Steer 已启动，但开机启动项启用失败；为避免状态不一致，已停止服务'
+			return 1
+		fi
+		if ! commit_lkg "$candidate"; then
+			/etc/init.d/steer stop >/dev/null 2>&1 || true
+			log '恢复点写入失败，已停止服务'
+			write_state failed 'Steer 已启动，但恢复点写入失败；为避免无法回滚，已停止服务'
+			return 1
+		fi
+		if [ "$mode" = boot ]; then
+			write_state active '（开机事务）Steer 已启动并通过健康检查'
+			log "开机事务已应用并记录 last-known-good：$candidate"
+		else
+			write_state active 'Steer 已启动并通过健康检查'
+			log "已应用并记录 last-known-good：$candidate"
+		fi
+		echo 'Steer 配置已应用。'
+		return 0
+	fi
+
+	log '新配置启动后健康检查失败，开始恢复上一运行代'
+	/etc/init.d/steer stop >/dev/null 2>&1 || true
+	rollback_target="$previous"
+	if [ -z "$rollback_target" ] || [ ! -d "$rollback_target" ]; then
+		rollback_target="$LKG_DIR"
+	fi
+	if [ -d "$rollback_target" ]; then
+		check_conflicts
+		activate_directory "$rollback_target"
+		touch "$USE_ACTIVE"
+		if /etc/init.d/steer start >/dev/null 2>&1; then
+			if health_check; then
+				if [ "$mode" = boot ]; then
+					write_state active '（开机事务）新配置未通过健康检查，已回退到 last-known-good 运行'
+					log "开机事务已回退到 last-known-good：$rollback_target"
+					echo 'Steer 开机事务：新配置未通过健康检查，已回退到 last-known-good 运行。'
+				else
+					log "已恢复运行代：$rollback_target"
+					write_state failed '新配置未能稳定运行，已恢复上一运行代'
+					echo 'steer: 新配置未能稳定运行，已恢复上一运行代' >&2
+				fi
+				return 1
+			fi
+			log "回退目标 $rollback_target 已启动，但健康检查未通过，继续下一步处理"
+		fi
+	fi
+	/etc/init.d/steer stop >/dev/null 2>&1 || true
+	if [ "$mode" = boot ]; then
+		write_state blocked '（开机事务）候选配置与 last-known-good 均未通过健康检查；已停止接管，网络恢复为直连以便修复'
+		echo 'steer: （开机事务）候选配置与 last-known-good 均未通过健康检查；已停止接管' >&2
+	else
+		write_state failed '新配置未能稳定运行，而且没有可用的健康运行代可恢复'
+		echo 'steer: 新配置未能稳定运行，而且没有可用的健康运行代可恢复' >&2
+	fi
+	return 1
+}
+
 apply_configuration() {
 	ensure_directories
 	exec 9>"$LOCK_FILE"
@@ -402,13 +492,13 @@ apply_configuration() {
 		   ! /etc/init.d/steer-geodata disable >/dev/null 2>&1; then
 			die 'Steer 开机启动项禁用失败'
 		fi
-		rm -f "$APPLY_IN_PROGRESS"
+		rm -f "$APPLY_IN_PROGRESS" "$BLOCKED_MARKER"
 		write_runtime_state disabled 'Steer 已停用，网络接管已撤销'
 		echo 'Steer 已停用。'
 		return 0
 	fi
 
-	local candidate previous rollback_target
+	local candidate previous rc
 	write_runtime_state applying '正在检查配置、服务冲突和 GeoSite/GeoIP 数据'
 	candidate="$(render_candidate)"
 	previous="$(active_directory 2>/dev/null || true)"
@@ -428,42 +518,10 @@ apply_configuration() {
 	fi
 
 	write_runtime_state applying '正在验证核心、DNS Profile、透明代理与端到端连通性'
-	if health_check; then
-		if ! /etc/init.d/steer enable >/dev/null 2>&1 ||
-		   ! /etc/init.d/steer-geodata enable >/dev/null 2>&1; then
-			/etc/init.d/steer stop >/dev/null 2>&1 || true
-			die 'Steer 已启动，但开机启动项启用失败；为避免状态不一致，已停止服务'
-		fi
-		if ! commit_lkg "$candidate"; then
-			/etc/init.d/steer stop >/dev/null 2>&1 || true
-			die 'Steer 已启动，但恢复点写入失败；为避免无法回滚，已停止服务'
-		fi
-		rm -f "$APPLY_IN_PROGRESS"
-		write_runtime_state active 'Steer 已启动并通过健康检查'
-		log "已应用并记录 last-known-good：$candidate"
-		echo 'Steer 配置已应用。'
-		return 0
-	fi
-
-	log '新配置启动后健康检查失败，开始恢复上一运行代'
-	/etc/init.d/steer stop >/dev/null 2>&1 || true
-	rollback_target="$previous"
-	if [ -z "$rollback_target" ] || [ ! -d "$rollback_target" ]; then
-		rollback_target="$LKG_DIR"
-	fi
-	if [ -d "$rollback_target" ]; then
-		check_conflicts
-		activate_directory "$rollback_target"
-		touch "$USE_ACTIVE"
-		if ! /etc/init.d/steer start; then
-			die '新配置启动失败，上一运行代也无法启动'
-		fi
-		if health_check; then
-			log "已恢复运行代：$rollback_target"
-			die '新配置未能稳定运行，已恢复上一运行代'
-		fi
-	fi
-	die '新配置未能稳定运行，而且没有可用的健康运行代可恢复'
+	post_start_verify "$candidate" apply "$previous"
+	rc=$?
+	rm -f "$APPLY_IN_PROGRESS"
+	return "$rc"
 }
 
 command="${1:-}"
@@ -490,10 +548,18 @@ case "$command" in
 	health-check)
 		health_check
 		;;
+	post-start-verify)
+		[ -n "${2:-}" ] || die 'post-start-verify 缺少候选目录参数'
+		post_start_verify "$2" "${3:-apply}" "${4:-}"
+		;;
+	state)
+		[ -n "${2:-}" ] || die 'state 缺少状态参数'
+		write_state "$2" "${3:-}"
+		;;
 	apply)
 		apply_configuration
 		;;
 	*)
-		die '用法：runtime stage|activate <dir>|active-directory|network-start|network-stop|firewall-reload|health-check|apply'
+		die '用法：runtime stage|activate <dir>|active-directory|network-start|network-stop|firewall-reload|health-check|post-start-verify <candidate> [boot|apply] [previous]|state <state> <message>|apply'
 		;;
 esac

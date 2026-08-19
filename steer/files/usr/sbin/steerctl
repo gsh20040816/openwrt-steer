@@ -113,6 +113,8 @@ if (command == 'runtime-settings') {
 	}
 
 	print(sprintf('%.J\n', {
+		tproxy_port: model.main.tproxy_port,
+		dns_port: model.main.dns_port,
 		tproxy_mark: model.main.tproxy_mark,
 		mark_mask: model.main.mark_mask,
 		route_table: model.main.route_table,
