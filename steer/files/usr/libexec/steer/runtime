@@ -9,6 +9,7 @@ USE_ACTIVE="$RUN_ROOT/use-active"
 NETWORK_ENABLED="$RUN_ROOT/network.enabled"
 APPLY_STATE="$RUN_ROOT/apply.state"
 APPLY_IN_PROGRESS="$RUN_ROOT/apply.in-progress"
+BRIDGE_NF_STATE="$RUN_ROOT/bridge-nf.state"
 STATE_ROOT=/var/lib/steer
 LKG_DIR=/etc/steer/last-known-good
 LOCK_FILE=/var/lock/steer-apply.lock
@@ -250,10 +251,39 @@ firewall_load() {
 	nft -f "$directory/firewall.nft"
 }
 
+bridge_nf_save() {
+	mkdir -p "$RUN_ROOT"
+	printf 'iptables=%s\nip6tables=%s\n' \
+		"$(sysctl -n net.bridge.bridge-nf-call-iptables 2>/dev/null || echo 0)" \
+		"$(sysctl -n net.bridge.bridge-nf-call-ip6tables 2>/dev/null || echo 0)" \
+		> "$BRIDGE_NF_STATE"
+}
+
+# 桥接的转发流量只有在 bridge-nf-call-* 为 0 时才以 br-lan 名义进入
+# prerouting（与 passwall2 的既有行为一致）；为 1 时走 br_netfilter 路径，
+# Steer 的 iifname 规则无法匹配 LAN 转发流量。接管时必须设为 0 并在停止时恢复。
+bridge_nf_disable() {
+	bridge_nf_save
+	sysctl -q -w net.bridge.bridge-nf-call-iptables=0 >/dev/null 2>&1 || true
+	sysctl -q -w net.bridge.bridge-nf-call-ip6tables=0 >/dev/null 2>&1 || true
+}
+
+bridge_nf_restore() {
+	[ -f "$BRIDGE_NF_STATE" ] || return 0
+	local ipt ip6
+	ipt="$(sed -n 's/^iptables=//p' "$BRIDGE_NF_STATE")"
+	ip6="$(sed -n 's/^ip6tables=//p' "$BRIDGE_NF_STATE")"
+	[ -n "$ipt" ] && sysctl -q -w net.bridge.bridge-nf-call-iptables="$ipt" >/dev/null 2>&1 || true
+	[ -n "$ip6" ] && sysctl -q -w net.bridge.bridge-nf-call-ip6tables="$ip6" >/dev/null 2>&1 || true
+	rm -f "$BRIDGE_NF_STATE"
+}
+
 network_start() {
+	bridge_nf_disable
 	route_start
 	if ! firewall_load; then
 		route_stop
+		bridge_nf_restore
 		die '透明代理规则加载失败'
 	fi
 	touch "$NETWORK_ENABLED"
@@ -263,6 +293,7 @@ network_stop() {
 	rm -f "$NETWORK_ENABLED"
 	nft delete table inet steer >/dev/null 2>&1 || true
 	route_stop
+	bridge_nf_restore
 }
 
 instance_running() {
