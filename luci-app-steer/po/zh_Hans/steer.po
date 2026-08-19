@@ -196,11 +196,41 @@ msgstr "GeoSite / GeoIP 数据"
 msgid "GeoSite / GeoIP update needs attention"
 msgstr "GeoSite / GeoIP 更新需要处理"
 
-msgid "GeoSite and GeoIP check completed."
-msgstr "GeoSite 和 GeoIP 检查完成。"
+msgid "GeoSite/GeoIP update failed to start."
+msgstr "GeoSite/GeoIP 更新启动失败"
 
-msgid "GeoSite and GeoIP check failed."
-msgstr "GeoSite 和 GeoIP 检查失败。"
+msgid "A GeoSite/GeoIP update is already running."
+msgstr "已有一次 GeoSite/GeoIP 更新正在运行，请稍候"
+
+msgid "Checking GeoSite/GeoIP updates…"
+msgstr "正在检查 GeoSite/GeoIP 更新…"
+
+msgid "Checking update…"
+msgstr "正在检查更新…"
+
+msgid "Candidate verified, applying…"
+msgstr "候选已通过校验，正在应用…"
+
+msgid "Already up to date"
+msgstr "已是最新版本"
+
+msgid "Updated and active"
+msgstr "已更新并生效"
+
+msgid "Update failed"
+msgstr "更新失败"
+
+msgid "Status unknown"
+msgstr "状态未知"
+
+msgid "GeoSite/GeoIP update finished with problems:"
+msgstr "GeoSite/GeoIP 更新完成但存在问题："
+
+msgid "GeoSite/GeoIP update finished:"
+msgstr "GeoSite/GeoIP 更新完成："
+
+msgid "Services were restarted automatically with the new configuration if updated."
+msgstr "如有更新，已按新配置自动重启服务。"
 
 msgid "IANA registry"
 msgstr "IANA 注册表"

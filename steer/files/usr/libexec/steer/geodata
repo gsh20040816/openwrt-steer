@@ -18,8 +18,13 @@ log() {
 }
 
 die() {
-	echo "steer-geodata: $*" >&2
-	log "$*"
+	local message="$*"
+	echo "steer-geodata: $message" >&2
+	log "$message"
+	if [ "${UPDATE_CONTEXT:-0}" = 1 ]; then
+		write_status geosite failed '' "更新失败：$message"
+		write_status geoip failed '' "更新失败：$message"
+	fi
 	exit 1
 }
 
@@ -193,6 +198,8 @@ stage_type() {
 
 update_data() {
 	local workspace api version previous candidate changed result
+	write_status geosite checking '' '正在检查上游更新'
+	write_status geoip checking '' '正在检查上游更新'
 	ensure_active
 	/usr/libexec/steer/runtime health-check || die '核心未处于健康状态，跳过联网更新'
 	workspace="$(mktemp -d /tmp/steer-geodata-update.XXXXXX)"
@@ -288,6 +295,7 @@ case "${1:-}" in
 		prepare
 		exec 9>"$LOCK_FILE"
 		flock -x 9
+		UPDATE_CONTEXT=1
 		update_data
 		;;
 	catalog) catalog "${2:-}" ;;

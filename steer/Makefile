@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=14
+PKG_RELEASE:=15
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Steer contributors

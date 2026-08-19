@@ -61,6 +61,24 @@
 	font-size: .85rem;
 }
 
+.steer-status__note {
+	margin: .5rem 0 0;
+	color: var(--steer-muted);
+	font-size: .85rem;
+	animation: steer-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes steer-pulse {
+	from { opacity: .45; }
+	to { opacity: 1; }
+}
+
+.steer-geodata-progress {
+	margin: .35rem 0 0;
+	padding-left: 1rem;
+	font-size: .85rem;
+}
+
 .steer-status__facts {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
