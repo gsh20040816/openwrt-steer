@@ -14,6 +14,7 @@ LKG_DIR=/etc/steer/last-known-good
 LOCK_FILE=/var/lock/steer-apply.lock
 SING_BOX_BIN=/usr/bin/sing-box
 SMARTDNS_BIN=/usr/sbin/smartdns
+HEALTH_ATTEMPTS=12
 
 log() {
 	logger -t steer -- "$*"
@@ -106,6 +107,16 @@ check_conflicts() {
 				;;
 		esac
 	done
+
+	# 即使服务已停止/禁用，passwall2 的 fw4 include 仍可能在 fw4 reload
+	# 后重新安装整套 nftables 规则（含 -101 的 DNS 重定向）。只要残留表存在，
+	# Steer 就拒绝接管，绝不与其共存。
+	if nft list table inet passwall2 >/dev/null 2>&1; then
+		fail_conflict '检测到 passwall2 残留 nftables 规则（inet passwall2 表仍存在）；请先清理：uci -q delete firewall.passwall2; uci commit firewall; fw4 reload，并确认 nft list tables 中不再有 inet passwall2'
+	fi
+	if nft list table inet passwall >/dev/null 2>&1; then
+		fail_conflict '检测到 passwall 残留 nftables 规则（inet passwall 表仍存在）；请先清理后重试'
+	fi
 }
 
 resolve_devices() {
@@ -260,12 +271,55 @@ instance_running() {
 	[ "$(jsonfilter -q -i "$state_file" -e "@['steer']['instances']['$instance']['running']")" = 'true' ]
 }
 
+probe_log() {
+	log "健康检查：$*"
+}
+
+# 向 127.0.0.1:$port 发送一条 DNS A 查询，要求返回真实答案（ANCOUNT > 0）。
+# $1 = 端口，$2 = 长度前缀编码的 QNAME（printf 转义串）。
+dns_probe() {
+	local port="$1"
+	local qname_hex="$2"
+	local query_file reply_file rc ancount
+	command -v socat >/dev/null 2>&1 || { probe_log "缺少 socat，无法执行 DNS 探测"; return 1; }
+	command -v hexdump >/dev/null 2>&1 || { probe_log "缺少 hexdump，无法执行 DNS 探测"; return 1; }
+	query_file="$(mktemp)"
+	reply_file="$(mktemp)"
+	{
+		printf '\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
+		printf "$qname_hex"
+		printf '\x00\x00\x01\x00\x01'
+	} > "$query_file"
+	socat -T 2 - "UDP4:127.0.0.1:$port" < "$query_file" > "$reply_file" 2>/dev/null
+	rc=$?
+	ancount="$(hexdump -v -s 6 -n 2 -e '2/1 "%d "' "$reply_file" 2>/dev/null)"
+	rm -f "$query_file" "$reply_file"
+	[ "$rc" = 0 ] && [ -n "$ancount" ] && [ "$ancount" != '0 0 ' ]
+}
+
+# 通过 sing-box 默认出口做一次真实 HTTPS 抓取，验证代理出口可用。
+proxy_probe() {
+	local directory="$1"
+	local final probe_cfg
+	command -v timeout >/dev/null 2>&1 || return 1
+	final="$(jsonfilter -q -i "$directory/sing-box.json" -e '@.route.final')"
+	[ -n "$final" ] || return 1
+	probe_cfg="$RUN_ROOT/probe-inbounds.json"
+	printf '{"inbounds":[]}\n' > "$probe_cfg"
+	timeout 6 "$SING_BOX_BIN" tools fetch \
+		-c "$directory/sing-box.json" -c "$probe_cfg" \
+		-o "$final" https://1.1.1.1/ >/dev/null 2>&1
+	rc=$?
+	rm -f "$probe_cfg"
+	return "$rc"
+}
+
 health_check() {
 	local directory state_file attempt profile healthy
 	directory="$(active_directory)"
 	state_file="$RUN_ROOT/service-state.json"
 	attempt=0
-	while [ "$attempt" -lt 6 ]; do
+	while [ "$attempt" -lt "$HEALTH_ATTEMPTS" ]; do
 		attempt=$((attempt + 1))
 		sleep 1
 		check_conflicts
@@ -278,8 +332,13 @@ health_check() {
 		done < "$directory/smartdns.instances"
 		nft list table inet steer >/dev/null 2>&1 || healthy=0
 		if [ "$healthy" = 1 ]; then
-			rm -f "$state_file"
-			return 0
+			if dns_probe 1053 '\x03www\x05baidu\x03com\x00' &&
+			   dns_probe 1053 '\x03www\x08gstatic\x03com\x00' &&
+			   proxy_probe "$directory"; then
+				rm -f "$state_file"
+				return 0
+			fi
+			probe_log "进程与规则就绪，但 DNS/代理端到端探测未通过（第 $attempt/$HEALTH_ATTEMPTS 次），继续等待"
 		fi
 	done
 	rm -f "$state_file"
@@ -339,7 +398,7 @@ apply_configuration() {
 		fi
 	fi
 
-	write_runtime_state applying '正在验证核心、DNS Profile 和透明代理规则'
+	write_runtime_state applying '正在验证核心、DNS Profile、透明代理与端到端连通性'
 	if health_check; then
 		if ! /etc/init.d/steer enable >/dev/null 2>&1 ||
 		   ! /etc/init.d/steer-geodata enable >/dev/null 2>&1; then

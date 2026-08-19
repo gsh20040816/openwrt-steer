@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Steer contributors
@@ -16,7 +16,7 @@ define Package/steer
   DEPENDS:=+steer-geodata
   EXTRA_DEPENDS:=ca-bundle (>=0), firewall4 (>=0), geoview (>=0.2.6-r2), ip-full (>=0), \
 	kmod-nft-socket (>=0), kmod-nft-tproxy (>=0), sing-box (>=0), \
-	smartdns (>=0), ucode (>=0), ucode-mod-fs (>=0), ucode-mod-uci (>=0)
+	smartdns (>=0), socat (>=0), ucode (>=0), ucode-mod-fs (>=0), ucode-mod-uci (>=0)
 endef
 
 define Package/steer/description
