@@ -169,6 +169,15 @@ const methods = {
 	},
 	apply: {
 		call: function() {
+			// 浏览器端 "保存并应用" 的 uci 提交与 RPC 调用之间可能存在时序差：
+			// 先强制落盘，确保 steerctl apply 编译到的是刚保存的配置。
+			const commit = popen('/sbin/uci -q commit steer 2>&1');
+			if (!commit)
+				return { ok: false, error: '无法启动 uci commit' };
+			const commitOutput = trim(commit.read('all'));
+			if (commit.close() !== 0)
+				return { ok: false, error: 'UCI 提交失败：' + commitOutput };
+
 			const validation = current_validation();
 			if (!validation.ok)
 				return { ok: false, validation };
