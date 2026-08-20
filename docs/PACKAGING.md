@@ -53,6 +53,10 @@ Release 工作流缓存 OpenWrt host 工具链和 target 依赖的 `build_dir`/
 必须先通过 OpenWrt 自身的 `package/<name>/clean` 清理 `geoview`、`steer-geodata`、
 `steer` 和 `luci-app-steer`，然后才能刷新第三方依赖的构建时间戳。
 
+冷缓存不能直接用空目录覆盖 SDK 的 target 目录。工作流必须先从锁定的 SDK 镜像
+复制预置的内核构建树和 target staging 基线，再以该目录继续构建并写入缓存；否则
+会丢失官方 SDK 已准备的内核文件，错误地触发残缺的内核重建。
+
 缓存只允许精确 key 命中，key 锁定 SDK、base/packages/LuCI feed 与当前依赖图；
 只要 `DEPENDS`/`LUCI_DEPENDS` 选择、SDK 或 feed 锁定变化，就必须升级 key 中的
 `targetdeps-vN`。成功构建会写入完整性标记；下一次精确命中时缺少该标记必须

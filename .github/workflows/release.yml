@@ -67,13 +67,12 @@ jobs:
             ${{ runner.temp }}/steer-openwrt-cache/build_dir-hostpkg
             ${{ runner.temp }}/steer-openwrt-cache/build_dir-target
             ${{ runner.temp }}/steer-openwrt-cache/staging_dir-hostpkg
-            ${{ runner.temp }}/steer-openwrt-cache/staging_dir-packages
             ${{ runner.temp }}/steer-openwrt-cache/staging_dir-target
             ${{ runner.temp }}/steer-openwrt-cache/tmp/go-build
           # Exact-only key: never restore target state from a different SDK,
           # feed set or dependency graph. Bump targetdeps-v1 whenever Steer's
           # DEPENDS/LUCI_DEPENDS selection changes.
-          key: openwrt-build-v2-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
+          key: openwrt-build-v3-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
 
       - name: Report OpenWrt dependency cache result
         env:
@@ -97,7 +96,6 @@ jobs:
             "$cache_dir/build_dir-hostpkg" \
             "$cache_dir/build_dir-target" \
             "$cache_dir/staging_dir-hostpkg" \
-            "$cache_dir/staging_dir-packages" \
             "$cache_dir/staging_dir-target" \
             "$cache_dir/tmp/go-build" \
             "$output_dir" \
@@ -107,16 +105,23 @@ jobs:
           # git archive whose mtimes are fixed to the source commit.
           git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_dir"
           chmod -R a+rwx "$cache_dir" "$output_dir"
-          # actions/cache restores files as the runner user, while the SDK
-          # builds as buildbot. OpenWrt's install -d also chmods existing
-          # directories, so writable mode bits alone do not cross that UID
-          # boundary.
+          # The official SDK image ships a prepared kernel build tree and
+          # target staging directory. A cold bind mount would hide that state
+          # and make package/kernel/linux fail, so seed new target caches from
+          # the pinned image before mounting them over /builder.
           docker run --rm \
             --user 0:0 \
             --entrypoint /bin/sh \
             --volume "$cache_dir:/cache" \
             steer-sdk:25.12.5-x86_64 \
-            -c 'chown -R "$(id -u buildbot):$(id -g buildbot)" /cache'
+            -c '
+              set -eu
+              if [ "${{ steps.openwrt-build-cache.outputs.cache-hit }}" != true ]; then
+                cp -a /builder/build_dir/target-x86_64_musl/. /cache/build_dir-target/
+                cp -a /builder/staging_dir/target-x86_64_musl/. /cache/staging_dir-target/
+              fi
+              chown -R "$(id -u buildbot):$(id -g buildbot)" /cache
+            '
           docker run --rm \
             --env "STEER_BUILD_CACHE_HIT=${{ steps.openwrt-build-cache.outputs.cache-hit }}" \
             --volume "$source_dir:/feed:ro" \
@@ -125,7 +130,6 @@ jobs:
             --volume "$cache_dir/build_dir-hostpkg:/builder/build_dir/hostpkg" \
             --volume "$cache_dir/build_dir-target:/builder/build_dir/target-x86_64_musl" \
             --volume "$cache_dir/staging_dir-hostpkg:/builder/staging_dir/hostpkg" \
-            --volume "$cache_dir/staging_dir-packages:/builder/staging_dir/packages" \
             --volume "$cache_dir/staging_dir-target:/builder/staging_dir/target-x86_64_musl" \
             --volume "$cache_dir/tmp:/builder/tmp" \
             steer-sdk:25.12.5-x86_64

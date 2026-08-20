@@ -19,14 +19,14 @@ required_workflow_fragments = (
     "require_build_cache_hit:",
     "id: openwrt-build-cache",
     "build_dir-target",
-    "staging_dir-packages",
     "staging_dir-target",
-    "openwrt-build-v2-${{ runner.os }}-25.12.5-x86_64-c8a248ce-",
+    "openwrt-build-v3-${{ runner.os }}-25.12.5-x86_64-c8a248ce-",
     "f0a60eee-5caa62e0-128a7812-targetdeps-v1",
     "steps.openwrt-build-cache.outputs.cache-hit != 'true'",
     "STEER_BUILD_CACHE_HIT=${{ steps.openwrt-build-cache.outputs.cache-hit }}",
+    "cp -a /builder/build_dir/target-x86_64_musl/. /cache/build_dir-target/",
+    "cp -a /builder/staging_dir/target-x86_64_musl/. /cache/staging_dir-target/",
     "/builder/build_dir/target-x86_64_musl",
-    "/builder/staging_dir/packages",
     "/builder/staging_dir/target-x86_64_musl",
 )
 for fragment in required_workflow_fragments:
@@ -35,6 +35,9 @@ for fragment in required_workflow_fragments:
 
 if "restore-keys:" in WORKFLOW:
     fail("target dependency state must use an exact cache key")
+
+if "/builder/staging_dir/packages" in WORKFLOW:
+    fail("the target staging cache already owns its packages metadata directory")
 
 required_entrypoint_fragments = (
     "readonly CACHE_COMPLETE_MARKER=",
