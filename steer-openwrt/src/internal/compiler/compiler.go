@@ -19,10 +19,33 @@ import (
 const (
 	TunInterface = "steer0"
 	DNSPort      = 1053
-	MACMark      = 0x5354
-	MACTable     = 2022
-	MACPriority  = 9022
+	// MAC TPROXY packets deliberately reuse the auto_redirect output mark so
+	// sing-box's later nft chains leave them alone. The OpenWrt adapter installs
+	// local-table rules scoped by managed iif, so sing-box's own local outbounds
+	// carrying this mark still bypass normally.
+	MACMark                = AutoRedirectOutputMark
+	MACTable               = 2023
+	MACPriority            = 8999
+	TunTable               = 2022
+	TunPriority            = 9000
+	TunFallbackPriority    = 32768
+	AutoRedirectInputMark  = 0x2023
+	AutoRedirectOutputMark = 0x2024
+	AutoRedirectResetMark  = 0x2025
+	AutoRedirectNFQueue    = 100
 )
+
+var nonGlobalIPv4 = []string{
+	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+	"172.16.0.0/12", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16",
+	"198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+}
+
+var nonGlobalIPv6 = []string{
+	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b:1::/48", "100::/64", "100:0:0:1::/64",
+	"2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fc00::/7",
+	"fe80::/10", "ff00::/8",
+}
 
 type Bundle struct {
 	IntentDigest string           `json:"intent_digest"`
@@ -62,13 +85,20 @@ type PlanDiff struct {
 }
 
 type Resources struct {
-	TunInterface string       `json:"tun_interface"`
-	TunAddresses []string     `json:"tun_addresses"`
-	DNSPort      int          `json:"dns_port"`
-	MACMark      int          `json:"mac_mark,omitempty"`
-	MACTable     int          `json:"mac_table,omitempty"`
-	MACPriority  int          `json:"mac_priority,omitempty"`
-	MACBindings  []MACBinding `json:"mac_bindings"`
+	TunInterface           string       `json:"tun_interface"`
+	TunAddresses           []string     `json:"tun_addresses"`
+	DNSPort                int          `json:"dns_port"`
+	TunTable               int          `json:"tun_table"`
+	TunPriority            int          `json:"tun_priority"`
+	TunFallbackPriority    int          `json:"tun_fallback_priority"`
+	AutoRedirectInputMark  int          `json:"auto_redirect_input_mark"`
+	AutoRedirectOutputMark int          `json:"auto_redirect_output_mark"`
+	AutoRedirectResetMark  int          `json:"auto_redirect_reset_mark"`
+	AutoRedirectNFQueue    int          `json:"auto_redirect_nfqueue"`
+	MACMark                int          `json:"mac_mark,omitempty"`
+	MACTable               int          `json:"mac_table,omitempty"`
+	MACPriority            int          `json:"mac_priority,omitempty"`
+	MACBindings            []MACBinding `json:"mac_bindings"`
 }
 
 type MACBinding struct {
@@ -115,18 +145,16 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 		Resources: Resources{
 			TunInterface: TunInterface,
 			TunAddresses: []string{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
-			DNSPort:      DNSPort,
-			MACBindings:  bindings,
+			DNSPort:      DNSPort, TunTable: TunTable, TunPriority: TunPriority,
+			TunFallbackPriority: TunFallbackPriority, AutoRedirectInputMark: AutoRedirectInputMark,
+			AutoRedirectOutputMark: AutoRedirectOutputMark, AutoRedirectResetMark: AutoRedirectResetMark,
+			AutoRedirectNFQueue: AutoRedirectNFQueue, MACMark: MACMark,
+			MACTable: MACTable, MACPriority: MACPriority, MACBindings: bindings,
 		},
 		DNSPaths:    dnsPaths,
 		GeoRuleSets: geoSets,
 		Objects:     planObjects(intent),
 		Probes:      append([]string(nil), intent.Main.ProbeURLs...),
-	}
-	if len(bindings) > 0 {
-		plan.Resources.MACMark = MACMark
-		plan.Resources.MACTable = MACTable
-		plan.Resources.MACPriority = MACPriority
 	}
 	return Bundle{IntentDigest: digest, Validation: validation, Plan: plan, SingBox: compileSingBox(intent, plan)}
 }
@@ -339,6 +367,13 @@ func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 		"type": "tun", "tag": "steer-tun", "interface_name": TunInterface,
 		"address": plan.Resources.TunAddresses, "mtu": 9000, "auto_route": true,
 		"strict_route": true, "auto_redirect": true, "stack": "system",
+		"iproute2_table_index": plan.Resources.TunTable, "iproute2_rule_index": plan.Resources.TunPriority,
+		"auto_redirect_iproute2_fallback_rule_index": plan.Resources.TunFallbackPriority,
+		"auto_redirect_input_mark":                   plan.Resources.AutoRedirectInputMark,
+		"auto_redirect_output_mark":                  plan.Resources.AutoRedirectOutputMark,
+		"auto_redirect_reset_mark":                   plan.Resources.AutoRedirectResetMark,
+		"auto_redirect_nfqueue":                      plan.Resources.AutoRedirectNFQueue,
+		"route_exclude_address":                      append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...),
 	}, map[string]any{
 		"type": "direct", "tag": "steer-dns", "listen": "::", "listen_port": DNSPort,
 		"network": []string{"tcp", "udp"},
