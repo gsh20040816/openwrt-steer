@@ -5,6 +5,9 @@
 主包不能安装第三方二进制，GeoSite/GeoIP 只能由 `steer-geodata` 包提供，运行时和 LuCI 不得
 恢复联网 updater 或调度器。
 
+`tests/check-build-cache.py` 固定发布缓存的安全边界：必须使用精确 key、可强制
+验证命中、记录完整性标记，并在刷新第三方依赖时间戳前先清理 Steer 自有包。
+
 `tests/ucode/model_test.uc` 直接在 OpenWrt 的 ucode 运行时验证语义模型和编译器。首批回归用例覆盖：
 
 - 最小直连配置；

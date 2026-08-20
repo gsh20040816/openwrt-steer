@@ -1,7 +1,13 @@
 name: Build OpenWrt packages
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      require_build_cache_hit:
+        description: Fail unless the exact OpenWrt dependency cache is restored
+        required: true
+        default: false
+        type: boolean
   push:
     tags:
       - 'v*'
@@ -26,6 +32,9 @@ jobs:
       - name: Check package ownership boundaries
         run: python3 tests/check-package-boundaries.py
 
+      - name: Check build cache invariants
+        run: python3 tests/check-build-cache.py
+
       - name: Check share URL parser
         run: node tests/node/share_url_test.js
 
@@ -49,16 +58,34 @@ jobs:
           cache-to: type=gha,mode=max,scope=openwrt-sdk-25.12.5-x86_64
           load: true
 
-      - name: Restore OpenWrt host toolchain cache
-        id: openwrt-host-cache
+      - name: Restore OpenWrt dependency build cache
+        id: openwrt-build-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             ${{ runner.temp }}/steer-openwrt-cache/dl
             ${{ runner.temp }}/steer-openwrt-cache/build_dir-hostpkg
+            ${{ runner.temp }}/steer-openwrt-cache/build_dir-target
             ${{ runner.temp }}/steer-openwrt-cache/staging_dir-hostpkg
+            ${{ runner.temp }}/steer-openwrt-cache/staging_dir-packages
+            ${{ runner.temp }}/steer-openwrt-cache/staging_dir-target
             ${{ runner.temp }}/steer-openwrt-cache/tmp/go-build
-          key: openwrt-hostpkg-v1-${{ runner.os }}-25.12.5-x86_64-c8a248ce-5caa62e0bc9f7fb9b0c12a23267bceb7724214dd
+          # Exact-only key: never restore target state from a different SDK,
+          # feed set or dependency graph. Bump targetdeps-v1 whenever Steer's
+          # DEPENDS/LUCI_DEPENDS selection changes.
+          key: openwrt-build-v2-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
+
+      - name: Report OpenWrt dependency cache result
+        env:
+          CACHE_HIT: ${{ steps.openwrt-build-cache.outputs.cache-hit }}
+        run: |
+          echo "Exact OpenWrt dependency cache hit: ${CACHE_HIT:-false}"
+
+      - name: Require exact OpenWrt dependency cache hit
+        if: ${{ inputs.require_build_cache_hit && steps.openwrt-build-cache.outputs.cache-hit != 'true' }}
+        run: |
+          echo 'The required exact OpenWrt dependency cache was not restored.' >&2
+          exit 1
 
       - name: Build packages
         run: |
@@ -68,7 +95,10 @@ jobs:
           mkdir -p \
             "$cache_dir/dl" \
             "$cache_dir/build_dir-hostpkg" \
+            "$cache_dir/build_dir-target" \
             "$cache_dir/staging_dir-hostpkg" \
+            "$cache_dir/staging_dir-packages" \
+            "$cache_dir/staging_dir-target" \
             "$cache_dir/tmp/go-build" \
             "$output_dir" \
             "$source_dir"
@@ -88,12 +118,15 @@ jobs:
             steer-sdk:25.12.5-x86_64 \
             -c 'chown -R "$(id -u buildbot):$(id -g buildbot)" /cache'
           docker run --rm \
-            --env "STEER_HOST_CACHE_HIT=${{ steps.openwrt-host-cache.outputs.cache-hit }}" \
+            --env "STEER_BUILD_CACHE_HIT=${{ steps.openwrt-build-cache.outputs.cache-hit }}" \
             --volume "$source_dir:/feed:ro" \
             --volume "$output_dir:/artifacts" \
             --volume "$cache_dir/dl:/builder/dl" \
             --volume "$cache_dir/build_dir-hostpkg:/builder/build_dir/hostpkg" \
+            --volume "$cache_dir/build_dir-target:/builder/build_dir/target-x86_64_musl" \
             --volume "$cache_dir/staging_dir-hostpkg:/builder/staging_dir/hostpkg" \
+            --volume "$cache_dir/staging_dir-packages:/builder/staging_dir/packages" \
+            --volume "$cache_dir/staging_dir-target:/builder/staging_dir/target-x86_64_musl" \
             --volume "$cache_dir/tmp:/builder/tmp" \
             steer-sdk:25.12.5-x86_64
           cp -R "$output_dir/bin" "$GITHUB_WORKSPACE/bin"

@@ -7,6 +7,9 @@ set -euo pipefail
 
 readonly FEED_NAME=steer
 readonly PACKAGES=(geoview steer-geodata steer luci-app-steer)
+readonly TARGET_BUILD_DIR=build_dir/target-x86_64_musl
+readonly TARGET_STAGING_DIR=staging_dir/target-x86_64_musl
+readonly CACHE_COMPLETE_MARKER="$TARGET_STAGING_DIR/stamp/.steer-dependency-cache-complete"
 
 group_open=0
 group() {
@@ -55,16 +58,28 @@ for package in "${PACKAGES[@]}"; do
 	./scripts/feeds install -p "$FEED_NAME" -f "$package"
 done
 
-if [ "${STEER_HOST_CACHE_HIT:-false}" = true ]; then
+if [ "${STEER_BUILD_CACHE_HIT:-false}" = true ]; then
 	[ -f staging_dir/hostpkg/stamp/.golang_installed ] || {
 		echo 'Host toolchain cache is incomplete.' >&2
 		exit 1
 	}
+	[ -f "$CACHE_COMPLETE_MARKER" ] || {
+		echo 'Target dependency cache is incomplete.' >&2
+		exit 1
+	}
+	# A target cache also contains the previous run's Steer build directories
+	# and staging records. Remove them through OpenWrt's package clean targets;
+	# only third-party dependencies may be reused across source revisions.
+	for package in "${PACKAGES[@]}"; do
+		make "package/$package/clean"
+	done
 	# The cache key pins the SDK and packages feed. Feed checkout gives its
-	# Makefiles fresh mtimes on every runner, so refresh only the matching
-	# build/install stamps or make would rebuild the cached Go toolchain.
+	# Makefiles fresh mtimes on every runner, so refresh dependency build and
+	# install stamps after cleaning Steer's own packages.
 	find build_dir/hostpkg -type f -name '.*' -exec touch {} +
 	find staging_dir/hostpkg/stamp -type f -exec touch {} +
+	find "$TARGET_BUILD_DIR" -type f -name '.*' -exec touch {} +
+	find "$TARGET_STAGING_DIR/stamp" -type f -exec touch {} +
 fi
 
 # LuCI translation APKs are generated subpackages of luci-app-steer. Selecting
@@ -102,6 +117,11 @@ find bin/packages -type f -name 'luci-i18n-steer-zh-cn-*.apk' -print -quit | gre
 	echo 'Simplified Chinese LuCI APK was not produced.' >&2
 	exit 1
 }
+
+# actions/cache only saves after the whole job succeeds. This marker lets a
+# later exact-key restore fail closed if a partial target cache ever appears.
+mkdir -p "$(dirname "$CACHE_COMPLETE_MARKER")"
+touch "$CACHE_COMPLETE_MARKER"
 
 group 'Export build outputs'
 [ ! -e /artifacts/bin ] || {

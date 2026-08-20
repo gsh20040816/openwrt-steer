@@ -45,3 +45,16 @@ Go 核心可执行后，OpenWrt 包将进一步拆成：
 - 下载发生在包构建阶段，必须固定版本、源码提交和哈希。
 - Release 只发布 CI 从锁定 SDK 构建的独立 APK、SHA-256、元数据和日志。
 - 不允许通过安装脚本、LuCI RPC 或后台调度器实现自更新。
+
+## CI 依赖缓存
+
+Release 工作流缓存 OpenWrt host 工具链和 target 依赖的 `build_dir`/
+`staging_dir`，但不得把上一次的 Steer 自有包当作本次构建结果。缓存命中后，SDK
+必须先通过 OpenWrt 自身的 `package/<name>/clean` 清理 `geoview`、`steer-geodata`、
+`steer` 和 `luci-app-steer`，然后才能刷新第三方依赖的构建时间戳。
+
+缓存只允许精确 key 命中，key 锁定 SDK、base/packages/LuCI feed 与当前依赖图；
+只要 `DEPENDS`/`LUCI_DEPENDS` 选择、SDK 或 feed 锁定变化，就必须升级 key 中的
+`targetdeps-vN`。成功构建会写入完整性标记；下一次精确命中时缺少该标记必须
+立即失败。手动工作流的 `require_build_cache_hit=true` 用于强制验证命中；缓存
+未精确命中时不允许继续构建。
