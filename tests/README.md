@@ -5,12 +5,17 @@
 主包不能安装第三方二进制，GeoSite/GeoIP 只能由 `steer-geodata` 包提供，运行时和 LuCI 不得
 恢复联网 updater 或调度器。
 
-`tests/check-build-cache.py` 固定发布缓存的安全边界：必须使用精确 key、可强制
-验证命中、冷缓存必须继承 SDK 的 target 基线、归档前保证 runner 可读、记录完整性
-标记，并在刷新第三方依赖时间戳前先清理 Steer 自有包。构建只能提交
-`luci-app-steer` 这一个完整依赖闭包，且不得用 `CONFIG_AUTOREMOVE` 删除待缓存的
-依赖构建目录。第三方依赖 stamp 必须在最终 `defconfig` 之后刷新，避免配置文件
-时间戳使刚恢复的缓存立即失效。
+`tests/check-build-cache.py` 固定 OpenWrt 官方缓存边界：发布必须使用固定源码、官方
+external toolchain、预构建 host tools 和 package ccache，配置 `CONFIG_CCACHE=y`
+与一次性构建使用的 `CONFIG_AUTOREMOVE=y`，拒绝重新使用全包 SDK，
+按官方顺序安装预构建 tools 与 external toolchain wrapper，构建后显示并清理
+ccache 统计，再更新同 key 缓存。工作流不得恢复 target
+`build_dir`/`staging_dir`，不得 seed SDK 内部目录、刷新 stamp、写完成 marker，或
+重新引入强制 target-cache 命中的自定义状态协议；还必须将 ccache 挂载到 OpenWrt
+make 实际解析的源码树 `.ccache`，禁止沿用 SDK 的 `/builder/.ccache`。配置必须清除
+x86 固件镜像的默认包，拒绝 target-profile firmware，并在单包构建时覆盖默认
+`=y` kmod；包含 kmod 时必须先构建当前配置的 target kernel。构建只提交
+`luci-app-steer` 这一个完整依赖闭包。
 
 `tests/ucode/model_test.uc` 直接在 OpenWrt 的 ucode 运行时验证语义模型和编译器。首批回归用例覆盖：
 

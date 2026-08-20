@@ -2,12 +2,6 @@ name: Build OpenWrt packages
 
 on:
   workflow_dispatch:
-    inputs:
-      require_build_cache_hit:
-        description: Fail unless the exact OpenWrt dependency cache is restored
-        required: true
-        default: false
-        type: boolean
   push:
     tags:
       - 'v*'
@@ -20,6 +14,7 @@ jobs:
     name: OpenWrt 25.12.5 x86_64
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
 
     steps:
@@ -47,106 +42,79 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
-      - name: Build cached OpenWrt SDK image
+      - name: Build cached OpenWrt source and toolchain image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
-          context: .github/actions/openwrt-sdk
+          context: .github/actions/openwrt-builder
           build-args: |
-            SDK_IMAGE=ghcr.io/openwrt/sdk:x86_64-25.12.5@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a
-          tags: steer-sdk:25.12.5-x86_64
-          cache-from: type=gha,scope=openwrt-sdk-25.12.5-x86_64
-          cache-to: type=gha,mode=max,scope=openwrt-sdk-25.12.5-x86_64
+            TOOLCHAIN_IMAGE=ghcr.io/openwrt/toolchain@sha256:16fe9150edb39da54b50f5d7e99e9baf0f2c9afb16183c54bfb07bc4e08b3b38
+            OPENWRT_REF=f0a60eee2fe051741c643ea6118718aae1ef17fb
+          tags: steer-openwrt-builder:25.12.5-x86_64
+          cache-from: type=gha,scope=openwrt-builder-25.12.5-x86_64
+          cache-to: type=gha,mode=max,scope=openwrt-builder-25.12.5-x86_64
           load: true
 
-      - name: Restore OpenWrt dependency build cache
-        id: openwrt-build-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      - name: Restore OpenWrt package ccache
+        id: openwrt-ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          path: |
-            ${{ runner.temp }}/steer-openwrt-cache/dl
-            ${{ runner.temp }}/steer-openwrt-cache/build_dir-hostpkg
-            ${{ runner.temp }}/steer-openwrt-cache/build_dir-target
-            ${{ runner.temp }}/steer-openwrt-cache/staging_dir-hostpkg
-            ${{ runner.temp }}/steer-openwrt-cache/staging_dir-target
-            ${{ runner.temp }}/steer-openwrt-cache/tmp/go-build
-          # Exact-only key: never restore target state from a different SDK,
-          # feed set or dependency graph. Bump targetdeps-v1 whenever Steer's
-          # DEPENDS/LUCI_DEPENDS selection changes.
-          key: openwrt-build-v5-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
+          path: ${{ runner.temp }}/steer-openwrt-ccache
+          # Match OpenWrt's package-ccache boundary. The source and official
+          # toolchain digests are part of the key; target state is never cached.
+          key: openwrt-ccache-packages-v2-${{ runner.os }}-25.12.5-x86_64-f0a60eee-16fe9150
 
-      - name: Report OpenWrt dependency cache result
+      - name: Report OpenWrt ccache result
         env:
-          CACHE_HIT: ${{ steps.openwrt-build-cache.outputs.cache-hit }}
+          CACHE_HIT: ${{ steps.openwrt-ccache.outputs.cache-hit }}
+          MATCHED_KEY: ${{ steps.openwrt-ccache.outputs.cache-matched-key }}
         run: |
-          echo "Exact OpenWrt dependency cache hit: ${CACHE_HIT:-false}"
-
-      - name: Require exact OpenWrt dependency cache hit
-        if: ${{ inputs.require_build_cache_hit && steps.openwrt-build-cache.outputs.cache-hit != 'true' }}
-        run: |
-          echo 'The required exact OpenWrt dependency cache was not restored.' >&2
-          exit 1
+          echo "Exact OpenWrt ccache hit: ${CACHE_HIT:-false}"
+          echo "Matched OpenWrt ccache key: ${MATCHED_KEY:-none}"
 
       - name: Build packages
         run: |
-          cache_dir="$RUNNER_TEMP/steer-openwrt-cache"
+          ccache_dir="$RUNNER_TEMP/steer-openwrt-ccache"
           output_dir="$RUNNER_TEMP/steer-build-output"
           source_dir="$RUNNER_TEMP/steer-source"
-          mkdir -p \
-            "$cache_dir/dl" \
-            "$cache_dir/build_dir-hostpkg" \
-            "$cache_dir/build_dir-target" \
-            "$cache_dir/staging_dir-hostpkg" \
-            "$cache_dir/staging_dir-target" \
-            "$cache_dir/tmp/go-build" \
-            "$output_dir" \
-            "$source_dir"
+          mkdir -p "$ccache_dir" "$output_dir" "$source_dir"
           # A checkout gives tracked files the checkout time. LuCI copies
           # those mtimes into APK v3 metadata, so build the local feed from a
           # git archive whose mtimes are fixed to the source commit.
           git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_dir"
-          chmod -R a+rwx "$cache_dir" "$output_dir"
-          # The official SDK image ships a prepared kernel build tree and
-          # target staging directory. A cold bind mount would hide that state
-          # and make package/kernel/linux fail, so seed new target caches from
-          # the pinned image before mounting them over /builder.
+          chmod -R a+rwx "$ccache_dir" "$output_dir"
           docker run --rm \
-            --user 0:0 \
-            --entrypoint /bin/sh \
-            --volume "$cache_dir:/cache" \
-            steer-sdk:25.12.5-x86_64 \
-            -c '
-              set -eu
-              if [ "${{ steps.openwrt-build-cache.outputs.cache-hit }}" != true ]; then
-                cp -a /builder/build_dir/target-x86_64_musl/. /cache/build_dir-target/
-                cp -a /builder/staging_dir/target-x86_64_musl/. /cache/staging_dir-target/
-              fi
-              chown -R "$(id -u buildbot):$(id -g buildbot)" /cache
-            '
-          docker run --rm \
-            --env "STEER_BUILD_CACHE_HIT=${{ steps.openwrt-build-cache.outputs.cache-hit }}" \
+            --env CCACHE_DIR=/work/openwrt/.ccache \
             --volume "$source_dir:/feed:ro" \
             --volume "$output_dir:/artifacts" \
-            --volume "$cache_dir/dl:/builder/dl" \
-            --volume "$cache_dir/build_dir-hostpkg:/builder/build_dir/hostpkg" \
-            --volume "$cache_dir/build_dir-target:/builder/build_dir/target-x86_64_musl" \
-            --volume "$cache_dir/staging_dir-hostpkg:/builder/staging_dir/hostpkg" \
-            --volume "$cache_dir/staging_dir-target:/builder/staging_dir/target-x86_64_musl" \
-            --volume "$cache_dir/tmp:/builder/tmp" \
-            steer-sdk:25.12.5-x86_64
-          # The SDK builds as buildbot, but actions/cache archives as the
-          # runner user. Some package staging files are mode 0600, so make
-          # the finished cache readable without changing its ownership or
-          # removing buildbot's write permissions for the next exact hit.
+            --volume "$ccache_dir:/work/openwrt/.ccache" \
+            steer-openwrt-builder:25.12.5-x86_64
+          # The builder runs as buildbot, while actions/cache archives as runner.
           docker run --rm \
             --user 0:0 \
             --entrypoint /bin/sh \
-            --volume "$cache_dir:/cache" \
-            steer-sdk:25.12.5-x86_64 \
+            --volume "$ccache_dir:/cache" \
+            steer-openwrt-builder:25.12.5-x86_64 \
             -c 'chmod -R a+rX /cache'
           cp -R "$output_dir/bin" "$GITHUB_WORKSPACE/bin"
           if [ -d "$output_dir/logs" ]; then
             cp -R "$output_dir/logs" "$GITHUB_WORKSPACE/logs"
           fi
+
+      - name: Delete previously restored OpenWrt ccache
+        if: ${{ steps.openwrt-ccache.outputs.cache-hit == 'true' }}
+        uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae
+        with:
+          route: DELETE /repos/{repository}/actions/caches?key={key}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_REPOSITORY: ${{ github.repository }}
+          INPUT_KEY: ${{ steps.openwrt-ccache.outputs.cache-primary-key }}
+
+      - name: Save OpenWrt package ccache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/steer-openwrt-ccache
+          key: ${{ steps.openwrt-ccache.outputs.cache-primary-key }}
 
       - name: Collect exact release assets
         env:

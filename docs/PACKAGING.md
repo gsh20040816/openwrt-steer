@@ -48,31 +48,50 @@ Go 核心可执行后，OpenWrt 包将进一步拆成：
 
 ## CI 依赖缓存
 
-Release 工作流缓存 OpenWrt host 工具链和 target 依赖的 `build_dir`/
-`staging_dir`，但不得把上一次的 Steer 自有包当作本次构建结果。缓存命中后，SDK
-必须先通过 OpenWrt 自身的 `package/<name>/clean` 清理 `geoview`、`steer-geodata`、
-`steer` 和 `luci-app-steer`，然后才能刷新第三方依赖的构建时间戳。
+Release 工作流遵循 OpenWrt 官方共享 CI 的缓存边界：固定提交的普通 OpenWrt
+源码树运行在固定 digest 的官方 toolchain 容器中，容器通过 `/prebuilt_tools` 提供
+host tools，通过 `/external-toolchain` 提供交叉工具链。工作流只持久化 package 类型
+的 `.ccache`；target `build_dir`、target `staging_dir`、OpenWrt stamp 和上一次的包
+安装状态一律不缓存，也不通过修改时间戳伪造依赖已完成。
+缓存目录必须挂载到源码树的 `/work/openwrt/.ccache`；OpenWrt make 会将编译进程的
+`CCACHE_DIR` 解析到该位置。挂载到旧 SDK 使用的 `/builder/.ccache` 只会保存一个几乎
+为空的目录，而真正的编译缓存会随容器销毁。入口脚本会核对 make 的解析结果并在
+路径不一致时立即失败。
 
-冷缓存不能直接用空目录覆盖 SDK 的 target 目录。工作流必须先从锁定的 SDK 镜像
-复制预置的内核构建树和 target staging 基线，再以该目录继续构建并写入缓存；否则
-会丢失官方 SDK 已准备的内核文件，错误地触发残缺的内核重建。
+构建配置明确选择 `CONFIG_CCACHE=y` 和用于一次性 CI 的 `CONFIG_AUTOREMOVE=y`。
+ccache 使用官方 package 配置：`compiler_type=gcc`、8 GiB 上限、depend mode，以及
+OpenWrt 官方采用的时间与 include 文件 sloppiness。固定源码提交、toolchain digest
+与 target 进入 cache key；恢复成功后构建会更新 ccache，工作流按官方方式删除旧的
+同 key 缓存并保存更新版本。
 
-SDK 容器以 `buildbot` 用户构建，而 `actions/cache` 由 runner 用户归档。构建结束后
-必须为缓存树补齐只读和目录遍历权限，避免权限不足被 post step 仅记录为 warning、
-却没有真正写入缓存。
+配置 external toolchain 后仍须按官方顺序运行 `make tools/install` 与
+`make toolchain/install`。这两步不会重新编译容器中已有的完整工具链：前者确认并安装
+`/prebuilt_tools` 对应的 host 工具状态，后者生成当前源码树使用的 compiler wrapper，
+并从 `/external-toolchain` 导入 GCC 与 musl 版本信息。直接跳过会使基础库 APK 的版本
+退化为 `unknown`，不是有效的“省略重复构建”。
+
+不直接使用 `ghcr.io/openwrt/sdk` 作为构建根。该全包 SDK 的 `Config-build.in` 将
+约 1190 个 kmod 固定为不可交互的 `default m`；Steer 只要声明一个内核模块依赖，
+kernel package 阶段就会打包大量无关模块。普通源码树配合官方 external toolchain
+保留正常 Kconfig 选择语义，最终配置只选择 `luci-app-steer` 及其依赖，并对异常的
+kmod 数量和已知无关模块设置失败检查。
+
+`ext-toolchain.sh --config x86/64` 会先带入用于完整固件镜像的 x86 默认设备包。
+单包构建在此基础上清除初始 `CONFIG_PACKAGE_*` 选择，再让 Kconfig 从
+`luci-app-steer` 重新选择依赖；配置中出现 target-profile firmware 会立即失败。
+x86 子目标仍会把少量不可交互的默认 kmod 固定为 `y`，单包 make 调用会覆盖这些
+`=y` 项为空，只构建 Steer 依赖选择为 `m` 的内核模块。这样不会为发布 APK 下载
+582 MiB 的 `linux-firmware` 或打包默认网卡、显卡驱动。
+
+external toolchain 不包含与当前源码和 `.config` 对应的内核构建树。由于 Steer 包含
+kmod 依赖，发布流程必须像官方共享 CI 一样先运行 `make target/compile`，生成同一
+ABI 的内核与 `modules.builtin`，再打包内核模块。target `build_dir` 仍不持久化；首次
+编译生成 ccache，后续构建通过同一 package ccache 复用内核 C 编译结果。
+内核和包源码优先从 OpenWrt 官方 `sources.cdn.openwrt.org` 本地镜像获取；下载仍由
+OpenWrt 的 `download.pl` 按包定义的 SHA-256 校验，镜像失败时继续使用上游地址。
 
 发布构建只向 OpenWrt 提交一个 `package/luci-app-steer/compile` 顶层目标；其
 `LUCI_DEPENDS`/`DEPENDS` 会完整选择 `steer`、`geoview`、`steer-geodata` 和第三方
-依赖。不得同时提交四个独立顶层目标，否则共享依赖会被重复展开。用于一次性 CI
-检查的 `CONFIG_AUTOREMOVE=y` 也不得启用，因为它会在目标完成后删除 `build_dir`，
-使下一次即使恢复缓存仍重新编译 OpenSSL、内核等依赖。
-
-缓存命中时，第三方依赖 stamp 必须在 feed 安装和最终 `make defconfig` 全部完成后
-刷新；如果先刷新 stamp 再运行 `defconfig`，新配置的时间戳会立即使恢复的依赖状态
-过期。该顺序修复不改变 SDK、feed 或依赖图，应继续复用同一个精确缓存 key。
-
-缓存只允许精确 key 命中，key 锁定 SDK、base/packages/LuCI feed 与当前依赖图；
-只要 `DEPENDS`/`LUCI_DEPENDS` 选择、SDK 或 feed 锁定变化，就必须升级 key 中的
-`targetdeps-vN`。成功构建会写入完整性标记；下一次精确命中时缺少该标记必须
-立即失败。手动工作流的 `require_build_cache_hit=true` 用于强制验证命中；缓存
-未精确命中时不允许继续构建。
+依赖。OpenWrt 仍会调度这些依赖的标准 prepare/configure/compile/install 流程；
+重复的 C/C++ 编译由 ccache 复用，而不是通过恢复内部 target 状态跳过构建系统。
+Go 编译不属于 ccache 的覆盖范围，不得把 target 状态缓存重新包装成 Go 缓存。
