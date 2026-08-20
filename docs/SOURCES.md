@@ -4,26 +4,25 @@
 依赖 OpenWrt 包管理器安装的 sing-box、SmartDNS、firewall4 与内核模块。SmartDNS 仅属于
 当前迁移参考路径，不是目标架构依赖。
 
-## OpenWrt SDK
+## OpenWrt 构建输入
 
 - 版本与目标：OpenWrt 25.12.5，x86/64；
-- 官方 SDK：`openwrt-sdk-25.12.5-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst`；
-- 官方 SHA-256：`0c8df0151a1e88feb7c03d694d61f6a18d51872815b7c811d76e2b77504d5e9c`；
-- 下载目录：[downloads.openwrt.org/releases/25.12.5/targets/x86/64](https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/)；
-- GitHub 构建入口以 [`openwrt/gh-action-sdk@f5813d30`](https://github.com/openwrt/gh-action-sdk/tree/f5813d30eeef3534b58ac7e79c5d8842b6035434) 为上游基线，仓库内只保留适配固定发布包集合、LuCI 简体中文选择和并行编译所需的最小差异；
+- OpenWrt 源码提交：`f0a60eee2fe051741c643ea6118718aae1ef17fb`；
+- 官方 external toolchain 容器摘要：
+  `sha256:16fe9150edb39da54b50f5d7e99e9baf0f2c9afb16183c54bfb07bc4e08b3b38`；
+- packages feed 提交：`5caa62e0bc9f7fb9b0c12a23267bceb7724214dd`；
+- LuCI feed 提交：`128a7812f4be233c5dd7f7466f534fd888785caf`；
+- 外部 Go bootstrap：官方 `golang:1.26.4-bookworm`，清单摘要
+  `sha256:b305420a68d0f229d91eb3b3ed9e519fcf2cf5461da4bef997bf927e8c0bfd2b`；
 - Artifact Action：[`actions/upload-artifact@043fb46d`](https://github.com/actions/upload-artifact/tree/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)，即使用 Node.js 24 的 `v7.0.1`。
 
-构建使用官方 `ghcr.io/openwrt/sdk:x86_64-25.12.5` 容器。固定 SDK 已包含在按摘要锁定的
-官方镜像层中，并由 GitHub BuildKit 缓存复用；仓库入口不会再次调用镜像内遗留的下载器，
-包编译仍在每次运行中从当前源码重新执行。GitHub cache 只保留与固定 SDK、固定 packages
-feed 对应的下载目录和 Go host toolchain 中间产物，不缓存 Steer、geoview 或 LuCI 的最终 APK；
-每次运行仍执行包下载哈希检查和编译目标。
-Release 同时保存包、SHA-256、构建元数据和 Action 日志；不能仅凭本地工作树生成未留证据的发布包。
+构建使用固定 OpenWrt 源码、官方预构建 host tools 和 external toolchain，不使用全包 SDK
+作为构建根。外部 Go 镜像只提供 OpenWrt 官方配置接口支持的 bootstrap GOROOT；最终 host Go
+和 geoview 仍由固定 packages feed 与固定源码构建。GitHub cache 只持久化 OpenWrt `.ccache`，
+不保存 `dl`、`build_dir`、`staging_dir`、stamp 或最终 APK。
 
-本地发布前验证时解析到的容器清单摘要为
-`sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a`。这个记录用于审计
-本地验证环境；最终 Release 必须且只能由 GitHub Actions 的标签工作流生成，不能上传本地
-编译产物替代 CI 结果。
+Release 同时保存包、SHA-256、构建元数据和 Action 日志；最终 Release 必须且只能由
+GitHub Actions 的标签工作流生成，不能上传本地产物替代 CI 结果。
 
 ## geoview
 

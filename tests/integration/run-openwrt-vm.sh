@@ -165,11 +165,12 @@ cp "$REPO_DIR/tests/fixtures/geo-rules-valid/steer" /etc/config/steer
 /usr/libexec/steer/geodata ensure
 [ "$(cat /var/lib/steer/geodata/current/package.release)" = \
 	"$(cat /usr/share/steer/geodata-seed/release)" ]
-[ -s /var/lib/steer/geodata/current/rules/geosite-category-example.srs ]
+[ -s /var/lib/steer/geodata/current/rules/geosite-category-games@cn.srs ]
 geodata_previous="$(readlink -f /var/lib/steer/geodata/current)"
 geodata_staged=/var/lib/steer/geodata/generation.rollback-test
 geodata_candidate="$TEST_DIR/geodata-rollback-candidate"
 mkdir -p "$geodata_staged" "$geodata_candidate"
+geodata_staged="$(readlink -f "$geodata_staged")"
 printf '%s\n' "$geodata_previous" > "$geodata_candidate/geodata.previous"
 printf '%s\n' "$geodata_staged" > "$geodata_candidate/geodata.staged"
 ln -s "$geodata_staged" /var/lib/steer/geodata/current.rollback-test

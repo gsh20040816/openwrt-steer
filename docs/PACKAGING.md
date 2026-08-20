@@ -94,4 +94,13 @@ OpenWrt 的 `download.pl` 按包定义的 SHA-256 校验，镜像失败时继续
 `LUCI_DEPENDS`/`DEPENDS` 会完整选择 `steer`、`geoview`、`steer-geodata` 和第三方
 依赖。OpenWrt 仍会调度这些依赖的标准 prepare/configure/compile/install 流程；
 重复的 C/C++ 编译由 ccache 复用，而不是通过恢复内部 target 状态跳过构建系统。
-Go 编译不属于 ccache 的覆盖范围，不得把 target 状态缓存重新包装成 Go 缓存。
+Go 编译不属于 ccache 的覆盖范围，不得把 target 状态缓存重新包装成 Go 缓存。builder
+从固定摘要的官方 Go 1.26.4 镜像复制只读 GOROOT，并通过 OpenWrt packages 原生支持的
+`CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT` 与关闭 `CONFIG_GOLANG_BUILD_BOOTSTRAP` 跳过本地
+bootstrap 链；OpenWrt 仍从固定 feed 源码构建并安装自己的 Go host toolchain。
+
+Steer 的策略路由只使用 `ip rule` 与 `ip route` 的 IPv4/IPv6 基础操作，因此依赖 OpenWrt
+默认的 `ip-tiny`，不要求带 libbpf 的 `ip-full`，从而缩小路由器上的安装闭包。OpenWrt 当前
+仍按 `iproute2` 源包级依赖调度构建，因此即使最终配置未选择 `ip-full`、`libbpf` 和 `libelf`，
+构建日志中仍会出现 libbpf、elfutils 和 gettext；这些包不得进入 Steer 的 APK 运行依赖。
+该边界由 OpenWrt VM 集成测试中的双栈 fwmark rule、local route、清理与实际透明代理流量验证。

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=16
+PKG_RELEASE:=17
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Steer contributors
@@ -13,7 +13,7 @@ define Package/steer
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Intent-driven transparent proxy for OpenWrt
-  DEPENDS:=+steer-geodata +bind-dig +ca-bundle +firewall4 +geoview +ip-full \
+  DEPENDS:=+steer-geodata +bind-dig +ca-bundle +firewall4 +geoview +ip-tiny \
 	+kmod-nft-socket +kmod-nft-tproxy +smartdns +ucode +ucode-mod-fs \
 	+ucode-mod-uci
   # Selecting curl/libcurl and sing-box/sing-box-tiny in the 25.12 SDK creates

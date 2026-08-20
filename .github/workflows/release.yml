@@ -47,6 +47,7 @@ jobs:
         with:
           context: .github/actions/openwrt-builder
           build-args: |
+            GO_BOOTSTRAP_IMAGE=docker.io/library/golang:1.26.4-bookworm@sha256:b305420a68d0f229d91eb3b3ed9e519fcf2cf5461da4bef997bf927e8c0bfd2b
             TOOLCHAIN_IMAGE=ghcr.io/openwrt/toolchain@sha256:16fe9150edb39da54b50f5d7e99e9baf0f2c9afb16183c54bfb07bc4e08b3b38
             OPENWRT_REF=f0a60eee2fe051741c643ea6118718aae1ef17fb
           tags: steer-openwrt-builder:25.12.5-x86_64

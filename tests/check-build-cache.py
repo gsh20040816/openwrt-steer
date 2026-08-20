@@ -19,6 +19,7 @@ def fail(message: str) -> None:
 required_workflow_fragments = (
     "actions: write",
     "Build cached OpenWrt source and toolchain image",
+    "GO_BOOTSTRAP_IMAGE=docker.io/library/golang:1.26.4-bookworm@sha256:b305420a68d0f229d91eb3b3ed9e519fcf2cf5461da4bef997bf927e8c0bfd2b",
     "id: openwrt-ccache",
     "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "openwrt-ccache-packages-v2-${{ runner.os }}-25.12.5-x86_64-f0a60eee-16fe9150",
@@ -65,6 +66,9 @@ required_entrypoint_fragments = (
     "'CONFIG_CCACHE=y'",
     "'CONFIG_AUTOREMOVE=y'",
     "'CONFIG_LOCALMIRROR=\"https://sources.cdn.openwrt.org\"'",
+    "'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=\"/external-go\"'",
+    "'# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set'",
+    "Unexpected external Go bootstrap:",
     "staging_dir/host/bin/ccache --zero-stats",
     'make tools/install -j "$(nproc)" BUILD_LOG=1',
     'make toolchain/install -j "$(nproc)" BUILD_LOG=1',
@@ -109,8 +113,11 @@ if ccache_config_position > final_defconfig_position:
     fail("CONFIG_CCACHE must be selected before the final defconfig")
 
 required_dockerfile_fragments = (
+    "ARG GO_BOOTSTRAP_IMAGE",
     "ARG TOOLCHAIN_IMAGE",
     "ARG OPENWRT_REF",
+    "FROM ${GO_BOOTSTRAP_IMAGE} AS go-bootstrap",
+    "COPY --from=go-bootstrap /usr/local/go /external-go",
     "git -C /work/openwrt fetch --depth=1 origin",
     "ln -s /prebuilt_tools/staging_dir/host staging_dir/host",
     "ln -s /prebuilt_tools/build_dir/host build_dir/host",

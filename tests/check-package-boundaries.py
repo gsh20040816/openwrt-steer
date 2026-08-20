@@ -19,9 +19,12 @@ geodata_runtime = (ROOT / "steer/files/usr/libexec/steer/geodata").read_text()
 rpc = (ROOT / "luci-app-steer/root/usr/share/rpcd/ucode/luci.steer").read_text()
 acl = (ROOT / "luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json").read_text()
 
-for dependency in ("steer-geodata", "geoview", "smartdns"):
+for dependency in ("steer-geodata", "geoview", "ip-tiny", "smartdns"):
     if f"+{dependency}" not in steer_makefile:
         fail(f"steer must declare the current external dependency: {dependency}")
+
+if "+ip-full" in steer_makefile:
+    fail("steer only uses policy rule/route operations and must not require ip-full")
 
 extra_depends = [
     line.strip()

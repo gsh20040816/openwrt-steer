@@ -10,6 +10,7 @@ readonly BUILD_PACKAGE=luci-app-steer
 readonly CCACHE_DIR="${CCACHE_DIR:-/work/openwrt/.ccache}"
 readonly CCACHE_CONFIGPATH2=staging_dir/host/etc/ccache.conf
 readonly EXTERNAL_TOOLCHAIN_ROOT=/external-toolchain
+readonly GO_BOOTSTRAP_ROOT=/external-go
 export CCACHE_DIR CCACHE_CONFIGPATH2
 
 group_open=0
@@ -57,6 +58,11 @@ for package in "${PACKAGES[@]}"; do
 done
 
 group 'Configure official external toolchain'
+bootstrap_version="$($GO_BOOTSTRAP_ROOT/bin/go version)"
+[ "$bootstrap_version" = 'go version go1.26.4 linux/amd64' ] || {
+	echo "Unexpected external Go bootstrap: $bootstrap_version" >&2
+	exit 1
+}
 toolchain_dir="$(find "$EXTERNAL_TOOLCHAIN_ROOT" -mindepth 2 -maxdepth 2 \
 	-type d -name 'toolchain-*' -print -quit)"
 [ -n "$toolchain_dir" ] || {
@@ -109,6 +115,8 @@ printf '%s\n' \
 	'CONFIG_CCACHE=y' \
 	'CONFIG_AUTOREMOVE=y' \
 	'CONFIG_LOCALMIRROR="https://sources.cdn.openwrt.org"' \
+	'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/external-go"' \
+	'# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' \
 	'CONFIG_LUCI_LANG_zh_Hans=y' \
 	>> .config
 make defconfig
@@ -124,6 +132,8 @@ grep -Eq '^CONFIG_PACKAGE_luci-app-steer=[my]$' .config
 grep -qx 'CONFIG_CCACHE=y' .config
 grep -qx 'CONFIG_AUTOREMOVE=y' .config
 grep -qx 'CONFIG_LOCALMIRROR="https://sources.cdn.openwrt.org"' .config
+grep -qx 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/external-go"' .config
+grep -qx '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' .config
 grep -qx 'CONFIG_LUCI_LANG_zh_Hans=y' .config
 selected_kmods="$(grep -c '^CONFIG_PACKAGE_kmod-.*=[my]' .config || true)"
 [ "$selected_kmods" -le 100 ] || {

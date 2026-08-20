@@ -42,7 +42,7 @@ config rule 'example_geo'
 	list domain_match 'domain:example.com'
 	list domain_match 'keyword'
 	list domain_match 'regexp:^api[0-9]+[.]example[.]com$'
-	list domain_match 'geosite:category-example'
+	list domain_match 'geosite:category-games@cn'
 	option dns_profile 'direct_dns'
 	option outbound 'direct'
 

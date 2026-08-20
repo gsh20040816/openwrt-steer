@@ -1,4 +1,8 @@
+ARG GO_BOOTSTRAP_IMAGE
 ARG TOOLCHAIN_IMAGE
+
+FROM ${GO_BOOTSTRAP_IMAGE} AS go-bootstrap
+
 FROM ${TOOLCHAIN_IMAGE}
 
 ARG OPENWRT_REF
@@ -7,6 +11,7 @@ LABEL org.opencontainers.image.source="https://github.com/gsh20040816/openwrt-st
 LABEL org.opencontainers.image.description="Pinned OpenWrt source and official external toolchain for Steer releases"
 
 USER root
+COPY --from=go-bootstrap /usr/local/go /external-go
 RUN git init /work/openwrt \
 	&& git -C /work/openwrt remote add origin https://github.com/openwrt/openwrt.git \
 	&& git -C /work/openwrt fetch --depth=1 origin "${OPENWRT_REF}" \
