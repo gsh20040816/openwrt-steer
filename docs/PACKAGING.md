@@ -67,6 +67,10 @@ SDK 容器以 `buildbot` 用户构建，而 `actions/cache` 由 runner 用户归
 检查的 `CONFIG_AUTOREMOVE=y` 也不得启用，因为它会在目标完成后删除 `build_dir`，
 使下一次即使恢复缓存仍重新编译 OpenSSL、内核等依赖。
 
+缓存命中时，第三方依赖 stamp 必须在 feed 安装和最终 `make defconfig` 全部完成后
+刷新；如果先刷新 stamp 再运行 `defconfig`，新配置的时间戳会立即使恢复的依赖状态
+过期。该顺序修复不改变 SDK、feed 或依赖图，应继续复用同一个精确缓存 key。
+
 缓存只允许精确 key 命中，key 锁定 SDK、base/packages/LuCI feed 与当前依赖图；
 只要 `DEPENDS`/`LUCI_DEPENDS` 选择、SDK 或 feed 锁定变化，就必须升级 key 中的
 `targetdeps-vN`。成功构建会写入完整性标记；下一次精确命中时缺少该标记必须

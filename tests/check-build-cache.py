@@ -70,4 +70,8 @@ target_touch_position = ENTRYPOINT.index(
 if clean_position > target_touch_position:
     fail("Steer's own packages must be cleaned before dependency stamps are refreshed")
 
+final_defconfig_position = ENTRYPOINT.index("grep -qx 'CONFIG_LUCI_LANG_zh_Hans=y' .config")
+if final_defconfig_position > target_touch_position:
+    fail("dependency stamps must be refreshed after the final defconfig")
+
 print("OpenWrt build cache checks passed")

@@ -59,6 +59,13 @@ for package in "${PACKAGES[@]}"; do
 	./scripts/feeds install -p "$FEED_NAME" -f "$package"
 done
 
+# LuCI translation APKs are generated subpackages of luci-app-steer. Selecting
+# the language before defconfig keeps the package standard and independently
+# installable without inventing a CI-only package.
+printf '%s\n' 'CONFIG_LUCI_LANG_zh_Hans=y' >> .config
+make defconfig
+grep -qx 'CONFIG_LUCI_LANG_zh_Hans=y' .config
+
 if [ "${STEER_BUILD_CACHE_HIT:-false}" = true ]; then
 	[ -f staging_dir/hostpkg/stamp/.golang_installed ] || {
 		echo 'Host toolchain cache is incomplete.' >&2
@@ -74,21 +81,14 @@ if [ "${STEER_BUILD_CACHE_HIT:-false}" = true ]; then
 	for package in "${PACKAGES[@]}"; do
 		make "package/$package/clean"
 	done
-	# The cache key pins the SDK and packages feed. Feed checkout gives its
-	# Makefiles fresh mtimes on every runner, so refresh dependency build and
-	# install stamps after cleaning Steer's own packages.
+	# Feed checkout and the final defconfig both create fresh inputs on every
+	# runner. Refresh dependency stamps only after both are complete; otherwise
+	# defconfig immediately makes the restored dependency state stale again.
 	find build_dir/hostpkg -type f -name '.*' -exec touch {} +
 	find staging_dir/hostpkg/stamp -type f -exec touch {} +
 	find "$TARGET_BUILD_DIR" -type f -name '.*' -exec touch {} +
 	find "$TARGET_STAGING_DIR/stamp" -type f -exec touch {} +
 fi
-
-# LuCI translation APKs are generated subpackages of luci-app-steer. Selecting
-# the language before defconfig keeps the package standard and independently
-# installable without inventing a CI-only package.
-printf '%s\n' 'CONFIG_LUCI_LANG_zh_Hans=y' >> .config
-make defconfig
-grep -qx 'CONFIG_LUCI_LANG_zh_Hans=y' .config
 
 group 'Check package metadata and downloads'
 download_log="$(mktemp)"

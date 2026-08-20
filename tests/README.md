@@ -9,7 +9,8 @@
 验证命中、冷缓存必须继承 SDK 的 target 基线、归档前保证 runner 可读、记录完整性
 标记，并在刷新第三方依赖时间戳前先清理 Steer 自有包。构建只能提交
 `luci-app-steer` 这一个完整依赖闭包，且不得用 `CONFIG_AUTOREMOVE` 删除待缓存的
-依赖构建目录。
+依赖构建目录。第三方依赖 stamp 必须在最终 `defconfig` 之后刷新，避免配置文件
+时间戳使刚恢复的缓存立即失效。
 
 `tests/ucode/model_test.uc` 直接在 OpenWrt 的 ucode 运行时验证语义模型和编译器。首批回归用例覆盖：
 
