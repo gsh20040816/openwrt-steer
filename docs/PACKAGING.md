@@ -5,8 +5,8 @@
 - 软件、第三方二进制和规则数据必须由系统包管理器安装、升级和删除。
 - Steer 不在运行时下载文件并覆盖 `/usr`，不从网络替换包管理器拥有的文件。
 - 第三方依赖独立成包；Steer 主包只声明依赖，不复制 sing-box、SmartDNS 或 geoview 二进制。
-- `/usr` 是只读发布输入，`/etc` 是用户配置，`/var/lib/steer` 是可重建状态，
-  `/var/run/steer` 是临时运行状态。
+- `/usr` 是只读发布输入，`/etc` 是用户配置，`/var/lib/steer` 保存可重建 Geo 派生物和唯一的
+  `rollback.uci`，`/run/steer` 是临时运行状态。
 - 生成物不作为包更新输入；删除生成物后必须能从包和配置重新构建。
 
 ## 当前 OpenWrt 包
@@ -27,7 +27,7 @@
 
 ## M1 包布局
 
-- `steer-openwrt`：一个按需运行的静态 Go 控制程序及 OpenWrt 生命周期适配；
+- `steer-openwrt`：按需运行的静态 Go 控制程序 `/usr/sbin/steer` 及 OpenWrt 生命周期适配；
 - `luci-app-steer`：只依赖 `steer-openwrt`；
 - `steer-geodata`：独立版本化数据包；
 - `geoview`：独立转换工具。

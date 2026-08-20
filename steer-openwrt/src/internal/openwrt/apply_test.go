@@ -3,6 +3,7 @@ package openwrt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,8 @@ func (runner *applyRunner) Output(_ context.Context, name string, args ...string
 		return []byte(`{"nftables":[]}`), nil
 	case call == "ip -json -4 rule show", call == "ip -json -6 rule show":
 		return []byte(`[{"priority":32766,"table":254}]`), nil
+	case call == "ip -json -4 route show table all", call == "ip -json -6 route show table all":
+		return []byte(`[{"dst":"default","table":254}]`), nil
 	case call == "ip -4 route flush table 2023", call == "ip -6 route flush table 2023":
 		return nil, nil
 	case strings.HasPrefix(call, "/test/nft -f "):
@@ -52,18 +55,20 @@ func (runner *applyRunner) Output(_ context.Context, name string, args ...string
 	}
 }
 
-func TestApplyCommitsHealthyCandidateAndPrunesOldGeneration(t *testing.T) {
+func TestApplyCommitsHealthyCandidateWithoutRunningConfiguredProbes(t *testing.T) {
 	root := t.TempDir()
+	requests := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-		response.WriteHeader(http.StatusNoContent)
+		requests++
+		response.WriteHeader(http.StatusBadGateway)
 	}))
 	defer server.Close()
 	config := strings.Replace(minimalConfig, "option log_level 'warn'", "option log_level 'warn'\n\tlist probe_url '"+server.URL+"'", 1)
 	configPath, runDirectory := writeApplyFixture(t, root, config, nil)
 	runner := &applyRunner{}
 	result, err := Apply(context.Background(), runner, ApplyOptions{
-		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"},
-		InitScript: "/test/init", HTTPClient: server.Client(), HealthTimeout: time.Second,
+		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)},
+		InitScript: "/test/init", HealthTimeout: time.Second,
 		CheckListeners: func(ports []int) error {
 			if len(ports) != 1 || ports[0] != 1053 {
 				return fmt.Errorf("unexpected listeners: %v", ports)
@@ -74,8 +79,11 @@ func TestApplyCommitsHealthyCandidateAndPrunesOldGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.OK || result.RolledBack || len(result.Probes) != 1 || !result.Probes[0].OK {
+	if !result.OK {
 		t.Fatalf("unexpected apply result: %#v", result)
+	}
+	if requests != 0 {
+		t.Fatalf("Apply ran %d configured HTTPS probes", requests)
 	}
 	entries, err := os.ReadDir(filepath.Join(runDirectory, "generations"))
 	if err != nil {
@@ -86,37 +94,131 @@ func TestApplyCommitsHealthyCandidateAndPrunesOldGeneration(t *testing.T) {
 	}
 }
 
-func TestApplyRestoresUCIWhenProbeFails(t *testing.T) {
+func TestApplyHealthFailurePreservesCandidateAndFailureScene(t *testing.T) {
+	root := t.TempDir()
+	configPath, runDirectory := writeApplyFixture(t, root, minimalConfig, nil)
+	runner := &applyRunner{}
+	result, err := Apply(context.Background(), runner, ApplyOptions{
+		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)},
+		InitScript: "/test/init", HealthTimeout: time.Millisecond,
+		CheckListeners: func([]int) error { return errors.New("listener missing") },
+	})
+	if err == nil {
+		t.Fatal("unhealthy candidate was accepted")
+	}
+	if result.OK || result.Generation == "" {
+		t.Fatalf("failure result lost candidate identity: %#v", result)
+	}
+	preserved, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(preserved) != minimalConfig {
+		t.Fatalf("candidate UCI was rewritten: %q", preserved)
+	}
+	if _, err := os.Readlink(filepath.Join(runDirectory, "current")); err != nil {
+		t.Fatalf("candidate failure scene was removed: %v", err)
+	}
+	calls := strings.Join(runner.calls, "\n")
+	if strings.Count(calls, "/test/init stop") != 1 || strings.Count(calls, "STEER_USE_CURRENT=1 /test/init start") != 1 {
+		t.Fatalf("failure unexpectedly ran a rollback sequence:\n%s", calls)
+	}
+}
+
+func TestApplyBacksUpHealthyCurrentAndRollbackConsumesBackup(t *testing.T) {
+	root := t.TempDir()
+	oldConfig := []byte(strings.Replace(minimalConfig, "option log_level 'warn'", "option log_level 'error'", 1))
+	configPath, runDirectory := writeApplyFixture(t, root, minimalConfig, oldConfig)
+	writeCurrentPlan(t, runDirectory)
+	backupPath := filepath.Join(root, "state", "rollback.uci")
+	runner := &applyRunner{}
+	options := ApplyOptions{
+		Prepare:        PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)},
+		InitScript:     "/test/init",
+		BackupPath:     backupPath,
+		HealthTimeout:  time.Second,
+		CheckListeners: func([]int) error { return nil },
+	}
+	if result, err := Apply(context.Background(), runner, options); err != nil || !result.OK {
+		t.Fatalf("apply failed: result=%#v error=%v", result, err)
+	}
+	backup, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != string(oldConfig) {
+		t.Fatalf("rollback backup is not the previous healthy UCI: %q", backup)
+	}
+	if result, err := Rollback(context.Background(), runner, options); err != nil || !result.OK {
+		t.Fatalf("rollback failed: result=%#v error=%v", result, err)
+	}
+	restored, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restored) != string(oldConfig) {
+		t.Fatalf("rollback did not restore UCI: %q", restored)
+	}
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Fatalf("successful rollback did not consume backup: %v", err)
+	}
+}
+
+func TestProbeCurrentReportsFailuresWithoutApplying(t *testing.T) {
 	root := t.TempDir()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusBadGateway)
 	}))
 	defer server.Close()
-	config := strings.Replace(minimalConfig, "option log_level 'warn'", "option log_level 'warn'\n\tlist probe_url '"+server.URL+"'", 1)
-	oldConfig := []byte("old configuration\n")
-	configPath, runDirectory := writeApplyFixture(t, root, config, oldConfig)
-	runner := &applyRunner{}
-	result, err := Apply(context.Background(), runner, ApplyOptions{
-		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"},
-		InitScript: "/test/init", HTTPClient: server.Client(), HealthTimeout: time.Second,
-		CheckListeners: func([]int) error { return nil },
+	runDirectory := filepath.Join(root, "run")
+	current := filepath.Join(runDirectory, "current")
+	if err := os.MkdirAll(current, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan := fmt.Sprintf(`{"probes":[%q]}`, server.URL)
+	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := ProbeCurrent(context.Background(), runDirectory, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK || len(report.Results) != 1 || report.Results[0].Attempts != 2 {
+		t.Fatalf("unexpected probe report: %#v", report)
+	}
+}
+
+func TestProbeCurrentRejectsEmptyDiagnosticPlan(t *testing.T) {
+	runDirectory := filepath.Join(t.TempDir(), "run")
+	current := filepath.Join(runDirectory, "current")
+	if err := os.MkdirAll(current, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(`{"probes":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ProbeCurrent(context.Background(), runDirectory, nil); err == nil {
+		t.Fatal("empty manual diagnostic was reported successful")
+	}
+}
+
+func TestRollbackFailureKeepsSingleUseBackup(t *testing.T) {
+	root := t.TempDir()
+	configPath, runDirectory := writeApplyFixture(t, root, minimalConfig, nil)
+	backupPath := filepath.Join(root, "rollback.uci")
+	broken := []byte("config steer 'main'\n\toption schema_version '3'\n")
+	if err := os.WriteFile(backupPath, broken, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Rollback(context.Background(), &applyRunner{}, ApplyOptions{
+		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory},
+		BackupPath: backupPath,
 	})
-	if err == nil {
-		t.Fatal("failed HTTPS probe was accepted")
+	if err == nil || result.OK {
+		t.Fatalf("invalid rollback backup was accepted: result=%#v error=%v", result, err)
 	}
-	if result.OK || !result.RolledBack || len(result.Probes) != 1 || result.Probes[0].Attempts != 2 {
-		t.Fatalf("unexpected rollback result: %#v", result)
-	}
-	restored, readErr := os.ReadFile(configPath)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(restored) != string(oldConfig) {
-		t.Fatalf("UCI was not restored: %q", restored)
-	}
-	calls := strings.Join(runner.calls, "\n")
-	if strings.Count(calls, "/test/init stop") != 2 || !strings.HasSuffix(calls, "/test/init start") {
-		t.Fatalf("rollback service sequence is incomplete:\n%s", calls)
+	if _, err := os.Stat(backupPath); err != nil {
+		t.Fatalf("failed rollback consumed its backup: %v", err)
 	}
 }
 
@@ -132,7 +234,7 @@ func TestApplyDisabledStopsAndRemovesRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.OK || result.RolledBack || len(result.Probes) != 0 {
+	if !result.OK {
 		t.Fatalf("unexpected disable result: %#v", result)
 	}
 	if _, err := os.Lstat(filepath.Join(runDirectory, "current")); !os.IsNotExist(err) {
@@ -143,6 +245,14 @@ func TestApplyDisabledStopsAndRemovesRuntimeState(t *testing.T) {
 	}
 	if calls := strings.Join(runner.calls, "\n"); calls != "/test/init stop" {
 		t.Fatalf("disable executed unexpected commands: %s", calls)
+	}
+}
+
+func writeCurrentPlan(t *testing.T, runDirectory string) {
+	t.Helper()
+	plan := `{"resources":{"dns_port":1053,"tun_interface":"steer0"}}`
+	if err := os.WriteFile(filepath.Join(runDirectory, "current", "plan.json"), []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

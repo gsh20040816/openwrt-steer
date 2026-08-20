@@ -13,9 +13,8 @@ output_dir="${2:-dist}"
 
 mkdir -p "$output_dir"
 
-for package in geoview steer-geodata steer luci-app-steer luci-i18n-steer-zh-cn; do
+for package in geoview steer-geodata steer-openwrt luci-app-steer luci-i18n-steer-zh-cn; do
 	pattern="$package-*.apk"
-	[ "$package" != steer ] || pattern='steer-[0-9]*.apk'
 	set -- $(find "$package_root" -type f -name "$pattern" | sort)
 	if [ "$#" -ne 1 ]; then
 		echo "Expected exactly one $package APK, found $#" >&2

@@ -21,6 +21,14 @@ func TestValidateRepresentativeIntent(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsNoManualHTTPSProbes(t *testing.T) {
+	intent := validIntent()
+	intent.Main.ProbeURLs = nil
+	if validation := Validate(intent); !validation.OK {
+		t.Fatalf("manual HTTPS probes became an Apply requirement: %#v", validation.Errors)
+	}
+}
+
 func TestValidateRejectsBrokenReferencesAndOldSchema(t *testing.T) {
 	intent := validIntent()
 	intent.Main.SchemaVersion = 3

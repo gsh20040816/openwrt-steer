@@ -1,29 +1,16 @@
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 
 'use strict';
 'require baseclass';
 'require rpc';
+'require uci';
 'require ui';
 
-const callStatus = rpc.declare({
-	object: 'luci.steer',
-	method: 'status',
-	expect: { '': {} }
-});
-
-const callApply = rpc.declare({
-	object: 'luci.steer',
-	method: 'apply',
-	expect: { '': {} }
-});
-
-const callGeodataCatalog = rpc.declare({
-	object: 'luci.steer',
-	method: 'geodata_catalog',
-	expect: { '': {} }
-});
+const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
+const callPlan = rpc.declare({ object: 'luci.steer', method: 'plan', expect: { '': {} } });
+const callGeodataCatalog = rpc.declare({ object: 'luci.steer', method: 'geodata_catalog', expect: { '': {} } });
+const callRollback = rpc.declare({ object: 'luci.steer', method: 'rollback', expect: { '': {} } });
+const callUCICommit = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ], expect: { '': 0 } });
 
 function issueText(issue) {
 	let target = issue.object_type || _('Configuration');
@@ -37,65 +24,87 @@ function issueText(issue) {
 function resultMessage(result) {
 	if (result?.validation?.errors?.length)
 		return E('ul', {}, result.validation.errors.map((issue) => E('li', {}, issueText(issue))));
-	return E('p', {}, result?.output || result?.error || _('Apply failed without a diagnostic message.'));
+	return E('p', {}, result?.error || _('Apply failed without a diagnostic message.'));
 }
 
-function conflictDescription(conflict) {
-	let states = [];
-	if (conflict.enabled)
-		states.push(_('enabled at boot'));
-	if (conflict.running)
-		states.push(_('currently running'));
-	return '%s: %s'.format(conflict.name, states.join(', '));
+function stateText(value) {
+	return value ? _('Ready') : _('Not ready');
+}
+
+function waitForApply(sequence, attempts) {
+	return L.resolveDefault(callStatus(), null).then((status) => {
+		if (status?.last_apply?.sequence && status.last_apply.sequence !== sequence)
+			return { result: status.last_apply.result, status };
+		if (attempts <= 0)
+			return { result: { ok: false, error: _('Timed out waiting for the committed Steer configuration to reload.') }, status };
+		return new Promise((resolve) => window.setTimeout(resolve, 250))
+			.then(() => waitForApply(sequence, attempts - 1));
+	});
 }
 
 return baseclass.extend({
 	loadStyle: function() {
-		const id = 'steer-stylesheet';
-		if (document.getElementById(id))
+		if (document.getElementById('steer-stylesheet'))
 			return;
-		document.head.appendChild(E('link', {
-			id,
-			rel: 'stylesheet',
-			href: L.resource('steer/steer.css')
-		}));
+		document.head.appendChild(E('link', { id: 'steer-stylesheet', rel: 'stylesheet', href: L.resource('steer/steer.css') }));
 	},
 
-	status: function() {
-		return L.resolveDefault(callStatus(), {});
-	},
-
-	geodataCatalog: function() {
-		return L.resolveDefault(callGeodataCatalog(), {});
-	},
+	status: function() { return L.resolveDefault(callStatus(), {}); },
+	plan: function() { return L.resolveDefault(callPlan(), {}); },
+	geodataCatalog: function() { return L.resolveDefault(callGeodataCatalog(), {}); },
 
 	apply: function(view, ev, mode) {
-		return view.handleSave(ev)
-			.then(() => ui.changes.apply(mode == '0'))
+		let previousSequence = '';
+		return L.resolveDefault(callStatus(), {})
+			.then((status) => { previousSequence = status?.last_apply?.sequence || ''; })
+			.then(() => view.handleSave(ev))
+			.then(() => callUCICommit('steer'))
+			.then(() => uci.changes())
+			.then((changes) => ui.changes.renderChangeIndicator(changes))
 			.then(() => {
-				ui.showModal(_('Starting Steer'), [
-					E('p', { 'class': 'spinning' },
-						_('Checking conflicts, generating configuration and verifying services.')),
-					E('p', {}, _('Do not start another transparent proxy or the system SmartDNS while this check is running.'))
-				]);
-				return L.resolveDefault(callApply(), {
-					ok: false,
-					error: _('The apply request failed before Steer returned a diagnostic message.')
-				});
+				ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate execution plan.')) ]);
+				return waitForApply(previousSequence, 240);
 			})
-			.then((result) => L.resolveDefault(callStatus(), null).then((status) => ({ result, status })))
 			.then(({ result, status }) => {
-				if (status != null)
+				if (status)
 					this.refreshStatus(status);
 				ui.hideModal();
 				if (!result?.ok) {
-					ui.addNotification(_('Steer did not apply the changes'), resultMessage(result), 'danger');
+					ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
 					return result;
 				}
-
-				ui.addNotification(null, E('p', {}, result.output || _('Steer configuration applied.')), 'info');
+				ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
 				return result;
 			});
+	},
+
+	confirmRollback: function() {
+		ui.showModal(_('Restore previous Steer configuration?'), [
+			E('p', {}, _('This restores the single saved configuration and applies it immediately. The backup is deleted after a successful restore.')),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Cancel')),
+				' ',
+				E('button', {
+					'class': 'btn cbi-button-negative',
+					'click': ui.createHandlerFn(this, function() {
+						ui.showModal(_('Restoring Steer'), [ E('p', { 'class': 'spinning' }, _('Restoring and applying the previous configuration.')) ]);
+						return callRollback()
+							.then((result) => callStatus().then((status) => ({ result, status })))
+							.then(({ result, status }) => {
+								this.refreshStatus(status);
+								ui.hideModal();
+								if (!result?.ok) {
+									ui.addNotification(_('Steer restore failed'), resultMessage(result), 'danger');
+									return result;
+								}
+								ui.addNotification(null, E('p', {}, _('Previous Steer configuration restored.')), 'info');
+								window.location.reload();
+								return result;
+							});
+					})
+				}, _('Restore previous configuration'))
+			])
+		]);
 	},
 
 	refreshStatus: function(status) {
@@ -105,65 +114,37 @@ return baseclass.extend({
 	},
 
 	renderStatus: function(status) {
-		const running = status?.core_running && status?.network_loaded &&
-			status?.dns_total > 0 && status?.dns_running == status?.dns_total;
-		const conflicts = status?.conflicts || [];
-		const conflictsMatter = status?.desired_enabled && conflicts.length > 0;
-		let headline = _('Traffic steering is not fully active');
+		const valid = status?.validation?.ok === true;
+		let headline = _('Steer is disabled');
 		let stateClass = 'is-stopped';
 		let panelClass = '';
-
-		if (status?.runtime_state == 'applying' || status?.runtime_state == 'stopping') {
-			headline = status.runtime_state == 'applying' ? _('Steer is starting') : _('Steer is stopping');
-			stateClass = 'is-starting';
-			panelClass = ' steer-status--starting';
-		}
-		else if (status?.runtime_state == 'failed') {
-			headline = _('The last apply failed');
+		if (!valid) {
+			headline = _('The saved configuration is invalid');
 			panelClass = ' steer-status--error';
 		}
-		else if (conflictsMatter) {
-			headline = _('Steer is blocked by conflicting services');
-			panelClass = ' steer-status--error';
-		}
-		else if (!status?.desired_enabled && running) {
-			headline = _('Steer is still running while disabled');
-			panelClass = ' steer-status--error';
-		}
-		else if (running) {
+		else if (status?.healthy) {
 			headline = _('Traffic steering is active');
 			stateClass = 'is-running';
 		}
-		else if (!status?.desired_enabled) {
-			headline = _('Steer is disabled');
+		else if (status?.desired_enabled) {
+			headline = _('Traffic steering is not healthy');
+			panelClass = ' steer-status--error';
 		}
-		const showRuntimeMessage = status?.runtime_message && (
-			status.runtime_state == 'failed' ||
-			(!conflictsMatter && (
-				[ 'applying', 'stopping' ].includes(status.runtime_state) ||
-				(status.runtime_state == 'active' && running) ||
-				(status.runtime_state == 'disabled' && !running))));
-
-		const state = E('div', { 'class': 'steer-status' + panelClass }, [
-			E('div', { 'class': 'steer-status__lead' }, [
-				E('span', { 'class': 'steer-status__eyebrow' }, _('Current state')),
-				E('strong', { 'class': stateClass }, headline),
-				showRuntimeMessage ? E('span', { 'class': 'steer-status__message' }, status.runtime_message) : ''
-			]),
-			E('dl', { 'class': 'steer-status__facts' }, [
-				E('div', {}, [ E('dt', {}, _('Configuration switch')), E('dd', {}, status?.desired_enabled ? _('Enabled') : _('Disabled')) ]),
-				E('div', {}, [ E('dt', {}, _('Core')), E('dd', {}, status?.core_running ? _('Running') : _('Stopped')) ]),
-				E('div', {}, [ E('dt', {}, _('DNS profiles')), E('dd', {}, '%d / %d'.format(status?.dns_running || 0, status?.dns_total || 0)) ]),
-				E('div', {}, [ E('dt', {}, _('Network')), E('dd', {}, status?.network_loaded ? _('Running') : _('Stopped')) ]),
-				E('div', {}, [ E('dt', {}, _('Recovery point')), E('dd', {}, status?.has_last_known_good ? _('Ready') : _('Not created')) ])
-			])
-		]);
-		const conflictAlert = conflictsMatter ? E('div', { 'class': 'steer-conflict-alert' }, [
-			E('strong', {}, _('Stop and disable conflicting services before starting Steer')),
-			E('ul', {}, conflicts.map((conflict) => E('li', {}, conflictDescription(conflict)))),
-			E('p', {}, _('Steer will not stop or disable another service automatically.'))
-		]) : null;
-		return E('div', { 'id': 'steer-runtime-status' },
-			[ conflictAlert, state ].filter((item) => item != null));
+		const facts = [
+			[ _('Configuration'), valid ? _('Valid') : _('Invalid') ],
+			[ _('Core process'), stateText(status?.core_running) ],
+			[ _('TUN interface'), stateText(status?.tun_ready) ],
+			[ _('Firewall shim'), stateText(status?.firewall_ready) ],
+			[ _('Listeners'), stateText(status?.listeners_ready) ]
+		];
+		return E('div', { 'id': 'steer-runtime-status' }, E('div', { 'class': 'steer-status' + panelClass }, [
+			E('div', { 'class': 'steer-status__lead' }, [ E('span', { 'class': 'steer-status__eyebrow' }, _('Current state')), E('strong', { 'class': stateClass }, headline) ]),
+			E('dl', { 'class': 'steer-status__facts' }, facts.map((fact) => E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, fact[1]) ]))),
+			!valid && status?.validation?.errors?.length ? E('ul', {}, status.validation.errors.map((issue) => E('li', {}, issueText(issue)))) : '',
+			status?.rollback_available ? E('p', {}, E('button', {
+				'class': 'btn cbi-button cbi-button-negative',
+				'click': ui.createHandlerFn(this, this.confirmRollback)
+			}, _('Restore previous configuration'))) : ''
+		]));
 	}
 });

@@ -1,0 +1,50 @@
+config steer 'main'
+	option schema_version '4'
+	option enabled '1'
+	list managed_zone 'lan'
+	option log_level 'warn'
+	option dns_cache_capacity '4096'
+	list probe_url 'https://openwrt.org/'
+
+config bootstrap 'bootstrap'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+	option strategy 'prefer_ipv4'
+
+config route 'direct'
+	option kind 'direct'
+
+config route 'block'
+	option kind 'block'
+
+config dns_profile 'public'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+	option strategy 'prefer_ipv4'
+
+config local_proxy 'local'
+	option protocol 'mixed'
+	option listen '127.0.0.1'
+	option listen_port '1090'
+
+config rule 'mac_direct'
+	list source_mac_address '02:00:00:00:00:10'
+	option dns_profile 'public'
+	option route 'direct'
+
+config rule 'local_direct'
+	list inbound 'local'
+	option dns_profile 'public'
+	option route 'direct'
+
+config rule 'blocked'
+	list domain_match 'domain:blocked.invalid'
+	option dns_profile 'public'
+	option route 'block'
+
+config rule 'default'
+	option default '1'
+	option dns_profile 'public'
+	option route 'direct'

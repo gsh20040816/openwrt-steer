@@ -68,6 +68,28 @@ func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
 	}
 }
 
+func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
+	intent := representativeIntent()
+	blockRule := model.Rule{ID: "blocked", Enabled: true, DNSProfile: "public", Route: "block", DomainMatch: []string{"domain:blocked.example"}}
+	intent.Rules = append(intent.Rules[:len(intent.Rules)-1], blockRule, intent.Rules[len(intent.Rules)-1])
+	bundle := Compile(intent)
+	if !bundle.Validation.OK {
+		t.Fatalf("compile failed: %#v", bundle.Validation.Errors)
+	}
+	dns := bundle.SingBox["dns"].(map[string]any)
+	servers, _ := json.Marshal(dns["servers"])
+	if strings.Contains(string(servers), `"tag":"steer-dns-bootstrap","detour"`) || strings.Contains(string(servers), `"tag":"steer-dns-public-via-direct","detour"`) {
+		t.Fatalf("direct DNS transport has an invalid direct detour: %s", servers)
+	}
+	if !strings.Contains(string(servers), `"detour":"steer-route-proxy"`) {
+		t.Fatalf("proxy DNS transport lost its fixed route: %s", servers)
+	}
+	rules, _ := json.Marshal(dns["rules"])
+	if !strings.Contains(string(rules), `"domain_suffix":["blocked.example"],"action":"reject"`) && !strings.Contains(string(rules), `"action":"reject","domain_suffix":["blocked.example"]`) {
+		t.Fatalf("block DNS projection is not a reject action: %s", rules)
+	}
+}
+
 func TestCompileIsDeterministic(t *testing.T) {
 	first := Compile(representativeIntent())
 	second := Compile(representativeIntent())

@@ -59,10 +59,6 @@ func Validate(intent Intent) Validation {
 			err("INVALID_PROBE_URL", "steer", intent.Main.ID, "probe_url", "probe must be an HTTPS URL without credentials or fragment: "+raw)
 		}
 	}
-	if len(intent.Main.ProbeURLs) == 0 {
-		err("NO_PROBE_URL", "steer", intent.Main.ID, "probe_url", "at least one HTTPS Apply probe is required")
-	}
-
 	validateBootstrap(intent.Bootstrap, err)
 
 	globalIDs := map[string]string{}

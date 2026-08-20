@@ -58,7 +58,11 @@ func RenderFirewall(plan compiler.Plan, requestedDevices []string) (string, erro
 	add(fmt.Sprintf("\t\tiifname @managed_devices meta l4proto { tcp, udp } th dport 53 counter redirect to :%d", plan.Resources.DNSPort), "\t}",
 		"\tchain dns_output {", "\t\ttype nat hook output priority mangle - 2; policy accept;",
 		fmt.Sprintf("\t\tmeta mark 0x%x counter return", plan.Resources.AutoRedirectOutputMark),
-		fmt.Sprintf("\t\tmeta l4proto { tcp, udp } th dport 53 counter redirect to :%d", plan.Resources.DNSPort), "\t}",
+		fmt.Sprintf("\t\tmeta nfproto ipv4 meta l4proto { tcp, udp } th dport 53 counter dnat ip to 127.0.0.1:%d", plan.Resources.DNSPort),
+		fmt.Sprintf("\t\tmeta nfproto ipv6 meta l4proto { tcp, udp } th dport 53 counter dnat ip6 to [::1]:%d", plan.Resources.DNSPort), "\t}",
+		"\tchain dns_postrouting {", "\t\ttype nat hook postrouting priority srcnat - 2; policy accept;",
+		fmt.Sprintf("\t\tmeta nfproto ipv4 meta l4proto { tcp, udp } ip daddr 127.0.0.1 th dport %d counter snat ip to 127.0.0.1", plan.Resources.DNSPort),
+		fmt.Sprintf("\t\tmeta nfproto ipv6 meta l4proto { tcp, udp } ip6 daddr ::1 th dport %d counter snat ip6 to ::1", plan.Resources.DNSPort), "\t}",
 		"\tchain system_output {", "\t\ttype route hook output priority mangle - 2; policy accept;",
 		fmt.Sprintf("\t\tmeta l4proto udp udp dport 123 counter meta mark set 0x%x", plan.Resources.AutoRedirectOutputMark), "\t}")
 	if len(plan.Resources.MACBindings) > 0 {

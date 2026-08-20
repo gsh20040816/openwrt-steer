@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
+
+	"github.com/gsh20040816/openwrt-steer/steer-openwrt/internal/uci"
 )
 
 type Runner interface {
@@ -30,7 +33,11 @@ type Environment struct {
 }
 
 func ResolveEnvironment(ctx context.Context, runner Runner, zones []string) (Environment, error) {
-	devices, err := resolveManagedDevices(ctx, runner, zones)
+	return ResolveEnvironmentWithConfig(ctx, runner, zones, "/etc/config/firewall")
+}
+
+func ResolveEnvironmentWithConfig(ctx context.Context, runner Runner, zones []string, firewallConfigPath string) (Environment, error) {
+	devices, err := resolveManagedDevices(ctx, runner, zones, firewallConfigPath)
 	if err != nil {
 		return Environment{}, err
 	}
@@ -46,24 +53,30 @@ func ResolveEnvironment(ctx context.Context, runner Runner, zones []string) (Env
 	return Environment{ManagedDevices: devices, WANDevice: wan}, nil
 }
 
-func resolveManagedDevices(ctx context.Context, runner Runner, requested []string) ([]string, error) {
+func resolveManagedDevices(ctx context.Context, runner Runner, requested []string, firewallConfigPath string) ([]string, error) {
 	if len(requested) == 0 {
 		return nil, fmt.Errorf("no managed firewall zone requested")
 	}
-	output, err := runner.Output(ctx, "ubus", "call", "uci", "get", `{"config":"firewall","type":"zone"}`)
+	file, err := os.Open(firewallConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("read firewall zones: %w", err)
 	}
-	var response struct {
-		Values map[string]map[string]any `json:"values"`
-	}
-	if err := json.Unmarshal(output, &response); err != nil {
+	defer file.Close()
+	document, err := uci.ParseSystemConfig(file)
+	if err != nil {
 		return nil, fmt.Errorf("decode firewall zones: %w", err)
 	}
 	zones := map[string]map[string]any{}
-	for _, value := range response.Values {
-		if name, ok := value["name"].(string); ok && name != "" {
-			zones[name] = value
+	for _, section := range document.Sections {
+		if section.Type != "zone" {
+			continue
+		}
+		name := section.Options["name"]
+		if name != "" {
+			zones[name] = map[string]any{
+				"device":  append(stringValues(section.Options["device"]), section.Lists["device"]...),
+				"network": append(stringValues(section.Options["network"]), section.Lists["network"]...),
+			}
 		}
 	}
 	seen := map[string]bool{}

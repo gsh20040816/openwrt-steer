@@ -1,0 +1,26 @@
+config steer 'main'
+	option schema_version '4'
+	option enabled '0'
+	list managed_zone 'lan'
+	option log_level 'warn'
+	option dns_cache_capacity '4096'
+
+config bootstrap 'bootstrap'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+	option strategy 'prefer_ipv4'
+
+config route 'direct'
+	option kind 'direct'
+
+config dns_profile 'direct_dns'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+	option strategy 'prefer_ipv4'
+
+config rule 'default'
+	option default '1'
+	option dns_profile 'direct_dns'
+	option route 'direct'

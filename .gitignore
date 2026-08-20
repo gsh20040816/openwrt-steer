@@ -1,4 +1,5 @@
 /bin/
+/steer-openwrt/src/bin/
 /dist/
 /logs/
 /.private/

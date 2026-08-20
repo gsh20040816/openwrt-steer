@@ -1,0 +1,55 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+START=99
+STOP=10
+USE_PROCD=1
+
+CONTROL=/usr/sbin/steer
+SING_BOX=/usr/bin/sing-box
+RUN_DIRECTORY=/run/steer
+
+steer_enabled() {
+	config_load steer || return 2
+	local count=0 enabled=0
+	read_main() {
+		count=$((count + 1))
+		config_get_bool enabled "$1" enabled 0
+	}
+	config_foreach read_main steer
+	[ "$count" -eq 1 ] || return 2
+	[ "$enabled" -eq 1 ]
+}
+
+start_service() {
+	steer_enabled
+	local enabled_result=$?
+	[ "$enabled_result" -eq 1 ] && return 0
+	[ "$enabled_result" -eq 0 ] || return "$enabled_result"
+
+	if [ "${STEER_USE_CURRENT:-0}" != 1 ]; then
+		"$CONTROL" prepare --activate >/dev/null || return 1
+	fi
+	[ -s "$RUN_DIRECTORY/current/sing-box.json" ] || return 1
+
+	procd_open_instance sing-box
+	procd_set_param command "$SING_BOX" run -c "$RUN_DIRECTORY/current/sing-box.json"
+	procd_set_param file "$RUN_DIRECTORY/current/sing-box.json"
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+service_stopped() {
+	[ -s "$RUN_DIRECTORY/current/bundle.json" ] || return 0
+	"$CONTROL" cleanup
+}
+
+reload_service() {
+	"$CONTROL" apply >/dev/null
+}
+
+service_triggers() {
+	procd_add_reload_trigger steer
+}

@@ -1,176 +1,60 @@
 #!/usr/bin/ucode
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 
 'use strict';
 
-import { access, popen, readfile } from 'fs';
-import { connect } from 'ubus';
-import { load_uci_model, validate_model } from '/usr/share/steer/model.uc';
+import { access, popen } from 'fs';
 
-const ubus = connect();
-
-function current_validation() {
-	return validate_model(load_uci_model('steer'));
-}
-
-function nft_counter(name) {
-	const process = popen(`/usr/sbin/nft list counter inet steer ${name} 2>/dev/null`);
+function command_json(command) {
+	const process = popen(command);
 	if (!process)
-		return { packets: 0, bytes: 0, iana_registry_date: null };
-
-	const output = process.read('all');
-	process.close();
-	const values = match(output || '', /packets ([0-9]+) bytes ([0-9]+)/);
-	const registry = match(output || '', /registry ([0-9]{4}-[0-9]{2}-[0-9]{2})/);
-	return values == null ? { packets: 0, bytes: 0, iana_registry_date: null } : {
-		packets: int(values[1]),
-		bytes: int(values[2]),
-		iana_registry_date: registry == null ? null : registry[1]
-	};
-}
-
-function geodata_catalog(kind) {
-	const process = popen(`/usr/libexec/steer/geodata catalog ${kind} 2>&1`);
-	if (!process)
-		return { ok: false, names: [], error: `无法读取 ${kind} 分类目录` };
-
+		return { ok: false, error: '无法启动 Steer 控制程序' };
 	const output = process.read('all') || '';
 	const status = process.close();
-	let names = [];
-	for (let line in split(output, '\n')) {
-		line = trim(line);
-		if (line == '' || line == 'Available codes:')
-			continue;
-		if (status === 0 && match(line, /^[a-z0-9_!.\-]+(@[a-z0-9_!.\-]+)?$/) != null)
-			push(names, line);
+	let result;
+	try {
+		result = json(output);
 	}
-	return status === 0 ? { ok: true, names } : {
-		ok: false,
-		names: [],
-		error: trim(output) || `${kind} 分类目录读取失败`
-	};
-}
-
-function service_enabled(name) {
-	if (!access(`/etc/init.d/${name}`))
-		return false;
-
-	const process = popen(`/etc/init.d/${name} enabled >/dev/null 2>&1`);
-	if (!process)
-		return false;
-	process.read('all');
-	return process.close() === 0;
-}
-
-function service_running(name) {
-	const services = ubus.call('service', 'list', { name }) || {};
-	const instances = services?.[name]?.instances || {};
-	for (let instance in keys(instances))
-		if (instances[instance]?.running === true)
-			return true;
-	return false;
-}
-
-function service_conflicts() {
-	let result = [];
-	for (let name in [ 'passwall2', 'passwall', 'openclash', 'homeproxy', 'momo', 'smartdns' ]) {
-		const enabled = service_enabled(name);
-		const running = service_running(name);
-		if (enabled || running)
-			push(result, { name, enabled, running });
+	catch (error) {
+		return { ok: false, status, error: trim(output) || `${error}` };
 	}
+	if (status !== 0 && result.error == null)
+		result.error = `Steer 控制程序退出状态：${status}`;
 	return result;
-}
-
-function runtime_state() {
-	const content = readfile('/var/run/steer/apply.state') || '';
-	const state = match(content, /state=([^\n]*)/);
-	const message = match(content, /message=([^\n]*)/);
-	const updated_at = match(content, /updated_at=([^\n]*)/);
-	return {
-		state: state == null ? 'unknown' : state[1],
-		message: message == null ? '' : message[1],
-		updated_at: updated_at == null ? '' : updated_at[1]
-	};
 }
 
 const methods = {
 	status: {
 		call: function() {
-			const model = load_uci_model('steer');
-			const services = ubus.call('service', 'list', { name: 'steer' }) || {};
-			const instances = services?.steer?.instances || {};
-			let dns_total = 0;
-			let dns_running = 0;
-
-			for (let name in keys(instances)) {
-				if (substr(name, 0, 4) != 'dns_')
-					continue;
-				dns_total++;
-				if (instances[name].running)
-					dns_running++;
-			}
-
-			const bypass = nft_counter('system_bypass');
-			const ntp_direct = nft_counter('router_ntp_direct');
-			const lifecycle = runtime_state();
-			return {
-				desired_enabled: model?.main?.enabled === true,
-				core_running: instances?.core?.running === true,
-				dns_running,
-				dns_total,
-				network_loaded: access('/var/run/steer/network.enabled') ? true : false,
-				has_last_known_good: access('/etc/steer/last-known-good') ? true : false,
-				active_generation: trim(readfile('/var/run/steer/active.path') || ''),
-				system_bypass_packets: bypass.packets,
-				system_bypass_bytes: bypass.bytes,
-				iana_registry_date: bypass.iana_registry_date,
-				router_ntp_direct_packets: ntp_direct.packets,
-				router_ntp_direct_bytes: ntp_direct.bytes,
-				runtime_state: lifecycle.state,
-				runtime_message: lifecycle.message,
-				runtime_updated_at: lifecycle.updated_at,
-				conflicts: service_conflicts()
-			};
+			return command_json('/usr/sbin/steer status');
 		}
 	},
 	validate: {
 		call: function() {
-			return current_validation();
+			return command_json('/usr/sbin/steer validate');
+		}
+	},
+	plan: {
+		call: function() {
+			const current = '/run/steer/current/plan.json';
+			return command_json(access(current) ?
+				`/usr/sbin/steer plan --current-plan ${current}` :
+				'/usr/sbin/steer plan');
+		}
+	},
+	rollback: {
+		call: function() {
+			return command_json('/usr/sbin/steer rollback');
 		}
 	},
 	geodata_catalog: {
 		call: function() {
+			const geosite = command_json('/usr/sbin/steer geo-catalog --kind geosite');
+			const geoip = command_json('/usr/sbin/steer geo-catalog --kind geoip');
 			return {
-				geosite: geodata_catalog('geosite'),
-				geoip: geodata_catalog('geoip')
+				geosite: geosite.names ? { ok: true, names: geosite.names } : { ok: false, names: [], error: geosite.error },
+				geoip: geoip.names ? { ok: true, names: geoip.names } : { ok: false, names: [], error: geoip.error }
 			};
-		}
-	},
-	apply: {
-		call: function() {
-			// 浏览器端 "保存并应用" 的 uci 提交与 RPC 调用之间可能存在时序差：
-			// 先强制落盘，确保 steerctl apply 编译到的是刚保存的配置。
-			const commit = popen('/sbin/uci -q commit steer 2>&1');
-			if (!commit)
-				return { ok: false, error: '无法启动 uci commit' };
-			const commitOutput = trim(commit.read('all'));
-			if (commit.close() !== 0)
-				return { ok: false, error: 'UCI 提交失败：' + commitOutput };
-
-			const validation = current_validation();
-			if (!validation.ok)
-				return { ok: false, validation };
-
-			const process = popen('/usr/sbin/steerctl apply 2>&1');
-			if (!process)
-				return { ok: false, error: '无法启动 steerctl apply' };
-
-			const output = trim(process.read('all'));
-			const status = process.close();
-			return { ok: status === 0, status, output, validation };
 		}
 	}
 };

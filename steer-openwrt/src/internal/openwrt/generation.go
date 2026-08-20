@@ -20,6 +20,7 @@ type PrepareOptions struct {
 	StateDirectory string
 	SingBoxBinary  string
 	NFTBinary      string
+	FirewallConfig string
 	SeedDirectory  string
 	GeoViewBinary  string
 }
@@ -55,7 +56,7 @@ func PrepareGeneration(ctx context.Context, runner Runner, options PrepareOption
 	if !capabilityReport.OK {
 		return Generation{}, fmt.Errorf("sing-box capability check failed: %v", capabilityReport.Errors)
 	}
-	environment, err := ResolveEnvironment(ctx, runner, intent.Main.ManagedZones)
+	environment, err := ResolveEnvironmentWithConfig(ctx, runner, intent.Main.ManagedZones, options.FirewallConfig)
 	if err != nil {
 		return Generation{}, err
 	}
@@ -136,6 +137,9 @@ func normalizePrepareOptions(options PrepareOptions) PrepareOptions {
 	}
 	if options.NFTBinary == "" {
 		options.NFTBinary = "/usr/sbin/nft"
+	}
+	if options.FirewallConfig == "" {
+		options.FirewallConfig = "/etc/config/firewall"
 	}
 	return options
 }

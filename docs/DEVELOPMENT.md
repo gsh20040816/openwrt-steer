@@ -10,41 +10,41 @@ M1 重构边界见 [重构冻结基线](REFACTOR_BASELINE.md)，包所有权和�
 
 - 官方 OpenWrt 25.12.5 x86/64 ext4 镜像；
 - Linux 6.12.94；
-- SmartDNS 46.1；
-- sing-box 1.13.14，与当前目标路由器一致；
+- sing-box 1.13.18（`with_quic`、`with_utls`）；
 - 临时 qcow2 overlay，测试结束后可以直接丢弃。
 
-OpenWrt 25.12.5 官方软件源当前提供 sing-box 1.12.17。它可用于下限兼容检查，但不能代替目标 1.13.14 验证。测试使用的 1.13.14 二进制必须先核对来源与 SHA-256，不能运行复制不完整的文件。
+测试使用的 sing-box 二进制必须先核对来源、版本、build tags 与 SHA-256，不能运行复制不完整
+或能力不足的文件。
 
 ## 集成测试
 
 将仓库复制到一次性 OpenWrt x86/64 VM 后运行：
 
 ```sh
-SING_BOX_BIN=/usr/bin/sing-box-1.13.14 \
+SING_BOX_BIN=/usr/bin/sing-box \
   tests/integration/run-openwrt-vm.sh
 ```
 
 脚本会：
 
-1. 运行 ucode 语义模型测试；
-2. 安装当前工作树中的编译器、运行层和 init 脚本测试副本；
-3. 用完全虚构的代表性 fixture 编译 sing-box 与两个 SmartDNS 实例；
-4. 验证 SmartDNS 业务上游不生成内部 SOCKS，防回环 mark 只跳过本机 53 劫持且仍进入 output TPROXY 和普通 Rules；
-5. 执行 sing-box 原生 `check`；
-6. 分别启动 SmartDNS 实例并检查进程能保持运行；
-7. 通过 procd 启动 sing-box 与多个 SmartDNS 实例；
-8. 检查双栈 TPROXY 策略路由、按 `fw4 zone` 实际设备生成的 nftables 规则、源 MAC 专用双栈入口和 firewall4 reload 后恢复；
-9. 实际发起路由器本机 UDP/123 请求，确认系统 NTP 在普通规则标记前固定直连并由 RPC 报告计数；
-10. 确认 mark 冲突在切换前被拒绝且当前运行代保持健康；
-11. 确认通用悬空引用 fixture 必须失败；
-12. 停止服务并验证 nftables 表被撤销，随后恢复测试前的 Steer 与 firewall 配置。
+1. 安装当前工作树的 `steer`、init 和 LuCI RPC 测试副本；
+2. 用完全虚构的 schema 4 fixture 编译三种节点、六种 DNS transport、Geo 与本地代理；
+3. 执行 sing-box 和 nftables 原生检查；
+4. 通过 procd 启动 sing-box，检查 TUN、NFQUEUE、双栈 DNS/MAC shim 和实际 DNS 查询；
+5. 用真实 authenticated UCI session 复现 LuCI 生命周期，确认首次 commit 恰好触发一次 Apply；
+6. 检查第二次 commit、`/etc/init.d/steer reload`、fw4 reload 和 procd respawn；
+7. 确认 HTTPS probe 只在 `steer probe` 手动执行，不阻断 Apply；
+8. 通过 `luci.steer rollback` 恢复并消费唯一健康 UCI 备份，防止 rpcd 自调用死锁；
+9. 确认非法 schema 在切换前失败，禁用后下一次 commit 仍能自动启用；
+10. 清理 nftables、策略路由、测试桥和临时文件，恢复测试前配置。
 
-该脚本会短暂写入 VM 的 `/usr/share/steer`、`/usr/libexec/steer`、`/usr/sbin/steerctl`、`/etc/init.d/steer`、`/etc/steer` 和 `/var/lib/steer`，并重载 VM 的 firewall4，因此只能在一次性测试 VM 中运行，不能直接在生产路由器执行。
+该脚本会短暂写入 VM 的 `/usr/sbin/steer`、`/etc/init.d/steer`、rpcd ucode、
+`/run/steer` 和 `/var/lib/steer/rollback.uci`，并重载 firewall4，因此只能在一次性测试 VM 中
+运行，不能直接在生产路由器执行。
 
 当前集成测试验证的是控制面启动、规则装载、源 MAC 外部编译结果和切换前拒绝。当前 KVM
 镜像没有 veth 模块，尚不能在单 VM 内构造独立 LAN 客户端；真实客户端 TCP、普通 UDP、QUIC、
-源 MAC 的 IPv4/IPv6 数据包、IPv4/IPv6 GUA、flow offload 隔离和切换后故障回滚仍需在带独立
+源 MAC 的 IPv4/IPv6 数据包、IPv4/IPv6 GUA、flow offload 隔离和切换后故障恢复仍需在带独立
 LAN 网卡/客户端 VM 的拓扑中补齐。未完成前不得据此批准生产切换。
 
 本机构建耗时只用于同一主机、同一 SDK 镜像下的优化前后 A/B，不能外推为 GitHub Actions
@@ -55,8 +55,8 @@ LAN 网卡/客户端 VM 的拓扑中补齐。未完成前不得据此批准生�
 
 LuCI 第一版在同一台 OpenWrt KVM 中安装测试副本，并实际验证：
 
-- `luci.steer` 的 `status`、`validate`、`apply` RPC 注册和返回值；
-- 通过 RPC 首次启动后 core、DNS Profile、网络接管和 last-known-good 状态；
+- `luci.steer` 的 `status`、`validate`、`plan`、`rollback` RPC 注册和返回值；
+- 会话化 UCI commit 后 core、DNS、网络接管、last_apply 与 rollback 状态；
 - Overview、Rules、Local Proxies、DNS 与 Nodes & Routes 页面无新 JavaScript 运行错误；
 - 规则页只显示决策列，协议细节留在 modal；
 - 普通规则的域名和目的 IP 使用多行 IDE 式编辑器；光标所在行输入 `geosite:` 或 `geoip:` 后实时过滤当前数据中的合法名称，并支持键盘或鼠标补全；

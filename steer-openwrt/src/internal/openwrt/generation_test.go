@@ -22,8 +22,6 @@ func (runner *prepareRunner) Output(_ context.Context, name string, args ...stri
 	switch {
 	case strings.HasSuffix(call, "sing-box version"):
 		return []byte("sing-box version 1.13.18\nTags: with_quic,with_utls\n"), nil
-	case call == `ubus call uci get {"config":"firewall","type":"zone"}`:
-		return []byte(`{"values":{"cfg":{"name":"lan","network":["lan"]}}}`), nil
 	case call == "ubus call network.interface.lan status":
 		return []byte(`{"up":true,"l3_device":"br-lan"}`), nil
 	case call == "ip -json -4 route show default", call == "ip -json -6 route show default":
@@ -45,7 +43,7 @@ func TestPrepareGenerationPerformsAllPreMutationChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &prepareRunner{}
-	generation, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"})
+	generation, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +78,7 @@ func TestPrepareGenerationRemovesRejectedCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &prepareRunner{failCheck: true}
-	if _, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"}); err == nil {
+	if _, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)}); err == nil {
 		t.Fatal("native check failure accepted")
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "run", "generations"))

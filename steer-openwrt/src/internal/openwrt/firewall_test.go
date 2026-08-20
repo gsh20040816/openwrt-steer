@@ -15,7 +15,7 @@ func TestRenderMinimalDNSAndMACShims(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"redirect to :1053", "redirect to :20001", "ether saddr 02:00:00:00:00:10", "tproxy to :20000", "meta mark set 0x2024", "udp dport 123"} {
+	for _, required := range []string{"redirect to :1053", "redirect to :20001", "dnat ip to 127.0.0.1:1053", "dnat ip6 to [::1]:1053", "snat ip to 127.0.0.1", "snat ip6 to ::1", "ether saddr 02:00:00:00:00:10", "tproxy to :20000", "meta mark set 0x2024", "udp dport 123"} {
 		if !strings.Contains(config, required) {
 			t.Fatalf("missing %q:\n%s", required, config)
 		}

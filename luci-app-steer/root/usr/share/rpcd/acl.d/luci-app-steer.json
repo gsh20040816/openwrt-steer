@@ -3,14 +3,14 @@
 		"description": "Grant access to Steer configuration",
 		"read": {
 			"ubus": {
-				"luci.steer": [ "status", "validate", "geodata_catalog" ],
+				"luci.steer": [ "status", "validate", "plan", "geodata_catalog" ],
 				"service": [ "list" ]
 			},
 			"uci": [ "firewall", "steer" ]
 		},
 		"write": {
 			"ubus": {
-				"luci.steer": [ "apply" ]
+				"luci.steer": [ "rollback" ]
 			},
 			"uci": [ "steer" ]
 		}

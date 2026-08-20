@@ -48,21 +48,39 @@ function loadHelper(runtime) {
 		'luci-app-steer/htdocs/luci-static/resources/steer.js'), 'utf8');
 	const baseclass = { extend: (value) => value };
 	const rpc = {
-		declare: ({ method }) => () => {
+		declare: ({ method }) => (...args) => {
+			if (method == 'commit') {
+				assert.deepEqual(args, [ 'steer' ]);
+				runtime.sequence.push('commit');
+				runtime.commitCalls++;
+				return Promise.resolve(0);
+			}
 			if (method == 'status') {
 				runtime.statusCalls++;
-				return Promise.resolve(runtime.status);
+				return Promise.resolve(Object.assign({}, runtime.status, {
+					last_apply: runtime.commitCalls > 0 ?
+						{ sequence: '11', result: runtime.applyResult } :
+						{ sequence: '10', result: { ok: true } }
+				}));
+			}
+			if (method == 'rollback') {
+				runtime.rollbackCalls++;
+				return Promise.resolve(runtime.rollbackResult);
 			}
 			if (method == 'apply')
-				return Promise.resolve(runtime.applyResult);
+				throw new Error('LuCI must not start a second Apply after UCI commit triggered procd');
 			return Promise.resolve({});
 		}
 	};
 	const ui = {
-		changes: { apply: () => Promise.resolve() },
-		showModal: (title) => { runtime.modalTitle = title; },
+		changes: {
+			apply: () => { throw new Error('ui.changes.apply() is non-awaitable and must not be used'); },
+			renderChangeIndicator: () => { runtime.indicatorRefreshed = true; }
+		},
+		showModal: (title, content) => { runtime.modalTitle = title; runtime.modalContent = content; },
 		hideModal: () => { runtime.modalHidden = true; },
-		addNotification: (title, content, level) => runtime.notifications.push({ title, content, level })
+		addNotification: (title, content, level) => runtime.notifications.push({ title, content, level }),
+		createHandlerFn: (context, handler) => (...args) => handler.apply(context, args)
 	};
 	const L = {
 		resolveDefault: (promise, fallback) => Promise.resolve(promise).catch(() => fallback),
@@ -73,9 +91,11 @@ function loadHelper(runtime) {
 		getElementById: (id) => id == 'steer-runtime-status' ? runtime.currentStatusNode : null
 	};
 	const translate = (value) => String(value);
+	const uci = { changes: () => Promise.resolve({}) };
+	const window = { setTimeout: (callback) => callback(), location: { reload: () => { runtime.reloaded = true; } } };
 
-	return new Function('baseclass', 'rpc', 'ui', 'E', '_', 'L', 'document', source)(
-		baseclass, rpc, ui, element, translate, L, document);
+	return new Function('baseclass', 'rpc', 'uci', 'ui', 'E', '_', 'L', 'document', 'window', source)(
+		baseclass, rpc, uci, ui, element, translate, L, document, window);
 }
 
 async function main() {
@@ -83,6 +103,10 @@ async function main() {
 		status: {},
 		applyResult: { ok: true, output: 'applied' },
 		statusCalls: 0,
+		commitCalls: 0,
+		rollbackCalls: 0,
+		rollbackResult: { ok: true },
+		sequence: [],
 		notifications: [],
 		currentStatusNode: {
 			replaceWith: (value) => { runtime.replacement = value; }
@@ -92,60 +116,69 @@ async function main() {
 
 	let rendered = helper.renderStatus({
 		desired_enabled: false,
+		validation: { ok: true, errors: [], warnings: [] },
 		core_running: false,
-		dns_running: 0,
-		dns_total: 0,
-		conflicts: [ { name: 'passwall2', enabled: true, running: true } ]
+		tun_ready: false,
+		firewall_ready: false,
+		listeners_ready: false
 	});
 	assert.ok(textContent(rendered).includes('Steer is disabled'),
 		'An intentionally disabled Steer reports a disabled state');
-	assert.ok(!textContent(rendered).includes('Stop and disable conflicting services'),
-		'Alternative services are not shown as errors while Steer is disabled');
 
 	rendered = helper.renderStatus({
 		desired_enabled: true,
-		runtime_state: 'active',
-		runtime_message: 'stale active message',
+		validation: { ok: true, errors: [], warnings: [] },
 		core_running: false,
-		network_loaded: false,
-		dns_running: 0,
-		dns_total: 0,
-		conflicts: [ { name: 'smartdns', enabled: true, running: false } ]
+		tun_ready: false,
+		firewall_ready: false,
+		listeners_ready: false,
+		healthy: false
 	});
-	assert.ok(!textContent(rendered).includes('stale active message'),
-		'A stale lifecycle message cannot contradict live process and conflict status');
+	assert.ok(textContent(rendered).includes('Traffic steering is not healthy'),
+		'Live component readiness determines unhealthy state');
 
 	rendered = helper.renderStatus({
 		desired_enabled: true,
-		runtime_state: 'failed',
-		runtime_message: 'system SmartDNS conflict',
-		core_running: false,
-		dns_running: 0,
-		dns_total: 2,
-		conflicts: [ { name: 'smartdns', enabled: true, running: true } ]
+		validation: { ok: false, errors: [ { code: 'DANGLING_ROUTE', object_type: 'rule', object_id: 'broken', option: 'route', message: 'route is missing' } ], warnings: [] }
 	});
 	const failedText = textContent(rendered);
-	assert.ok(failedText.includes('The last apply failed') &&
-		failedText.includes('smartdns: enabled at boot, currently running') &&
-		failedText.includes('system SmartDNS conflict'),
-		'Failed apply status exposes both the persisted reason and exact conflicting service state');
+	assert.ok(failedText.includes('The saved configuration is invalid') && failedText.includes('route is missing'),
+		'Invalid saved intent exposes the exact validation issue');
 
 	runtime.status = {
 		desired_enabled: true,
-		runtime_state: 'active',
+		validation: { ok: true, errors: [], warnings: [] },
 		core_running: true,
-		network_loaded: true,
-		dns_running: 2,
-		dns_total: 2,
-		conflicts: []
+		tun_ready: true,
+		firewall_ready: true,
+		listeners_ready: true,
+		healthy: true
 	};
-	await helper.apply({ handleSave: () => Promise.resolve() }, null, '1');
-	assert.equal(runtime.modalTitle, 'Starting Steer',
-		'Apply shows an explicit startup progress modal');
+	await helper.apply({ handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); } }, null, '1');
+	assert.deepEqual(runtime.sequence, [ 'save', 'commit' ],
+		'LuCI saves and commits once, leaving the resulting config.change Apply to procd');
+	assert.equal(runtime.indicatorRefreshed, true, 'LuCI refreshes the pending change indicator after commit');
+	assert.equal(runtime.modalTitle, 'Applying Steer',
+		'Apply shows an explicit transaction progress modal');
 	assert.equal(runtime.modalHidden, true, 'Apply closes the progress modal after RPC completion');
-	assert.equal(runtime.statusCalls, 1, 'Apply immediately reloads runtime status');
+	assert.equal(runtime.statusCalls, 2, 'LuCI snapshots the Apply sequence and observes exactly one newer result');
 	assert.ok(textContent(runtime.replacement).includes('Traffic steering is active'),
 		'Apply replaces stale overview status with the final runtime result');
+	assert.equal(runtime.notifications.at(-1).level, 'info');
+
+	rendered = helper.renderStatus({
+		desired_enabled: true,
+		validation: { ok: true, errors: [], warnings: [] },
+		rollback_available: true
+	});
+	assert.ok(textContent(rendered).includes('Restore previous configuration'),
+		'Status exposes the single-use rollback action when a backup exists');
+	helper.confirmRollback();
+	const actions = runtime.modalContent.at(-1).children;
+	const confirm = actions.find((child) => child?.attributes?.class?.includes('negative'));
+	await confirm.attributes.click();
+	assert.equal(runtime.rollbackCalls, 1, 'LuCI rollback invokes the single backend rollback command once');
+	assert.equal(runtime.reloaded, true, 'Successful rollback reloads the form from restored UCI');
 	assert.equal(runtime.notifications.at(-1).level, 'info');
 
 	console.log('Steer LuCI helper regression tests passed.');

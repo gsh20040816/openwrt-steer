@@ -22,6 +22,8 @@ func (runner *activationRunner) Output(_ context.Context, name string, args ...s
 		return []byte(`{"nftables":[{"metainfo":{"version":"1"}}]}`), nil
 	case call == "ip -json -4 rule show", call == "ip -json -6 rule show":
 		return []byte(`[{"priority":32766,"table":254}]`), nil
+	case call == "ip -json -4 route show table all", call == "ip -json -6 route show table all":
+		return []byte(`[{"dst":"default","table":254}]`), nil
 	case strings.Contains(call, "route flush table 2023"), strings.Contains(call, "route replace local"), strings.Contains(call, "rule add priority 8999"), strings.HasPrefix(call, "/test/nft -f "):
 		return nil, nil
 	default:

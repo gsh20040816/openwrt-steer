@@ -6,24 +6,23 @@ Steer 是面向 OpenWrt 的透明代理意图编译器和控制平面。它把�
 
 项目已进入 M1 破坏性重构。必须保留的产品能力、允许退出的历史实现和开发顺序以
 [M1 重构冻结基线](docs/REFACTOR_BASELINE.md)为准；软件包与文件所有权以
-[打包与文件所有权](docs/PACKAGING.md)为准。当前 SmartDNS/TPROXY 路径只是迁移参考实现，
-不再代表目标架构。
+[打包与文件所有权](docs/PACKAGING.md)为准。旧 SmartDNS、通用 TPROXY、schema 3 和 shell
+runtime 已删除，不构成兼容接口。
 
-当前 UCI schema 为 3。schema 1 的内部 DNS SOCKS 模型和 schema 2 的拆分匹配字段均已删除；旧配置会明确拒绝编译，不会静默忽略遗留语义，也不会为尚未正式发布的旧 schema 继续增加兼容层。
+当前 UCI schema 为 4。旧配置会明确拒绝编译，不会静默迁移或忽略遗留语义。
 
 ## 第一版边界
 
 当前实现中的首批不变量：
 
 - 规则从上到下执行，第一条命中后停止；
-- SmartDNS 业务上游是路由器本机流量，与其他本机连接共用普通规则；
 - 每条启用规则同时引用一个 DNS Profile 和一个逻辑出口；
 - 只能存在一条启用的 Default；LuCI 将它固定在所有普通规则之后，只允许选择 DNS Profile 和 Route；
 - 启用对象出现悬空引用时拒绝编译，不能静默落入 Default；
 - 禁用规则保留但不进入生成配置；
 - 启用透明代理时必须明确选择受管 firewall zone；
-- Bootstrap DNS 必须使用 IP 字面量并携带核心绕行 mark 直连；其他 SmartDNS 上游只携带一个不与 TPROXY mask 重叠的防回环 mark，跳过本机 53 端口再劫持后仍进入 output TPROXY 和普通规则；
-- 路由器本机发起的 UDP/123 NTP 是启动依赖，固定直连且在 Rules 页显示命中计数；LAN 客户端的 UDP/123 不享受该例外，仍进入普通规则；
+- Bootstrap DNS 必须使用 IP 字面量直连；每个实际使用的 `(DNS Profile, Route)` 都编译为独立 sing-box DNS transport；
+- 路由器本机与受管客户端进入同一规则体系；传统 TCP/UDP 53 由最小 nft redirect shim 送入 sing-box DNS；
 - 不生成 Fake-IP，也不生成全局 UDP/443 或 QUIC 阻断规则；
 - 首批节点协议包括 VLESS、Hysteria2 与 Trojan；
 - LuCI 在浏览器本地解析单个 `vless://`、`hysteria2://`、`hy2://` 或 `trojan://` 分享链接，先显示不含凭据的审查结果再写入待提交 UCI；无法由当前节点模型保留的传输或安全参数会明确拒绝，不会静默丢弃；
@@ -37,27 +36,35 @@ Steer 是面向 OpenWrt 的透明代理意图编译器和控制平面。它把�
 
 ## 仓库结构
 
-- `steer/`：OpenWrt 后端包、UCI 配置与 ucode 编译器；
+- `steer-openwrt/`：Go 意图编译器、OpenWrt adapter、UCI 与 procd 包；
+- `steer-geodata/`、`geoview/`：固定 Geo 数据和独立转换工具包；
 - `luci-app-steer/`：LuCI 应用、独立的简体中文语言包与最小权限 RPC；
 - `tests/`：语义模型、回归与目标机验证；
 - `docs/`：规划、上游选择与公开的工程验证记录。
 
 ## 当前状态
 
-当前后端已建立配置模型、严格校验、确定性编译和首个可运行的 OpenWrt 接管闭环。它能由 procd 启动一个 sing-box 与多个 SmartDNS 实例，按受管 firewall zone 的实际设备加载双栈 DNS/TPROXY 规则，并在 Apply 前执行原生检查。路由器本机 TCP、UDP 与传统 DNS 可由同一总开关进入普通 Rules；IANA 非全局可达目标在核心前旁路。客户端 MAC 在二层入口分类，IPv4 和 IPv6 共用同一设备语义。GeoSite/GeoIP 使用独立版本锁定数据包和 last-known-good 生成代；规则编辑器在合并后的域名和目的 IP 字段中动态补全合法分类，后端自动生成 sing-box 本地规则集，并用显式 logical OR/AND 固化“字段内 OR、字段间 AND”。首版 LuCI 已覆盖总览、普通规则、具名本地代理、DNS Profile、DNS Server、节点和逻辑出口，并通过专用 RPC 执行同一事务式 Apply。Nodes & Routes 页面还能在浏览器本地解析当前支持协议的单节点分享 URL；这不等于订阅 URL 导入或更新。更多故障注入和生产切换仍未完成，因此还不能称为生产可用版本。
+当前后端已经建立 schema 4 Canonical Intent、严格引用校验、确定性编译、sing-box/nft 原生
+预检和可运行的 OpenWrt 接管闭环。procd 只监督发行版 sing-box；普通流量使用 TUN
+`auto_route`/`auto_redirect`，Steer 只保留传统 DNS redirect 与 sing-box 1.13 源 MAC 能力所需
+的最小 nft shim。GeoSite/GeoIP 由包管理器拥有的固定数据生成本地 `.srs`。
 
-DNS 的对象关系固定为：普通规则选择 DNS Profile；一个 DNS Profile 对应一个由 Steer 管理的 SmartDNS 实例；SmartDNS 业务上游作为路由器本机连接进入同一套普通 Rules。DNS Server 自身没有出口字段，避免出现与规则并行的隐式路由语义。
+LuCI 已覆盖总览、普通规则、具名本地代理、DNS Profile、节点和逻辑出口。LuCI“保存并应用”
+提交 UCI 后由 OpenWrt `config.change` 自动触发一次 Apply，前端只等待该结果，不会再发第二次
+Apply。单节点分享 URL 在浏览器本地严格解析；这不等于订阅更新。
 
 当前后端提供以下主要命令：
 
-- `steerctl validate`：输出结构化错误和警告；
-- `steerctl compile`：输出完整编译 bundle；
-- `steerctl compile-sing-box`：只输出 sing-box JSON；
-- `steerctl compile-smartdns <profile-id>`：只输出指定 SmartDNS 实例配置。
-- `steerctl compile-firewall <device>...`：为已解析的 ingress 设备生成 nftables 规则；
-- `steerctl apply`：生成候选、执行 sing-box/nftables 原生检查、切换 procd 运行代并在本地健康检查通过后保存 last-known-good。
+- `steer validate`：输出结构化错误和警告；
+- `steer compile` / `compile-sing-box` / `compile-firewall`：输出编译产物；
+- `steer plan` / `status` / `health`：查看计划、候选与运行状态；
+- `steer apply`：串行预检、切换并验证本地运行态；
+- `steer probe`：手动执行当前 Plan 的 HTTPS 诊断，不影响 Apply；
+- `steer rollback`：一次性恢复上一份本地健康 UCI，并复用正常 Apply。
 
-SmartDNS 当前没有可依赖的纯配置检查接口，因此 Apply 不会伪称已对它完成离线原生检查；SmartDNS 配置由严格编译器生成，并在切换后检查各 procd 实例是否持续运行。失败时恢复上一运行代。公网可达性不参与自动回滚。
+LuCI/ubus commit 会自动触发 reload。终端裸 `/sbin/uci commit` 不发送 ubus 事件，因此 CLI
+修改使用 `uci commit steer && /etc/init.d/steer reload`。Steer 不包装系统 `uci`，也不运行
+常驻文件监视器。
 
 ## 许可证
 

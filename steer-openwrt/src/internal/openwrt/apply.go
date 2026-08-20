@@ -16,22 +16,23 @@ import (
 	"time"
 
 	"github.com/gsh20040816/openwrt-steer/steer-openwrt/internal/compiler"
+	"github.com/gsh20040816/openwrt-steer/steer-openwrt/internal/model"
 )
 
 type ApplyOptions struct {
 	Prepare        PrepareOptions
 	InitScript     string
-	HTTPClient     *http.Client
+	BackupPath     string
 	HealthTimeout  time.Duration
 	CheckListeners func([]int) error
 }
 
 type ApplyResult struct {
-	OK           bool          `json:"ok"`
-	Generation   string        `json:"generation,omitempty"`
-	IntentDigest string        `json:"intent_digest,omitempty"`
-	Probes       []ProbeResult `json:"probes"`
-	RolledBack   bool          `json:"rolled_back"`
+	OK           bool              `json:"ok"`
+	Error        string            `json:"error,omitempty"`
+	Generation   string            `json:"generation,omitempty"`
+	IntentDigest string            `json:"intent_digest,omitempty"`
+	Validation   *model.Validation `json:"validation,omitempty"`
 }
 
 type ProbeResult struct {
@@ -43,15 +44,19 @@ type ProbeResult struct {
 }
 
 func Apply(ctx context.Context, runner Runner, options ApplyOptions) (ApplyResult, error) {
+	return apply(ctx, runner, options, true)
+}
+
+func apply(ctx context.Context, runner Runner, options ApplyOptions, saveBackup bool) (ApplyResult, error) {
 	options.Prepare = normalizePrepareOptions(options.Prepare)
 	if options.InitScript == "" {
 		options.InitScript = "/etc/init.d/steer"
 	}
+	if options.BackupPath == "" {
+		options.BackupPath = "/var/lib/steer/rollback.uci"
+	}
 	if options.HealthTimeout == 0 {
 		options.HealthTimeout = 10 * time.Second
-	}
-	if options.HTTPClient == nil {
-		options.HTTPClient = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
 	}
 	if options.CheckListeners == nil {
 		options.CheckListeners = checkListenerPorts
@@ -66,83 +71,111 @@ func Apply(ctx context.Context, runner Runner, options ApplyOptions) (ApplyResul
 	}
 	bundle := compiler.CompileWithOptions(intent, compiler.Options{StateDirectory: options.Prepare.StateDirectory})
 	if !bundle.Validation.OK {
-		return ApplyResult{}, ValidationError{Validation: bundle.Validation}
+		return ApplyResult{IntentDigest: bundle.IntentDigest, Validation: &bundle.Validation}, ValidationError{Validation: bundle.Validation}
 	}
+	result := ApplyResult{IntentDigest: bundle.IntentDigest}
 	if !intent.Main.Enabled {
-		return applyDisabled(ctx, runner, options, bundle.IntentDigest)
+		return applyDisabled(ctx, runner, options, result, saveBackup)
 	}
 	candidate, err := PrepareGeneration(ctx, runner, options.Prepare)
 	if err != nil {
-		return ApplyResult{}, err
+		return result, err
 	}
+	result.Generation = candidate.Directory
 	runDirectory := options.Prepare.RunDirectory
 	if runDirectory == "" {
 		runDirectory = "/run/steer"
 	}
-	oldConfig, hasOld := readCurrentConfig(runDirectory)
+	if saveBackup {
+		if err := backupHealthyCurrent(ctx, runner, options, runDirectory); err != nil {
+			return result, err
+		}
+	}
 	if _, err := runner.Output(ctx, options.InitScript, "stop"); err != nil {
-		return ApplyResult{}, fmt.Errorf("stop current generation: %w", err)
+		return result, fmt.Errorf("stop current generation: %w", err)
 	}
 	if err := ActivateGeneration(ctx, runner, candidate, runDirectory, options.Prepare.NFTBinary); err != nil {
-		return rollbackApply(ctx, runner, options, oldConfig, hasOld, nil, err)
+		return result, err
 	}
 	if _, err := runner.Output(ctx, "/usr/bin/env", "STEER_USE_CURRENT=1", options.InitScript, "start"); err != nil {
-		return rollbackApply(ctx, runner, options, oldConfig, hasOld, nil, fmt.Errorf("start candidate generation: %w", err))
+		return result, fmt.Errorf("start candidate generation: %w", err)
 	}
 	ports := []int{candidate.Bundle.Plan.Resources.DNSPort}
 	for _, binding := range candidate.Bundle.Plan.Resources.MACBindings {
 		ports = append(ports, binding.TProxyPort, binding.DNSPort)
 	}
 	if err := waitHealthy(ctx, runner, candidate.Bundle.Plan, options.HealthTimeout, options.CheckListeners, ports, options.Prepare.NFTBinary); err != nil {
-		return rollbackApply(ctx, runner, options, oldConfig, hasOld, nil, err)
-	}
-	probes := runProbes(ctx, options.HTTPClient, candidate.Bundle.Plan.Probes)
-	for _, probe := range probes {
-		if !probe.OK {
-			return rollbackApply(ctx, runner, options, oldConfig, hasOld, probes, fmt.Errorf("candidate HTTPS probes failed"))
-		}
+		return result, err
 	}
 	if err := pruneGenerations(runDirectory, candidate.Directory); err != nil {
-		return ApplyResult{}, fmt.Errorf("prune obsolete runtime generations: %w", err)
+		return result, fmt.Errorf("prune obsolete runtime generations: %w", err)
 	}
-	return ApplyResult{OK: true, Generation: candidate.Directory, IntentDigest: candidate.Bundle.IntentDigest, Probes: probes}, nil
+	result.OK = true
+	return result, nil
 }
 
-func applyDisabled(ctx context.Context, runner Runner, options ApplyOptions, digest string) (ApplyResult, error) {
+func applyDisabled(ctx context.Context, runner Runner, options ApplyOptions, result ApplyResult, saveBackup bool) (ApplyResult, error) {
 	runDirectory := options.Prepare.RunDirectory
-	oldConfig, hasOld := readCurrentConfig(runDirectory)
-	if _, err := runner.Output(ctx, options.InitScript, "stop"); err != nil {
-		if hasOld {
-			if restoreErr := atomicWrite(options.Prepare.ConfigPath, oldConfig); restoreErr != nil {
-				return ApplyResult{}, fmt.Errorf("stop Steer while disabling: %w; restore previous UCI: %v", err, restoreErr)
-			}
+	if saveBackup {
+		if err := backupHealthyCurrent(ctx, runner, options, runDirectory); err != nil {
+			return result, err
 		}
-		return ApplyResult{}, fmt.Errorf("stop Steer while disabling: %w", err)
+	}
+	if _, err := runner.Output(ctx, options.InitScript, "stop"); err != nil {
+		return result, fmt.Errorf("stop Steer while disabling: %w", err)
 	}
 	if err := os.Remove(filepath.Join(runDirectory, "current")); err != nil && !os.IsNotExist(err) {
-		return rollbackApply(ctx, runner, options, oldConfig, hasOld, nil, fmt.Errorf("remove disabled current generation: %w", err))
+		return result, fmt.Errorf("remove disabled current generation: %w", err)
 	}
 	if err := os.RemoveAll(filepath.Join(runDirectory, "generations")); err != nil {
-		return rollbackApply(ctx, runner, options, oldConfig, hasOld, nil, fmt.Errorf("remove disabled runtime generations: %w", err))
+		return result, fmt.Errorf("remove disabled runtime generations: %w", err)
 	}
-	return ApplyResult{OK: true, IntentDigest: digest, Probes: []ProbeResult{}}, nil
+	result.OK = true
+	return result, nil
 }
 
-func rollbackApply(ctx context.Context, runner Runner, options ApplyOptions, oldConfig []byte, hasOld bool, probes []ProbeResult, cause error) (ApplyResult, error) {
-	_, stopErr := runner.Output(ctx, options.InitScript, "stop")
-	if !hasOld {
-		if stopErr != nil {
-			return ApplyResult{Probes: probes}, fmt.Errorf("%w; additionally failed to stop rejected candidate: %v", cause, stopErr)
-		}
-		return ApplyResult{Probes: probes}, cause
+func backupHealthyCurrent(ctx context.Context, runner Runner, options ApplyOptions, runDirectory string) error {
+	config, ok := readCurrentConfig(runDirectory)
+	if !ok {
+		return nil
 	}
-	if err := atomicWrite(options.Prepare.ConfigPath, oldConfig); err != nil {
-		return ApplyResult{Probes: probes}, fmt.Errorf("%w; restore previous UCI: %v", cause, err)
+	plan, err := readCurrentPlan(runDirectory)
+	if err != nil {
+		return nil
 	}
-	if _, err := runner.Output(ctx, options.InitScript, "start"); err != nil {
-		return ApplyResult{Probes: probes}, fmt.Errorf("%w; restart previous generation: %v", cause, err)
+	ports := planListenerPorts(plan)
+	if err := checkHealthOnce(ctx, runner, plan, options.CheckListeners, ports, options.Prepare.NFTBinary); err != nil {
+		return nil
 	}
-	return ApplyResult{Probes: probes, RolledBack: true}, cause
+	if err := os.MkdirAll(filepath.Dir(options.BackupPath), 0o700); err != nil {
+		return fmt.Errorf("create rollback backup directory: %w", err)
+	}
+	if err := atomicWrite(options.BackupPath, config); err != nil {
+		return fmt.Errorf("save rollback UCI: %w", err)
+	}
+	return nil
+}
+
+func Rollback(ctx context.Context, runner Runner, options ApplyOptions) (ApplyResult, error) {
+	options.Prepare = normalizePrepareOptions(options.Prepare)
+	if options.BackupPath == "" {
+		options.BackupPath = "/var/lib/steer/rollback.uci"
+	}
+	config, err := os.ReadFile(options.BackupPath)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("read rollback UCI: %w", err)
+	}
+	if err := atomicWrite(options.Prepare.ConfigPath, config); err != nil {
+		return ApplyResult{}, fmt.Errorf("restore rollback UCI: %w", err)
+	}
+	result, err := apply(ctx, runner, options, false)
+	if err != nil {
+		return result, err
+	}
+	if err := os.Remove(options.BackupPath); err != nil && !os.IsNotExist(err) {
+		return result, fmt.Errorf("consume rollback UCI: %w", err)
+	}
+	return result, nil
 }
 
 func readCurrentConfig(runDirectory string) ([]byte, bool) {
@@ -177,23 +210,36 @@ func WaitCurrentHealthy(ctx context.Context, runner Runner, runDirectory, nftBin
 	if runDirectory == "" {
 		runDirectory = "/run/steer"
 	}
-	var plan compiler.Plan
-	file, err := os.Open(filepath.Join(runDirectory, "current", "plan.json"))
+	plan, err := readCurrentPlan(runDirectory)
 	if err != nil {
-		return fmt.Errorf("open current execution plan: %w", err)
+		return err
 	}
-	defer file.Close()
-	if err := json.NewDecoder(file).Decode(&plan); err != nil {
-		return fmt.Errorf("decode current execution plan: %w", err)
-	}
-	ports := []int{plan.Resources.DNSPort}
-	for _, binding := range plan.Resources.MACBindings {
-		ports = append(ports, binding.TProxyPort, binding.DNSPort)
-	}
+	ports := planListenerPorts(plan)
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
 	return waitHealthy(ctx, runner, plan, timeout, checkListenerPorts, ports, nftBinary)
+}
+
+func readCurrentPlan(runDirectory string) (compiler.Plan, error) {
+	var plan compiler.Plan
+	file, err := os.Open(filepath.Join(runDirectory, "current", "plan.json"))
+	if err != nil {
+		return plan, fmt.Errorf("open current execution plan: %w", err)
+	}
+	defer file.Close()
+	if err := json.NewDecoder(file).Decode(&plan); err != nil {
+		return plan, fmt.Errorf("decode current execution plan: %w", err)
+	}
+	return plan, nil
+}
+
+func planListenerPorts(plan compiler.Plan) []int {
+	ports := []int{plan.Resources.DNSPort}
+	for _, binding := range plan.Resources.MACBindings {
+		ports = append(ports, binding.TProxyPort, binding.DNSPort)
+	}
+	return ports
 }
 
 func checkHealthOnce(ctx context.Context, runner Runner, plan compiler.Plan, listenerCheck func([]int) error, ports []int, nftBinary string) error {
@@ -224,6 +270,36 @@ func checkHealthOnce(ctx context.Context, runner Runner, plan compiler.Plan, lis
 		return err
 	}
 	return nil
+}
+
+type ProbeReport struct {
+	OK      bool          `json:"ok"`
+	Results []ProbeResult `json:"results"`
+}
+
+func ProbeCurrent(ctx context.Context, runDirectory string, client *http.Client) (ProbeReport, error) {
+	if runDirectory == "" {
+		runDirectory = "/run/steer"
+	}
+	plan, err := readCurrentPlan(runDirectory)
+	if err != nil {
+		return ProbeReport{}, err
+	}
+	if len(plan.Probes) == 0 {
+		return ProbeReport{}, fmt.Errorf("current execution plan has no HTTPS probes")
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
+	}
+	results := runProbes(ctx, client, plan.Probes)
+	report := ProbeReport{OK: true, Results: results}
+	for _, result := range results {
+		if !result.OK {
+			report.OK = false
+			break
+		}
+	}
+	return report, nil
 }
 
 func runProbes(ctx context.Context, client *http.Client, urls []string) []ProbeResult {

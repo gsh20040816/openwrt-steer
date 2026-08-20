@@ -138,6 +138,8 @@ function createEnvironment(sections) {
 	const steer = {
 		loadStyle: () => {},
 		status: () => Promise.resolve({}),
+		plan: () => Promise.resolve({}),
+		geodataCatalog: () => Promise.resolve({}),
 		apply: () => Promise.resolve()
 	};
 	const ui = {};
@@ -172,7 +174,7 @@ async function renderRules(sections, catalog = {}) {
 			_: environment.translate
 		}
 	);
-	await view.render([ null, {}, catalog ]);
+	await view.render([ null, catalog ]);
 	return environment;
 }
 
@@ -247,10 +249,10 @@ async function main() {
 			name: 'Default',
 			default: '1',
 			dns_profile: 'direct_dns',
-			outbound: 'direct'
+			route: 'direct'
 		} ],
 		dns_profile: [ { '.name': 'direct_dns' } ],
-		outbound: [ { '.name': 'direct' } ],
+		route: [ { '.name': 'direct' } ],
 		local_proxy: [],
 	});
 	let options = allOptions(environment);
@@ -265,7 +267,7 @@ async function main() {
 	const defaultSection = environment.maps[0].sections.find((section) =>
 		section.filter?.('default'));
 	assert.ok(defaultSection &&
-		defaultSection.options.map((option) => option.name).join(',') == 'dns_profile,outbound',
+		defaultSection.options.map((option) => option.name).join(',') == 'dns_profile,route',
 		'Default is a fixed non-modal row that exposes only DNS profile and route');
 	assert.equal(options.some((option) => option.name == 'default'), false,
 		'Ordinary rules cannot be converted into or edit the Default rule');
@@ -276,12 +278,12 @@ async function main() {
 			domain_match: [ 'domain:example.com', 'geosite:category-example' ],
 			ip_match: [ '192.0.2.0/24', 'geoip:example' ],
 			dns_profile: 'direct_dns',
-			outbound: 'direct'
+			route: 'direct'
 		}, {
-			'.name': 'default', default: '1', dns_profile: 'direct_dns', outbound: 'direct'
+			'.name': 'default', default: '1', dns_profile: 'direct_dns', route: 'direct'
 		} ],
 		dns_profile: [ { '.name': 'direct_dns' } ],
-		outbound: [ { '.name': 'direct' } ],
+		route: [ { '.name': 'direct' } ],
 		local_proxy: []
 	};
 	environment = await renderRules(geoSections, {
@@ -334,10 +336,10 @@ async function main() {
 			'.name': 'stale_inbound',
 			inbound: [ 'missing_proxy' ],
 			dns_profile: 'direct_dns',
-			outbound: 'direct'
+			route: 'direct'
 		} ],
 		dns_profile: [ { '.name': 'direct_dns' } ],
-		outbound: [ { '.name': 'direct' } ],
+		route: [ { '.name': 'direct' } ],
 		local_proxy: []
 	});
 	options = allOptions(environment);
@@ -347,7 +349,7 @@ async function main() {
 
 	environment = await renderNodes({
 		node: [],
-		outbound: [
+		route: [
 			{ '.name': 'direct', kind: 'direct' },
 			{ '.name': 'block', kind: 'block' }
 		]
@@ -361,15 +363,18 @@ async function main() {
 
 	environment = await renderNodes({
 		node: [],
-		outbound: [ { '.name': 'broken', kind: 'single', node: 'missing_node' } ]
+		route: [ { '.name': 'broken', kind: 'single', node: 'missing_node' } ]
 	});
 	options = allOptions(environment);
 	const missingNode = options.find((option) => option.name == 'node');
 	assert.ok(missingNode, 'A dangling route node must remain visible for repair');
 	assert.deepEqual(missingNode.values, [ [ 'missing_node', 'Missing: missing_node' ] ]);
 
-	environment = await renderDns({ dns_profile: [], dns_server: [] });
-	assertGeneratedIds(environment, 'DNS profiles and servers');
+	environment = await renderDns({ dns_profile: [] });
+	assertGeneratedIds(environment, 'DNS profiles');
+	const dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
+	assert.deepEqual(dnsProtocol.values.map((value) => value[0]), [ 'udp', 'tcp', 'tls', 'https', 'quic', 'h3' ],
+		'DNS profiles expose exactly the six M1 transports');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertGeneratedIds(environment, 'Local proxies');
 

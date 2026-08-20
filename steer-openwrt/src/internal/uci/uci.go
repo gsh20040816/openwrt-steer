@@ -26,6 +26,16 @@ type Document struct {
 }
 
 func Parse(r io.Reader) (Document, error) {
+	return parse(r, true)
+}
+
+// ParseSystemConfig accepts anonymous sections used by OpenWrt-owned files.
+// Steer's own intent continues to use Parse and therefore requires stable IDs.
+func ParseSystemConfig(r io.Reader) (Document, error) {
+	return parse(r, false)
+}
+
+func parse(r io.Reader, requireSectionID bool) (Document, error) {
 	var document Document
 	var current *Section
 	scanner := bufio.NewScanner(r)
@@ -41,11 +51,18 @@ func Parse(r io.Reader) (Document, error) {
 		}
 		switch tokens[0] {
 		case "config":
-			if len(tokens) != 3 || tokens[1] == "" || tokens[2] == "" {
+			if len(tokens) < 2 || len(tokens) > 3 || tokens[1] == "" {
+				return Document{}, fmt.Errorf("UCI line %d: config requires a type and optional section ID", lineNumber)
+			}
+			if requireSectionID && (len(tokens) != 3 || tokens[2] == "") {
 				return Document{}, fmt.Errorf("UCI line %d: config requires a type and an explicit section ID", lineNumber)
 			}
+			id := ""
+			if len(tokens) == 3 {
+				id = tokens[2]
+			}
 			document.Sections = append(document.Sections, Section{
-				Type: tokens[1], ID: tokens[2], Line: lineNumber,
+				Type: tokens[1], ID: id, Line: lineNumber,
 				Options: make(map[string]string), Lists: make(map[string][]string),
 			})
 			current = &document.Sections[len(document.Sections)-1]

@@ -310,9 +310,13 @@ func allocateMACBindings(intent model.Intent) []MACBinding {
 
 func collectDNSPaths(intent model.Intent) []DNSPath {
 	seen := map[string]bool{}
+	routes := indexRoutes(intent.Routes)
 	var paths []DNSPath
 	for _, rule := range intent.Rules {
 		if !rule.Enabled {
+			continue
+		}
+		if routes[rule.Route].Kind == "block" {
 			continue
 		}
 		key := rule.DNSProfile + "\x00" + rule.Route
@@ -358,6 +362,7 @@ func addGeoSet(result *[]GeoRuleSet, seen map[string]bool, stateDirectory, kind,
 
 func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 	profiles := indexDNSProfiles(intent.DNSProfiles)
+	routes := indexRoutes(intent.Routes)
 	macIndex := map[string]MACBinding{}
 	for _, binding := range plan.Resources.MACBindings {
 		macIndex[binding.Address] = binding
@@ -422,10 +427,10 @@ func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 
 	dnsServers := []any{map[string]any{
 		"type": intent.Bootstrap.Protocol, "tag": "steer-dns-bootstrap", "server": intent.Bootstrap.Server,
-		"server_port": intent.Bootstrap.ServerPort, "detour": firstDirectRoute(intent.Routes),
+		"server_port": intent.Bootstrap.ServerPort,
 	}}
 	for _, path := range plan.DNSPaths {
-		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], path))
+		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path))
 	}
 
 	routeRules := []any{
@@ -447,11 +452,21 @@ func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 		routeMatch["outbound"] = routeTag(rule.Route)
 		routeRules = append(routeRules, routeMatch)
 		if dnsMatch := compileDNSMatch(rule, macIndex); len(dnsMatch) > 0 {
-			dnsMatch["action"] = "route"
-			dnsMatch["server"] = dnsPathTag(rule.DNSProfile, rule.Route)
-			dnsMatch["strategy"] = profiles[rule.DNSProfile].Strategy
+			if routes[rule.Route].Kind == "block" {
+				dnsMatch["action"] = "reject"
+			} else {
+				dnsMatch["action"] = "route"
+				dnsMatch["server"] = dnsPathTag(rule.DNSProfile, rule.Route)
+				dnsMatch["strategy"] = profiles[rule.DNSProfile].Strategy
+			}
 			dnsRules = append(dnsRules, dnsMatch)
 		}
+	}
+	finalDNS := "steer-dns-bootstrap"
+	if routes[defaultRule.Route].Kind == "block" {
+		dnsRules = append(dnsRules, map[string]any{"action": "reject"})
+	} else {
+		finalDNS = dnsPathTag(defaultRule.DNSProfile, defaultRule.Route)
 	}
 	ruleSets := make([]any, 0, len(plan.GeoRuleSets))
 	for _, ruleSet := range plan.GeoRuleSets {
@@ -459,7 +474,7 @@ func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 	}
 	return map[string]any{
 		"log": map[string]any{"level": intent.Main.LogLevel, "timestamp": true},
-		"dns": map[string]any{"servers": dnsServers, "rules": dnsRules, "final": dnsPathTag(defaultRule.DNSProfile, defaultRule.Route), "strategy": profiles[defaultRule.DNSProfile].Strategy,
+		"dns": map[string]any{"servers": dnsServers, "rules": dnsRules, "final": finalDNS, "strategy": profiles[defaultRule.DNSProfile].Strategy,
 			"independent_cache": true, "cache_capacity": intent.Main.DNSCacheCapacity, "reverse_mapping": true},
 		"inbounds":  inbounds,
 		"outbounds": outbounds,
@@ -483,13 +498,13 @@ func compileNode(node model.Node) map[string]any {
 		}
 	case "hysteria2":
 		result["password"], result["hop_interval"], result["up_mbps"], result["down_mbps"] = node.Password, node.HopInterval, node.UpMbps, node.DownMbps
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, "", "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
 		if node.ObfsType != "" {
 			result["obfs"] = map[string]any{"type": node.ObfsType, "password": node.ObfsPassword}
 		}
 	case "trojan":
 		result["password"] = node.Password
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, "", "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
 	}
 	return clean(result)
 }
@@ -505,9 +520,11 @@ func compileTLS(serverName string, insecure bool, fingerprint, publicKey, shortI
 	return clean(result)
 }
 
-func compileDNSPath(profile model.DNSProfile, path DNSPath) map[string]any {
-	result := map[string]any{"type": profile.Protocol, "tag": path.Tag, "server": profile.Server, "server_port": profile.ServerPort,
-		"detour": routeTag(path.Route)}
+func compileDNSPath(profile model.DNSProfile, route model.Route, path DNSPath) map[string]any {
+	result := map[string]any{"type": profile.Protocol, "tag": path.Tag, "server": profile.Server, "server_port": profile.ServerPort}
+	if route.Kind == "single" {
+		result["detour"] = routeTag(path.Route)
+	}
 	if _, err := netip.ParseAddr(profile.Server); err != nil {
 		result["domain_resolver"] = map[string]any{"server": "steer-dns-bootstrap", "strategy": profile.Strategy}
 	}
@@ -658,18 +675,17 @@ func indexDNSProfiles(values []model.DNSProfile) map[string]model.DNSProfile {
 	}
 	return result
 }
+func indexRoutes(values []model.Route) map[string]model.Route {
+	result := map[string]model.Route{}
+	for _, value := range values {
+		result[value.ID] = value
+	}
+	return result
+}
 func routeTag(id string) string               { return "steer-route-" + id }
 func nodeTag(id string) string                { return "steer-node-" + id }
 func localProxyTag(id string) string          { return "steer-local-" + id }
 func dnsPathTag(profile, route string) string { return "steer-dns-" + profile + "-via-" + route }
-func firstDirectRoute(routes []model.Route) string {
-	for _, route := range routes {
-		if route.Enabled && route.Kind == "direct" {
-			return routeTag(route.ID)
-		}
-	}
-	return ""
-}
 func sortedKeys[V any](values map[string]V) []string {
 	result := make([]string, 0, len(values))
 	for key := range values {

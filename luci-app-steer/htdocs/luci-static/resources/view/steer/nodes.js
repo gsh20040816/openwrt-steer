@@ -10,15 +10,15 @@
 'require steer as steer';
 'require steer.share-url as shareUrl';
 
-function collectNodeReferences(nodes, outbounds) {
+function collectNodeReferences(nodes, routes) {
 	const known = {};
 	const references = [];
 	nodes.forEach((node) => {
 		known[node['.name']] = true;
 		references.push([ node['.name'], node.name || node['.name'] ]);
 	});
-	outbounds.forEach((outbound) => {
-		const node = outbound.kind == 'single' ? outbound.node : null;
+	routes.forEach((route) => {
+		const node = route.kind == 'single' ? route.node : null;
 		if (node && !known[node]) {
 			known[node] = true;
 			references.push([ node, _('Missing: %s').format(node) ]);
@@ -200,14 +200,14 @@ return view.extend({
 	render: function() {
 		let m, s, o;
 		const nodes = uci.sections('steer', 'node');
-		const outbounds = uci.sections('steer', 'outbound');
-		const nodeReferences = collectNodeReferences(nodes, outbounds);
+		const routes = uci.sections('steer', 'route');
+		const nodeReferences = collectNodeReferences(nodes, routes);
 		steer.loadStyle();
 
 		m = new form.Map('steer', _('Nodes & Routes'),
 			_('Nodes describe transport credentials. Rules never point at a node directly; they point at a named route so subscriptions and failover can evolve without rewriting policy.'));
 
-		s = m.section(form.GridSection, 'outbound', _('Routes'));
+		s = m.section(form.GridSection, 'route', _('Routes'));
 		s.anonymous = true;
 		s.addremove = true;
 		s.nodescriptions = true;
@@ -215,6 +215,10 @@ return view.extend({
 		s.sectiontitle = function(sectionId) {
 			return uci.get('steer', sectionId, 'name') || _('Unnamed');
 		};
+
+		o = s.option(form.Flag, 'enabled', _('Enabled'));
+		o.default = '1';
+		o.editable = true;
 
 		o = s.option(form.Value, 'name', _('Name'));
 		o.rmempty = false;
@@ -236,11 +240,6 @@ return view.extend({
 			o.rmempty = false;
 			addNodeValues(o, nodeReferences);
 		}
-
-		o = s.option(form.ListValue, 'failure', _('If connection fails'));
-		o.value('block', _('Block'));
-		o.rmempty = false;
-		o.modalonly = true;
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes'));
 		s.anonymous = true;

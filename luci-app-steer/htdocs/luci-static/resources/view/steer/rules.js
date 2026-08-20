@@ -229,7 +229,7 @@ function matchSummary(sectionId) {
 	return parts.length ? parts.join(', ') : _('No match condition');
 }
 
-function renderSystemBypass(status) {
+function renderSystemBypass() {
 	return E('section', { 'class': 'steer-system-rule' }, [
 		E('div', { 'class': 'steer-system-rule__order' }, [
 			E('span', {}, _('Before rule 1')),
@@ -237,37 +237,31 @@ function renderSystemBypass(status) {
 		]),
 		E('div', { 'class': 'steer-system-rule__body' }, [
 			E('strong', {}, _('System rescue direct')),
-			E('p', {}, _('Non-globally-reachable and local destinations bypass Steer before user rules. Router-originated UDP NTP on port 123 always goes direct so time synchronization cannot depend on the proxy core. Traditional DNS on port 53 is intercepted first when router traffic proxying is enabled.')),
+			E('p', {}, _('Non-globally-reachable and local destinations bypass Steer before user rules. Router-originated UDP NTP on port 123 always goes direct. Traditional TCP and UDP DNS on port 53 enters the dedicated DNS shim.')),
 			E('details', {}, [
 				E('summary', {}, _('Show fixed boundary')),
 				E('p', {}, _('Loopback, private-use, shared, link-local, documentation, benchmarking, discard-only and multicast ranges. Globally reachable special-purpose exceptions remain eligible for user rules. The NTP exception applies only to traffic created by the router; LAN client UDP/123 still follows user rules.'))
 			])
 		]),
-		E('dl', { 'class': 'steer-system-rule__facts' }, [
-			E('div', {}, [ E('dt', {}, _('Route')), E('dd', {}, 'DIRECT') ]),
-			E('div', {}, [ E('dt', {}, _('IANA registry')), E('dd', {}, status?.iana_registry_date || _('Unavailable')) ]),
-			E('div', {}, [ E('dt', {}, _('Address bypass packets')), E('dd', {}, String(status?.system_bypass_packets || 0)) ]),
-			E('div', {}, [ E('dt', {}, _('Router NTP packets')), E('dd', {}, String(status?.router_ntp_direct_packets || 0)) ])
-		])
+		E('dl', { 'class': 'steer-system-rule__facts' }, [ E('div', {}, [ E('dt', {}, _('Route')), E('dd', {}, 'DIRECT') ]) ])
 	]);
 }
 
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.status(), steer.geodataCatalog() ]);
+		return Promise.all([ uci.load('steer'), steer.geodataCatalog() ]);
 	},
 
 	render: function(data) {
 		let m, s, o;
-		const status = data[1];
-		const catalog = data[2] || {};
+		const catalog = data[1] || {};
 		steer.loadStyle();
 		const rules = uci.sections('steer', 'rule');
 		const dnsProfiles = uci.sections('steer', 'dns_profile');
-		const outbounds = uci.sections('steer', 'outbound');
+		const routes = uci.sections('steer', 'route');
 		const localProxies = uci.sections('steer', 'local_proxy');
 		const dnsReferences = collectReferences(dnsProfiles, rules, 'dns_profile');
-		const outboundReferences = collectReferences(outbounds, rules, 'outbound');
+		const routeReferences = collectReferences(routes, rules, 'route');
 		const inboundReferences = collectReferences(localProxies, rules, 'inbound');
 
 		m = new form.Map('steer', _('Rules'),
@@ -305,16 +299,16 @@ return view.extend({
 		o.editable = true;
 		addReferences(o, dnsReferences);
 
-		o = s.taboption('intent', form.ListValue, 'outbound', _('Route'));
+		o = s.taboption('intent', form.ListValue, 'route', _('Route'));
 		o.rmempty = false;
 		o.editable = true;
-		addReferences(o, outboundReferences);
+		addReferences(o, routeReferences);
 
 		if (inboundReferences.length) {
 			o = s.taboption('match', form.MultiValue, 'inbound', _('Inbound'));
 			o.modalonly = true;
 			addReferences(o, inboundReferences);
-			o.description = _('Optionally limit this rule to one or more user-created local proxy endpoints. SmartDNS upstream connections are router traffic and use these same ordered rules.');
+			o.description = _('Optionally limit this rule to one or more user-created local proxy endpoints.');
 		}
 
 		o = s.taboption('match', MatchEditor, 'domain_match', _('Domain match'));
@@ -344,6 +338,10 @@ return view.extend({
 		o.value('tcp', 'TCP');
 		o.value('udp', 'UDP');
 
+		o = s.taboption('match', form.MultiValue, 'protocol', _('Detected protocol'));
+		o.modalonly = true;
+		[ 'tls', 'http', 'quic', 'dns', 'stun', 'bittorrent', 'dtls', 'ssh', 'rdp', 'ntp' ].forEach((value) => o.value(value, value));
+
 		o = s.taboption('match', form.DynamicList, 'port', _('Destination ports'));
 		o.modalonly = true;
 		o.datatype = 'port';
@@ -366,9 +364,9 @@ return view.extend({
 		o.rmempty = false;
 		addReferences(o, dnsReferences);
 
-		o = s.option(form.ListValue, 'outbound', _('Route'));
+		o = s.option(form.ListValue, 'route', _('Route'));
 		o.rmempty = false;
-		addReferences(o, outboundReferences);
+		addReferences(o, routeReferences);
 
 		const intent = E('div', { 'class': 'steer-intent', 'aria-label': _('Rule execution model') }, [
 			E('div', { 'class': 'steer-intent__step steer-intent__step--match' }, [
@@ -385,7 +383,7 @@ return view.extend({
 		]);
 
 		return m.render().then((formNode) => {
-			return E([], [ renderSystemBypass(status), intent, formNode ]);
+			return E([], [ renderSystemBypass(), intent, formNode ]);
 		});
 	},
 

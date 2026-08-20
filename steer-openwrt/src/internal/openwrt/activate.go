@@ -29,7 +29,6 @@ func ActivateGeneration(ctx context.Context, runner Runner, generation Generatio
 	for _, command := range RenderMACRoutes(generation.Bundle.Plan, generation.Environment.ManagedDevices) {
 		args := append([]string{command.Family}, command.Args...)
 		if _, err := runner.Output(ctx, "ip", args...); err != nil {
-			_ = CleanupPlatform(ctx, runner, generation.Bundle.Plan, generation.Environment, nftBinary)
 			return fmt.Errorf("load MAC policy route: %w", err)
 		}
 	}
@@ -37,12 +36,10 @@ func ActivateGeneration(ctx context.Context, runner Runner, generation Generatio
 	temporary := filepath.Join(runDirectory, ".current."+strconv.Itoa(os.Getpid()))
 	_ = os.Remove(temporary)
 	if err := os.Symlink(generation.Directory, temporary); err != nil {
-		_ = CleanupPlatform(ctx, runner, generation.Bundle.Plan, generation.Environment, nftBinary)
 		return fmt.Errorf("create current generation link: %w", err)
 	}
 	if err := os.Rename(temporary, link); err != nil {
 		_ = os.Remove(temporary)
-		_ = CleanupPlatform(ctx, runner, generation.Bundle.Plan, generation.Environment, nftBinary)
 		return fmt.Errorf("publish current generation: %w", err)
 	}
 	return nil
@@ -90,8 +87,22 @@ func CleanupPlatform(ctx context.Context, runner Runner, plan compiler.Plan, env
 				return fmt.Errorf("delete Steer MAC policy rule: %w", err)
 			}
 		}
-		if _, err := runner.Output(ctx, "ip", family, "route", "flush", "table", fmt.Sprint(plan.Resources.MACTable)); err != nil {
-			return fmt.Errorf("flush Steer MAC route table: %w", err)
+		routesOutput, err := runner.Output(ctx, "ip", "-json", family, "route", "show", "table", "all")
+		if err != nil {
+			return fmt.Errorf("list %s route tables: %w", family, err)
+		}
+		var routes []map[string]any
+		if err := json.Unmarshal(routesOutput, &routes); err != nil {
+			return fmt.Errorf("decode %s route tables: %w", family, err)
+		}
+		for _, route := range routes {
+			if jsonInt(route["table"]) != plan.Resources.MACTable {
+				continue
+			}
+			if _, err := runner.Output(ctx, "ip", family, "route", "flush", "table", fmt.Sprint(plan.Resources.MACTable)); err != nil {
+				return fmt.Errorf("flush Steer MAC route table: %w", err)
+			}
+			break
 		}
 	}
 	return nil

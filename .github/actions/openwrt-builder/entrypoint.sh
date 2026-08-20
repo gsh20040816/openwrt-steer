@@ -5,7 +5,7 @@
 set -euo pipefail
 
 readonly FEED_NAME=steer
-readonly PACKAGES=(geoview steer-geodata steer luci-app-steer)
+readonly PACKAGES=(geoview steer-geodata steer-openwrt luci-app-steer)
 readonly BUILD_PACKAGE=luci-app-steer
 readonly CCACHE_DIR="${CCACHE_DIR:-/work/openwrt/.ccache}"
 readonly CCACHE_CONFIGPATH2=staging_dir/host/etc/ccache.conf
@@ -184,7 +184,7 @@ if grep -qE 'HASH does not match |HASH uses deprecated hash,|HASH is missing,' "
 fi
 
 group 'Build selected package dependency closure'
-# luci-app-steer depends on steer, which in turn depends on geoview and
+# luci-app-steer depends on steer-openwrt, which in turn depends on geoview and
 # steer-geodata. A single top-level target lets OpenWrt schedule that closure
 # once. OpenWrt's disposable target build state is intentionally not cached;
 # compiler outputs are reused by ccache instead.

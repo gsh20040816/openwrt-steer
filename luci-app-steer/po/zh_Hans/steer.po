@@ -1,20 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 msgid ""
 msgstr ""
-"Project-Id-Version: luci-app-steer 0.1.0\n"
-"PO-Revision-Date: 2026-08-18 00:00+0800\n"
-"Last-Translator: Steer contributors\n"
-"Language-Team: Chinese (Simplified Han script)\n"
-"Language: zh_Hans\n"
-"MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
-"Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "%d added, %d modified, %d removed"
+msgstr "新增 %d 项，修改 %d 项，删除 %d 项"
+
+msgid "%d client MAC addresses"
+msgstr "%d 个客户端 MAC 地址"
 
 msgid "%d client ranges"
 msgstr "%d 个客户端范围"
 
-msgid "%d client MAC addresses"
-msgstr "%d 个客户端 MAC 地址"
+msgid "%d destination IP expressions"
+msgstr "%d 个目的 IP 表达式"
 
 msgid "%d domain patterns"
 msgstr "%d 个域名模式"
@@ -22,11 +21,23 @@ msgstr "%d 个域名模式"
 msgid "%d inbounds"
 msgstr "%d 个入站"
 
+msgid "%d matches."
+msgstr "%d 个候选。"
+
+msgid "%d matches; showing the first %d."
+msgstr "共 %d 个候选，显示前 %d 个。"
+
 msgid "%d ports"
 msgstr "%d 个端口"
 
-msgid "A rule selects one DNS profile. Each profile owns one SmartDNS instance. Its upstream connections are router-local traffic and use the same ordinary Rules as every other local connection."
-msgstr "每条规则选择一个 DNS 配置。每个配置对应一个 SmartDNS 实例，其上游连接属于路由器本机流量，与其他本机连接一样使用普通规则。"
+msgid "%d valid %s names are available for dynamic completion."
+msgstr "当前有 %d 个合法 %s 名称可用于动态补全。"
+
+msgid "%s is not a valid %s name in the current Geo data."
+msgstr "%s 不是当前 Geo 数据中的合法 %s 名称。"
+
+msgid "A disabled configuration stops Steer and removes its runtime resources when applied."
+msgstr "应用已禁用的配置会停止 Steer 并删除其运行时资源。"
 
 msgid "Add DNS profile"
 msgstr "添加 DNS 配置"
@@ -43,23 +54,23 @@ msgstr "添加路由"
 msgid "Add steering rule"
 msgstr "添加分流规则"
 
-msgid "Add upstream DNS server"
-msgstr "添加上游 DNS 服务器"
-
-msgid "Address bypass packets"
-msgstr "地址绕行数据包"
+msgid "Add to pending changes"
+msgstr "添加到待提交变更"
 
 msgid "Address strategy"
 msgstr "地址策略"
 
-msgid "Advanced runtime"
-msgstr "高级运行参数"
-
 msgid "All conditions"
 msgstr "所有条件"
 
+msgid "An IPv6 server address must be enclosed in brackets."
+msgstr "IPv6 服务器地址必须放在方括号中。"
+
 msgid "Apply failed without a diagnostic message."
 msgstr "应用失败，且没有诊断信息。"
+
+msgid "Applying Steer"
+msgstr "正在应用 Steer"
 
 msgid "Before rule 1"
 msgstr "规则 1 之前"
@@ -73,8 +84,17 @@ msgstr "引导 DNS"
 msgid "Cache"
 msgstr "缓存"
 
-msgid "Cache entries"
-msgstr "缓存条目数"
+msgid "Cache capacity"
+msgstr "缓存容量"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Candidate changes"
+msgstr "候选变更"
+
+msgid "Certificate verification"
+msgstr "证书校验"
 
 msgid "Choose DNS profile"
 msgstr "选择 DNS 配置"
@@ -82,14 +102,17 @@ msgstr "选择 DNS 配置"
 msgid "Choose route"
 msgstr "选择路由"
 
-msgid "Choose which local firewall zones Steer manages. Rules, DNS profiles and routes remain explicit and are applied as one checked transaction."
-msgstr "选择由 Steer 管理的本地防火墙区域。规则、DNS 配置和路由保持明确，并作为一个经过检查的事务统一应用。"
-
 msgid "Client IP/CIDR"
 msgstr "客户端 IP/CIDR"
 
 msgid "Client MAC address"
 msgstr "客户端 MAC 地址"
+
+msgid "Compile explicit routing and DNS intent into one verified sing-box execution plan."
+msgstr "将明确的路由与 DNS 意图编译为一个经过验证的 sing-box 执行计划。"
+
+msgid "Compiling and verifying the candidate execution plan."
+msgstr "正在编译并验证候选执行计划。"
 
 msgid "Configuration"
 msgstr "配置"
@@ -97,11 +120,8 @@ msgstr "配置"
 msgid "Connection"
 msgstr "连接"
 
-msgid "Core"
-msgstr "核心"
-
-msgid "Core bypass mark"
-msgstr "核心绕行标记"
+msgid "Core process"
+msgstr "核心进程"
 
 msgid "Create a proxy node before adding a single-node route."
 msgstr "请先创建代理节点，再添加单节点路由。"
@@ -109,17 +129,23 @@ msgstr "请先创建代理节点，再添加单节点路由。"
 msgid "Create named SOCKS, HTTP or mixed entry points. An entry point does not own a node: ordered rules choose its DNS profile and route, just like transparent traffic. Existing service ports are not imported automatically."
 msgstr "创建具名的 SOCKS、HTTP 或混合入口。入口不绑定节点：与透明代理流量一样，由有序规则选择 DNS 配置和路由。现有服务端口不会自动导入。"
 
+msgid "Credentials"
+msgstr "凭据"
+
 msgid "Current state"
 msgstr "当前状态"
 
 msgid "DNS"
 msgstr "DNS"
 
+msgid "DNS cache"
+msgstr "DNS 缓存"
+
 msgid "DNS continues to the next rule"
 msgstr "DNS 继续匹配下一条规则"
 
-msgid "DNS interception port"
-msgstr "DNS 拦截端口"
+msgid "DNS paths"
+msgstr "DNS 路径"
 
 msgid "DNS profile"
 msgstr "DNS 配置"
@@ -136,17 +162,29 @@ msgstr "默认"
 msgid "Default is always enabled and fixed after every ordered rule. Only its DNS profile and route can be changed."
 msgstr "默认规则始终启用并固定在全部有序规则之后，只能修改它的 DNS 配置和路由。"
 
+msgid "Destination IP match"
+msgstr "目的 IP 匹配"
+
 msgid "Destination ports"
 msgstr "目标端口"
+
+msgid "Detected protocol"
+msgstr "已识别协议"
 
 msgid "Direct"
 msgstr "直连"
 
-msgid "DoH path"
-msgstr "DoH 路径"
+msgid "Disabled"
+msgstr "已禁用"
+
+msgid "Domain match"
+msgstr "域名匹配"
 
 msgid "Download Mbps"
 msgstr "下载 Mbps"
+
+msgid "Each profile owns exactly one upstream. Every referenced (DNS profile, route) pair becomes an independent sing-box DNS transport and cache path."
+msgstr "每个配置只拥有一个上游；每个被引用的（DNS 配置，路由）组合都会成为独立的 sing-box DNS 传输与缓存路径。"
 
 msgid "Enable Steer"
 msgstr "启用 Steer"
@@ -154,26 +192,20 @@ msgstr "启用 Steer"
 msgid "Enabled"
 msgstr "启用"
 
-msgid "Error"
-msgstr "错误"
-
 msgid "Exact ports only. This condition is evaluated by traffic routing, not DNS."
 msgstr "仅支持精确端口。此条件由流量路由判断，不参与 DNS 判断。"
 
-msgid "Examples: none, ping,tcp:443,tcp:80"
-msgstr "示例：none, ping,tcp:443,tcp:80"
+msgid "Execution plan"
+msgstr "执行计划"
 
-msgid "Fastest DNS response"
-msgstr "最快 DNS 响应"
+msgid "Execution plan is unavailable."
+msgstr "执行计划不可用。"
 
-msgid "Fastest IP"
-msgstr "最快 IP"
+msgid "Firewall shim"
+msgstr "防火墙辅助层"
 
 msgid "First"
 msgstr "第一个"
-
-msgid "First ping response"
-msgstr "首个 Ping 响应"
 
 msgid "Flow"
 msgstr "流程"
@@ -181,29 +213,35 @@ msgstr "流程"
 msgid "General"
 msgstr "常规"
 
-msgid "IANA registry"
-msgstr "IANA 注册表"
+msgid "Geo rule sets"
+msgstr "Geo 规则集"
 
-msgid "IPv4 only"
-msgstr "仅 IPv4"
+msgid "HTTP path"
+msgstr "HTTP 路径"
 
-msgid "IPv6 only"
-msgstr "仅 IPv6"
+msgid "HTTPS probe URLs"
+msgstr "HTTPS 探测地址"
 
-msgid "If all upstreams fail"
-msgstr "所有上游均失败时"
+msgid "Ignored compatibility-only parameter: %s"
+msgstr "已忽略仅用于兼容的参数：%s"
 
-msgid "If connection fails"
-msgstr "连接失败时"
+msgid "Import node"
+msgstr "导入节点"
+
+msgid "Import proxy node"
+msgstr "导入代理节点"
+
+msgid "Import share URL"
+msgstr "导入分享 URL"
 
 msgid "Inbound"
 msgstr "入站"
 
-msgid "Info"
-msgstr "信息"
-
 msgid "Intent"
 msgstr "意图"
+
+msgid "Invalid"
+msgstr "无效"
 
 msgid "Kind"
 msgstr "类型"
@@ -211,8 +249,8 @@ msgstr "类型"
 msgid "Listen address"
 msgstr "监听地址"
 
-msgid "Local port"
-msgstr "本地端口"
+msgid "Listeners"
+msgstr "监听端口"
 
 msgid "Local Proxies"
 msgstr "本地代理"
@@ -229,8 +267,8 @@ msgstr "环回、私有、共享、链路本地、文档、基准测试、仅丢
 msgid "Managed firewall zones"
 msgstr "管理的防火墙区域"
 
-msgid "Mark mask"
-msgstr "标记掩码"
+msgid "Managed zones"
+msgstr "受管区域"
 
 msgid "Match"
 msgstr "匹配"
@@ -238,8 +276,8 @@ msgstr "匹配"
 msgid "Match the request"
 msgstr "匹配请求"
 
-msgid "Minimum TTL"
-msgstr "最小 TTL"
+msgid "Matches LAN clients before IP routing, so the same rule covers IPv4, IPv6, SLAAC and temporary addresses. It cannot be combined with a local proxy inbound."
+msgstr "在 IP 路由前匹配局域网客户端，因此同一条规则同时覆盖 IPv4、IPv6、SLAAC 和临时地址。不能与本地代理入站同时使用。"
 
 msgid "Missing: %s"
 msgstr "缺失：%s"
@@ -250,9 +288,6 @@ msgstr "混合（SOCKS + HTTP）"
 msgid "Name"
 msgstr "名称"
 
-msgid "Unnamed"
-msgstr "未命名"
-
 msgid "Named proxy entry points"
 msgstr "具名代理入口"
 
@@ -262,8 +297,14 @@ msgstr "网络"
 msgid "No match condition"
 msgstr "无匹配条件"
 
+msgid "No semantic changes"
+msgstr "没有语义变更"
+
 msgid "Node"
 msgstr "节点"
+
+msgid "Node import failed"
+msgstr "节点导入失败"
 
 msgid "Nodes & Routes"
 msgstr "节点与路由"
@@ -271,14 +312,14 @@ msgstr "节点与路由"
 msgid "Nodes describe transport credentials. Rules never point at a node directly; they point at a named route so subscriptions and failover can evolve without rewriting policy."
 msgstr "节点描述传输凭据。规则从不直接指向节点，而是指向具名路由，因此订阅和故障转移可以独立演进，无需重写策略。"
 
-msgid "Non-globally-reachable and local destinations bypass Steer before user rules. Router-originated UDP NTP on port 123 always goes direct so time synchronization cannot depend on the proxy core. Traditional DNS on port 53 is intercepted first when router traffic proxying is enabled."
-msgstr "非全球可达地址和本地目标会在用户规则之前绕过 Steer。路由器发起的 UDP/123 NTP 始终直连，避免时间同步依赖代理核心。启用路由器本机代理后，传统的 53 端口 DNS 会被优先拦截。"
+msgid "Non-globally-reachable and local destinations bypass Steer before user rules. Router-originated UDP NTP on port 123 always goes direct. Traditional TCP and UDP DNS on port 53 enters the dedicated DNS shim."
+msgstr "非全球可达地址和本地目的地址会在用户规则之前绕过 Steer。路由器发起的 UDP 123 端口 NTP 始终直连，传统 TCP/UDP 53 端口 DNS 进入专用 DNS 辅助层。"
 
 msgid "None"
 msgstr "无"
 
-msgid "Not created"
-msgstr "未创建"
+msgid "Not ready"
+msgstr "未就绪"
 
 msgid "Obfuscation"
 msgstr "混淆"
@@ -286,11 +327,17 @@ msgstr "混淆"
 msgid "Obfuscation password"
 msgstr "混淆密码"
 
-msgid "Only traffic entering these zones is managed. Other zones, including WAN unless explicitly selected, are untouched."
-msgstr "仅管理从这些区域进入的流量。其他区域不会被改动；WAN 也只有在明确选择后才会纳入管理。"
+msgid "One IP, CIDR or geoip: expression per line. Lines are OR. This field affects traffic routing but not DNS selection."
+msgstr "每行填写一个 IP、CIDR 或 geoip: 表达式，行与行之间为或关系。该字段只参与流量路由，不参与 DNS 选择。"
 
-msgid "Optionally limit this rule to one or more user-created local proxy endpoints. SmartDNS upstream connections are router traffic and use these same ordered rules."
-msgstr "可选择将此规则限制到一个或多个用户创建的本地代理入口。SmartDNS 上游连接属于路由器流量，使用同一组有序规则。"
+msgid "One expression per line. Plain text is a keyword; full:, domain:, regexp: and geosite: select exact, suffix, regular-expression and GeoSite matching. Lines are OR."
+msgstr "每行填写一个表达式。纯文本表示关键词；full:、domain:、regexp: 和 geosite: 分别表示精确域名、域名后缀、正则表达式和 GeoSite 匹配。行与行之间为或关系。"
+
+msgid "Optimistic cache"
+msgstr "乐观缓存"
+
+msgid "Optionally limit this rule to one or more user-created local proxy endpoints."
+msgstr "可选择将此规则限制到一个或多个用户创建的本地代理入口。"
 
 msgid "Ordered steering rules"
 msgstr "有序分流规则"
@@ -298,17 +345,23 @@ msgstr "有序分流规则"
 msgid "Overview"
 msgstr "概览"
 
+msgid "Parse and review"
+msgstr "解析并审查"
+
+msgid "Parse one VLESS, Hysteria2 or Trojan share URL in this browser. The URL is never sent to a Steer RPC or written to logs."
+msgstr "在本浏览器中解析一个 VLESS、Hysteria2 或 Trojan 分享 URL。该 URL 不会发送给 Steer RPC，也不会写入日志。"
+
 msgid "Password"
 msgstr "密码"
 
+msgid "Paste exactly one share URL. Credentials are hidden from the preview and are stored only after you confirm."
+msgstr "请粘贴一个分享 URL。预览会隐藏凭据，只有确认后才会保存。"
+
+msgid "Paste one share URL."
+msgstr "请粘贴一个分享 URL。"
+
 msgid "Persistent cache"
 msgstr "持久化缓存"
-
-msgid "Policy route table"
-msgstr "策略路由表"
-
-msgid "Policy rule priority"
-msgstr "策略规则优先级"
 
 msgid "Port"
 msgstr "端口"
@@ -319,14 +372,8 @@ msgstr "端口跳跃间隔"
 msgid "Port hopping ranges"
 msgstr "端口跳跃范围"
 
-msgid "Prefer IPv4"
-msgstr "优先 IPv4"
-
-msgid "Prefer IPv6"
-msgstr "优先 IPv6"
-
-msgid "Profile"
-msgstr "配置"
+msgid "Present; hidden from preview"
+msgstr "已提供；预览中隐藏"
 
 msgid "Protocol"
 msgstr "协议"
@@ -334,8 +381,8 @@ msgstr "协议"
 msgid "Proxy nodes"
 msgstr "代理节点"
 
-msgid "Proxy router traffic"
-msgstr "代理路由器本机流量"
+msgid "REALITY parameters"
+msgstr "REALITY 参数"
 
 msgid "REALITY public key"
 msgstr "REALITY 公钥"
@@ -346,20 +393,20 @@ msgstr "REALITY 短 ID"
 msgid "Ready"
 msgstr "就绪"
 
-msgid "Recovery point"
-msgstr "恢复点"
+msgid "Reserved for sing-box 1.14; M1 rejects it."
+msgstr "为 sing-box 1.14 预留；M1 会拒绝启用。"
 
-msgid "Response mode"
-msgstr "响应模式"
+msgid "Reserved for sing-box 1.14; enabling it on M1 is rejected."
+msgstr "为 sing-box 1.14 预留；在 M1 启用会被拒绝。"
 
-msgid "Return failure"
-msgstr "返回失败"
+msgid "Review imported node"
+msgstr "审查导入节点"
+
+msgid "Review parser warnings"
+msgstr "检查解析警告"
 
 msgid "Route"
 msgstr "路由"
-
-msgid "Router NTP packets"
-msgstr "路由器 NTP 数据包"
 
 msgid "Routes"
 msgstr "路由"
@@ -370,17 +417,20 @@ msgstr "规则执行模型"
 msgid "Rules"
 msgstr "规则"
 
-msgid "Running"
-msgstr "运行中"
+msgid "Rules run from top to bottom. Entries inside one field are OR; all non-empty fields are AND. DNS evaluates only domain, inbound and client conditions."
+msgstr "规则从上到下执行。同一字段内的条目为或关系，所有非空字段之间为与关系。DNS 只判断域名、入站和客户端条件。"
 
-msgid "Serve expired records"
-msgstr "提供过期记录"
+msgid "Schema"
+msgstr "模式版本"
 
 msgid "Server"
 msgstr "服务器"
 
 msgid "Server IP"
 msgstr "服务器 IP"
+
+msgid "Show complete plan"
+msgstr "显示完整计划"
 
 msgid "Show fixed boundary"
 msgstr "显示固定边界"
@@ -391,200 +441,8 @@ msgstr "单节点"
 msgid "Skip certificate verification"
 msgstr "跳过证书验证"
 
-msgid "SmartDNS upstream loop-guard mark"
-msgstr "SmartDNS 上游防循环标记"
-
-msgid "Speed checks"
-msgstr "测速"
-
 msgid "Steer"
 msgstr "Steer"
-
-msgid "Steer configuration applied."
-msgstr "Steer 配置已应用。"
-
-msgid "Steer did not apply the changes"
-msgstr "Steer 未应用更改"
-
-msgid "Stopped"
-msgstr "已停止"
-
-msgid "System"
-msgstr "系统"
-
-msgid "System rescue direct"
-msgstr "系统救援直连"
-
-msgid "TLS / REALITY"
-msgstr "TLS / REALITY"
-
-msgid "TLS server name"
-msgstr "TLS 服务器名称"
-
-msgid "TPROXY listen port"
-msgstr "TPROXY 监听端口"
-
-msgid "TPROXY mark"
-msgstr "TPROXY 标记"
-
-msgid "The startup root for proxy-node and encrypted-DNS hostnames. It is always contacted directly by IP with the core bypass mark, so startup never depends on SmartDNS or a proxy node."
-msgstr "用于解析代理节点和加密 DNS 主机名的启动根。它始终以 IP 直连并带有核心绕行标记，因此启动过程不会依赖 SmartDNS 或代理节点。"
-
-msgid "This mark only prevents SmartDNS UDP/TCP 53 upstream packets from being captured as new local DNS queries. The packets still enter TPROXY and use ordinary Rules. It must not overlap the TPROXY mark mask."
-msgstr "此标记只防止 SmartDNS 的 UDP/TCP 53 上游数据包再次被捕获为新的本地 DNS 查询。这些数据包仍会进入 TPROXY 并使用普通规则。该标记不得与 TPROXY 标记掩码重叠。"
-
-msgid "Traffic steering"
-msgstr "流量分流"
-
-msgid "Traffic steering is active"
-msgstr "流量分流已启用"
-
-msgid "Traffic steering is not fully active"
-msgstr "流量分流尚未完全启用"
-
-msgid "UDP packet encoding"
-msgstr "UDP 数据包编码"
-
-msgid "UUID"
-msgstr "UUID"
-
-msgid "Unavailable"
-msgstr "不可用"
-
-msgid "Upload Mbps"
-msgstr "上传 Mbps"
-
-msgid "Upstream DNS servers"
-msgstr "上游 DNS 服务器"
-
-msgid "Upstream servers"
-msgstr "上游服务器"
-
-msgid "Use a loopback address unless LAN clients must connect directly. Non-loopback listeners require authentication."
-msgstr "除非 LAN 客户端必须直接连接，否则请使用环回地址。非环回监听地址必须启用身份验证。"
-
-msgid "Use stable DHCP leases or stable IPv6 addresses when a rule belongs to one device."
-msgstr "当规则属于某一台设备时，请使用固定 DHCP 租约或稳定的 IPv6 地址。"
-
-msgid "Username"
-msgstr "用户名"
-
-msgid "Username and password must either both be set or both be empty."
-msgstr "用户名和密码必须同时设置或同时留空。"
-
-msgid "Warning"
-msgstr "警告"
-
-msgid "Checking conflicts, generating configuration and verifying services."
-msgstr "正在检查服务冲突、生成配置并验证服务状态。"
-
-msgid "Configuration switch"
-msgstr "配置开关"
-
-msgid "Do not start another transparent proxy or the system SmartDNS while this check is running."
-msgstr "检查期间请勿启动其他透明代理或系统 SmartDNS。"
-
-msgid "Saving and applying this switch also synchronizes Steer startup at boot. Stop and disable other transparent proxies and the system SmartDNS before enabling it."
-msgstr "保存并应用此开关时会同步 Steer 的开机启动状态。启用前请先停止并禁用其他透明代理和系统 SmartDNS。"
-
-msgid "Starting Steer"
-msgstr "正在启动 Steer"
-
-msgid "Steer is blocked by conflicting services"
-msgstr "Steer 被冲突服务阻止"
-
-msgid "Steer is disabled"
-msgstr "Steer 已停用"
-
-msgid "Steer is starting"
-msgstr "Steer 正在启动"
-
-msgid "Steer is stopping"
-msgstr "Steer 正在停止"
-
-msgid "Steer is still running while disabled"
-msgstr "Steer 在配置已停用时仍在运行"
-
-msgid "Steer will not stop or disable another service automatically."
-msgstr "Steer 不会自动停止或禁用其他服务。"
-
-msgid "Stop and disable conflicting services before starting Steer"
-msgstr "启动 Steer 前请先停止并禁用以下冲突服务"
-
-msgid "The apply request failed before Steer returned a diagnostic message."
-msgstr "Steer 返回诊断信息前，应用请求已经失败。"
-
-msgid "The last apply failed"
-msgstr "上次应用失败"
-
-msgid "currently running"
-msgstr "正在运行"
-
-msgid "enabled at boot"
-msgstr "已设为开机启动"
-
-msgid "When enabled, the router’s own public TCP/UDP traffic and traditional DNS use the same ordered rules as managed clients."
-msgstr "启用后，路由器自身的公网 TCP/UDP 流量和传统 DNS 将与受管理客户端使用相同的有序规则。"
-
-msgid "uTLS fingerprint"
-msgstr "uTLS 指纹"
-
-msgid "Add to pending changes"
-msgstr "添加到待提交变更"
-
-msgid "An IPv6 server address must be enclosed in brackets."
-msgstr "IPv6 服务器地址必须放在方括号中。"
-
-msgid "Cancel"
-msgstr "取消"
-
-msgid "Certificate verification"
-msgstr "证书校验"
-
-msgid "Credentials"
-msgstr "凭据"
-
-msgid "Disabled"
-msgstr "已禁用"
-
-msgid "Ignored compatibility-only parameter: %s"
-msgstr "已忽略仅用于兼容的参数：%s"
-
-msgid "Import node"
-msgstr "导入节点"
-
-msgid "Import proxy node"
-msgstr "导入代理节点"
-
-msgid "Import share URL"
-msgstr "导入分享 URL"
-
-msgid "Node import failed"
-msgstr "节点导入失败"
-
-msgid "Parse and review"
-msgstr "解析并审查"
-
-msgid "Parse one VLESS, Hysteria2 or Trojan share URL in this browser. The URL is never sent to a Steer RPC or written to logs."
-msgstr "在本浏览器中解析一个 VLESS、Hysteria2 或 Trojan 分享 URL。该 URL 不会发送给 Steer RPC，也不会写入日志。"
-
-msgid "Paste exactly one share URL. Credentials are hidden from the preview and are stored only after you confirm."
-msgstr "请粘贴一个分享 URL。预览会隐藏凭据，只有确认后才会保存。"
-
-msgid "Paste one share URL."
-msgstr "请粘贴一个分享 URL。"
-
-msgid "Present; hidden from preview"
-msgstr "已提供；预览中隐藏"
-
-msgid "REALITY parameters"
-msgstr "REALITY 参数"
-
-msgid "Review imported node"
-msgstr "审查导入节点"
-
-msgid "Review parser warnings"
-msgstr "检查解析警告"
 
 msgid "Steer cannot preserve this UDP packet encoding."
 msgstr "Steer 无法保留该 UDP 数据包编码。"
@@ -604,8 +462,41 @@ msgstr "Steer 无法保留该传输头部。"
 msgid "Steer cannot preserve this transport type."
 msgstr "Steer 无法保留该传输类型。"
 
+msgid "Steer configuration applied."
+msgstr "Steer 配置已应用。"
+
 msgid "Steer currently supports only Hysteria2 Salamander obfuscation."
 msgstr "Steer 当前仅支持 Hysteria2 Salamander 混淆。"
+
+msgid "Steer is disabled"
+msgstr "Steer 已停用"
+
+msgid "Steer rejected the candidate"
+msgstr "Steer 已拒绝候选配置"
+
+msgid "System"
+msgstr "系统"
+
+msgid "System rescue direct"
+msgstr "系统救援直连"
+
+msgid "TLS"
+msgstr "TLS"
+
+msgid "TLS / REALITY"
+msgstr "TLS / REALITY"
+
+msgid "TLS server name"
+msgstr "TLS 服务器名称"
+
+msgid "TUN interface"
+msgstr "TUN 接口"
+
+msgid "The VLESS credential is not a UUID."
+msgstr "VLESS 凭据不是有效的 UUID。"
+
+msgid "The saved configuration is invalid"
+msgstr "已保存的配置无效"
 
 msgid "The share URL contains a parameter that Steer cannot preserve."
 msgstr "分享 URL 包含 Steer 无法保留的参数。"
@@ -643,8 +534,8 @@ msgstr "分享 URL 格式错误。"
 msgid "The share URL is missing a required parameter."
 msgstr "分享 URL 缺少必需参数。"
 
-msgid "The VLESS credential is not a UUID."
-msgstr "VLESS 凭据不是有效的 UUID。"
+msgid "The valid-name catalog is unavailable: %s"
+msgstr "合法名称目录不可用：%s"
 
 msgid "This parameter requires Hysteria2 obfuscation."
 msgstr "该参数要求启用 Hysteria2 混淆。"
@@ -661,44 +552,80 @@ msgstr "不支持该分享 URL 协议。"
 msgid "This share URL uses an unsupported path."
 msgstr "该分享 URL 使用了不支持的路径。"
 
-msgid "Unsupported transport or security fields stop the import instead of being silently discarded."
-msgstr "遇到不支持的传输或安全字段时会停止导入，不会静默丢弃。"
+msgid "Traffic steering"
+msgstr "流量分流"
 
-msgid "%s is not a valid %s name in the current Geo data."
-msgstr "%s 不是当前 Geo 数据中的合法 %s 名称。"
+msgid "Traffic steering is active"
+msgstr "流量分流已启用"
 
-msgid "The valid-name catalog is unavailable: %s"
-msgstr "合法名称目录不可用：%s"
+msgid "Traffic steering is not healthy"
+msgstr "流量引导未处于健康状态"
+
+msgid "UDP packet encoding"
+msgstr "UDP 数据包编码"
+
+msgid "UUID"
+msgstr "UUID"
 
 msgid "Unknown error"
 msgstr "未知错误"
 
-msgid "%d destination IP expressions"
-msgstr "%d 个目的 IP 表达式"
+msgid "Unnamed"
+msgstr "未命名"
 
-msgid "%d matches."
-msgstr "%d 个候选。"
+msgid "Unsupported transport or security fields stop the import instead of being silently discarded."
+msgstr "遇到不支持的传输或安全字段时会停止导入，不会静默丢弃。"
 
-msgid "%d matches; showing the first %d."
-msgstr "共 %d 个候选，显示前 %d 个。"
+msgid "Upload Mbps"
+msgstr "上传 Mbps"
 
-msgid "%d valid %s names are available for dynamic completion."
-msgstr "当前有 %d 个合法 %s 名称可用于动态补全。"
+msgid "Upstream"
+msgstr "上游"
 
-msgid "Destination IP match"
-msgstr "目的 IP 匹配"
+msgid "Use a loopback address unless LAN clients must connect directly. Non-loopback listeners require authentication."
+msgstr "除非 LAN 客户端必须直接连接，否则请使用环回地址。非环回监听地址必须启用身份验证。"
 
-msgid "Domain match"
-msgstr "域名匹配"
+msgid "Use stable DHCP leases or stable IPv6 addresses when a rule belongs to one device."
+msgstr "当规则属于某一台设备时，请使用固定 DHCP 租约或稳定的 IPv6 地址。"
 
-msgid "One IP, CIDR or geoip: expression per line. Lines are OR. This field affects traffic routing but not DNS selection."
-msgstr "每行填写一个 IP、CIDR 或 geoip: 表达式，行与行之间为或关系。该字段只参与流量路由，不参与 DNS 选择。"
+msgid "Username"
+msgstr "用户名"
 
-msgid "One expression per line. Plain text is a keyword; full:, domain:, regexp: and geosite: select exact, suffix, regular-expression and GeoSite matching. Lines are OR."
-msgstr "每行填写一个表达式。纯文本表示关键词；full:、domain:、regexp: 和 geosite: 分别表示精确域名、域名后缀、正则表达式和 GeoSite 匹配。行与行之间为或关系。"
+msgid "Username and password must either both be set or both be empty."
+msgstr "用户名和密码必须同时设置或同时留空。"
 
-msgid "Rules run from top to bottom. Entries inside one field are OR; all non-empty fields are AND. DNS evaluates only domain, inbound and client conditions."
-msgstr "规则从上到下执行。同一字段内的条目为或关系，所有非空字段之间为与关系。DNS 只判断域名、入站和客户端条件。"
+msgid "Valid"
+msgstr "有效"
 
-msgid "Matches LAN clients before IP routing, so the same rule covers IPv4, IPv6, SLAAC and temporary addresses. It cannot be combined with a local proxy inbound."
-msgstr "在 IP 路由前匹配局域网客户端，因此同一条规则同时覆盖 IPv4、IPv6、SLAAC 和临时地址。不能与本地代理入站同时使用。"
+msgid "Manual probes"
+msgstr "手动探测"
+
+msgid "Previous Steer configuration restored."
+msgstr "已恢复上一份 Steer 配置。"
+
+msgid "Restore previous Steer configuration?"
+msgstr "要恢复上一份 Steer 配置吗？"
+
+msgid "Restore previous configuration"
+msgstr "恢复上一份配置"
+
+msgid "Restoring Steer"
+msgstr "正在恢复 Steer"
+
+msgid "Restoring and applying the previous configuration."
+msgstr "正在恢复并应用上一份配置。"
+
+msgid "Steer restore failed"
+msgstr "Steer 恢复失败"
+
+msgid "The explicit “steer probe” diagnostic reports valid TLS 2xx or 3xx responses. Probes never gate Apply."
+msgstr "显式运行“steer probe”可诊断有效 TLS 的 2xx 或 3xx 响应；探测结果不会阻止应用。"
+
+msgid "This restores the single saved configuration and applies it immediately. The backup is deleted after a successful restore."
+msgstr "这会恢复唯一保存的上一份配置并立即应用；恢复成功后将删除该备份。"
+
+msgid "Timed out waiting for the committed Steer configuration to reload."
+msgstr "等待已提交的 Steer 配置重载超时。"
+
+msgid "uTLS fingerprint"
+msgstr "uTLS 指纹"

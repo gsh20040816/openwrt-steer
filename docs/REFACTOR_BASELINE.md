@@ -30,7 +30,7 @@ sing-box 负责 DNS transport、代理协议、TUN 和实际转发；OpenWrt 负
 
 ## 运行拓扑
 
-OpenWrt 只安装一个非驻留 Go 控制程序 `/usr/sbin/steer-openwrt`。它负责：
+OpenWrt 只安装一个非驻留 Go 控制程序 `/usr/sbin/steer`。它负责：
 
 - 严格 UCI 解码；
 - Canonical Intent 校验；
@@ -133,25 +133,42 @@ mark、table、priority 和 nft table 均无歧义或冲突。
 
 ## Apply
 
-`uci commit steer` 只写候选磁盘配置。只有显式 `steer apply` 才属于受支持的激活路径。
+LuCI 的“保存”只写会话暂存；“保存并应用”通过会话化 ubus `uci commit` 写入磁盘。该提交会
+发送 OpenWrt 标准 `config.change` 事件，由 procd 的 `reload_service` 恰好启动一次
+`steer apply`。LuCI 只等待并显示这次 Apply 的结果，不得再调用第二个 Apply RPC。
+
+裸 `/sbin/uci commit steer` 本身不会发送 ubus 事件，Steer 不包装系统 `uci`，也不为此增加
+常驻文件监视器。终端的受支持入口是
+`uci commit steer && /etc/init.d/steer reload`；init reload 与 LuCI 触发共用同一个 Apply。
 
 Apply 固定流程：
 
 1. 严格解码、校验、能力和资源检查；
 2. 生成候选 Plan、语义差异、sing-box JSON 和平台产物；
 3. 执行 sing-box 与 nftables 原生离线检查；
-4. 保存 Apply 前唯一的当前 UCI/运行代；
+4. 如果当前运行代通过本地健康检查，把它的 UCI 覆盖到唯一持久恢复点；
 5. 串行停止当前实例并启动候选；
 6. 验证进程、TUN、路由、nft table 和监听器；
-7. 由路由器普通流量并行访问候选配置的 HTTPS probe 列表；
-8. 每个目标失败最多再重试一次；TLS 必须有效且状态为 2xx/3xx；
-9. 全部通过后提交；任一步失败则恢复 Apply 前 UCI 与运行代。
+7. 本地健康后提交并清理旧临时生成代。
 
-默认 probe 是 baidu、google 和 github 的 HTTPS URL；用户只能用一个 URL 列表整体替换，不能
-为单项配置独立重试、状态码或 Route。
+所有 Apply 使用 `/run/steer/apply.lock` 的阻塞文件锁串行。连续提交不保存历史候选快照；每次
+事件执行时读取最新已提交配置。即使 Intent digest 没有变化也执行完整 Apply，不增加 no-op
+分支。
 
-候选切换允许短暂网络中断，不实现双实例无缝接管。HTTPS probe 只在事务 Apply 执行；普通
-boot/restart 只重新编译已提交配置并做本机就绪检查。
+配置解码、校验或离线预检失败发生在停止当前实例之前：候选保留，当前运行代不变。候选开始
+切换后若启动或本地健康检查失败，Apply 立即失败并保留故障现场，不自动停止、不自动恢复
+UCI 或运行代。失败不是预期运行模式，不为它维护双向状态交换和自动恢复控制流。
+
+`/var/lib/steer/rollback.uci` 只保存切换前最后一个本地健康运行代的 UCI。`steer rollback`
+恢复这份 UCI 并复用同一 Apply；成功后一次性删除备份，失败则保留。LuCI 在备份存在时显示
+带确认的恢复按钮，并调用同一个命令。它不是多版本历史或自动 LKG。
+
+HTTPS probe 已退出 Apply，只能由用户显式运行 `steer probe`。该命令针对当前 Plan 并行请求
+配置的 HTTPS URL，每个目标最多尝试两次，要求有效 TLS 和 2xx/3xx；结果只用于诊断，不改变
+运行态。
+
+候选切换允许短暂网络中断，不实现双实例无缝接管。普通 boot/restart 只重新编译已提交配置
+并做本机就绪检查。
 
 不保存历史运行代或 boot LKG。重启时配置非法就拒绝启动。运行期间 sing-box 崩溃不触发配置
 回滚，只使用 procd 默认 respawn；不得把这种状态描述为 fail-closed。
@@ -205,9 +222,9 @@ init、RPC 与 LuCI 时必须同时删除旧运行入口。
 - MAC 双栈 shim；
 - Direct、代理 outbound 与核心自身无 TUN 回环；
 - Geo 首次生成、数据升级和缺失分类失败；
-- Apply 成功、HTTPS 失败回退 UCI/运行代；
+- Apply 成功、失败现场保留、单份健康 UCI 手动恢复、HTTPS 手动诊断；
 - fw4/network reload、reboot、procd 连续失败；
-- `steer` 到 `steer-openwrt` 有效/无效 schema 包升级；
+- 旧 `steer` 包到 `steer-openwrt` 有效/无效 schema 包升级；
 - 无 Fake-IP、无 UDP/443 阻断、无隐藏 fallback、无 JSON 逃生口；
 - CPU、内存、日志和吞吐数据记录；环路、泄漏、无界增长是硬失败。
 

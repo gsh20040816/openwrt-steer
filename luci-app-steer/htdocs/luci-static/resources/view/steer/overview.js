@@ -1,6 +1,4 @@
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 
 'use strict';
 'require form';
@@ -8,13 +6,30 @@
 'require view';
 'require steer as steer';
 
+function renderPlan(result) {
+	const plan = result?.plan || result;
+	const diff = result?.diff;
+	if (!plan?.schema_version)
+		return E('div', { 'class': 'alert-message warning' }, result?.error || _('Execution plan is unavailable.'));
+	let summary = [
+		[ _('Schema'), String(plan.schema_version) ],
+		[ _('Managed zones'), (plan.managed_zones || []).join(', ') ],
+		[ _('TUN interface'), plan.resources?.tun_interface || '-' ],
+		[ _('DNS paths'), String((plan.dns_paths || []).length) ],
+		[ _('Geo rule sets'), String((plan.geo_rule_sets || []).length) ]
+	];
+	if (diff)
+		summary.push([ _('Candidate changes'), diff.changed ? _('%d added, %d modified, %d removed').format(diff.added.length, diff.modified.length, diff.removed.length) : _('No semantic changes') ]);
+	return E('section', { 'class': 'cbi-section' }, [
+		E('h3', {}, _('Execution plan')),
+		E('dl', { 'class': 'steer-status__facts' }, summary.map((fact) => E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, fact[1]) ]))),
+		E('details', {}, [ E('summary', {}, _('Show complete plan')), E('pre', {}, JSON.stringify(result, null, 2)) ])
+	]);
+}
+
 return view.extend({
 	load: function() {
-		return Promise.all([
-			uci.load('steer'),
-			uci.load('firewall'),
-			steer.status()
-		]);
+		return Promise.all([ uci.load('steer'), uci.load('firewall'), steer.status(), steer.plan() ]);
 	},
 
 	render: function(data) {
@@ -22,96 +37,52 @@ return view.extend({
 		const status = data[2];
 		steer.loadStyle();
 
-		m = new form.Map('steer', _('Steer'),
-			_('Choose which local firewall zones Steer manages. Rules, DNS profiles and routes remain explicit and are applied as one checked transaction.'));
-
+		m = new form.Map('steer', _('Steer'), _('Compile explicit routing and DNS intent into one verified sing-box execution plan.'));
 		s = m.section(form.NamedSection, 'main', 'steer', _('Traffic steering'));
 		s.tab('general', _('General'));
-		s.tab('advanced', _('Advanced runtime'));
+		s.tab('dns', _('DNS cache'));
+		s.tab('probes', _('Manual probes'));
 
 		o = s.taboption('general', form.Flag, 'enabled', _('Enable Steer'));
 		o.rmempty = false;
-		o.description = _('Saving and applying this switch also synchronizes Steer startup at boot. Stop and disable other transparent proxies and the system SmartDNS before enabling it.');
-
-		o = s.taboption('general', form.Flag, 'router_proxy', _('Proxy router traffic'));
-		o.default = '1';
-		o.rmempty = false;
-		o.description = _('When enabled, the router’s own public TCP/UDP traffic and traditional DNS use the same ordered rules as managed clients.');
+		o.description = _('A disabled configuration stops Steer and removes its runtime resources when applied.');
 
 		o = s.taboption('general', form.DynamicList, 'managed_zone', _('Managed firewall zones'));
 		o.rmempty = false;
-		o.description = _('Only traffic entering these zones is managed. Other zones, including WAN unless explicitly selected, are untouched.');
-		uci.sections('firewall', 'zone').forEach((zone) => {
-			if (zone.name)
-				o.value(zone.name, zone.name);
-		});
+		uci.sections('firewall', 'zone').forEach((zone) => { if (zone.name) o.value(zone.name, zone.name); });
 
 		o = s.taboption('general', form.ListValue, 'log_level', _('Log level'));
-		o.value('error', _('Error'));
-		o.value('warn', _('Warning'));
-		o.value('info', _('Info'));
+		[ 'error', 'warn', 'info', 'debug' ].forEach((level) => o.value(level, level));
 		o.default = 'warn';
 
-		o = s.taboption('advanced', form.Value, 'tproxy_port', _('TPROXY listen port'));
-		o.datatype = 'port';
-		o.rmempty = false;
+		o = s.taboption('dns', form.Value, 'dns_cache_capacity', _('Cache capacity'));
+		o.datatype = 'range(1024,10000000)';
+		o.placeholder = '4096';
 
-		o = s.taboption('advanced', form.Value, 'dns_port', _('DNS interception port'));
-		o.datatype = 'port';
-		o.rmempty = false;
+		o = s.taboption('dns', form.Flag, 'dns_cache_persist', _('Persistent cache'));
+		o.default = '0';
+		o.description = _('Reserved for sing-box 1.14; enabling it on M1 is rejected.');
 
-		o = s.taboption('advanced', form.Value, 'dns_upstream_mark', _('SmartDNS upstream loop-guard mark'));
-		o.datatype = 'uinteger';
-		o.rmempty = false;
-		o.description = _('This mark only prevents SmartDNS UDP/TCP 53 upstream packets from being captured as new local DNS queries. The packets still enter TPROXY and use ordinary Rules. It must not overlap the TPROXY mark mask.');
+		o = s.taboption('dns', form.Flag, 'dns_optimistic_cache', _('Optimistic cache'));
+		o.default = '0';
+		o.description = _('Reserved for sing-box 1.14; enabling it on M1 is rejected.');
 
-		o = s.taboption('advanced', form.Value, 'routing_mark', _('Core bypass mark'));
-		o.datatype = 'uinteger';
-		o.rmempty = false;
-
-		o = s.taboption('advanced', form.Value, 'tproxy_mark', _('TPROXY mark'));
-		o.datatype = 'uinteger';
-		o.rmempty = false;
-
-		o = s.taboption('advanced', form.Value, 'mark_mask', _('Mark mask'));
-		o.datatype = 'uinteger';
-		o.rmempty = false;
-
-		o = s.taboption('advanced', form.Value, 'route_table', _('Policy route table'));
-		o.datatype = 'range(1,252)';
-		o.rmempty = false;
-
-		o = s.taboption('advanced', form.Value, 'rule_priority', _('Policy rule priority'));
-		o.datatype = 'range(1,32765)';
-		o.rmempty = false;
+		o = s.taboption('probes', form.DynamicList, 'probe_url', _('HTTPS probe URLs'));
+		o.datatype = 'url';
+		o.placeholder = 'https://www.example.com/';
+		o.description = _('The explicit “steer probe” diagnostic reports valid TLS 2xx or 3xx responses. Probes never gate Apply.');
 
 		s = m.section(form.NamedSection, 'bootstrap', 'bootstrap', _('Bootstrap DNS'));
-		s.description = _('The startup root for proxy-node and encrypted-DNS hostnames. It is always contacted directly by IP with the core bypass mark, so startup never depends on SmartDNS or a proxy node.');
-
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
-		o.value('udp', 'UDP');
-		o.value('tcp', 'TCP');
-		o.rmempty = false;
-
-		o = s.option(form.Value, 'server', _('Server IP'));
-		o.datatype = 'ipaddr';
-		o.rmempty = false;
-
-		o = s.option(form.Value, 'server_port', _('Port'));
-		o.datatype = 'port';
-		o.rmempty = false;
-
+		o.value('udp', 'UDP'); o.value('tcp', 'TCP'); o.rmempty = false;
+		o = s.option(form.Value, 'server', _('Server IP')); o.datatype = 'ipaddr'; o.rmempty = false;
+		o = s.option(form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false;
 		o = s.option(form.ListValue, 'strategy', _('Address strategy'));
-		o.value('prefer_ipv4', _('Prefer IPv4'));
-		o.value('prefer_ipv6', _('Prefer IPv6'));
-		o.value('ipv4_only', _('IPv4 only'));
-		o.value('ipv6_only', _('IPv6 only'));
+		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
 		o.rmempty = false;
 
-		return m.render().then((formNode) => E([], [ steer.renderStatus(status), formNode ]));
+		return m.render().then((formNode) => E([], [ steer.renderStatus(status), renderPlan(data[3]), formNode ]));
 	},
 
-	handleSaveApply: function(ev, mode) {
-		return steer.apply(this, ev, mode);
-	}
+	handleSaveApply: function(ev, mode) { return steer.apply(this, ev, mode); }
 });
