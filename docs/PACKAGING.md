@@ -65,6 +65,12 @@ OpenWrt 官方采用的时间与 include 文件 sloppiness。固定源码提交�
 与 target 进入 cache key；恢复成功后构建会更新 ccache，工作流按官方方式删除旧的
 同 key 缓存并保存更新版本。
 
+GitHub Actions cache 以 branch/tag ref 隔离，兄弟版本 tag 不能互相读取缓存。因此共享
+Buildx cache 和 package `.ccache` 只由默认分支的可信 push 写入与轮换；版本 tag 只读
+恢复默认分支缓存，不创建 tag 私有副本。默认分支和 tag 的包构建使用同一 concurrency
+组串行执行，保证版本构建不会在默认分支尚未完成缓存更新时抢跑。删除旧 `.ccache` 时
+还必须把 REST 请求限定到默认分支 ref，不能按 key 跨 ref 删除。
+
 配置 external toolchain 后仍须按官方顺序运行 `make tools/install` 与
 `make toolchain/install`。这两步不会重新编译容器中已有的完整工具链：前者确认并安装
 `/prebuilt_tools` 对应的 host 工具状态，后者生成当前源码树使用的 compiler wrapper，

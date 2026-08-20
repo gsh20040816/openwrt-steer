@@ -18,6 +18,9 @@ def fail(message: str) -> None:
 
 required_workflow_fragments = (
     "actions: write",
+    "branches:\n      - master",
+    "group: openwrt-package-build",
+    "cancel-in-progress: false",
     "Build cached OpenWrt source and toolchain image",
     "GO_BOOTSTRAP_IMAGE=docker.io/library/golang:1.26.4-bookworm@sha256:b305420a68d0f229d91eb3b3ed9e519fcf2cf5461da4bef997bf927e8c0bfd2b",
     "id: openwrt-ccache",
@@ -28,12 +31,38 @@ required_workflow_fragments = (
     '--volume "$ccache_dir:/work/openwrt/.ccache"',
     "Delete previously restored OpenWrt ccache",
     "octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae",
+    "DELETE /repos/{repository}/actions/caches?key={key}&ref={ref}",
+    "INPUT_REF: ${{ github.ref }}",
     "steps.openwrt-ccache.outputs.cache-primary-key",
     "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
 )
 for fragment in required_workflow_fragments:
     if fragment not in WORKFLOW:
         fail(f"release workflow is missing: {fragment}")
+
+default_branch_guard = (
+    "github.ref == format('refs/heads/{0}', "
+    "github.event.repository.default_branch)"
+)
+if WORKFLOW.count(default_branch_guard) != 3:
+    fail("only the default branch may write or rotate shared caches")
+
+cache_to_line = next(
+    (line.strip() for line in WORKFLOW.splitlines() if line.strip().startswith("cache-to:")),
+    "",
+)
+if default_branch_guard not in cache_to_line:
+    fail("Buildx cache export must be restricted to the default branch")
+
+delete_block = WORKFLOW.split("- name: Delete previously restored OpenWrt ccache", 1)[1]
+delete_block = delete_block.split("- name: Save OpenWrt package ccache", 1)[0]
+if default_branch_guard not in delete_block:
+    fail("shared ccache rotation must be restricted to the default branch")
+
+save_block = WORKFLOW.split("- name: Save OpenWrt package ccache", 1)[1]
+save_block = save_block.split("- name: Collect exact release assets", 1)[0]
+if default_branch_guard not in save_block:
+    fail("shared ccache save must be restricted to the default branch")
 
 for forbidden in (
     "require_build_cache_hit",
