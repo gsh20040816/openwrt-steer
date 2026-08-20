@@ -13,7 +13,7 @@
 
 | 包 | 拥有内容 | 不得拥有 |
 |---|---|---|
-| `steer` | 当前 OpenWrt adapter、UCI、运行事务、编译器和 init 脚本 | 第三方二进制、远端规则数据 |
+| `steer-openwrt` | Go 控制程序、OpenWrt adapter、UCI、procd/firewall4 挂接 | 第三方二进制、远端规则数据 |
 | `luci-app-steer` | LuCI 页面、RPC 和 ACL | 核心运行时、规则数据 |
 | `steer-geodata` | 固定版本、固定哈希的 GeoSite/GeoIP 源数据 | updater、调度器、运行状态 |
 | `geoview` | 固定上游源码构建的独立转换工具 | Steer 配置与状态 |
@@ -25,17 +25,18 @@
 `steer-geodata` 包完成。包升级后，下一次 Apply 根据 package release 重新生成派生规则；如果
 新数据缺少被引用分类，Apply 必须失败并保留当前运行代。
 
-## 目标包拆分
+## M1 包布局
 
-Go 核心可执行后，OpenWrt 包将进一步拆成：
-
-- `steer-core`：平台无关的第一方 Go 核心与 CLI；
-- `steer-openwrt`：UCI、procd、firewall4 和 OpenWrt 生命周期适配；
+- `steer-openwrt`：一个按需运行的静态 Go 控制程序及 OpenWrt 生命周期适配；
 - `luci-app-steer`：只依赖 `steer-openwrt`；
-- `steer-geodata`：独立版本化数据包。
+- `steer-geodata`：独立版本化数据包；
+- `geoview`：独立转换工具。
 
-拆分前不创建无调用方的占位二进制。`steer-core` 只有在接管至少一项真实校验或编译路径并有
-回归测试时才进入发布包。
+不创建独立 `steer-core` APK。平台中立的 Go 包与 OpenWrt adapter 编译进同一个
+`steer-openwrt` 二进制；这不妨碍后续其他平台复用源码，也不制造没有独立生命周期价值的包。
+
+`steer-openwrt` 必须声明替换并冲突旧 `steer`，保留 `/etc/config/steer`，且只在 schema 4
+preflight 通过时启用服务。包升级不承担配置迁移或 APK 自动降级。
 
 ## 发布约束
 
@@ -91,7 +92,7 @@ ABI 的内核与 `modules.builtin`，再打包内核模块。target `build_dir` 
 OpenWrt 的 `download.pl` 按包定义的 SHA-256 校验，镜像失败时继续使用上游地址。
 
 发布构建只向 OpenWrt 提交一个 `package/luci-app-steer/compile` 顶层目标；其
-`LUCI_DEPENDS`/`DEPENDS` 会完整选择 `steer`、`geoview`、`steer-geodata` 和第三方
+`LUCI_DEPENDS`/`DEPENDS` 会完整选择 `steer-openwrt`、`geoview`、`steer-geodata` 和第三方
 依赖。OpenWrt 仍会调度这些依赖的标准 prepare/configure/compile/install 流程；
 重复的 C/C++ 编译由 ccache 复用，而不是通过恢复内部 target 状态跳过构建系统。
 Go 编译不属于 ccache 的覆盖范围，不得把 target 状态缓存重新包装成 Go 缓存。builder
