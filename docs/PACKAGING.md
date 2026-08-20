@@ -57,6 +57,10 @@ Release 工作流缓存 OpenWrt host 工具链和 target 依赖的 `build_dir`/
 复制预置的内核构建树和 target staging 基线，再以该目录继续构建并写入缓存；否则
 会丢失官方 SDK 已准备的内核文件，错误地触发残缺的内核重建。
 
+SDK 容器以 `buildbot` 用户构建，而 `actions/cache` 由 runner 用户归档。构建结束后
+必须为缓存树补齐只读和目录遍历权限，避免权限不足被 post step 仅记录为 warning、
+却没有真正写入缓存。
+
 缓存只允许精确 key 命中，key 锁定 SDK、base/packages/LuCI feed 与当前依赖图；
 只要 `DEPENDS`/`LUCI_DEPENDS` 选择、SDK 或 feed 锁定变化，就必须升级 key 中的
 `targetdeps-vN`。成功构建会写入完整性标记；下一次精确命中时缺少该标记必须

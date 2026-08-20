@@ -72,7 +72,7 @@ jobs:
           # Exact-only key: never restore target state from a different SDK,
           # feed set or dependency graph. Bump targetdeps-v1 whenever Steer's
           # DEPENDS/LUCI_DEPENDS selection changes.
-          key: openwrt-build-v3-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
+          key: openwrt-build-v4-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
 
       - name: Report OpenWrt dependency cache result
         env:
@@ -133,6 +133,16 @@ jobs:
             --volume "$cache_dir/staging_dir-target:/builder/staging_dir/target-x86_64_musl" \
             --volume "$cache_dir/tmp:/builder/tmp" \
             steer-sdk:25.12.5-x86_64
+          # The SDK builds as buildbot, but actions/cache archives as the
+          # runner user. Some package staging files are mode 0600, so make
+          # the finished cache readable without changing its ownership or
+          # removing buildbot's write permissions for the next exact hit.
+          docker run --rm \
+            --user 0:0 \
+            --entrypoint /bin/sh \
+            --volume "$cache_dir:/cache" \
+            steer-sdk:25.12.5-x86_64 \
+            -c 'chmod -R a+rX /cache'
           cp -R "$output_dir/bin" "$GITHUB_WORKSPACE/bin"
           if [ -d "$output_dir/logs" ]; then
             cp -R "$output_dir/logs" "$GITHUB_WORKSPACE/logs"
