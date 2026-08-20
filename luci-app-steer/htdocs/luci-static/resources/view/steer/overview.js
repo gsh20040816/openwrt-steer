@@ -52,14 +52,6 @@ return view.extend({
 		o.value('info', _('Info'));
 		o.default = 'warn';
 
-		o = s.taboption('general', form.Button, '_geodata_update', _('GeoSite / GeoIP data'));
-		o.inputtitle = _('Check now');
-		o.inputstyle = 'apply';
-		o.description = _('Downloads use the router traffic setting and ordinary Rules. Each source file keeps its own last-known-good version.');
-		o.onclick = function() {
-			return steer.updateGeodata();
-		};
-
 		o = s.taboption('advanced', form.Value, 'tproxy_port', _('TPROXY listen port'));
 		o.datatype = 'port';
 		o.rmempty = false;

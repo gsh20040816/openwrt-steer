@@ -1,5 +1,9 @@
 # 开发与验证环境
 
+M1 重构边界见 [重构冻结基线](REFACTOR_BASELINE.md)，包所有权和更新规则见
+[打包与文件所有权](PACKAGING.md)。GeoSite/GeoIP 版本只通过 `steer-geodata` 包更新；集成测试
+不再启动联网 updater 或调度服务。
+
 ## 基线
 
 日常集成验证使用 KVM 虚拟机，不在生产路由器上反复试错：

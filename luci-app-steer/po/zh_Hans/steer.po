@@ -76,9 +76,6 @@ msgstr "缓存"
 msgid "Cache entries"
 msgstr "缓存条目数"
 
-msgid "Check now"
-msgstr "立即检查"
-
 msgid "Choose DNS profile"
 msgstr "选择 DNS 配置"
 
@@ -151,9 +148,6 @@ msgstr "DoH 路径"
 msgid "Download Mbps"
 msgstr "下载 Mbps"
 
-msgid "Downloads use the router traffic setting and ordinary Rules. Each source file keeps its own last-known-good version."
-msgstr "下载使用路由器流量设置和普通规则。每个源文件都会保留各自最近一次可用的版本。"
-
 msgid "Enable Steer"
 msgstr "启用 Steer"
 
@@ -186,51 +180,6 @@ msgstr "流程"
 
 msgid "General"
 msgstr "常规"
-
-msgid "Geo data update is blocked"
-msgstr "地理数据更新受阻"
-
-msgid "GeoSite / GeoIP data"
-msgstr "GeoSite / GeoIP 数据"
-
-msgid "GeoSite / GeoIP update needs attention"
-msgstr "GeoSite / GeoIP 更新需要处理"
-
-msgid "GeoSite/GeoIP update failed to start."
-msgstr "GeoSite/GeoIP 更新启动失败"
-
-msgid "A GeoSite/GeoIP update is already running."
-msgstr "已有一次 GeoSite/GeoIP 更新正在运行，请稍候"
-
-msgid "Checking GeoSite/GeoIP updates…"
-msgstr "正在检查 GeoSite/GeoIP 更新…"
-
-msgid "Checking update…"
-msgstr "正在检查更新…"
-
-msgid "Candidate verified, applying…"
-msgstr "候选已通过校验，正在应用…"
-
-msgid "Already up to date"
-msgstr "已是最新版本"
-
-msgid "Updated and active"
-msgstr "已更新并生效"
-
-msgid "Update failed"
-msgstr "更新失败"
-
-msgid "Status unknown"
-msgstr "状态未知"
-
-msgid "GeoSite/GeoIP update finished with problems:"
-msgstr "GeoSite/GeoIP 更新完成但存在问题："
-
-msgid "GeoSite/GeoIP update finished:"
-msgstr "GeoSite/GeoIP 更新完成："
-
-msgid "Services were restarted automatically with the new configuration if updated."
-msgstr "如有更新，已按新配置自动重启服务。"
 
 msgid "IANA registry"
 msgstr "IANA 注册表"
@@ -309,9 +258,6 @@ msgstr "具名代理入口"
 
 msgid "Network"
 msgstr "网络"
-
-msgid "No enabled rule currently references the failed data type."
-msgstr "当前没有启用的规则引用失败的数据类型。"
 
 msgid "No match condition"
 msgstr "无匹配条件"
@@ -720,9 +666,6 @@ msgstr "遇到不支持的传输或安全字段时会停止导入，不会静默
 
 msgid "%s is not a valid %s name in the current Geo data."
 msgstr "%s 不是当前 Geo 数据中的合法 %s 名称。"
-
-msgid "Remote data did not change local policy. Review the affected rules below."
-msgstr "远程数据没有改变本地策略。请检查下方受影响的规则。"
 
 msgid "The valid-name catalog is unavailable: %s"
 msgstr "合法名称目录不可用：%s"

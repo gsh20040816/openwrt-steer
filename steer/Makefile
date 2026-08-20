@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=15
+PKG_RELEASE:=16
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Steer contributors
@@ -13,10 +13,13 @@ define Package/steer
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Intent-driven transparent proxy for OpenWrt
-  DEPENDS:=+steer-geodata
-  EXTRA_DEPENDS:=bind-dig (>=0), ca-bundle (>=0), curl (>=0), firewall4 (>=0), geoview (>=0.2.6-r2), ip-full (>=0), \
-	kmod-nft-socket (>=0), kmod-nft-tproxy (>=0), sing-box (>=0), \
-	smartdns (>=0), ucode (>=0), ucode-mod-fs (>=0), ucode-mod-uci (>=0)
+  DEPENDS:=+steer-geodata +bind-dig +ca-bundle +firewall4 +geoview +ip-full \
+	+kmod-nft-socket +kmod-nft-tproxy +smartdns +ucode +ucode-mod-fs \
+	+ucode-mod-uci
+  # Selecting curl/libcurl and sing-box/sing-box-tiny in the 25.12 SDK creates
+  # upstream Kconfig dependency cycles. Keep them as explicit APK dependencies
+  # without turning their runtime variants into Steer's build-time options.
+  EXTRA_DEPENDS:=curl (>=0), sing-box (>=0)
 endef
 
 define Package/steer/description
@@ -34,7 +37,6 @@ define Package/steer/install
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/steer $(1)/etc/init.d/steer
-	$(INSTALL_BIN) ./files/etc/init.d/steer-geodata $(1)/etc/init.d/steer-geodata
 
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) ./files/etc/uci-defaults/99-steer-firewall $(1)/etc/uci-defaults/99-steer-firewall

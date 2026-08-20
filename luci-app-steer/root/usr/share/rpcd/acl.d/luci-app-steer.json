@@ -10,7 +10,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.steer": [ "apply", "geodata_update" ]
+				"luci.steer": [ "apply" ]
 			},
 			"uci": [ "steer" ]
 		}

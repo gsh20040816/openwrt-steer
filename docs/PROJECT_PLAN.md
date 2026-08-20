@@ -1,5 +1,9 @@
 # Steer 项目规划
 
+> 本文保留第一版设计与审计记录。M1 重构期间，如其中的 SmartDNS、TPROXY、运行时数据更新
+> 或平台边界与 [M1 重构冻结基线](REFACTOR_BASELINE.md)冲突，以冻结基线和
+> [打包与文件所有权](PACKAGING.md)为准。
+
 > 状态：第一版技术基线已冻结，进入实现阶段
 >
 > 更新日期：2026-08-17
@@ -119,19 +123,14 @@ SmartDNS 负责其已验证支持范围内的 DNS 上游访问、缓存和地址
 
 PassWall2 只作为公开代码层面的对照来源，不是运行时或 LuCI 输入。HomeProxy 只用于核对节点字段与 sing-box 配置形态，不复制其 GPL-2.0-only 代码。详细结论见 `docs/UPSTREAM_BASELINE.md`。
 
-GeoSite/GeoIP 使用 `Loyalsoldier/v2ray-rules-dat` 的发布数据。Steer 定期获取
-`geosite.dat`、`geoip.dat`，按被引用分类转换为本地 `.srs`；
-远程数据只提供匹配集合，不能定义规则顺序、DNS Profile、Route 或 fallback。
-完整 `geosite.dat` 与 `geoip.dat` 由独立、版本锁定的数据包提供首次种子，首次 Geo 分类
-初始化不能依赖尚未启动的核心。之后每天在固定凌晨窗口内加随机延迟检查更新，并允许
-用户立即检查。更新器是普通的路由器本机进程，其请求与其他本机流量一样由普通 Rules
-决定 DNS Profile 和 Route；Steer 不为更新器创建专用 SOCKS、专用入口或特殊规则语义。
+GeoSite/GeoIP 使用 `Loyalsoldier/v2ray-rules-dat` 的发布数据。完整 `geosite.dat` 与
+`geoip.dat` 由独立、版本锁定且固定哈希的 `steer-geodata` 包提供。版本更新只通过包管理器
+完成；Steer 不在运行时查询 release 或下载替换 `/usr` 数据。
 
-两个源文件分别更新、分别保留 last-known-good。每个候选源文件必须让该类型所有已启用
-且被引用的分类完成转换、编译和校验；任一分类失败或从上游消失，只冻结对应的
-`geosite.dat` 或 `geoip.dat`，不能阻止另一类型成功更新。成功变化汇总后只执行一次运行
-配置事务。远程分类消失不能自动禁用或改写本地规则；LuCI 必须持续显示全局错误横幅，
-列出分类及引用规则并提供编辑入口，同时写入系统日志。
+Steer 按当前配置引用的分类把包内数据转换为 `/var/lib/steer` 下的本地 `.srs`。每个新包
+版本都必须让所有已启用且被引用的分类完成转换、编译和校验；任一分类失败或消失时，Apply
+明确失败并保留当前运行代。数据只提供匹配集合，不能定义规则顺序、DNS Profile、Route 或
+fallback。
 
 DNS 接管不能按 private/direct 源地址集合猜测受管客户端。Steer 必须依据用户选择的 firewall zone 及其实际设备建立双栈接管边界，并用独立测试覆盖公网 IPv6 GUA 客户端。
 
@@ -183,7 +182,7 @@ DNS Profile 明确描述：
 
 Bootstrap DNS 是启动根：只能使用 IP 字面量，由 SmartDNS 和 sing-box 携带核心绕行 mark 直接访问，不允许选择代理出口。系统 NTP 同样是建立 TLS、Reality、证书校验和订阅访问之前的启动依赖；路由器本机发起的 UDP/123 必须在 output 接管入口固定直连，不能依赖尚未可用的代理核心或用户规则。
 
-除 Bootstrap 外，所有 SmartDNS 业务上游都是路由器本机连接，与更新器和普通本机应用共用 output TPROXY 与普通 Rules。Steer 不生成内部 SOCKS、不创建专用入口，也不为 DNS Server 保存第二套出口字段。如果需要指定某个上游的出口，用户就在普通 Rules 中按其 IP/CIDR、端口和网络类型表达。
+除 Bootstrap 外，所有 SmartDNS 业务上游都是路由器本机连接，与普通本机应用共用 output TPROXY 与普通 Rules。Steer 不生成内部 SOCKS、不创建专用入口，也不为 DNS Server 保存第二套出口字段。如果需要指定某个上游的出口，用户就在普通 Rules 中按其 IP/CIDR、端口和网络类型表达。
 
 为避免 SmartDNS 的 UDP/TCP 53 业务上游被本机 DNS 劫持再次送回 Steer，SmartDNS 只为业务上游设置一个位于 TPROXY mark mask 之外的防回环 mark。nftables 只用它跳过本机 53 端口再劫持；output TPROXY 仍保留该 mark 并将连接送入普通 Rules。Bootstrap 另行携带核心绕行 mark 直连。因此启动依赖仍保持单向：`Bootstrap 直连 → sing-box 与 SmartDNS 启动 → 业务上游 output TPROXY → 普通 Rules → 逻辑出口`。
 
@@ -204,7 +203,7 @@ Bootstrap DNS 是启动根：只能使用 IP 字面量，由 SmartDNS 和 sing-b
 - 如果一条规则只有连接阶段条件，它不会生成空 DNS 规则，DNS 会继续从下方规则匹配，直到 Default；
 - UI 必须明确显示上述差异，不能让一个不会参与 DNS 匹配的端口字段看起来会影响 DNS。
 
-规则严格从上到下执行，第一条命中后停止。所有业务流量，包括 SmartDNS 上游和更新器，共用“普通 Rules → Default”这一个顺序。
+规则严格从上到下执行，第一条命中后停止。所有业务流量，包括 SmartDNS 上游，共用“普通 Rules → Default”这一个顺序。
 
 规则表末尾必须存在用户可见、不可越过的 Default 规则。Default 的 DNS、出口和故障行为必须明确。
 
@@ -552,7 +551,7 @@ Why? 不是独立实现的第二套路由器。它必须复用与配置编译相
 - 双栈透明接管；
 - 原子 Apply、回滚和 last-known-good；
 - 必要订阅解析；
-- 在合并的域名和目的 IP 字段中动态补全 GeoSite/GeoIP 分类、自动生成内部规则集并定期更新数据；
+- 在合并的域名和目的 IP 字段中动态补全 GeoSite/GeoIP 分类，并从版本化数据包自动生成内部规则集；
 - 冲突检测和最小诊断。
 
 不因架构已经预留扩展点而提前实现所有出口模式、协议或 DSL。
@@ -592,13 +591,8 @@ Why? 不是独立实现的第二套路由器。它必须复用与配置编译相
 
 ## 20. 当前下一步
 
-第一版已经获得明确开发授权，当前按以下顺序推进：
-
-1. 建立 UCI 语义模型和严格引用校验；
-2. 确定性生成 sing-box 1.13 配置，并由目标版本执行 `sing-box check`；
-3. 实现按受管 firewall zone 解析实际 ingress device 的双栈 DNS/TPROXY 接管；
-4. 实现原子 Apply、失败回滚和 last-known-good；
-5. 实现 GeoSite/GeoIP 受控本地规则集、定期更新与 last-known-good；
-6. 完成数据面隔离验证后再讨论生产启用。
+第一版 OpenWrt 闭环已转为 M1 架构重构。当前开发顺序、保留能力和退出边界统一见
+[M1 重构冻结基线](REFACTOR_BASELINE.md)；包拆分、文件所有权与更新边界见
+[打包与文件所有权](PACKAGING.md)。
 
 当前实现不是可用成品。任何尚未通过目标 OpenWrt 和配套 sing-box 实测的能力，都不得标记为已支持。

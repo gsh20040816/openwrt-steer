@@ -1,5 +1,10 @@
 # 测试
 
+`tests/check-package-boundaries.py` 固定 M1 的包所有权：可安全选择的运行依赖必须进入 OpenWrt
+标准构建依赖图；存在上游 Kconfig 环的 curl 与 sing-box 仍必须进入 APK 运行依赖元数据。
+主包不能安装第三方二进制，GeoSite/GeoIP 只能由 `steer-geodata` 包提供，运行时和 LuCI 不得
+恢复联网 updater 或调度器。
+
 `tests/ucode/model_test.uc` 直接在 OpenWrt 的 ucode 运行时验证语义模型和编译器。首批回归用例覆盖：
 
 - 最小直连配置；
@@ -24,16 +29,19 @@
 
 `tests/fixtures/local-proxy-valid/steer` 验证具名 mixed 本地代理入口，以及规则以入口为 DNS 和 Route 的共同匹配维度。该 fixture 只监听回环地址，不映射任何现有服务端口。
 
-`tests/fixtures/geo-rules-valid/` 使用 sing-box 1.13 规则集格式版本 4 的最小源文件，验证规则内直接填写 GeoSite 分类、自动生成本地 `.srs` 引用和目标 sing-box 原生配置检查。测试数据只包含 `example.com`，不依赖联网下载。
+`tests/fixtures/geo-rules-valid/` 验证规则内直接填写 GeoSite 分类、从已安装的
+`steer-geodata` 包生成本地 `.srs` 引用，以及目标 sing-box 原生配置检查。测试不会运行时联网
+下载数据。
 
-真实 geodata 验证还需要目标机安装 `geoview` 与 `steer-geodata` 种子文件。验证链为
+真实 geodata 验证还需要目标机安装 `geoview` 与 `steer-geodata` 数据包。验证链为
 `.dat` → geoview 严格 JSON → 配套 sing-box 原生 `.srs`，并覆盖 GeoSite/GeoIP 首次
-生成、分类缺失时保持 `current` 不变，以及经普通本机 Rules 下载后的在线事务激活。
+生成、包版本变化后重建，以及分类缺失时保持 `current` 不变。数据版本更新只通过包管理器，
+不再经过普通本机 Rules 在线下载。
 
 `tests/fixtures/dangling-reference-invalid/steer` 使用通用示例域名验证悬空引用：`steerctl validate` 必须失败并报告 `DANGLING_OUTBOUND`。
 
 `tests/integration/run-openwrt-vm.sh` 在一次性 OpenWrt x86/64 VM 中执行完整集成检查。环境和安全边界见 `docs/DEVELOPMENT.md`。
-它还验证系统 SmartDNS 冲突会在网络接管前被拒绝、失败原因可由 LuCI RPC 读取，并验证应用总开关会同步 Steer 与 geodata 调度器的开机启动状态。
+它还验证系统 SmartDNS 冲突会在网络接管前被拒绝、失败原因可由 LuCI RPC 读取，并验证应用总开关只同步 Steer 自身的开机启动状态。
 
 `tests/check-luci-i18n.py` 要求简体中文语言包完整覆盖 LuCI JavaScript 文案和菜单标题，并拒绝空翻译、重复项与已经失去来源的旧翻译。PO 格式与占位符还需通过 `msgfmt --check-format --check-header`。
 

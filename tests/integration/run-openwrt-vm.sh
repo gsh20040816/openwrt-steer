@@ -94,10 +94,9 @@ cp "$REPO_DIR/steer/files/usr/sbin/steerctl" /usr/sbin/steerctl
 cp "$REPO_DIR/steer/files/usr/libexec/steer/runtime" /usr/libexec/steer/runtime
 cp "$REPO_DIR/steer/files/usr/libexec/steer/geodata" /usr/libexec/steer/geodata
 cp "$REPO_DIR/steer/files/etc/init.d/steer" /etc/init.d/steer
-cp "$REPO_DIR/steer/files/etc/init.d/steer-geodata" /etc/init.d/steer-geodata
 cp "$REPO_DIR/steer/files/etc/uci-defaults/99-steer-firewall" /etc/uci-defaults/99-steer-firewall
 chmod 0755 /usr/sbin/steerctl /usr/libexec/steer/runtime /usr/libexec/steer/geodata \
-	/etc/init.d/steer /etc/init.d/steer-geodata \
+	/etc/init.d/steer \
 	/usr/share/steer/firewall.include /etc/uci-defaults/99-steer-firewall
 /etc/init.d/steer stop >/dev/null 2>&1 || true
 /etc/uci-defaults/99-steer-firewall
@@ -122,21 +121,16 @@ fi
 ubus -v list luci.steer > "$TEST_DIR/luci-steer-methods.txt"
 grep -q '"apply"' "$TEST_DIR/luci-steer-methods.txt"
 grep -q '"geodata_catalog"' "$TEST_DIR/luci-steer-methods.txt"
-grep -q '"geodata_update"' "$TEST_DIR/luci-steer-methods.txt"
+if grep -q '"geodata_update"' "$TEST_DIR/luci-steer-methods.txt"; then
+	echo 'LuCI still exposes a router-managed geodata updater.' >&2
+	exit 1
+fi
 
 ubus call luci.steer geodata_catalog > "$TEST_DIR/luci-geodata-catalog.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/luci-geodata-catalog.json" -e '@.geosite.ok')" = 'true' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/luci-geodata-catalog.json" -e '@.geoip.ok')" = 'true' ]
 grep -q '"category-games@cn"' "$TEST_DIR/luci-geodata-catalog.json"
 grep -q '"cn"' "$TEST_DIR/luci-geodata-catalog.json"
-
-mkdir -p /var/lib/steer/geodata/status
-cp "$REPO_DIR/tests/fixtures/geodata-status/geosite" /var/lib/steer/geodata/status/geosite
-cp "$REPO_DIR/tests/fixtures/geodata-status/geoip" /var/lib/steer/geodata/status/geoip
-ubus call luci.steer status > "$TEST_DIR/luci-geodata-status.json"
-[ "$(jsonfilter -q -i "$TEST_DIR/luci-geodata-status.json" -e '@.geodata.geosite.state')" = 'blocked' ]
-[ "$(jsonfilter -q -i "$TEST_DIR/luci-geodata-status.json" -e '@.geodata.geosite.version')" = '202608162214' ]
-[ "$(jsonfilter -q -i "$TEST_DIR/luci-geodata-status.json" -e '@.geodata.geoip.state')" = 'active' ]
 
 ucode -S "$REPO_DIR/tests/ucode/model_test.uc"
 
@@ -167,12 +161,22 @@ grep -q 'storage-order.example' "$TEST_DIR/default-pinned-sing-box.json"
 uci delete steer.after_default
 uci commit steer
 
-mkdir -p /var/lib/steer/geodata/generation.integration/rules
-ln -s /var/lib/steer/geodata/generation.integration /var/lib/steer/geodata/current
-"$SING_BOX_BIN" rule-set compile \
-		--output /var/lib/steer/geodata/current/rules/geosite-category-example.srs \
-		"$REPO_DIR/tests/fixtures/geo-rules-valid/geosite-category-example.json"
 cp "$REPO_DIR/tests/fixtures/geo-rules-valid/steer" /etc/config/steer
+/usr/libexec/steer/geodata ensure
+[ "$(cat /var/lib/steer/geodata/current/package.release)" = \
+	"$(cat /usr/share/steer/geodata-seed/release)" ]
+[ -s /var/lib/steer/geodata/current/rules/geosite-category-example.srs ]
+geodata_previous="$(readlink -f /var/lib/steer/geodata/current)"
+geodata_staged=/var/lib/steer/geodata/generation.rollback-test
+geodata_candidate="$TEST_DIR/geodata-rollback-candidate"
+mkdir -p "$geodata_staged" "$geodata_candidate"
+printf '%s\n' "$geodata_previous" > "$geodata_candidate/geodata.previous"
+printf '%s\n' "$geodata_staged" > "$geodata_candidate/geodata.staged"
+ln -s "$geodata_staged" /var/lib/steer/geodata/current.rollback-test
+mv -fT /var/lib/steer/geodata/current.rollback-test /var/lib/steer/geodata/current
+/usr/libexec/steer/runtime restore-geodata "$geodata_candidate"
+[ "$(readlink -f /var/lib/steer/geodata/current)" = "$geodata_previous" ]
+rm -rf "$geodata_staged" "$geodata_candidate"
 steerctl compile-sing-box > "$TEST_DIR/geo-rules-sing-box.json"
 "$SING_BOX_BIN" check -c "$TEST_DIR/geo-rules-sing-box.json"
 rm -rf /var/lib/steer/geodata
@@ -234,7 +238,6 @@ ubus call luci.steer status > "$TEST_DIR/luci-status.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.dns_running')" = \
 		"$(jsonfilter -q -i "$TEST_DIR/luci-status.json" -e '@.dns_total')" ]
 /etc/init.d/steer enabled
-/etc/init.d/steer-geodata enabled
 /usr/libexec/steer/runtime health-check
 
 /etc/init.d/smartdns enable
@@ -375,7 +378,7 @@ if nft list table inet steer >/dev/null 2>&1; then
 	echo 'Steer nftables table remained after applying the disabled state.' >&2
 	exit 1
 fi
-if /etc/init.d/steer enabled || /etc/init.d/steer-geodata enabled; then
+if /etc/init.d/steer enabled; then
 	echo 'Steer boot entries remained enabled after applying the disabled state.' >&2
 	exit 1
 fi

@@ -19,12 +19,6 @@ const callApply = rpc.declare({
 	expect: { '': {} }
 });
 
-const callGeodataUpdate = rpc.declare({
-	object: 'luci.steer',
-	method: 'geodata_update',
-	expect: { '': {} }
-});
-
 const callGeodataCatalog = rpc.declare({
 	object: 'luci.steer',
 	method: 'geodata_catalog',
@@ -73,89 +67,6 @@ return baseclass.extend({
 
 	geodataCatalog: function() {
 		return L.resolveDefault(callGeodataCatalog(), {});
-	},
-
-	updateGeodata: function() {
-		if (this._geodataChecking) {
-			ui.addNotification(null, E('p', {}, _('A GeoSite/GeoIP update is already running.')), 'info');
-			return Promise.resolve();
-		}
-		this._geodataChecking = true;
-		return callGeodataUpdate().then((result) => {
-			if (!result?.ok) {
-				this._geodataChecking = false;
-				ui.addNotification(null, E('p', {}, result?.error || _('GeoSite/GeoIP update failed to start.')), 'danger');
-				return result;
-			}
-			ui.addNotification('steer-geodata-check', E('p', {}, _('Checking GeoSite/GeoIP updates…')), 'info');
-			this.refreshStatus(this.lastStatus || null);
-			return this.pollGeodata(0);
-		}).catch(() => {
-			this._geodataChecking = false;
-			ui.addNotification(null, E('p', {}, _('GeoSite/GeoIP update failed to start.')), 'danger');
-		});
-	},
-
-	geodataProgress: function(gs) {
-		const name = { geosite: 'GeoSite', geoip: 'GeoIP' };
-		const lines = [ 'geosite', 'geoip' ].map((kind) => {
-			const s = gs?.[kind] || {};
-			const label = name[kind];
-			let text;
-			switch (s.state) {
-				case 'checking': text = _('Checking update…'); break;
-				case 'staged': text = _('Candidate verified, applying…'); break;
-				case 'current': text = _('Already up to date') + (s.version ? ' (' + s.version + ')' : ''); break;
-				case 'active': text = _('Updated and active') + (s.version ? ' (' + s.version + ')' : ''); break;
-				case 'failed':
-				case 'blocked': text = _('Update failed') + (s.message ? '（' + s.message + '）' : ''); break;
-				default: text = s.state || _('Status unknown');
-			}
-			return E('li', {}, '%s: %s'.format(label, text));
-		});
-		return E('ul', { 'class': 'steer-geodata-progress' }, lines);
-	},
-
-	pollGeodata: function(polls) {
-		const attempt = (polls || 0) + 1;
-		return callStatus().then((status) => {
-			this.lastStatus = status;
-			const gs = status?.geodata || {};
-			const terminal = (s) => !!s && [ 'active', 'current', 'failed', 'blocked', 'unknown' ].includes(s.state);
-			const done = terminal(gs.geosite) && terminal(gs.geoip);
-			if (done || attempt > 200) {
-				this._geodataChecking = false;
-				this.refreshStatus(status);
-				const failed = [ 'geosite', 'geoip' ].filter((k) => [ 'failed', 'blocked' ].includes(gs[k]?.state));
-				const headline = failed.length ?
-					_('GeoSite/GeoIP update finished with problems:') : _('GeoSite/GeoIP update finished:');
-				ui.addNotification('steer-geodata-check', E('div', {}, [
-					E('p', {}, headline),
-					this.geodataProgress(gs),
-					failed.length ? '' : E('p', {}, _('Services were restarted automatically with the new configuration if updated.'))
-				]), failed.length ? 'danger' : 'info');
-				return null;
-			}
-			ui.addNotification('steer-geodata-check', E('p', {}, this.geodataProgress(gs)), 'info');
-			this.refreshStatus(status);
-			return new Promise((resolve) =>
-				setTimeout(() => resolve(this.pollGeodata(attempt)), 3000));
-		}).catch(() => {
-			this._geodataChecking = false;
-		});
-	},
-
-	renderGeodataAlert: function(status) {
-		const failed = [ 'geosite', 'geoip' ].filter((kind) =>
-			[ 'failed', 'blocked' ].includes(status?.geodata?.[kind]?.state));
-		if (!failed.length)
-			return null;
-		return E('div', { 'class': 'steer-geodata-alert' }, [
-			E('strong', {}, _('GeoSite / GeoIP update needs attention')),
-			E('ul', {}, failed.map((kind) => E('li', {}, '%s: %s'.format(
-				kind == 'geosite' ? 'GeoSite' : 'GeoIP',
-				status.geodata[kind].message || status.geodata[kind].state))))
-		]);
 	},
 
 	apply: function(view, ev, mode) {
@@ -233,9 +144,6 @@ return baseclass.extend({
 				(status.runtime_state == 'active' && running) ||
 				(status.runtime_state == 'disabled' && !running))));
 
-		const geodataChecking = [ 'geosite', 'geoip' ].some((kind) =>
-			[ 'checking', 'staged' ].includes(status?.geodata?.[kind]?.state));
-
 		const state = E('div', { 'class': 'steer-status' + panelClass }, [
 			E('div', { 'class': 'steer-status__lead' }, [
 				E('span', { 'class': 'steer-status__eyebrow' }, _('Current state')),
@@ -248,16 +156,14 @@ return baseclass.extend({
 				E('div', {}, [ E('dt', {}, _('DNS profiles')), E('dd', {}, '%d / %d'.format(status?.dns_running || 0, status?.dns_total || 0)) ]),
 				E('div', {}, [ E('dt', {}, _('Network')), E('dd', {}, status?.network_loaded ? _('Running') : _('Stopped')) ]),
 				E('div', {}, [ E('dt', {}, _('Recovery point')), E('dd', {}, status?.has_last_known_good ? _('Ready') : _('Not created')) ])
-			]),
-			geodataChecking ? E('p', { 'class': 'spinning steer-status__note' }, _('Checking GeoSite/GeoIP updates…')) : ''
+			])
 		]);
 		const conflictAlert = conflictsMatter ? E('div', { 'class': 'steer-conflict-alert' }, [
 			E('strong', {}, _('Stop and disable conflicting services before starting Steer')),
 			E('ul', {}, conflicts.map((conflict) => E('li', {}, conflictDescription(conflict)))),
 			E('p', {}, _('Steer will not stop or disable another service automatically.'))
 		]) : null;
-		const alert = this.renderGeodataAlert(status);
 		return E('div', { 'id': 'steer-runtime-status' },
-			[ conflictAlert, alert, state ].filter((item) => item != null));
+			[ conflictAlert, state ].filter((item) => item != null));
 	}
 });

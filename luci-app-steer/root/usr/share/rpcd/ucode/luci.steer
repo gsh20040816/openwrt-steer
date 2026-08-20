@@ -31,20 +31,6 @@ function nft_counter(name) {
 	};
 }
 
-function geodata_status(kind) {
-	const content = readfile(`/var/lib/steer/geodata/status/${kind}`) || '';
-	const state = match(content, /state=([^\n]*)/);
-	const version = match(content, /version=([^\n]*)/);
-	const message = match(content, /message=([^\n]*)/);
-	const updated_at = match(content, /updated_at=([^\n]*)/);
-	return {
-		state: state == null ? 'unknown' : state[1],
-		version: version == null ? '' : version[1],
-		message: message == null ? '' : message[1],
-		updated_at: updated_at == null ? '' : updated_at[1]
-	};
-}
-
 function geodata_catalog(kind) {
 	const process = popen(`/usr/libexec/steer/geodata catalog ${kind} 2>&1`);
 	if (!process)
@@ -146,11 +132,7 @@ const methods = {
 				runtime_state: lifecycle.state,
 				runtime_message: lifecycle.message,
 				runtime_updated_at: lifecycle.updated_at,
-				conflicts: service_conflicts(),
-				geodata: {
-					geosite: geodata_status('geosite'),
-					geoip: geodata_status('geoip')
-				}
+				conflicts: service_conflicts()
 			};
 		}
 	},
@@ -189,26 +171,6 @@ const methods = {
 			const output = trim(process.read('all'));
 			const status = process.close();
 			return { ok: status === 0, status, output, validation };
-		}
-	},
-	geodata_update: {
-		call: function() {
-			// 更新会下载数据、编译规则集并重新 apply，耗时可达数分钟；
-			// 不能同步阻塞 RPC（rpcd 调用超时后前端没有任何反馈）。
-			// 这里改为后台执行并立即返回，前端轮询状态获得进度与结果。
-			const lock = popen('/usr/bin/flock -n /var/lock/steer-geodata.lock true');
-			if (!lock)
-				return { ok: false, error: '无法检查 Geodata 更新锁' };
-			lock.read('all');
-			if (lock.close() !== 0)
-				return { ok: false, error: '已有一次 GeoSite/GeoIP 更新正在运行，请稍候' };
-
-			const process = popen('nohup /usr/libexec/steer/geodata update >/dev/null 2>&1 &');
-			if (!process)
-				return { ok: false, error: '无法启动 Geodata 更新' };
-			process.read('all');
-			process.close();
-			return { ok: true, started: true, output: '已开始检查 GeoSite/GeoIP 更新，完成后状态面板会自动刷新。' };
 		}
 	}
 };

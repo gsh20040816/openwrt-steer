@@ -1,7 +1,8 @@
 # 发布输入与来源
 
-本文件记录预览版软件包的直接构建输入。Steer 不把运行时核心复制进自身仓库；软件包依赖
-OpenWrt 上已安装的 sing-box、SmartDNS、firewall4 与内核模块。
+本文件记录预览版软件包的直接构建输入。Steer 不把第三方运行时核心复制进自身仓库；软件包
+依赖 OpenWrt 包管理器安装的 sing-box、SmartDNS、firewall4 与内核模块。SmartDNS 仅属于
+当前迁移参考路径，不是目标架构依赖。
 
 ## OpenWrt SDK
 
@@ -48,8 +49,10 @@ Release 同时保存包、SHA-256、构建元数据和 Action 日志；不能仅
 - `geosite.dat` SHA-256：`e0f0f3f07dee391d757174e3645f3284facfe57a1f9932388252e6b4f7a67dab`；
 - `geoip.dat` SHA-256：`b406dd3759037188b0674b110dcaf33664a699c0518152d0ca0d9023fc774c6b`。
 
-`steer-geodata` 只提供首次启动种子。后续更新仍必须经过 Steer 的分类转换、原生编译检查
-和 last-known-good 事务，远端数据不能定义本地路由动作。
+`steer-geodata` 是 GeoSite/GeoIP 的唯一版本和更新所有者。路由器不再直接查询上游 release
+或下载替换数据；升级由包管理器安装新版 `steer-geodata` 完成。Steer 只把包内数据转换为
+`/var/lib/steer` 下的受控本地规则集，并在 Apply 中执行原生编译检查和 last-known-good
+事务。远端数据不能定义本地路由动作。
 
 ## 设计参考而非复制来源
 

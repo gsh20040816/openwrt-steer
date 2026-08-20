@@ -252,29 +252,6 @@ function renderSystemBypass(status) {
 	]);
 }
 
-function renderGeodataReferences(status, rules) {
-	const failedKinds = [ 'geosite', 'geoip' ].filter((kind) =>
-		[ 'failed', 'blocked' ].includes(status?.geodata?.[kind]?.state));
-	if (!failedKinds.length)
-		return null;
-	const enabledRules = rules.filter((rule) => rule.enabled != '0');
-	const affected = failedKinds.map((kind) => ({
-		kind,
-		rules: enabledRules.filter((rule) => {
-			const option = kind == 'geosite' ? 'domain_match' : 'ip_match';
-			return asList(rule[option]).some((value) => String(value).startsWith(kind + ':'));
-		})
-	})).filter((item) => item.rules.length > 0);
-	return E('div', { 'class': 'steer-geodata-alert' }, [
-		E('strong', {}, _('Geo data update is blocked')),
-		E('p', {}, _('Remote data did not change local policy. Review the affected rules below.')),
-		affected.length ? E('ul', {}, affected.map((item) => E('li', {}, '%s → %s'.format(
-			item.kind == 'geosite' ? 'GeoSite' : 'GeoIP',
-			item.rules.map((rule) => rule.name || rule['.name']).join(', '))))) :
-			E('p', {}, _('No enabled rule currently references the failed data type.'))
-	]);
-}
-
 return view.extend({
 	load: function() {
 		return Promise.all([ uci.load('steer'), steer.status(), steer.geodataCatalog() ]);
@@ -408,8 +385,7 @@ return view.extend({
 		]);
 
 		return m.render().then((formNode) => {
-			const alert = renderGeodataReferences(status, rules);
-			return E([], [ ...(alert ? [ alert ] : []), renderSystemBypass(status), intent, formNode ]);
+			return E([], [ renderSystemBypass(status), intent, formNode ]);
 		});
 	},
 

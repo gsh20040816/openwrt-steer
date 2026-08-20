@@ -23,6 +23,9 @@ jobs:
       - name: Check Simplified Chinese coverage
         run: python3 tests/check-luci-i18n.py
 
+      - name: Check package ownership boundaries
+        run: python3 tests/check-package-boundaries.py
+
       - name: Check share URL parser
         run: node tests/node/share_url_test.js
 

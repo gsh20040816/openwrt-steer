@@ -50,6 +50,7 @@ start_service() {
 			return 1
 		}
 		$RUNTIME activate "$candidate" || {
+			$RUNTIME restore-geodata "$candidate" >/dev/null 2>&1 || true
 			$RUNTIME state blocked '（开机事务）候选运行代激活失败，未接管网络（保留直连以便修复）'
 			return 1
 		}
@@ -83,6 +84,7 @@ start_service() {
 		# 失败时 post-start-verify 会回退到 last-known-good 或写出 blocked；
 		# 回退成功会通过 use-active 重新启动服务，因此此处返回 0。
 		if ! $RUNTIME network-start; then
+			$RUNTIME restore-geodata "$candidate" >/dev/null 2>&1 || true
 			$RUNTIME state blocked '（开机事务）接管规则加载失败，未接管网络（保留直连以便修复）'
 			return 1
 		fi

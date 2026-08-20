@@ -14,6 +14,7 @@ BLOCKED_MARKER="$RUN_ROOT/blocked"
 STATE_ROOT=/var/lib/steer
 LKG_DIR=/etc/steer/last-known-good
 LOCK_FILE=/var/lock/steer-apply.lock
+GEODATA_CURRENT=/var/lib/steer/geodata/current
 SING_BOX_BIN=/usr/bin/sing-box
 SMARTDNS_BIN=/usr/sbin/smartdns
 HEALTH_ATTEMPTS=12
@@ -60,6 +61,45 @@ die() {
 ensure_directories() {
 	mkdir -p "$RUN_ROOT" "$STATE_ROOT/smartdns" /etc/steer /var/lock
 	chmod 0700 "$RUN_ROOT" /etc/steer
+}
+
+geodata_target() {
+	local target
+	target="$(readlink -f "$GEODATA_CURRENT" 2>/dev/null || true)"
+	if [ -n "$target" ] && [ -d "$target" ]; then
+		printf '%s\n' "$target"
+	else
+		printf '%s\n' '-'
+	fi
+}
+
+restore_geodata_paths() {
+	local previous="$1"
+	local staged="$2"
+	local current pending
+	[ "$previous" != "$staged" ] || return 0
+	current="$(geodata_target)"
+	# A newer transaction owns the symlink now; never roll it back underneath it.
+	[ "$current" = "$staged" ] || return 0
+	if [ "$previous" = '-' ]; then
+		rm -f "$GEODATA_CURRENT"
+	else
+		[ -d "$previous" ] || return 1
+		pending="$GEODATA_CURRENT.restore.$$"
+		ln -s "$previous" "$pending"
+		mv -fT "$pending" "$GEODATA_CURRENT"
+	fi
+	log "已恢复 GeoSite/GeoIP 运行代：$previous"
+}
+
+restore_candidate_geodata() {
+	local candidate="$1"
+	local previous staged
+	[ -f "$candidate/geodata.previous" ] || return 0
+	[ -f "$candidate/geodata.staged" ] || return 0
+	IFS= read -r previous < "$candidate/geodata.previous"
+	IFS= read -r staged < "$candidate/geodata.staged"
+	restore_geodata_paths "$previous" "$staged"
 }
 
 active_directory() {
@@ -167,13 +207,20 @@ render_candidate() {
 	[ -x "$SING_BOX_BIN" ] || die "sing-box 不可执行：$SING_BOX_BIN"
 	[ -x "$SMARTDNS_BIN" ] || die "SmartDNS 不可执行：$SMARTDNS_BIN"
 
-	local candidate profile devices check_table
+	local candidate profile devices check_table geodata_previous geodata_staged
 	candidate="$(mktemp -d "$RUN_ROOT/generation.XXXXXX")"
 	chmod 0700 "$candidate"
 
+	geodata_previous="$(geodata_target)"
 	if [ "${STEER_GEODATA_STAGED:-0}" != 1 ] && ! /usr/libexec/steer/geodata ensure; then
 		rm -rf "$candidate"
 		die 'GeoSite/GeoIP 本地规则集准备失败'
+	fi
+	geodata_staged="$(geodata_target)"
+	printf '%s\n' "$geodata_previous" > "$candidate/geodata.previous"
+	printf '%s\n' "$geodata_staged" > "$candidate/geodata.staged"
+	if [ "$geodata_previous" != "$geodata_staged" ]; then
+		trap 'restore_geodata_paths "$geodata_previous" "$geodata_staged"' EXIT INT TERM
 	fi
 
 	if ! steerctl validate > "$candidate/validation.json"; then
@@ -220,6 +267,7 @@ render_candidate() {
 	cp /etc/config/steer "$candidate/source-uci"
 	rm -f "$candidate/firewall.check.nft"
 	chmod 0600 "$candidate"/*
+	trap - EXIT INT TERM
 	printf '%s\n' "$candidate"
 }
 
@@ -416,8 +464,7 @@ post_start_verify() {
 	local rollback_target
 
 	if health_check; then
-		if ! /etc/init.d/steer enable >/dev/null 2>&1 ||
-		   ! /etc/init.d/steer-geodata enable >/dev/null 2>&1; then
+		if ! /etc/init.d/steer enable >/dev/null 2>&1; then
 			/etc/init.d/steer stop >/dev/null 2>&1 || true
 			log '开机启动项启用失败，已停止服务'
 			write_state failed 'Steer 已启动，但开机启动项启用失败；为避免状态不一致，已停止服务'
@@ -441,6 +488,8 @@ post_start_verify() {
 	fi
 
 	log '新配置启动后健康检查失败，开始恢复上一运行代'
+	restore_candidate_geodata "$candidate" || \
+		log 'GeoSite/GeoIP 运行代恢复失败；继续撤销网络接管'
 	/etc/init.d/steer stop >/dev/null 2>&1 || true
 	rollback_target="$previous"
 	if [ -z "$rollback_target" ] || [ ! -d "$rollback_target" ]; then
@@ -488,8 +537,7 @@ apply_configuration() {
 		if ! /etc/init.d/steer stop >/dev/null 2>&1; then
 			die 'Steer 服务停止失败'
 		fi
-		if ! /etc/init.d/steer disable >/dev/null 2>&1 ||
-		   ! /etc/init.d/steer-geodata disable >/dev/null 2>&1; then
+		if ! /etc/init.d/steer disable >/dev/null 2>&1; then
 			die 'Steer 开机启动项禁用失败'
 		fi
 		rm -f "$APPLY_IN_PROGRESS" "$BLOCKED_MARKER"
@@ -498,9 +546,14 @@ apply_configuration() {
 		return 0
 	fi
 
-	local candidate previous rc
+	local candidate previous rc geodata_previous geodata_staged
 	write_runtime_state applying '正在检查配置、服务冲突和 GeoSite/GeoIP 数据'
 	candidate="$(render_candidate)"
+	IFS= read -r geodata_previous < "$candidate/geodata.previous"
+	IFS= read -r geodata_staged < "$candidate/geodata.staged"
+	if [ "$geodata_previous" != "$geodata_staged" ]; then
+		trap 'restore_geodata_paths "$geodata_previous" "$geodata_staged"' EXIT INT TERM
+	fi
 	previous="$(active_directory 2>/dev/null || true)"
 	write_runtime_state applying '正在执行切换前最终冲突检查'
 	check_conflicts
@@ -518,9 +571,15 @@ apply_configuration() {
 	fi
 
 	write_runtime_state applying '正在验证核心、DNS Profile、透明代理与端到端连通性'
-	post_start_verify "$candidate" apply "$previous"
-	rc=$?
+	if post_start_verify "$candidate" apply "$previous"; then
+		rc=0
+	else
+		rc=$?
+		restore_geodata_paths "$geodata_previous" "$geodata_staged" || \
+			log 'Apply 失败后 GeoSite/GeoIP 运行代再次恢复失败'
+	fi
 	rm -f "$APPLY_IN_PROGRESS"
+	trap - EXIT INT TERM
 	return "$rc"
 }
 
@@ -532,6 +591,10 @@ case "$command" in
 	activate)
 		[ -n "${2:-}" ] || die 'activate 缺少目录参数'
 		activate_directory "$2"
+		;;
+	restore-geodata)
+		[ -n "${2:-}" ] || die 'restore-geodata 缺少候选目录参数'
+		restore_candidate_geodata "$2"
 		;;
 	active-directory)
 		active_directory
@@ -560,6 +623,6 @@ case "$command" in
 		apply_configuration
 		;;
 	*)
-		die '用法：runtime stage|activate <dir>|active-directory|network-start|network-stop|firewall-reload|health-check|post-start-verify <candidate> [boot|apply] [previous]|state <state> <message>|apply'
+		die '用法：runtime stage|activate <dir>|restore-geodata <candidate>|active-directory|network-start|network-stop|firewall-reload|health-check|post-start-verify <candidate> [boot|apply] [previous]|state <state> <message>|apply'
 		;;
 esac
