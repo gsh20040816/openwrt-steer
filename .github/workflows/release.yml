@@ -72,7 +72,7 @@ jobs:
           # Exact-only key: never restore target state from a different SDK,
           # feed set or dependency graph. Bump targetdeps-v1 whenever Steer's
           # DEPENDS/LUCI_DEPENDS selection changes.
-          key: openwrt-build-v4-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
+          key: openwrt-build-v5-${{ runner.os }}-25.12.5-x86_64-c8a248ce-f0a60eee-5caa62e0-128a7812-targetdeps-v1
 
       - name: Report OpenWrt dependency cache result
         env:

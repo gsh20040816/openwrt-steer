@@ -7,7 +7,9 @@
 
 `tests/check-build-cache.py` 固定发布缓存的安全边界：必须使用精确 key、可强制
 验证命中、冷缓存必须继承 SDK 的 target 基线、归档前保证 runner 可读、记录完整性
-标记，并在刷新第三方依赖时间戳前先清理 Steer 自有包。
+标记，并在刷新第三方依赖时间戳前先清理 Steer 自有包。构建只能提交
+`luci-app-steer` 这一个完整依赖闭包，且不得用 `CONFIG_AUTOREMOVE` 删除待缓存的
+依赖构建目录。
 
 `tests/ucode/model_test.uc` 直接在 OpenWrt 的 ucode 运行时验证语义模型和编译器。首批回归用例覆盖：
 

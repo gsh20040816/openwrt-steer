@@ -7,6 +7,7 @@ set -euo pipefail
 
 readonly FEED_NAME=steer
 readonly PACKAGES=(geoview steer-geodata steer luci-app-steer)
+readonly BUILD_PACKAGE=luci-app-steer
 readonly TARGET_BUILD_DIR=build_dir/target-x86_64_musl
 readonly TARGET_STAGING_DIR=staging_dir/target-x86_64_musl
 readonly CACHE_COMPLETE_MARKER="$TARGET_STAGING_DIR/stamp/.steer-dependency-cache-complete"
@@ -101,17 +102,16 @@ if grep -qE 'HASH does not match |HASH uses deprecated hash,|HASH is missing,' "
 	exit 1
 fi
 
-group 'Build selected packages in parallel'
-targets=()
-for package in "${PACKAGES[@]}"; do
-	targets+=("package/$package/compile")
-done
+group 'Build selected package dependency closure'
+# luci-app-steer depends on steer, which in turn depends on geoview and
+# steer-geodata. A single top-level target lets OpenWrt schedule that closure
+# once. CONFIG_AUTOREMOVE must stay disabled: it deletes completed build
+# directories and turns a restored build cache back into a cold build.
 make \
 	BUILD_LOG=1 \
-	CONFIG_AUTOREMOVE=y \
 	V=s \
 	-j "$(nproc)" \
-	"${targets[@]}"
+	"package/$BUILD_PACKAGE/compile"
 
 find bin/packages -type f -name 'luci-i18n-steer-zh-cn-*.apk' -print -quit | grep -q . || {
 	echo 'Simplified Chinese LuCI APK was not produced.' >&2

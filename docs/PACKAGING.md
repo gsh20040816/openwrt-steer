@@ -61,6 +61,12 @@ SDK 容器以 `buildbot` 用户构建，而 `actions/cache` 由 runner 用户归
 必须为缓存树补齐只读和目录遍历权限，避免权限不足被 post step 仅记录为 warning、
 却没有真正写入缓存。
 
+发布构建只向 OpenWrt 提交一个 `package/luci-app-steer/compile` 顶层目标；其
+`LUCI_DEPENDS`/`DEPENDS` 会完整选择 `steer`、`geoview`、`steer-geodata` 和第三方
+依赖。不得同时提交四个独立顶层目标，否则共享依赖会被重复展开。用于一次性 CI
+检查的 `CONFIG_AUTOREMOVE=y` 也不得启用，因为它会在目标完成后删除 `build_dir`，
+使下一次即使恢复缓存仍重新编译 OpenSSL、内核等依赖。
+
 缓存只允许精确 key 命中，key 锁定 SDK、base/packages/LuCI feed 与当前依赖图；
 只要 `DEPENDS`/`LUCI_DEPENDS` 选择、SDK 或 feed 锁定变化，就必须升级 key 中的
 `targetdeps-vN`。成功构建会写入完整性标记；下一次精确命中时缺少该标记必须

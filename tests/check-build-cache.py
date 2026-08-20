@@ -20,7 +20,7 @@ required_workflow_fragments = (
     "id: openwrt-build-cache",
     "build_dir-target",
     "staging_dir-target",
-    "openwrt-build-v4-${{ runner.os }}-25.12.5-x86_64-c8a248ce-",
+    "openwrt-build-v5-${{ runner.os }}-25.12.5-x86_64-c8a248ce-",
     "f0a60eee-5caa62e0-128a7812-targetdeps-v1",
     "steps.openwrt-build-cache.outputs.cache-hit != 'true'",
     "STEER_BUILD_CACHE_HIT=${{ steps.openwrt-build-cache.outputs.cache-hit }}",
@@ -44,6 +44,8 @@ required_entrypoint_fragments = (
     "readonly CACHE_COMPLETE_MARKER=",
     'if [ "${STEER_BUILD_CACHE_HIT:-false}" = true ]; then',
     'make "package/$package/clean"',
+    'readonly BUILD_PACKAGE=luci-app-steer',
+    '"package/$BUILD_PACKAGE/compile"',
     'find "$TARGET_BUILD_DIR" -type f -name \'.*\' -exec touch {} +',
     'find "$TARGET_STAGING_DIR/stamp" -type f -exec touch {} +',
     'touch "$CACHE_COMPLETE_MARKER"',
@@ -54,6 +56,12 @@ for fragment in required_entrypoint_fragments:
 
 if "STEER_HOST_CACHE_HIT" in ENTRYPOINT:
     fail("entrypoint still uses the obsolete host-only cache contract")
+
+if "CONFIG_AUTOREMOVE=y" in ENTRYPOINT:
+    fail("CONFIG_AUTOREMOVE deletes dependency build directories before caching")
+
+if 'targets+=("package/$package/compile")' in ENTRYPOINT:
+    fail("build the single luci-app-steer dependency closure, not parallel top-level targets")
 
 clean_position = ENTRYPOINT.index('make "package/$package/clean"')
 target_touch_position = ENTRYPOINT.index(
