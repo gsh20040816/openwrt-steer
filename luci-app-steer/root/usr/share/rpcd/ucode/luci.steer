@@ -5,6 +5,13 @@
 
 import { access, popen } from 'fs';
 
+function shellquote(value) {
+	if (value == null)
+		value = '';
+
+	return "'" + replace(value, "'", "'\\''") + "'";
+}
+
 function command_json(command) {
 	const process = popen(command);
 	if (!process)
@@ -68,7 +75,7 @@ const methods = {
 			const id = request?.args?.id;
 			if (!id)
 				return { ok: false, error: '缺少订阅 ID' };
-			return command_json([ '/usr/sbin/steer', 'subscription', 'update', '--id', id ]);
+			return command_json('/usr/sbin/steer subscription update --id ' + shellquote(id));
 		}
 	},
 	subscription_clean: {
@@ -78,7 +85,7 @@ const methods = {
 			const node = request?.args?.node;
 			if (!id || !node)
 				return { ok: false, error: '缺少订阅 ID 或节点 ID' };
-			return command_json([ '/usr/sbin/steer', 'subscription', 'clean', '--id', id, '--node', node ]);
+			return command_json('/usr/sbin/steer subscription clean --id ' + shellquote(id) + ' --node ' + shellquote(node));
 		}
 	},
 	node_speedtest: {
@@ -87,9 +94,9 @@ const methods = {
 			const node = request?.args?.node;
 			if (!node)
 				return { ok: false, error: '缺少节点 ID' };
-			const command = [ '/usr/sbin/steer', 'probe', '--kind', 'speedtest', '--node', node ];
+			let command = '/usr/sbin/steer probe --kind speedtest --node ' + shellquote(node);
 			if (request.args.download)
-				command.push('--download');
+				command += ' --download';
 			return command_json(command);
 		}
 	}

@@ -502,7 +502,9 @@ async function main() {
 	assert.ok(rpcSource.includes("args: { node: '', download: false }") &&
 		rpcSource.includes('request?.args?.node') &&
 		rpcSource.includes('request.args.download') &&
-		rpcSource.includes("command.push('--download')"),
+		rpcSource.includes("command += ' --download'") &&
+		rpcSource.includes('shellquote(node)') &&
+		!rpcSource.includes('command_json(['),
 		'RPC backend declares and reads the speed-test arguments');
 	assert.ok(rpcSource.includes("args: { id: '' }") &&
 		rpcSource.includes("args: { id: '', node: '' }"),
