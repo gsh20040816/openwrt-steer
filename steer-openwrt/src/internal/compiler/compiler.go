@@ -144,7 +144,7 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 		RequiredCapabilities: requiredCapabilities(intent, bindings),
 		Resources: Resources{
 			TunInterface: TunInterface,
-			TunAddresses: []string{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
+			TunAddresses: []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"},
 			DNSPort:      DNSPort, TunTable: TunTable, TunPriority: TunPriority,
 			TunFallbackPriority: TunFallbackPriority, AutoRedirectInputMark: AutoRedirectInputMark,
 			AutoRedirectOutputMark: AutoRedirectOutputMark, AutoRedirectResetMark: AutoRedirectResetMark,

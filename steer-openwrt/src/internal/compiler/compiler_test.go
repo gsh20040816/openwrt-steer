@@ -66,6 +66,9 @@ func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
 	if !strings.Contains(text, `"auto_redirect":true`) || !strings.Contains(text, `"auto_route":true`) {
 		t.Fatalf("TUN main path missing: %s", text)
 	}
+	if !strings.Contains(text, `"address":["198.18.0.1/30","fdfe:dcba:9876::1/126"]`) {
+		t.Fatalf("unexpected TUN addresses: %s", text)
+	}
 }
 
 func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
