@@ -232,18 +232,22 @@ func runProbe(args []string) error {
 }
 
 func runSubscription(args []string) error {
+	if len(args) == 0 || (args[0] != "update" && args[0] != "status" && args[0] != "clean") {
+		return errors.New("usage: steer subscription update|status [--id ID] | clean --id ID --node NODE_ID")
+	}
+	command := args[0]
 	flags := flag.NewFlagSet("subscription", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "subscription snapshot directory")
 	id := flags.String("id", "", "only update this subscription ID")
 	nodeID := flags.String("node", "", "subscription node ID for clean")
-	if err := flags.Parse(args); err != nil {
+	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
-	if flags.NArg() != 1 || (flags.Arg(0) != "update" && flags.Arg(0) != "status" && flags.Arg(0) != "clean") {
-		return errors.New("usage: steer subscription update|status [--id ID] | clean --id ID --node NODE_ID")
+	if flags.NArg() != 0 {
+		return errors.New("subscription subcommands accept flags only")
 	}
-	if flags.Arg(0) == "status" {
+	if command == "status" {
 		statuses, err := openwrt.ReadSubscriptionStatus(*configPath, *stateDirectory)
 		if err != nil {
 			return err
@@ -254,7 +258,7 @@ func runSubscription(args []string) error {
 		}{true, statuses})
 		return nil
 	}
-	if flags.Arg(0) == "clean" {
+	if command == "clean" {
 		if *id == "" || *nodeID == "" {
 			return errors.New("subscription clean requires --id and --node")
 		}

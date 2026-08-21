@@ -2,6 +2,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,5 +39,12 @@ func TestApplyLockSerializesTransactions(t *testing.T) {
 		close(release)
 	case <-time.After(time.Second):
 		t.Fatal("second Apply did not acquire the released lock")
+	}
+}
+
+func TestSubscriptionSubcommandParsesTrailingFlags(t *testing.T) {
+	err := runSubscription([]string{"status", "--config", "/definitely/missing/steer"})
+	if err == nil || !strings.Contains(err.Error(), "read UCI for subscription status") {
+		t.Fatalf("trailing flags were not parsed by the status subcommand: %v", err)
 	}
 }
