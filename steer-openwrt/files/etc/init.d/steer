@@ -41,7 +41,17 @@ start_service() {
 	procd_close_instance
 }
 
+stop_service() {
+	# OpenWrt's package pre-deinstall hook stops every init script during an
+	# upgrade. Keep the healthy current generation alive while the package and
+	# its one-shot UCI migration are replaced; the next UCI commit/Apply will
+	# perform the verified generation switch.
+	[ "${PKG_UPGRADE:-0}" = 1 ] && return 0
+}
+
 service_stopped() {
+	[ "${PKG_UPGRADE:-0}" = 1 ] && return 0
+	[ -s "$RUN_DIRECTORY/current/bundle.json" ] || return 0
 	[ -s "$RUN_DIRECTORY/current/bundle.json" ] || return 0
 	"$CONTROL" cleanup
 }

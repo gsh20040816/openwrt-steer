@@ -39,6 +39,9 @@
 preflight 通过时启用服务。当前 release 只在 post-upgrade 中执行一次精确的 schema 4→5
 迁移（删除废弃的 `managed_zone` 并提交 UCI）；schema 5 原样保留，未知 schema 直接失败。
 schema 6 发布时必须删除这段迁移代码，不保留通用兼容层，也不自动降级 APK。
+包升级期间 init 脚本必须保留当前健康 generation，不响应包管理器为 `pre-deinstall` 发出的 stop；
+迁移只更新磁盘上的 UCI，不能在升级中间拆除 nft、策略路由或 sing-box。用户下一次 UCI commit
+或显式 Apply 时，才执行经过健康检查的 generation 切换。
 
 ## 发布约束
 
