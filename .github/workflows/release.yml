@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - master
+    paths-ignore:
+      - '.github/workflows/**'
 
 concurrency:
   group: openwrt-package-build
@@ -26,13 +28,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-
-      - name: Detect release tag on this commit
-        id: release-tag
-        run: |
-          tag="$(git tag --points-at "$GITHUB_SHA" | grep -E '^v[0-9]' | sort -V | tail -n 1 || true)"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "Release tag on ${GITHUB_SHA}: ${tag:-none}"
 
       - name: Check Simplified Chinese coverage
         run: python3 tests/check-luci-i18n.py
@@ -149,14 +144,3 @@ jobs:
             logs/
           if-no-files-found: error
           retention-days: 30
-
-      - name: Publish prerelease
-        if: steps.release-tag.outputs.tag != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ steps.release-tag.outputs.tag }}" dist/* \
-            --verify-tag \
-            --generate-notes \
-            --prerelease \
-            --title "Steer ${{ steps.release-tag.outputs.tag }}"

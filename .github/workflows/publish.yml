@@ -1,0 +1,81 @@
+name: Publish tagged release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    name: Publish verified master artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Find successful build for tagged commit
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          run_id="$({
+            gh api --paginate \
+              "/repos/$REPOSITORY/actions/workflows/release.yml/runs?branch=master&status=success&per_page=100" \
+              --jq ".workflow_runs[] | select(.head_sha == \"$SOURCE_REVISION\" and .event == \"push\") | .id"
+          } | head -n 1)"
+          [ -n "$run_id" ] || {
+            echo "No successful master build found for $SOURCE_REVISION" >&2
+            exit 1
+          }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Using master build run $run_id for $SOURCE_REVISION"
+
+      - name: Download exact build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh run download "${{ steps.build.outputs.run_id }}" \
+            --repo "$REPOSITORY" \
+            --name openwrt-25.12.5-x86_64-packages \
+            --dir release-artifact
+
+      - name: Verify release artifact
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          cd release-artifact/dist
+          sha256sum -c SHA256SUMS
+          grep -Fqx "Source revision: $SOURCE_REVISION" BUILD-METADATA.txt
+          for pattern in \
+            'geoview-*.apk' \
+            'steer-geodata-*.apk' \
+            'steer-openwrt-*.apk' \
+            'luci-app-steer-*.apk' \
+            'luci-i18n-steer-zh-cn-*.apk'; do
+            set -- $pattern
+            [ "$#" -eq 1 ] || {
+              echo "Expected exactly one asset matching $pattern, found $#" >&2
+              exit 1
+            }
+          done
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release-artifact/dist/* \
+            --repo "$REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --prerelease \
+            --title "Steer $RELEASE_TAG"
