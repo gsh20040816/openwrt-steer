@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -62,6 +62,14 @@ case "$$schema" in
 		exit 1
 		;;
 esac
+
+# default_postinst runs before this package-specific migration. On upgrades
+# the init script suppresses that premature start; now that UCI is valid, start
+# the new generation and fail the package transaction if it cannot become
+# healthy.
+if [ "$${PKG_UPGRADE:-0}" = 1 ]; then
+	PKG_UPGRADE=0 /etc/init.d/steer start
+fi
 endef
 
 define Build/Prepare
