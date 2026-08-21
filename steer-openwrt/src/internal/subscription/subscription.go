@@ -286,7 +286,7 @@ func parseVMessPayload(decoded string) (model.Node, error) {
 	}
 	node := model.Node{Enabled: true, Type: "vmess", Name: value.Name, Server: value.Add, ServerPort: serverPort,
 		NodeCredentials: model.NodeCredentials{UUID: value.UUID},
-		NodeTransport:   model.NodeTransport{Network: value.Network, Transport: value.Network, TransportHost: value.Host, TransportPath: value.Path},
+		NodeTransport:   model.NodeTransport{Transport: value.Network, TransportHost: value.Host, TransportPath: value.Path},
 		NodeProtocol:    model.NodeProtocol{AlterID: rawInt(value.AlterID), Security: value.Security},
 		NodeTLS:         model.NodeTLS{TLSServerName: value.SNI}}
 	if value.TLS != "" && value.TLS != "none" {

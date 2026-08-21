@@ -3,6 +3,7 @@ package openwrt
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -90,20 +91,7 @@ func TestUpdateSubscriptionWritesUCIAndDoesNotApply(t *testing.T) {
 	}))
 	defer server.Close()
 	configPath := filepath.Join(t.TempDir(), "steer")
-	config := `config steer 'main'
-	option schema_version '6'
-	option enabled '1'
-
-config bootstrap 'bootstrap'
-	option protocol 'udp'
-	option server '1.1.1.1'
-	option server_port '53'
-	option strategy 'prefer_ipv4'
-
-config subscription 'public'
-	option enabled '1'
-	option url '` + server.URL + `'
-`
+	config := validSubscriptionConfig(server.URL)
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -118,4 +106,58 @@ config subscription 'public'
 	if strings.Contains(batch, ".enabled=1\n") || strings.Contains(batch, ".pinned_stale=0\n") {
 		t.Fatalf("subscription batch persisted default boolean values: %s", batch)
 	}
+}
+
+func TestUpdateSubscriptionValidatesCandidateBeforeCommit(t *testing.T) {
+	vmess := `{"v":"2","ps":"invalid","add":"vmess.example.com","port":"443","id":"00000000-0000-4000-8000-000000000001","aid":"0","scy":"auto","net":"kcp","tls":"none"}`
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte(base64.StdEncoding.EncodeToString([]byte(vmess))))
+	}))
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "steer")
+	if err := os.WriteFile(configPath, []byte(validSubscriptionConfig(server.URL)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	committed := false
+	_, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, t.TempDir(), "public", func(context.Context, string) error {
+		committed = true
+		return nil
+	})
+	if err == nil || committed || !strings.Contains(err.Error(), "invalid candidate") {
+		t.Fatalf("invalid subscription candidate reached UCI: committed=%v err=%v", committed, err)
+	}
+}
+
+func validSubscriptionConfig(subscriptionURL string) string {
+	return `config steer 'main'
+	option schema_version '6'
+	option enabled '1'
+
+config bootstrap 'bootstrap'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+	option strategy 'prefer_ipv4'
+
+config route 'direct'
+	option kind 'direct'
+
+config route 'block'
+	option kind 'block'
+
+config dns_profile 'resolver'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+	option strategy 'prefer_ipv4'
+
+config rule 'default'
+	option default '1'
+	option dns_profile 'resolver'
+	option route 'direct'
+
+config subscription 'public'
+	option enabled '1'
+	option url '` + subscriptionURL + `'
+`
 }

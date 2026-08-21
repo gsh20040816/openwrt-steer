@@ -105,6 +105,18 @@ func TestAllSingBox113ProxyOutboundsValidate(t *testing.T) {
 	}
 }
 
+func TestRejectVMessTransportInOutboundNetwork(t *testing.T) {
+	intent := validIntent()
+	intent.Nodes[0] = Node{ID: "proxy", Enabled: true, Type: "vmess", Server: "proxy.example", ServerPort: 443,
+		NodeCredentials: NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeTransport:   NodeTransport{Network: "ws", Transport: "ws", TransportPath: "/ws"},
+		NodeProtocol:    NodeProtocol{Security: "auto"}}
+	validation := Validate(intent)
+	if validation.OK || !hasIssue(validation, "INVALID_NODE_NETWORK") {
+		t.Fatalf("VMess transport leaked into outbound network without rejection: %#v", validation.Errors)
+	}
+}
+
 func TestPinnedStaleSubscriptionNodeWarns(t *testing.T) {
 	intent := validIntent()
 	intent.Nodes[0].PinnedStale = true

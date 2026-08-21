@@ -216,6 +216,13 @@ func validateNode(value Node, err, warn issueFn) {
 	if value.Type != "tor" {
 		validPort(value.ServerPort, "node", value.ID, "server_port", err)
 	}
+	if value.Network != "" {
+		if value.Type != "vmess" {
+			err("UNSUPPORTED_NODE_OPTION", "node", value.ID, "network", "network is only supported by VMess outbounds")
+		} else if !oneOf(value.Network, "tcp", "udp") {
+			err("INVALID_NODE_NETWORK", "node", value.ID, "network", "VMess network must be tcp or udp")
+		}
+	}
 	switch value.Type {
 	case "socks":
 		if value.TLSServerName != "" || value.Insecure {

@@ -199,7 +199,9 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 				return nil, fmt.Errorf("subscription node %q has an unsafe UCI section ID", node.ID)
 			}
 		}
-		appendSubscriptionBatch(&batch, configured.ID, intent.Nodes, merged)
+		existingNodes := intent.Nodes
+		intent.Nodes = replaceSubscriptionNodes(existingNodes, configured.ID, merged)
+		appendSubscriptionBatch(&batch, configured.ID, existingNodes, merged)
 		snapshot := SubscriptionSnapshot{SubscriptionID: configured.ID, URL: configured.URL, FetchedAt: time.Now().UTC(), Nodes: merged}
 		result = append(result, snapshot)
 	}
@@ -207,6 +209,11 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		return nil, fmt.Errorf("enabled subscription %q was not found", id)
 	}
 	if batch.Len() > 0 {
+		validation := model.Validate(intent)
+		if !validation.OK {
+			issue := validation.Errors[0]
+			return nil, fmt.Errorf("subscription update produced invalid candidate: %s %q option %q: %s", issue.ObjectType, issue.ObjectID, issue.Option, issue.Message)
+		}
 		if err := writeUCI(ctx, batch.String()+"commit steer\n"); err != nil {
 			return nil, err
 		}
@@ -217,6 +224,16 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		}
 	}
 	return result, nil
+}
+
+func replaceSubscriptionNodes(existing []model.Node, subscriptionID string, replacement []model.Node) []model.Node {
+	result := make([]model.Node, 0, len(existing)+len(replacement))
+	for _, node := range existing {
+		if node.SourceSubscription != subscriptionID {
+			result = append(result, node)
+		}
+	}
+	return append(result, replacement...)
 }
 
 func CleanSubscriptionNode(configPath, stateDirectory, id, nodeID string) (SubscriptionSnapshot, error) {

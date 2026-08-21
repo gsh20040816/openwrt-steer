@@ -58,11 +58,13 @@ if "$(1)/usr/sbin/steer" not in makefile:
 if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc:
     fail("retired steer-openwrt CLI name is still user-visible")
 
-if "case \"$$schema\" in" not in makefile or "\n\t5)" not in makefile or "\n\t6)" not in makefile:
-    fail("package must expose exactly the schema 5 to 6 migration window")
-for forbidden_schema in ("\n\t3)", "\n\t4)", "\n\t7)"):
-    if forbidden_schema in makefile:
-        fail(f"package retained an out-of-window schema migration: {forbidden_schema.strip()}")
+if '[ "$$schema" = 6 ]' not in makefile or "uci set steer.main.schema_version" in makefile:
+    fail("package must require schema 6 without retaining an older schema migration")
+if "One release transition only: remove this repair in the next package release." not in makefile:
+    fail("package must mark the temporary subscription network repair for removal")
+for fragment in ("source_subscription", "repaired_subscription_network", "uci -q delete steer.$$section.network"):
+    if fragment not in makefile:
+        fail(f"package is missing the one-release subscription network repair: {fragment}")
 if "*/15 * * * * /usr/sbin/steer subscription update" not in makefile:
     fail("subscription cron dispatcher is not package-managed")
 if "[ -x /etc/init.d/cron ]" not in makefile:

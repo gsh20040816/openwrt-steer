@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=9
+PKG_RELEASE:=10
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -43,24 +43,30 @@ endef
 
 define Package/steer-openwrt/postinst
 #!/bin/sh
-# One release transition only: remove this block entirely when schema 7 ships.
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 
 config=/etc/config/steer
 [ -f "$$config" ] || exit 0
 schema="$$(uci -q get steer.main.schema_version 2>/dev/null)"
-case "$$schema" in
-	5)
-		uci set steer.main.schema_version='6'
-		uci commit steer
-		;;
-	6)
-		;;
-	*)
-		echo "steer: unsupported existing schema '$$schema'; refusing automatic migration" >&2
-		exit 1
-		;;
-esac
+[ "$$schema" = 6 ] || {
+	echo "steer: schema 6 is required, found '$$schema'" >&2
+	exit 1
+}
+
+# One release transition only: remove this repair in the next package release.
+repaired_subscription_network=0
+for section in $$(uci -q show steer | sed -n "s/^steer\.\([a-z][a-z0-9_]*\)\.source_subscription=.*/\1/p"); do
+	network="$$(uci -q get steer.$$section.network)"
+	transport="$$(uci -q get steer.$$section.transport)"
+	[ "$$network" = "$$transport" ] || continue
+	case "$$network" in
+		tcp|raw|ws|grpc|http|quic)
+			uci -q delete steer.$$section.network
+			repaired_subscription_network=1
+			;;
+	esac
+done
+[ "$$repaired_subscription_network" = 0 ] || uci commit steer
 
 cron_file=/etc/crontabs/root
 cron_line='*/15 * * * * /usr/sbin/steer subscription update 2>&1 | logger -t steer-subscription'

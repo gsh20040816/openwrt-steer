@@ -27,7 +27,7 @@ func TestParseBase64VMess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(nodes) != 1 || nodes[0].Type != "vmess" || nodes[0].Transport != "ws" {
+	if len(nodes) != 1 || nodes[0].Type != "vmess" || nodes[0].Transport != "ws" || nodes[0].Network != "" {
 		t.Fatalf("unexpected VMess node: %#v", nodes)
 	}
 }
