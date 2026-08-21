@@ -35,6 +35,14 @@ required_workflow_fragments = (
     "INPUT_REF: ${{ github.ref }}",
     "steps.openwrt-ccache.outputs.cache-primary-key",
     "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "id: openwrt-language-cache",
+    "openwrt-language-v1-${{ runner.os }}-25.12.5-x86_64-f0a60eee-16fe9150-go1.26.4-packages5caa62e0-luci128a7812",
+    "${{ runner.temp }}/steer-openwrt-language-cache",
+    '--volume "$language_cache_dir/dl:/work/openwrt/dl"',
+    '--volume "$language_cache_dir/go-build:/work/openwrt/tmp/go-build"',
+    "Delete previously restored OpenWrt download and Go caches",
+    "steps.openwrt-language-cache.outputs.cache-primary-key",
+    "Save OpenWrt download and Go caches",
 )
 for fragment in required_workflow_fragments:
     if fragment not in WORKFLOW:
@@ -44,7 +52,7 @@ default_branch_guard = (
     "github.ref == format('refs/heads/{0}', "
     "github.event.repository.default_branch)"
 )
-if WORKFLOW.count(default_branch_guard) != 3:
+if WORKFLOW.count(default_branch_guard) != 5:
     fail("only the default branch may write or rotate shared caches")
 
 cache_to_line = next(
@@ -60,9 +68,19 @@ if default_branch_guard not in delete_block:
     fail("shared ccache rotation must be restricted to the default branch")
 
 save_block = WORKFLOW.split("- name: Save OpenWrt package ccache", 1)[1]
-save_block = save_block.split("- name: Collect exact release assets", 1)[0]
+save_block = save_block.split("- name: Delete previously restored OpenWrt download and Go caches", 1)[0]
 if default_branch_guard not in save_block:
     fail("shared ccache save must be restricted to the default branch")
+
+language_delete_block = WORKFLOW.split("- name: Delete previously restored OpenWrt download and Go caches", 1)[1]
+language_delete_block = language_delete_block.split("- name: Save OpenWrt download and Go caches", 1)[0]
+if default_branch_guard not in language_delete_block:
+    fail("shared download and Go cache rotation must be restricted to the default branch")
+
+language_save_block = WORKFLOW.split("- name: Save OpenWrt download and Go caches", 1)[1]
+language_save_block = language_save_block.split("- name: Collect exact release assets", 1)[0]
+if default_branch_guard not in language_save_block:
+    fail("shared download and Go cache save must be restricted to the default branch")
 
 for forbidden in (
     "require_build_cache_hit",
@@ -106,6 +124,8 @@ required_entrypoint_fragments = (
     "staging_dir/host/bin/ccache -vv --show-stats",
     "staging_dir/host/bin/ccache --evict-older-than 1d",
     "staging_dir/host/bin/ccache --cleanup",
+    "Show OpenWrt download and Go caches",
+    "du -sh dl tmp/go-build",
     "grep -qx '# CONFIG_ALL_KMODS is not set' .config",
     "Minimal package config unexpectedly selected",
     "Minimal package config selected unrelated kernel modules.",

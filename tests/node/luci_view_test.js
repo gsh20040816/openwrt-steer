@@ -57,8 +57,11 @@ function createEnvironment(sections) {
 			this.values = [];
 		}
 
-		value(key, label) {
-			this.values.push([ String(key), String(label == null ? key : label) ]);
+		value(key, label, description) {
+			const value = [ String(key), String(label == null ? key : label) ];
+			if (description != null)
+				value.push(String(description));
+			this.values.push(value);
 		}
 
 		depends() {}
@@ -110,6 +113,7 @@ function createEnvironment(sections) {
 		Value: 'Value',
 		DummyValue: 'DummyValue',
 		ListValue: 'ListValue',
+		RichListValue: 'RichListValue',
 		MultiValue: 'MultiValue',
 		DynamicList,
 		TextValue,
@@ -147,9 +151,10 @@ function createEnvironment(sections) {
 	};
 	const ui = {};
 	const shareUrl = {};
+	const window = { location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '' } };
 	const translate = (value) => String(value);
 
-	return { form, uci, view, steer, ui, shareUrl, maps, translate };
+	return { form, uci, view, steer, ui, shareUrl, window, maps, translate };
 }
 
 function loadView(file, dependencies) {
@@ -181,8 +186,9 @@ async function renderRules(sections, catalog = {}) {
 	return environment;
 }
 
-async function renderNodes(sections) {
+async function renderNodes(sections, search = '') {
 	const environment = createEnvironment(sections);
+	environment.window.location.search = search;
 	const view = loadView(
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js',
 		{
@@ -192,6 +198,7 @@ async function renderNodes(sections) {
 			view: environment.view,
 			steer: environment.steer,
 			shareUrl: environment.shareUrl,
+			window: environment.window,
 			E: element,
 			_: environment.translate
 		}
@@ -234,7 +241,7 @@ async function renderLocalProxies(sections) {
 	return environment;
 }
 
-async function renderOverview(sections) {
+async function renderOverview(sections, planResult = {}) {
 	const environment = createEnvironment(sections);
 	const view = loadView(
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js',
@@ -248,7 +255,7 @@ async function renderOverview(sections) {
 			_: environment.translate
 		}
 	);
-	await view.render([ null, {}, {}, { subscriptions: [] } ]);
+	await view.render([ null, {}, planResult, { subscriptions: [] } ]);
 	return environment;
 }
 
@@ -389,7 +396,7 @@ async function main() {
 	options = allOptions(environment);
 	const missingNode = options.find((option) => option.name == 'node');
 	assert.ok(missingNode, 'A dangling route node must remain visible for repair');
-	assert.deepEqual(missingNode.values, [ [ 'missing_node', 'Missing: missing_node' ] ]);
+	assert.deepEqual(missingNode.values, [ [ 'missing_node', 'Missing: missing_node', 'Group: Missing references' ] ]);
 
 	environment = await renderDns({ dns_profile: [] });
 	assertGeneratedIds(environment, 'DNS profiles');
@@ -398,12 +405,42 @@ async function main() {
 		'DNS profiles expose exactly the six M1 transports');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertGeneratedIds(environment, 'Local proxies');
+	environment = await renderNodes({
+		node: [
+			{ '.name': 'cfg_manual', name: 'Manual' },
+			{ '.name': 'jdub_0123456789ab', name: 'Subscribed', source_subscription: 'jdub' }
+		],
+		route: [ { '.name': 'route_proxy', kind: 'single', node: 'jdub_0123456789ab' } ],
+		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
+	});
+	const groupedNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
+	assert.ok(groupedNodes && groupedNodes.addremove === true && groupedNodes.filter('cfg_manual') && !groupedNodes.filter('jdub_0123456789ab'),
+		'The default node group shows only manually added nodes');
+	const groupedPicker = environment.maps[0].sections.flatMap((section) => section.options)
+		.find((option) => option.name == 'node');
+	assert.ok(groupedPicker && groupedPicker.type == 'RichListValue' && groupedPicker.values.some((value) => value[2]?.includes('Jdub')),
+		'Node selectors expose the source subscription as a visual group');
+	environment = await renderNodes({
+		node: [
+			{ '.name': 'cfg_manual', name: 'Manual' },
+			{ '.name': 'jdub_0123456789ab', name: 'Subscribed', source_subscription: 'jdub' }
+		],
+		route: [],
+		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
+	}, '?node_group=jdub');
+	const subscriptionNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
+	assert.ok(subscriptionNodes && subscriptionNodes.addremove === false && !subscriptionNodes.filter('cfg_manual') && subscriptionNodes.filter('jdub_0123456789ab'),
+		'A subscription group renders only that subscription and cannot create manual nodes inside it');
 	environment = await renderOverview({ subscription: [] });
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
 		'Subscriptions require an explicit stable UCI section ID');
 	assert.equal(typeof subscriptionSection.handleAdd, 'function',
 		'Subscription creation validates the stricter Steer ID syntax');
+	await renderOverview({ subscription: [] }, {
+		plan: { schema_version: 6 },
+		diff: { changed: true, added: [ { id: 'new' } ], modified: null, removed: null }
+	});
 
 	const nodeSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');

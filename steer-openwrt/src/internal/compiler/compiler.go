@@ -162,6 +162,9 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 
 func Diff(current, candidate Plan) PlanDiff {
 	result := PlanDiff{
+		Added:            []PlanObject{},
+		Removed:          []PlanObject{},
+		Modified:         []PlanObject{},
 		ResourcesChanged: !equalJSON(current.Resources, candidate.Resources),
 		ProbesChanged:    !equalJSON([][]string{current.ProbeDirect, current.ProbeProxy, current.SpeedtestProxy}, [][]string{candidate.ProbeDirect, candidate.ProbeProxy, candidate.SpeedtestProxy}),
 	}

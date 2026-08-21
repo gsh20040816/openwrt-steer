@@ -104,6 +104,22 @@ func TestCompileIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestPlanDiffJSONUsesArraysForEmptyCategories(t *testing.T) {
+	current := Compile(representativeIntent()).Plan
+	candidate := current
+	candidate.Objects = append(candidate.Objects, PlanObject{Type: "node", ID: "new", Digest: "digest"})
+
+	diff := Diff(current, candidate)
+	encoded, err := json.Marshal(diff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	if !strings.Contains(text, `"added":[`) || !strings.Contains(text, `"removed":[]`) || !strings.Contains(text, `"modified":[]`) {
+		t.Fatalf("plan diff must encode every object category as an array: %s", text)
+	}
+}
+
 func TestCompileSingBoxProxyNodeFamilies(t *testing.T) {
 	base := representativeIntent()
 	base.Nodes = []model.Node{

@@ -205,6 +205,9 @@ staging_dir/host/bin/ccache -vv --show-stats
 staging_dir/host/bin/ccache --evict-older-than 1d
 staging_dir/host/bin/ccache --cleanup
 
+group 'Show OpenWrt download and Go caches'
+du -sh dl tmp/go-build
+
 group 'Export build outputs'
 [ ! -e /artifacts/bin ] || {
 	echo '/artifacts/bin already exists.' >&2

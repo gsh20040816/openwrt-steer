@@ -10,25 +10,74 @@
 'require steer as steer';
 'require steer.share-url as shareUrl';
 
-function collectNodeReferences(nodes, routes) {
-	const known = {};
-	const references = [];
+const manualNodeGroup = '_manual';
+
+function nodeGroupID(node) {
+	return node.source_subscription || manualNodeGroup;
+}
+
+function collectNodeGroups(nodes, subscriptions) {
+	const groups = [ { id: manualNodeGroup, label: _('Manual nodes'), count: 0 } ];
+	const known = { [manualNodeGroup]: groups[0] };
+	subscriptions.forEach((subscription) => {
+		const id = subscription['.name'];
+		const group = { id, label: subscription.name || id, count: 0 };
+		known[id] = group;
+		groups.push(group);
+	});
 	nodes.forEach((node) => {
+		const id = nodeGroupID(node);
+		if (!known[id]) {
+			known[id] = { id, label: _('Missing subscription: %s').format(id), count: 0 };
+			groups.push(known[id]);
+		}
+		known[id].count++;
+	});
+	return groups;
+}
+
+function collectNodeReferences(nodes, routes, groups) {
+	const known = {};
+	const groupOrder = {};
+	groups.forEach((group, index) => { groupOrder[group.id] = index; });
+	const references = [];
+	nodes.slice().sort((left, right) => {
+		const group = (groupOrder[nodeGroupID(left)] ?? groups.length) - (groupOrder[nodeGroupID(right)] ?? groups.length);
+		return group || String(left.name || left['.name']).localeCompare(String(right.name || right['.name']));
+	}).forEach((node) => {
 		known[node['.name']] = true;
-		references.push([ node['.name'], node.name || node['.name'] ]);
+		const group = groups.find((candidate) => candidate.id == nodeGroupID(node));
+		references.push({ id: node['.name'], label: node.name || node['.name'], group: group?.label || nodeGroupID(node) });
 	});
 	routes.forEach((route) => {
 		const node = route.kind == 'single' ? route.node : null;
 		if (node && !known[node]) {
 			known[node] = true;
-			references.push([ node, _('Missing: %s').format(node) ]);
+			references.push({ id: node, label: _('Missing: %s').format(node), group: _('Missing references') });
 		}
 	});
 	return references;
 }
 
 function addNodeValues(option, references) {
-	references.forEach((reference) => option.value(reference[0], reference[1]));
+	references.forEach((reference) => option.value(reference.id, reference.label, _('Group: %s').format(reference.group)));
+}
+
+function selectedNodeGroup(groups) {
+	const requested = new URLSearchParams(window.location.search || '').get('node_group');
+	return groups.some((group) => group.id == requested) ? requested : manualNodeGroup;
+}
+
+function renderNodeGroupNavigation(groups, activeGroup) {
+	return E('nav', { 'class': 'steer-node-groups', 'aria-label': _('Node groups') }, groups.map((group) => {
+		const query = new URLSearchParams(window.location.search || '');
+		query.set('node_group', group.id);
+		return E('a', {
+			'class': 'steer-node-groups__item' + (group.id == activeGroup ? ' is-active' : ''),
+			'href': (window.location.pathname || '') + '?' + query.toString(),
+			'aria-current': group.id == activeGroup ? 'page' : null
+		}, [ E('span', {}, group.label), E('strong', {}, String(group.count)) ]);
+	}));
 }
 
 function importErrorText(error) {
@@ -226,7 +275,11 @@ return view.extend({
 		let m, s, o;
 		const nodes = uci.sections('steer', 'node');
 		const routes = uci.sections('steer', 'route');
-		const nodeReferences = collectNodeReferences(nodes, routes);
+		const subscriptions = uci.sections('steer', 'subscription');
+		const nodeGroups = collectNodeGroups(nodes, subscriptions);
+		const activeNodeGroup = selectedNodeGroup(nodeGroups);
+		const activeGroup = nodeGroups.find((group) => group.id == activeNodeGroup);
+		const nodeReferences = collectNodeReferences(nodes, routes, nodeGroups);
 		steer.loadStyle();
 
 		m = new form.Map('steer', _('Nodes & Routes'),
@@ -260,17 +313,20 @@ return view.extend({
 		o.editable = true;
 
 		if (nodeReferences.length) {
-			o = s.option(form.ListValue, 'node', _('Node'));
+			o = s.option(form.RichListValue, 'node', _('Node'));
 			o.depends('kind', 'single');
 			o.rmempty = false;
 			addNodeValues(o, nodeReferences);
 		}
 
-		s = m.section(form.GridSection, 'node', _('Proxy nodes'));
+		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
 		s.anonymous = true;
-		s.addremove = true;
+		s.addremove = activeNodeGroup == manualNodeGroup;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add proxy node');
+		s.filter = function(sectionId) {
+			return nodeGroupID(uci.get('steer', sectionId)) == activeNodeGroup;
+		};
 		s.sectiontitle = function(sectionId) {
 			return uci.get('steer', sectionId, 'name') || _('Unnamed');
 		};
@@ -526,7 +582,13 @@ return view.extend({
 		o.depends('type', 'vless');
 		o.depends('type', 'trojan');
 
-		return m.render().then((formNode) => E([], [ renderImportButton(), formNode ]));
+		return m.render().then((formNode) => {
+			const contents = [ renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
+			if (activeNodeGroup == manualNodeGroup)
+				contents.push(renderImportButton());
+			contents.push(formNode);
+			return E([], contents);
+		});
 	},
 
 	handleSaveApply: function(ev, mode) {

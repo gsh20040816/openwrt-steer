@@ -80,30 +80,49 @@ jobs:
           echo "Exact OpenWrt ccache hit: ${CACHE_HIT:-false}"
           echo "Matched OpenWrt ccache key: ${MATCHED_KEY:-none}"
 
+      - name: Restore OpenWrt download and Go caches
+        id: openwrt-language-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/steer-openwrt-language-cache
+          key: openwrt-language-v1-${{ runner.os }}-25.12.5-x86_64-f0a60eee-16fe9150-go1.26.4-packages5caa62e0-luci128a7812
+
+      - name: Report OpenWrt download and Go cache result
+        env:
+          CACHE_HIT: ${{ steps.openwrt-language-cache.outputs.cache-hit }}
+          MATCHED_KEY: ${{ steps.openwrt-language-cache.outputs.cache-matched-key }}
+        run: |
+          echo "Exact OpenWrt language cache hit: ${CACHE_HIT:-false}"
+          echo "Matched OpenWrt language cache key: ${MATCHED_KEY:-none}"
+
       - name: Build packages
         run: |
           ccache_dir="$RUNNER_TEMP/steer-openwrt-ccache"
+          language_cache_dir="$RUNNER_TEMP/steer-openwrt-language-cache"
           output_dir="$RUNNER_TEMP/steer-build-output"
           source_dir="$RUNNER_TEMP/steer-source"
-          mkdir -p "$ccache_dir" "$output_dir" "$source_dir"
+          mkdir -p "$ccache_dir" "$language_cache_dir/dl" "$language_cache_dir/go-build" "$output_dir" "$source_dir"
           # A checkout gives tracked files the checkout time. LuCI copies
           # those mtimes into APK v3 metadata, so build the local feed from a
           # git archive whose mtimes are fixed to the source commit.
           git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_dir"
-          chmod -R a+rwx "$ccache_dir" "$output_dir"
+          chmod -R a+rwx "$ccache_dir" "$language_cache_dir" "$output_dir"
           docker run --rm \
             --env CCACHE_DIR=/work/openwrt/.ccache \
             --volume "$source_dir:/feed:ro" \
             --volume "$output_dir:/artifacts" \
             --volume "$ccache_dir:/work/openwrt/.ccache" \
+            --volume "$language_cache_dir/dl:/work/openwrt/dl" \
+            --volume "$language_cache_dir/go-build:/work/openwrt/tmp/go-build" \
             steer-openwrt-builder:25.12.5-x86_64
           # The builder runs as buildbot, while actions/cache archives as runner.
           docker run --rm \
             --user 0:0 \
             --entrypoint /bin/sh \
             --volume "$ccache_dir:/cache" \
+            --volume "$language_cache_dir:/language-cache" \
             steer-openwrt-builder:25.12.5-x86_64 \
-            -c 'chmod -R a+rX /cache'
+            -c 'chmod -R a+rX /cache /language-cache'
           cp -R "$output_dir/bin" "$GITHUB_WORKSPACE/bin"
           if [ -d "$output_dir/logs" ]; then
             cp -R "$output_dir/logs" "$GITHUB_WORKSPACE/logs"
@@ -126,6 +145,24 @@ jobs:
         with:
           path: ${{ runner.temp }}/steer-openwrt-ccache
           key: ${{ steps.openwrt-ccache.outputs.cache-primary-key }}
+
+      - name: Delete previously restored OpenWrt download and Go caches
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.openwrt-language-cache.outputs.cache-hit == 'true' }}
+        uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae
+        with:
+          route: DELETE /repos/{repository}/actions/caches?key={key}&ref={ref}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_REPOSITORY: ${{ github.repository }}
+          INPUT_KEY: ${{ steps.openwrt-language-cache.outputs.cache-primary-key }}
+          INPUT_REF: ${{ github.ref }}
+
+      - name: Save OpenWrt download and Go caches
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/steer-openwrt-language-cache
+          key: ${{ steps.openwrt-language-cache.outputs.cache-primary-key }}
 
       - name: Collect exact release assets
         env:

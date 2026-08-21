@@ -9,7 +9,8 @@
 external toolchain、预构建 host tools 和 package ccache，配置 `CONFIG_CCACHE=y`
 与一次性构建使用的 `CONFIG_AUTOREMOVE=y`，拒绝重新使用全包 SDK，
 按官方顺序安装预构建 tools 与 external toolchain wrapper，构建后显示并清理
-ccache 统计，再更新同 key 缓存。工作流不得恢复 target
+ccache 统计，再更新同 key 缓存。固定上游版本的下载目录与 Go build cache 也使用跨
+Steer 版本的稳定 key，并在默认分支构建后原位轮换；工作流不得恢复 target
 `build_dir`/`staging_dir`，不得 seed SDK 内部目录、刷新 stamp、写完成 marker，或
 重新引入强制 target-cache 命中的自定义状态协议；还必须将 ccache 挂载到 OpenWrt
 make 实际解析的源码树 `.ccache`，禁止沿用 SDK 的 `/builder/.ccache`。配置必须清除

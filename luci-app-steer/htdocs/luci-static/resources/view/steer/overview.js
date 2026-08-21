@@ -19,8 +19,12 @@ function renderPlan(result) {
 		[ _('DNS paths'), String((plan.dns_paths || []).length) ],
 		[ _('Geo rule sets'), String((plan.geo_rule_sets || []).length) ]
 	];
-	if (diff)
-		summary.push([ _('Candidate changes'), diff.changed ? _('%d added, %d modified, %d removed').format(diff.added.length, diff.modified.length, diff.removed.length) : _('No semantic changes') ]);
+	if (diff) {
+		const added = diff.added || [];
+		const modified = diff.modified || [];
+		const removed = diff.removed || [];
+		summary.push([ _('Candidate changes'), diff.changed ? _('%d added, %d modified, %d removed').format(added.length, modified.length, removed.length) : _('No semantic changes') ]);
+	}
 	return E('section', { 'class': 'cbi-section' }, [
 		E('h3', {}, _('Execution plan')),
 		E('dl', { 'class': 'steer-status__facts' }, summary.map((fact) => E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, fact[1]) ]))),
@@ -125,7 +129,7 @@ return view.extend({
 		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
 		o.rmempty = false;
 
-		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'), _('Use a stable lowercase ID beginning with a letter; allowed characters are letters, digits, underscores and hyphens.'));
+		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'), _('Use a stable lowercase ID beginning with a letter; allowed characters are letters, digits and underscores.'));
 		s.anonymous = false;
 		s.addremove = true;
 		s.nodescriptions = true;
@@ -134,7 +138,7 @@ return view.extend({
 			return uci.get('steer', sectionId, 'name') || uci.get('steer', sectionId, 'url') || _('Unnamed');
 		};
 		s.handleAdd = function(ev, sectionId) {
-			if (!/^[a-z][a-z0-9_-]{0,31}$/.test(sectionId)) {
+			if (!/^[a-z][a-z0-9_]{0,31}$/.test(sectionId)) {
 				ui.addNotification(_('Invalid subscription ID'), E('p', {}, _('Use 1–32 lowercase characters beginning with a letter.')), 'danger');
 				return;
 			}

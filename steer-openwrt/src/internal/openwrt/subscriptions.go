@@ -39,7 +39,7 @@ type SubscriptionStatus struct {
 	Error          string    `json:"error,omitempty"`
 }
 
-var uciIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
+var uciIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 func ReadSubscriptionStatus(configPath, stateDirectory string) ([]SubscriptionStatus, error) {
 	config, err := os.ReadFile(configPath)
@@ -144,6 +144,9 @@ func SystemUCIWriter(configPath string) UCIWriter {
 		output, err := command.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("uci batch: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		if detail := strings.TrimSpace(string(output)); detail != "" {
+			return fmt.Errorf("uci batch reported an error: %s", detail)
 		}
 		return nil
 	}
@@ -305,11 +308,9 @@ func appendNodeBatch(batch *strings.Builder, node model.Node) {
 		}
 	}
 	setBool := func(name string, value bool) {
-		valueString := "0"
 		if value {
-			valueString = "1"
+			fmt.Fprintf(batch, "set steer.%s.%s=1\n", node.ID, name)
 		}
-		fmt.Fprintf(batch, "set steer.%s.%s=%s\n", node.ID, name, valueString)
 	}
 	setInt := func(name string, value int) {
 		if value != 0 {
@@ -317,7 +318,9 @@ func appendNodeBatch(batch *strings.Builder, node model.Node) {
 		}
 	}
 	setString("name", node.Name)
-	setBool("enabled", node.Enabled)
+	if !node.Enabled {
+		fmt.Fprintf(batch, "set steer.%s.enabled=0\n", node.ID)
+	}
 	setString("type", node.Type)
 	setString("server", node.Server)
 	setInt("server_port", node.ServerPort)
@@ -393,14 +396,19 @@ func mergeSubscriptionNodes(subscriptionID string, old, fresh []model.Node) []mo
 	merged := make([]model.Node, 0, len(old)+len(fresh))
 	for _, node := range fresh {
 		fingerprint := subscription.Fingerprint(node)
+		if seen[fingerprint] {
+			continue
+		}
 		previous, exists := oldByFingerprint[fingerprint]
+		enabled := true
 		if exists {
 			node.ID = previous.ID
+			enabled = previous.Enabled
 		}
 		if node.ID == "" {
 			node.ID = stableSubscriptionNodeID(subscriptionID, fingerprint)
 		}
-		node.Enabled, node.SourceSubscription, node.SourceFingerprint, node.PinnedStale = true, subscriptionID, fingerprint, false
+		node.Enabled, node.SourceSubscription, node.SourceFingerprint, node.PinnedStale = enabled, subscriptionID, fingerprint, false
 		merged = append(merged, node)
 		seen[fingerprint] = true
 	}
@@ -409,7 +417,7 @@ func mergeSubscriptionNodes(subscriptionID string, old, fresh []model.Node) []mo
 		if seen[fingerprint] {
 			continue
 		}
-		node.Enabled, node.SourceSubscription, node.SourceFingerprint, node.PinnedStale = true, subscriptionID, fingerprint, true
+		node.SourceSubscription, node.SourceFingerprint, node.PinnedStale = subscriptionID, fingerprint, true
 		merged = append(merged, node)
 	}
 	sort.SliceStable(merged, func(left, right int) bool { return merged[left].ID < merged[right].ID })
@@ -417,9 +425,9 @@ func mergeSubscriptionNodes(subscriptionID string, old, fresh []model.Node) []mo
 }
 
 func stableSubscriptionNodeID(subscriptionID, fingerprint string) string {
-	prefix := strings.Trim(subscriptionID, "-")
+	prefix := subscriptionID
 	if len(prefix) > 19 {
 		prefix = prefix[:19]
 	}
-	return prefix + "-" + fingerprint[:12]
+	return prefix + "_" + fingerprint[:12]
 }

@@ -34,15 +34,53 @@ func TestFetchAndLoadSubscriptionSnapshot(t *testing.T) {
 }
 
 func TestSubscriptionDisappearanceIsPinnedStale(t *testing.T) {
-	old := model.Node{ID: "public-old", Enabled: true, Type: "vless", Server: "old.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}}
+	old := model.Node{ID: "public_old", Enabled: false, Type: "vless", Server: "old.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}}
 	fresh := model.Node{Type: "vless", Server: "new.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000002"}}
 	merged := mergeSubscriptionNodes("public", []model.Node{old}, []model.Node{fresh})
 	stale := false
 	for _, node := range merged {
-		stale = stale || node.PinnedStale
+		if node.PinnedStale {
+			stale = true
+			if node.Enabled {
+				t.Fatalf("disabled stale node was re-enabled: %#v", merged)
+			}
+		}
 	}
 	if len(merged) != 2 || !stale {
 		t.Fatalf("disappeared node was not pinned stale: %#v", merged)
+	}
+}
+
+func TestSubscriptionRefreshPreservesDisabledNode(t *testing.T) {
+	old := model.Node{ID: "public_node", Enabled: false, Type: "trojan", Server: "same.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}}
+	fresh := old
+	fresh.ID = ""
+	fresh.Enabled = true
+	merged := mergeSubscriptionNodes("public", []model.Node{old}, []model.Node{fresh})
+	if len(merged) != 1 || merged[0].ID != old.ID || merged[0].Enabled {
+		t.Fatalf("subscription refresh did not preserve the local enabled state: %#v", merged)
+	}
+	var batch strings.Builder
+	appendNodeBatch(&batch, merged[0])
+	if !strings.Contains(batch.String(), "set steer.public_node.enabled=0\n") {
+		t.Fatalf("disabled subscription node was not persisted: %s", batch.String())
+	}
+}
+
+func TestSubscriptionDuplicateFingerprintsAreCollapsed(t *testing.T) {
+	first := model.Node{Name: "First", Type: "trojan", Server: "same.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}}
+	second := first
+	second.Name = "Duplicate label"
+	merged := mergeSubscriptionNodes("public", nil, []model.Node{first, second})
+	if len(merged) != 1 || merged[0].Name != "First" {
+		t.Fatalf("duplicate subscription identities were not collapsed deterministically: %#v", merged)
+	}
+}
+
+func TestSubscriptionNodeIDIsAddressableByUCI(t *testing.T) {
+	id := stableSubscriptionNodeID("public", "0123456789abcdef")
+	if id != "public_0123456789ab" || !uciIdentifier.MatchString(id) || strings.Contains(id, "-") {
+		t.Fatalf("subscription node ID is not a strict UCI identifier: %q", id)
 	}
 }
 
@@ -76,5 +114,8 @@ config subscription 'public'
 	}
 	if len(result) != 1 || !strings.Contains(batch, "commit steer\n") || strings.Contains(batch, "apply") || !strings.Contains(batch, "source_subscription") {
 		t.Fatalf("unexpected subscription batch: result=%#v batch=%s", result, batch)
+	}
+	if strings.Contains(batch, ".enabled=1\n") || strings.Contains(batch, ".pinned_stale=0\n") {
+		t.Fatalf("subscription batch persisted default boolean values: %s", batch)
 	}
 }

@@ -402,9 +402,6 @@ msgstr "已提供；预览中隐藏"
 msgid "Protocol"
 msgstr "协议"
 
-msgid "Proxy nodes"
-msgstr "代理节点"
-
 msgid "REALITY parameters"
 msgstr "REALITY 参数"
 
@@ -684,6 +681,24 @@ msgstr "节点数"
 msgid "Not fetched"
 msgstr "尚未获取"
 
+msgid "Group: %s"
+msgstr "分组：%s"
+
+msgid "Manual nodes"
+msgstr "手动添加"
+
+msgid "Missing references"
+msgstr "缺失引用"
+
+msgid "Missing subscription: %s"
+msgstr "订阅已缺失：%s"
+
+msgid "Node groups"
+msgstr "节点分组"
+
+msgid "Proxy nodes — %s (%d)"
+msgstr "代理节点 — %s（%d）"
+
 msgid "Downloading and validating every node."
 msgstr "正在下载并验证全部节点。"
 
@@ -705,8 +720,8 @@ msgstr "正在更新订阅"
 msgid "Use 1–32 lowercase characters beginning with a letter."
 msgstr "请输入 1–32 个字符，以小写字母开头。"
 
-msgid "Use a stable lowercase ID beginning with a letter; allowed characters are letters, digits, underscores and hyphens."
-msgstr "请使用以小写字母开头的稳定 ID；只能包含字母、数字、下划线和连字符。"
+msgid "Use a stable lowercase ID beginning with a letter; allowed characters are letters, digits and underscores."
+msgstr "请使用以小写字母开头的稳定 ID；只能包含字母、数字和下划线。"
 
 msgid "Remove %s"
 msgstr "移除 %s"
