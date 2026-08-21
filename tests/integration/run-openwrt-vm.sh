@@ -177,8 +177,8 @@ done
 # explicit CLI/RPC rollback.
 /usr/sbin/steer status > "$TEST_DIR/pre-probe-status.json"
 digest_before="$(jsonfilter -q -i "$TEST_DIR/pre-probe-status.json" -e '@.intent_digest')"
-uci -q delete steer.main.probe_url
-uci add_list steer.main.probe_url='https://127.0.0.1:1/'
+uci -q delete steer.main.probe_direct
+uci add_list steer.main.probe_direct='https://127.0.0.1:1/'
 uci commit steer
 /usr/sbin/steer apply > "$TEST_DIR/probe-independent-apply.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/probe-independent-apply.json" -e '@.ok')" = 'true' ]
@@ -200,7 +200,7 @@ if [ "$(jsonfilter -q -i "$TEST_DIR/manual-rollback.json" -e '@.ok')" != 'true' 
 	logread | tail -n 40 >&2
 	exit 1
 fi
-uci show steer.main.probe_url | grep -q 'https://openwrt.org/'
+uci show steer.main.probe_direct | grep -q 'https://openwrt.org/'
 /usr/sbin/steer status > "$TEST_DIR/rolled-back-status.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/rolled-back-status.json" -e '@.intent_digest')" = "$digest_before" ]
 [ "$(jsonfilter -q -i "$TEST_DIR/rolled-back-status.json" -e '@.healthy')" = 'true' ]

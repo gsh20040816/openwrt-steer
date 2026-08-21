@@ -273,11 +273,12 @@ func checkHealthOnce(ctx context.Context, runner Runner, plan compiler.Plan, lis
 }
 
 type ProbeReport struct {
+	Kind    string        `json:"kind"`
 	OK      bool          `json:"ok"`
 	Results []ProbeResult `json:"results"`
 }
 
-func ProbeCurrent(ctx context.Context, runDirectory string, client *http.Client) (ProbeReport, error) {
+func ProbeCurrent(ctx context.Context, runDirectory, kind string, client *http.Client) (ProbeReport, error) {
 	if runDirectory == "" {
 		runDirectory = "/run/steer"
 	}
@@ -285,14 +286,25 @@ func ProbeCurrent(ctx context.Context, runDirectory string, client *http.Client)
 	if err != nil {
 		return ProbeReport{}, err
 	}
-	if len(plan.Probes) == 0 {
-		return ProbeReport{}, fmt.Errorf("current execution plan has no HTTPS probes")
+	var urls []string
+	switch kind {
+	case "direct":
+		urls = plan.ProbeDirect
+	case "proxy":
+		urls = plan.ProbeProxy
+	case "speedtest":
+		urls = plan.SpeedtestProxy
+	default:
+		return ProbeReport{}, fmt.Errorf("unsupported probe kind %q", kind)
+	}
+	if len(urls) == 0 {
+		return ProbeReport{Kind: kind, OK: false}, fmt.Errorf("current execution plan has no %s HTTPS probes", kind)
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
 	}
-	results := runProbes(ctx, client, plan.Probes)
-	report := ProbeReport{OK: true, Results: results}
+	results := runProbes(ctx, client, urls)
+	report := ProbeReport{Kind: kind, OK: true, Results: results}
 	for _, result := range results {
 		if !result.OK {
 			report.OK = false

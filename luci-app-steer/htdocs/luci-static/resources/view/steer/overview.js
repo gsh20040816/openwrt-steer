@@ -63,10 +63,20 @@ return view.extend({
 		o.default = '0';
 		o.description = _('Reserved for sing-box 1.14; enabling it on M1 is rejected.');
 
-		o = s.taboption('probes', form.DynamicList, 'probe_url', _('HTTPS probe URLs'));
+		o = s.taboption('probes', form.DynamicList, 'probe_direct', _('Direct connectivity probe URLs'));
 		o.datatype = 'url';
 		o.placeholder = 'https://www.example.com/';
-		o.description = _('The explicit “steer probe” diagnostic reports valid TLS 2xx or 3xx responses. Probes never gate Apply.');
+		o.description = _('Used by “steer probe --kind direct” to test the router network without a proxy.');
+
+		o = s.taboption('probes', form.DynamicList, 'probe_proxy', _('Proxy connectivity probe URLs'));
+		o.datatype = 'url';
+		o.placeholder = 'https://www.example.com/';
+		o.description = _('Used by “steer probe --kind proxy” through the currently active proxy route.');
+
+		o = s.taboption('probes', form.DynamicList, 'speedtest_proxy', _('Proxy speed-test URLs'));
+		o.datatype = 'url';
+		o.placeholder = 'https://speed.cloudflare.com/__down?bytes=1000000';
+		o.description = _('Used by temporary node speed tests; these probes never change the active route.');
 
 		s = m.section(form.NamedSection, 'bootstrap', 'bootstrap', _('Bootstrap DNS'));
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));

@@ -194,13 +194,14 @@ func acquireApplyLock(runDirectory string) (*os.File, error) {
 func runProbe(args []string) error {
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
+	kind := flags.String("kind", "direct", "probe kind: direct, proxy or speedtest")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("probe accepts flags only")
 	}
-	report, err := openwrt.ProbeCurrent(context.Background(), *runDirectory, nil)
+	report, err := openwrt.ProbeCurrent(context.Background(), *runDirectory, *kind, nil)
 	if err != nil {
 		return err
 	}

@@ -13,6 +13,9 @@ config steer 'main'
 	option schema_version '5'
 	option enabled '1'
 	option log_level 'warn'
+	list probe_direct 'https://www.baidu.com/'
+	list probe_direct 'https://www.google.com/generate_204'
+	list probe_direct 'https://github.com/'
 
 config bootstrap 'bootstrap'
 	option protocol 'udp'
@@ -40,7 +43,7 @@ func TestDecodeCanonicalIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if intent.Main.SchemaVersion != 5 || !intent.Main.Enabled || len(intent.Main.ProbeURLs) != 3 {
+	if intent.Main.SchemaVersion != 5 || !intent.Main.Enabled || len(intent.Main.ProbeDirectURLs) != 3 {
 		t.Fatalf("unexpected main: %#v", intent.Main)
 	}
 	if validation := model.Validate(intent); !validation.OK {

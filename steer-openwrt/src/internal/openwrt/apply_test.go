@@ -57,7 +57,7 @@ func TestApplyCommitsHealthyCandidateWithoutRunningConfiguredProbes(t *testing.T
 		response.WriteHeader(http.StatusBadGateway)
 	}))
 	defer server.Close()
-	config := strings.Replace(minimalConfig, "option log_level 'warn'", "option log_level 'warn'\n\tlist probe_url '"+server.URL+"'", 1)
+	config := strings.Replace(minimalConfig, "option log_level 'warn'", "option log_level 'warn'\n\tlist probe_direct '"+server.URL+"'", 1)
 	configPath, runDirectory := writeApplyFixture(t, root, config, nil)
 	runner := &applyRunner{}
 	result, err := Apply(context.Background(), runner, ApplyOptions{
@@ -169,16 +169,20 @@ func TestProbeCurrentReportsFailuresWithoutApplying(t *testing.T) {
 	if err := os.MkdirAll(current, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	plan := fmt.Sprintf(`{"probes":[%q]}`, server.URL)
+	plan := fmt.Sprintf(`{"probe_direct":[%q],"probe_proxy":[%q]}`, server.URL, server.URL)
 	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(plan), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	report, err := ProbeCurrent(context.Background(), runDirectory, server.Client())
+	report, err := ProbeCurrent(context.Background(), runDirectory, "direct", server.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.OK || len(report.Results) != 1 || report.Results[0].Attempts != 2 {
 		t.Fatalf("unexpected probe report: %#v", report)
+	}
+	proxyReport, err := ProbeCurrent(context.Background(), runDirectory, "proxy", server.Client())
+	if err != nil || proxyReport.Kind != "proxy" || len(proxyReport.Results) != 1 {
+		t.Fatalf("selected proxy probe was not used: report=%#v err=%v", proxyReport, err)
 	}
 }
 
@@ -188,10 +192,10 @@ func TestProbeCurrentRejectsEmptyDiagnosticPlan(t *testing.T) {
 	if err := os.MkdirAll(current, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(`{"probes":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(`{"probe_direct":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ProbeCurrent(context.Background(), runDirectory, nil); err == nil {
+	if _, err := ProbeCurrent(context.Background(), runDirectory, "direct", nil); err == nil {
 		t.Fatal("empty manual diagnostic was reported successful")
 	}
 }

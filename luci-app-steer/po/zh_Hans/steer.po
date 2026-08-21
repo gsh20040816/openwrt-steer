@@ -219,8 +219,23 @@ msgstr "Geo 规则集"
 msgid "HTTP path"
 msgstr "HTTP 路径"
 
-msgid "HTTPS probe URLs"
-msgstr "HTTPS 探测地址"
+msgid "Direct connectivity probe URLs"
+msgstr "直连连通性探测地址"
+
+msgid "Proxy connectivity probe URLs"
+msgstr "代理连通性探测地址"
+
+msgid "Proxy speed-test URLs"
+msgstr "代理测速地址"
+
+msgid "Used by “steer probe --kind direct” to test the router network without a proxy."
+msgstr "供“steer probe --kind direct”使用，用于不经过代理测试路由器网络。"
+
+msgid "Used by “steer probe --kind proxy” through the currently active proxy route."
+msgstr "供“steer probe --kind proxy”使用，通过当前活动的代理出口测试。"
+
+msgid "Used by temporary node speed tests; these probes never change the active route."
+msgstr "供临时节点测速使用；这些探测不会改变当前活动出口。"
 
 msgid "Ignored compatibility-only parameter: %s"
 msgstr "已忽略仅用于兼容的参数：%s"
@@ -611,9 +626,6 @@ msgstr "正在恢复并应用上一份配置。"
 
 msgid "Steer restore failed"
 msgstr "Steer 恢复失败"
-
-msgid "The explicit “steer probe” diagnostic reports valid TLS 2xx or 3xx responses. Probes never gate Apply."
-msgstr "显式运行“steer probe”可诊断有效 TLS 的 2xx 或 3xx 响应；探测结果不会阻止应用。"
 
 msgid "This restores the single saved configuration and applies it immediately. The backup is deleted after a successful restore."
 msgstr "这会恢复唯一保存的上一份配置并立即应用；恢复成功后将删除该备份。"

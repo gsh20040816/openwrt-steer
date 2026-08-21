@@ -20,7 +20,9 @@ type Main struct {
 	SchemaVersion      int      `json:"schema_version"`
 	Enabled            bool     `json:"enabled"`
 	LogLevel           string   `json:"log_level"`
-	ProbeURLs          []string `json:"probe_urls"`
+	ProbeDirectURLs    []string `json:"probe_direct_urls"`
+	ProbeProxyURLs     []string `json:"probe_proxy_urls"`
+	SpeedtestProxyURLs []string `json:"speedtest_proxy_urls"`
 	DNSCacheCapacity   int      `json:"dns_cache_capacity,omitempty"`
 	DNSCachePersist    bool     `json:"dns_cache_persist,omitempty"`
 	DNSOptimisticCache bool     `json:"dns_optimistic_cache,omitempty"`

@@ -44,12 +44,9 @@ func Validate(intent Intent) Validation {
 	if intent.Main.DNSOptimisticCache {
 		err("REQUIRES_SING_BOX_1_14", "steer", intent.Main.ID, "dns_optimistic_cache", "optimistic DNS cache is unavailable on the supported sing-box 1.13 baseline")
 	}
-	for _, raw := range intent.Main.ProbeURLs {
-		parsed, parseErr := url.Parse(raw)
-		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
-			err("INVALID_PROBE_URL", "steer", intent.Main.ID, "probe_url", "probe must be an HTTPS URL without credentials or fragment: "+raw)
-		}
-	}
+	validateProbeURLs(intent.Main.ProbeDirectURLs, intent.Main.ID, "probe_direct", err)
+	validateProbeURLs(intent.Main.ProbeProxyURLs, intent.Main.ID, "probe_proxy", err)
+	validateProbeURLs(intent.Main.SpeedtestProxyURLs, intent.Main.ID, "speedtest_proxy", err)
 	validateBootstrap(intent.Bootstrap, err)
 
 	globalIDs := map[string]string{}
@@ -160,6 +157,15 @@ func Validate(intent Intent) Validation {
 	}
 	validation.OK = len(validation.Errors) == 0
 	return validation
+}
+
+func validateProbeURLs(values []string, objectID, option string, err issueFn) {
+	for _, raw := range values {
+		parsed, parseErr := url.Parse(raw)
+		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+			err("INVALID_PROBE_URL", "steer", objectID, option, "probe must be an HTTPS URL without credentials or fragment: "+raw)
+		}
+	}
 }
 
 type issueFn func(string, string, string, string, string)

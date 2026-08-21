@@ -14,7 +14,7 @@ import (
 )
 
 var optionNames = map[string]map[string]bool{
-	"steer":       set("schema_version", "enabled", "log_level", "probe_url", "dns_cache_capacity", "dns_cache_persist", "dns_optimistic_cache"),
+	"steer":       set("schema_version", "enabled", "log_level", "probe_direct", "probe_proxy", "speedtest_proxy", "dns_cache_capacity", "dns_cache_persist", "dns_optimistic_cache"),
 	"bootstrap":   set("protocol", "server", "server_port", "strategy"),
 	"node":        set("enabled", "name", "type", "server", "server_port", "uuid", "flow", "packet_encoding", "password", "server_ports", "hop_interval", "obfs_type", "obfs_password", "up_mbps", "down_mbps", "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint"),
 	"route":       set("enabled", "name", "kind", "node"),
@@ -24,7 +24,7 @@ var optionNames = map[string]map[string]bool{
 }
 
 var listNames = map[string]map[string]bool{
-	"steer": set("probe_url"),
+	"steer": set("probe_direct", "probe_proxy", "speedtest_proxy"),
 	"node":  set("server_ports"),
 	"rule":  set("inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
 }
@@ -128,13 +128,13 @@ func decodeMain(s uci.Section) (model.Main, error) {
 	if err != nil {
 		return model.Main{}, err
 	}
-	probes := clone(s.Lists["probe_url"])
-	if len(probes) == 0 {
-		probes = []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}
-	}
+	probeDirect := clone(s.Lists["probe_direct"])
+	probeProxy := clone(s.Lists["probe_proxy"])
+	speedtestProxy := clone(s.Lists["speedtest_proxy"])
 	return model.Main{ID: s.ID, SchemaVersion: schema, Enabled: enabled,
 		LogLevel: value(s, "log_level", "warn"),
-		ProbeURLs: probes, DNSCacheCapacity: capacity, DNSCachePersist: persist,
+		ProbeDirectURLs: probeDirect, ProbeProxyURLs: probeProxy, SpeedtestProxyURLs: speedtestProxy,
+		DNSCacheCapacity: capacity, DNSCachePersist: persist,
 		DNSOptimisticCache: optimistic}, nil
 }
 

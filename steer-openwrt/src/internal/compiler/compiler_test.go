@@ -12,7 +12,7 @@ import (
 
 func representativeIntent() model.Intent {
 	return model.Intent{
-		Main:         model.Main{ID: "main", SchemaVersion: 5, Enabled: true, LogLevel: "warn", ProbeURLs: []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}, DNSCacheCapacity: 4096},
+		Main:         model.Main{ID: "main", SchemaVersion: 5, Enabled: true, LogLevel: "warn", ProbeDirectURLs: []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}, ProbeProxyURLs: []string{"https://www.google.com/generate_204"}, SpeedtestProxyURLs: []string{"https://speed.cloudflare.com/__down?bytes=1000000"}, DNSCacheCapacity: 4096},
 		Bootstrap:    model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, UUID: "00000000-0000-4000-8000-000000000001", Flow: "xtls-rprx-vision", PacketEncoding: "xudp", TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}},
 		Routes:       []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy", Enabled: true, Kind: "single", Node: "node"}, {ID: "block", Enabled: true, Kind: "block"}},

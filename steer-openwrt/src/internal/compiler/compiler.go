@@ -64,7 +64,9 @@ type Plan struct {
 	DNSPaths             []DNSPath    `json:"dns_paths"`
 	GeoRuleSets          []GeoRuleSet `json:"geo_rule_sets"`
 	Objects              []PlanObject `json:"objects"`
-	Probes               []string     `json:"probes"`
+	ProbeDirect          []string     `json:"probe_direct"`
+	ProbeProxy           []string     `json:"probe_proxy"`
+	SpeedtestProxy       []string     `json:"speedtest_proxy"`
 }
 
 type PlanObject struct {
@@ -151,7 +153,9 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 		DNSPaths:    dnsPaths,
 		GeoRuleSets: geoSets,
 		Objects:     planObjects(intent),
-		Probes:      append([]string(nil), intent.Main.ProbeURLs...),
+		ProbeDirect:    append([]string(nil), intent.Main.ProbeDirectURLs...),
+		ProbeProxy:     append([]string(nil), intent.Main.ProbeProxyURLs...),
+		SpeedtestProxy: append([]string(nil), intent.Main.SpeedtestProxyURLs...),
 	}
 	return Bundle{IntentDigest: digest, Validation: validation, Plan: plan, SingBox: compileSingBox(intent, plan)}
 }
@@ -159,7 +163,7 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 func Diff(current, candidate Plan) PlanDiff {
 	result := PlanDiff{
 		ResourcesChanged: !equalJSON(current.Resources, candidate.Resources),
-		ProbesChanged:    !equalJSON(current.Probes, candidate.Probes),
+		ProbesChanged:    !equalJSON([][]string{current.ProbeDirect, current.ProbeProxy, current.SpeedtestProxy}, [][]string{candidate.ProbeDirect, candidate.ProbeProxy, candidate.SpeedtestProxy}),
 	}
 	oldObjects, newObjects := map[string]PlanObject{}, map[string]PlanObject{}
 	for _, object := range current.Objects {
