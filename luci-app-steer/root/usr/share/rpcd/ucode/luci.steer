@@ -63,25 +63,32 @@ const methods = {
 		}
 	},
 	subscription_update: {
+		args: { id: '' },
 		call: function(request) {
-			if (!request?.id)
+			const id = request?.args?.id;
+			if (!id)
 				return { ok: false, error: '缺少订阅 ID' };
-			return command_json([ '/usr/sbin/steer', 'subscription', 'update', '--id', request.id ]);
+			return command_json([ '/usr/sbin/steer', 'subscription', 'update', '--id', id ]);
 		}
 	},
 	subscription_clean: {
+		args: { id: '', node: '' },
 		call: function(request) {
-			if (!request?.id || !request?.node)
+			const id = request?.args?.id;
+			const node = request?.args?.node;
+			if (!id || !node)
 				return { ok: false, error: '缺少订阅 ID 或节点 ID' };
-			return command_json([ '/usr/sbin/steer', 'subscription', 'clean', '--id', request.id, '--node', request.node ]);
+			return command_json([ '/usr/sbin/steer', 'subscription', 'clean', '--id', id, '--node', node ]);
 		}
 	},
 	node_speedtest: {
+		args: { node: '', download: false },
 		call: function(request) {
-			if (!request?.node)
+			const node = request?.args?.node;
+			if (!node)
 				return { ok: false, error: '缺少节点 ID' };
-			const command = [ '/usr/sbin/steer', 'probe', '--kind', 'speedtest', '--node', request.node ];
-			if (request.download)
+			const command = [ '/usr/sbin/steer', 'probe', '--kind', 'speedtest', '--node', node ];
+			if (request.args.download)
 				command.push('--download');
 			return command_json(command);
 		}

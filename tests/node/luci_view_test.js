@@ -139,6 +139,7 @@ function createEnvironment(sections) {
 		}
 	};
 	const view = { extend: (value) => value };
+	const speedtestCalls = [];
 	const steer = {
 		loadStyle: () => {},
 		status: () => Promise.resolve({}),
@@ -147,6 +148,15 @@ function createEnvironment(sections) {
 		subscriptions: () => Promise.resolve({ subscriptions: [] }),
 		renderStatus: () => element('div'),
 		updateSubscription: () => Promise.resolve({ ok: true }),
+		speedtest: (node, download) => {
+			speedtestCalls.push({ node, download });
+			return Promise.resolve({ results: [ {
+				url: 'https://speed.example/',
+				first_byte_milliseconds: 42,
+				downloaded_bytes: 1000000,
+				download_milliseconds: 1000
+			} ] });
+		},
 		apply: () => Promise.resolve()
 	};
 	const ui = {};
@@ -154,7 +164,7 @@ function createEnvironment(sections) {
 	const window = { location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '' } };
 	const translate = (value) => String(value);
 
-	return { form, uci, view, steer, ui, shareUrl, window, maps, translate };
+	return { form, uci, view, steer, ui, shareUrl, window, maps, translate, speedtestCalls };
 }
 
 function loadView(file, dependencies) {
@@ -445,6 +455,13 @@ async function main() {
 		assert.equal(option && option.editable, true,
 			`Subscription node exposes the ${name} action`);
 	});
+	const speedtestButton = { disabled: false, textContent: '', title: '', classList: { toggle: () => {} } };
+	const connectSpeedtest = subscriptionNodes.options.find((candidate) => candidate.name == '_connect_speedtest');
+	await connectSpeedtest.onclick({ currentTarget: speedtestButton }, 'jdub_0123456789ab');
+	assert.deepEqual(environment.speedtestCalls, [ { node: 'jdub_0123456789ab', download: false } ],
+		'Row speed test passes the section ID instead of the click event to RPC');
+	assert.equal(speedtestButton.textContent, '42 ms',
+		'Connection result replaces the row test button label');
 	environment = await renderOverview({ subscription: [] });
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
@@ -470,8 +487,11 @@ async function main() {
 	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
 		nodesSource.includes("_('Update now')") &&
 		nodesSource.includes("_('Connection test')") &&
-		nodesSource.includes("_('Download test')"),
-		'Nodes page exposes subscription actions and both speed-test actions');
+		nodesSource.includes("_('Download test')") &&
+		nodesSource.includes("_('Batch connection test')") &&
+		nodesSource.includes("_('Batch download test')") &&
+		!nodesSource.includes('ui.showModal(testTitle'),
+		'Nodes page exposes inline row and batch speed-test actions');
 	const steerSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/steer.js'), 'utf8');
 	assert.ok(steerSource.includes("params: [ 'node', 'download' ]") &&
@@ -479,8 +499,14 @@ async function main() {
 		'Speed-test RPC accepts an explicit download mode');
 	const rpcSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/root/usr/share/rpcd/ucode/luci.steer'), 'utf8');
-	assert.ok(rpcSource.includes("command.push('--download')"),
-		'RPC backend adds download mode only for download tests');
+	assert.ok(rpcSource.includes("args: { node: '', download: false }") &&
+		rpcSource.includes('request?.args?.node') &&
+		rpcSource.includes('request.args.download') &&
+		rpcSource.includes("command.push('--download')"),
+		'RPC backend declares and reads the speed-test arguments');
+	assert.ok(rpcSource.includes("args: { id: '' }") &&
+		rpcSource.includes("args: { id: '', node: '' }"),
+		'Subscription RPC methods declare their input arguments');
 
 	console.log('LuCI view regression tests passed.');
 }

@@ -229,27 +229,103 @@ function renderImportButton() {
 	]);
 }
 
-function runSpeedtest(sectionId, download) {
-	const testTitle = download ? _('Download test') : _('Connection test');
-	ui.showModal(testTitle, [ E('p', { 'class': 'spinning' }, _('Starting a temporary sing-box instance.')) ]);
+function setSpeedtestButton(button, state, label, detail) {
+	if (!button)
+		return;
+	button.disabled = state == 'testing';
+	button.classList.toggle('spinning', state == 'testing');
+	button.classList.toggle('cbi-button-positive', state == 'success');
+	button.classList.toggle('cbi-button-negative', state == 'error');
+	button.textContent = label;
+	button.title = detail || '';
+}
+
+function speedtestResult(report, download) {
+	const results = report?.results || [];
+	const successful = results.filter((result) => !result.error);
+	if (!successful.length)
+		return { ok: false, label: _('Failed'), detail: report?.error || results.map((result) => result.error).filter(Boolean).join('\n') || _('No speed-test result was returned.') };
+
+	if (download) {
+		const measured = successful.filter((result) => result.downloaded_bytes > 0 && result.download_milliseconds > 0)
+			.map((result) => ({ result, mbps: result.downloaded_bytes * 8 / result.download_milliseconds / 1000 }))
+			.sort((left, right) => right.mbps - left.mbps);
+		if (!measured.length)
+			return { ok: false, label: _('Failed'), detail: _('No download measurement was returned.') };
+		return {
+			ok: true,
+			label: _('%s Mbps').format(measured[0].mbps.toFixed(1)),
+			detail: measured.map((item) => '%s: %s Mbps'.format(item.result.url, item.mbps.toFixed(1))).join('\n')
+		};
+	}
+
+	const measured = successful.map((result) => ({
+		result,
+		milliseconds: result.first_byte_milliseconds || result.tls_milliseconds || result.connect_milliseconds
+	})).filter((item) => item.milliseconds > 0).sort((left, right) => left.milliseconds - right.milliseconds);
+	if (!measured.length)
+		return { ok: false, label: _('Failed'), detail: _('No connection latency was returned.') };
+	return {
+		ok: true,
+		label: _('%d ms').format(measured[0].milliseconds),
+		detail: measured.map((item) => '%s: %d ms'.format(item.result.url, item.milliseconds)).join('\n')
+	};
+}
+
+function runSpeedtest(sectionId, download, button) {
+	setSpeedtestButton(button, 'testing', _('Testing…'));
 	return steer.speedtest(sectionId, download).then((report) => {
-		const results = report?.results || [];
-		ui.showModal(testTitle, [
-			results.length ? E('div', { 'class': 'table' }, [
-				E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('URL')), E('div', { 'class': 'th' }, _('Connect')), E('div', { 'class': 'th' }, _('TLS')), E('div', { 'class': 'th' }, _('First byte')), E('div', { 'class': 'th' }, _('Download')) ]),
-				...results.map((result) => E('div', { 'class': 'tr' }, [
-					E('div', { 'class': 'td' }, result.url),
-					E('div', { 'class': 'td' }, result.error || _('%d ms').format(result.connect_milliseconds || 0)),
-					E('div', { 'class': 'td' }, result.error ? '-' : _('%d ms').format(result.tls_milliseconds || 0)),
-					E('div', { 'class': 'td' }, result.error ? '-' : _('%d ms').format(result.first_byte_milliseconds || 0)),
-					E('div', { 'class': 'td' }, result.error ? '-' : _('%d bytes / %d ms').format(result.downloaded_bytes || 0, result.download_milliseconds || 0))
-				]))
-			]) : E('div', { 'class': 'alert-message danger' }, report?.error || _('No speed-test result was returned.')),
-			E('div', { 'class': 'right' }, E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Close')))
-		]);
+		const result = speedtestResult(report, download);
+		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.label, result.detail);
+		return result.ok;
 	}).catch((error) => {
-		ui.showModal(_('Node speed test failed'), [ E('p', {}, String(error)), E('div', { 'class': 'right' }, E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Close'))) ]);
+		setSpeedtestButton(button, 'error', _('Failed'), String(error));
+		return false;
 	});
+}
+
+function findSpeedtestButton(sectionId, download) {
+	const option = download ? '_download_speedtest' : '_connect_speedtest';
+	const id = 'cbid.steer.%s.%s'.format(sectionId, option);
+	return document.querySelector('output[for="%s"] button'.format(id));
+}
+
+function runBatchSpeedtest(sectionIds, download, button) {
+	const title = download ? _('Batch download test') : _('Batch connection test');
+	const buttons = Array.from(document.querySelectorAll('.steer-speedtest-batch button'));
+	let cursor = 0;
+	let completed = 0;
+	let succeeded = 0;
+	buttons.forEach((candidate) => { candidate.disabled = true; });
+	button.textContent = '%s · 0/%d'.format(title, sectionIds.length);
+
+	const worker = async function() {
+		while (cursor < sectionIds.length) {
+			const sectionId = sectionIds[cursor++];
+			if (await runSpeedtest(sectionId, download, findSpeedtestButton(sectionId, download)))
+				succeeded++;
+			completed++;
+			button.textContent = '%s · %d/%d'.format(title, completed, sectionIds.length);
+		}
+	};
+
+	const workers = [];
+	for (let i = 0; i < Math.min(4, sectionIds.length); i++)
+		workers.push(worker());
+	return Promise.all(workers).then(() => {
+		button.textContent = '%s · %d/%d'.format(title, succeeded, sectionIds.length);
+		button.title = _('%d/%d succeeded; click to test again.').format(succeeded, sectionIds.length);
+		buttons.forEach((candidate) => { candidate.disabled = false; });
+	});
+}
+
+function renderBatchSpeedtests(sectionIds) {
+	if (!sectionIds.length)
+		return null;
+	return E('div', { 'class': 'steer-speedtest-batch' }, [
+		E('button', { 'class': 'btn cbi-button-action', 'click': function(ev) { return runBatchSpeedtest(sectionIds, false, ev.currentTarget); } }, _('Batch connection test')),
+		E('button', { 'class': 'btn cbi-button-action', 'click': function(ev) { return runBatchSpeedtest(sectionIds, true, ev.currentTarget); } }, _('Batch download test'))
+	]);
 }
 
 function showImportDialog() {
@@ -345,6 +421,8 @@ return view.extend({
 		const activeNodeGroup = selectedNodeGroup(nodeGroups);
 		const activeGroup = nodeGroups.find((group) => group.id == activeNodeGroup);
 		const nodeReferences = collectNodeReferences(nodes, routes, nodeGroups);
+		const enabledNodeIds = nodes.filter((node) => nodeGroupID(node) == activeNodeGroup && node.enabled != '0')
+			.map((node) => node['.name']);
 		const summaryOnly = activeNodeGroup != manualNodeGroup;
 		steer.loadStyle();
 
@@ -413,14 +491,14 @@ return view.extend({
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
-		o.onclick = function(sectionId) { return runSpeedtest(sectionId, false); };
+		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, false, ev.currentTarget); };
 
 		o = s.taboption('general', form.Button, '_download_speedtest', _('Download test'));
 		o.default = '1';
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
-		o.onclick = function(sectionId) { return runSpeedtest(sectionId, true); };
+		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget); };
 
 		o = s.taboption('general', form.Value, 'name', _('Name'));
 		o.rmempty = false;
@@ -666,6 +744,9 @@ return view.extend({
 
 		return m.render().then((formNode) => {
 			const contents = [ renderSubscriptionStatus(data?.[1]), renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
+			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds);
+			if (batchSpeedtests)
+				contents.push(batchSpeedtests);
 			if (activeNodeGroup == manualNodeGroup)
 				contents.push(renderImportButton());
 			contents.push(formNode);

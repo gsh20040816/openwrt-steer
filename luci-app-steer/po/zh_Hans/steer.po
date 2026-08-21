@@ -120,6 +120,9 @@ msgstr "连接"
 msgid "Connection test"
 msgstr "连接测速"
 
+msgid "Batch connection test"
+msgstr "批量连接测速"
+
 msgid "Core process"
 msgstr "核心进程"
 
@@ -179,6 +182,27 @@ msgstr "下载 Mbps"
 
 msgid "Download test"
 msgstr "下载测速"
+
+msgid "Batch download test"
+msgstr "批量下载测速"
+
+msgid "%s Mbps"
+msgstr "%s Mbps"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Testing…"
+msgstr "测速中…"
+
+msgid "No download measurement was returned."
+msgstr "未返回下载速率。"
+
+msgid "No connection latency was returned."
+msgstr "未返回连接延迟。"
+
+msgid "%d/%d succeeded; click to test again."
+msgstr "%d/%d 个节点成功；点击可重新测速。"
 
 msgid "Enable Steer"
 msgstr "启用 Steer"
@@ -672,35 +696,11 @@ msgstr "移除 %s"
 msgid "Subscription status"
 msgstr "订阅状态"
 
-msgid "%d bytes / %d ms"
-msgstr "%d 字节 / %d 毫秒"
-
 msgid "%d ms"
 msgstr "%d 毫秒"
-
-msgid "Close"
-msgstr "关闭"
-
-msgid "Connect"
-msgstr "连接"
-
-msgid "Download"
-msgstr "下载"
-
-msgid "First byte"
-msgstr "首字节"
 
 msgid "No speed-test result was returned."
 msgstr "未返回测速结果。"
 
-msgid "Node speed test failed"
-msgstr "节点测速失败"
-
-msgid "Starting a temporary sing-box instance."
-msgstr "正在启动临时 sing-box 实例。"
-
 msgid "Test"
 msgstr "测试"
-
-msgid "URL"
-msgstr "地址"
