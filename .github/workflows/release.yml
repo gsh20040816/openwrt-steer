@@ -74,6 +74,12 @@ jobs:
           restore-keys: |
             openwrt-sdk-gocache-v1-${{ runner.os }}-x86_64-go1.26.4-5caa62e0-
 
+      - name: Normalize restored SDK cache permissions
+        run: |
+          chmod -R a+rwX \
+            "$RUNNER_TEMP/steer-sdk-ccache" \
+            "$RUNNER_TEMP/steer-sdk-go-cache"
+
       - name: Build packages with official OpenWrt SDK
         run: |
           source_dir="$RUNNER_TEMP/steer-source"
