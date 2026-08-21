@@ -54,62 +54,28 @@ preflight 通过时启用服务。schema 5→6 的迁移窗口已经关闭，当
 
 ## CI 依赖缓存
 
-Release 工作流遵循 OpenWrt 官方共享 CI 的缓存边界：固定提交的普通 OpenWrt
-源码树运行在固定 digest 的官方 toolchain 容器中，容器通过 `/prebuilt_tools` 提供
-host tools，通过 `/external-toolchain` 提供交叉工具链。工作流只持久化 package 类型
-的 `.ccache`；target `build_dir`、target `staging_dir`、OpenWrt stamp 和上一次的包
-安装状态一律不缓存，也不通过修改时间戳伪造依赖已完成。
-缓存目录必须挂载到源码树的 `/work/openwrt/.ccache`；OpenWrt make 会将编译进程的
-`CCACHE_DIR` 解析到该位置。挂载到旧 SDK 使用的 `/builder/.ccache` 只会保存一个几乎
-为空的目录，而真正的编译缓存会随容器销毁。入口脚本会核对 make 的解析结果并在
-路径不一致时立即失败。
+Release 工作流直接使用固定 digest 的官方 OpenWrt 25.12.5 SDK 镜像。`base` feed 保留
+官方 SDK 的 `--root=package` 布局，`packages`、`luci` 和本地 Steer feed 均固定来源。
+不再维护完整 OpenWrt 源码、外部 toolchain 或外部 Go bootstrap 的自制 builder。
 
-构建配置明确选择 `CONFIG_CCACHE=y` 和用于一次性 CI 的 `CONFIG_AUTOREMOVE=y`。
-ccache 使用官方 package 配置：`compiler_type=gcc`、8 GiB 上限、depend mode，以及
-OpenWrt 官方采用的时间与 include 文件 sloppiness。固定源码提交、toolchain digest
-与 target 进入 cache key；恢复成功后构建会更新 ccache，工作流按官方方式删除旧的
-同 key 缓存并保存更新版本。
+第一次 `make defconfig` 前必须关闭 `CONFIG_ALL_KMODS` 与
+`CONFIG_ALL_NONSHARED`；安装 Steer feed 并选择 `luci-app-steer` 后再执行最终
+`defconfig`。最终配置必须再次确认这两个开关关闭，并拒绝 r8169、video 等不属于
+Steer 依赖闭包的模块。构建只提交一个 `package/luci-app-steer/compile` 顶层目标，
+由 OpenWrt 解析并构建 `geoview`、`steer-geodata`、`steer-openwrt`、LuCI 应用和中文
+i18n 包。feeds 更新与每个 package download 保持串行，只有 compile 使用并行 make。
 
-GitHub Actions 只由默认分支 push 构建；版本 tag 不再触发第二次构建。发布时必须把
-`master` 和指向同一提交的 `v*` tag 一次性推送，构建任务检测该提交上的 tag，并用同一份
-构建产物发布预发布版本。这样 master 验证和版本发布共享一次 Buildx/package ccache 构建。
-缓存写入仍只允许默认分支的可信 push，删除旧 `.ccache` 时必须把 REST 请求限定到默认分支
-ref，不能按 key 跨 ref 删除。
+GitHub Actions 只持久化两个可重建缓存：SDK 原生 `/builder/.ccache` 和
+OpenWrt Go package 使用的 GOCACHE。`dl` 每次由 GitHub runner 重新下载；`build_dir`、
+`staging_dir`、hostpkg stamp、包安装状态和其他 target state 一律不缓存。
+入口脚本使用 `make val.CCACHE_DIR` 核对 OpenWrt 实际解析到
+`/builder/.ccache`，路径不一致立即失败；ccache 的 compiler check 同时绑定 SDK
+版本与镜像 digest。
 
-配置 external toolchain 后仍须按官方顺序运行 `make tools/install` 与
-`make toolchain/install`。这两步不会重新编译容器中已有的完整工具链：前者确认并安装
-`/prebuilt_tools` 对应的 host 工具状态，后者生成当前源码树使用的 compiler wrapper，
-并从 `/external-toolchain` 导入 GCC 与 musl 版本信息。直接跳过会使基础库 APK 的版本
-退化为 `unknown`，不是有效的“省略重复构建”。
-
-不直接使用 `ghcr.io/openwrt/sdk` 作为构建根。该全包 SDK 的 `Config-build.in` 将
-约 1190 个 kmod 固定为不可交互的 `default m`；Steer 只要声明一个内核模块依赖，
-kernel package 阶段就会打包大量无关模块。普通源码树配合官方 external toolchain
-保留正常 Kconfig 选择语义，最终配置只选择 `luci-app-steer` 及其依赖，并对异常的
-kmod 数量和已知无关模块设置失败检查。
-
-`ext-toolchain.sh --config x86/64` 会先带入用于完整固件镜像的 x86 默认设备包。
-单包构建在此基础上清除初始 `CONFIG_PACKAGE_*` 选择，再让 Kconfig 从
-`luci-app-steer` 重新选择依赖；配置中出现 target-profile firmware 会立即失败。
-x86 子目标仍会把少量不可交互的默认 kmod 固定为 `y`，单包 make 调用会覆盖这些
-`=y` 项为空，只构建 Steer 依赖选择为 `m` 的内核模块。这样不会为发布 APK 下载
-582 MiB 的 `linux-firmware` 或打包默认网卡、显卡驱动。
-
-external toolchain 不包含与当前源码和 `.config` 对应的内核构建树。由于 Steer 包含
-kmod 依赖，发布流程必须像官方共享 CI 一样先运行 `make target/compile`，生成同一
-ABI 的内核与 `modules.builtin`，再打包内核模块。target `build_dir` 仍不持久化；首次
-编译生成 ccache，后续构建通过同一 package ccache 复用内核 C 编译结果。
-内核和包源码优先从 OpenWrt 官方 `sources.cdn.openwrt.org` 本地镜像获取；下载仍由
-OpenWrt 的 `download.pl` 按包定义的 SHA-256 校验，镜像失败时继续使用上游地址。
-
-发布构建只向 OpenWrt 提交一个 `package/luci-app-steer/compile` 顶层目标；其
-`LUCI_DEPENDS`/`DEPENDS` 会完整选择 `steer-openwrt`、`geoview`、`steer-geodata` 和第三方
-依赖。OpenWrt 仍会调度这些依赖的标准 prepare/configure/compile/install 流程；
-重复的 C/C++ 编译由 ccache 复用，而不是通过恢复内部 target 状态跳过构建系统。
-Go 编译不属于 ccache 的覆盖范围，不得把 target 状态缓存重新包装成 Go 缓存。builder
-从固定摘要的官方 Go 1.26.4 镜像复制只读 GOROOT，并通过 OpenWrt packages 原生支持的
-`CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT` 与关闭 `CONFIG_GOLANG_BUILD_BOOTSTRAP` 跳过本地
-bootstrap 链；OpenWrt 仍从固定 feed 源码构建并安装自己的 Go host toolchain。
+GOCACHE 只复用 Go 编译对象，不能提供 GOROOT，也不能替代 OpenWrt
+`golang/host` 的安装。官方 SDK 在全新工作区中仍会依次构建 Go 1.24.13 bootstrap
+和 Go 1.26.4 host toolchain；缓存命中只能缩短其中可缓存的编译，不能把这条工具链
+依赖伪装成已经消失。
 
 Steer 的策略路由只使用 `ip rule` 与 `ip route` 的 IPv4/IPv6 基础操作，因此依赖 OpenWrt
 的虚拟 `ip` provider。全新安装由 OpenWrt 的默认 variant 选择 `ip-tiny`，从而保持最小安装

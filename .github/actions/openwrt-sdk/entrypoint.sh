@@ -1,0 +1,160 @@
+#!/bin/sh
+# Build the local feed with the official OpenWrt SDK image.
+# Download phases are intentionally serial; compilation may use all CPUs.
+
+set -eu
+
+FEEDNAME="${FEEDNAME:-steer}"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-/artifacts}"
+PACKAGES="${PACKAGES:-geoview steer-geodata steer-openwrt luci-app-steer}"
+CCACHE_DIR="${CCACHE_DIR:-/builder/.ccache}"
+GO_BUILD_CACHE_DIR="${GO_BUILD_CACHE_DIR:-/go-build-cache}"
+export CCACHE_DIR
+export CCACHE_CONFIGPATH2=staging_dir/host/etc/ccache.conf
+
+cd /builder
+
+phase() {
+  printf '[sdk-phase] %s %s\n' "$(date -u +%FT%TZ)" "$1"
+}
+
+phase feeds-update
+cat > feeds.conf <<EOF
+src-git --root=package base https://git.openwrt.org/openwrt/openwrt.git^f0a60eee2fe051741c643ea6118718aae1ef17fb
+src-git packages https://github.com/openwrt/packages.git^5caa62e0bc9f7fb9b0c12a23267bceb7724214dd
+src-git luci https://github.com/openwrt/luci.git^128a7812f4be233c5dd7f7466f534fd888785caf
+src-link $FEEDNAME /feed/
+EOF
+printf '%s\n' '--- feeds.conf ---'
+cat feeds.conf
+
+./scripts/feeds update -a
+printf '%s\n' '--- package/base layout ---'
+find feeds/base_root/package -maxdepth 2 -type f -name Makefile -print | sort | head -20
+
+# The stock SDK defconfig enables every kernel module and device profile.  Set
+# the two guards before the first defconfig, then prune profile selections.
+cat > .config <<'EOF'
+CONFIG_ALL_KMODS=n
+CONFIG_ALL_NONSHARED=n
+CONFIG_CCACHE=y
+CONFIG_LUCI_LANG_zh_Hans=y
+EOF
+phase initial-defconfig
+make defconfig
+grep -qx '# CONFIG_ALL_KMODS is not set' .config
+grep -qx '# CONFIG_ALL_NONSHARED is not set' .config
+
+# Preserve the SDK device-profile selections as explicit make-time unsets.
+# The profile menu selects MODULE_DEFAULT_* symbols again while make builds
+# package metadata; passing these overrides keeps that firmware-only set out
+# of the single package dependency closure.
+kmod_overrides="$(grep '^CONFIG_PACKAGE_kmod-.*=[my]' .config | sed 's/=.*/=/')"
+
+phase feed-install
+for package in $PACKAGES; do
+  ./scripts/feeds install -p "$FEEDNAME" -f "$package"
+done
+
+# Keep the SDK's non-kernel target package selections so their headers and
+# staging metadata remain available to LuCI dependencies.  Only the generic
+# device kmods are removed after the final defconfig below.
+cat >> .config <<'EOF'
+CONFIG_ALL_KMODS=n
+CONFIG_ALL_NONSHARED=n
+CONFIG_CCACHE=y
+CONFIG_PACKAGE_luci-app-steer=m
+CONFIG_LUCI_LANG_zh_Hans=y
+CONFIG_GOLANG_BUILD_CACHE_DIR="/go-build-cache"
+EOF
+phase final-defconfig
+make defconfig
+
+# Final defconfig selects the real package dependency closure, but it also
+# recreates the SDK's generic x86 device profile. Remove only the kmods that
+# were present before this package build; the make-time overrides below enforce
+# the same boundary during package metadata traversal.
+profile_kmods="$(mktemp)"
+printf '%s\n' "$kmod_overrides" | sed 's/=$//' > "$profile_kmods"
+minimal_config="$(mktemp)"
+awk '
+  NR == FNR { drop[$1] = 1; next }
+  /^CONFIG_PACKAGE_kmod-.*=[my]$/ {
+    symbol = $0
+    sub(/=.*/, "", symbol)
+    if (drop[symbol]) {
+      print "# " symbol " is not set"
+      next
+    }
+  }
+  { print }
+' "$profile_kmods" .config > "$minimal_config"
+mv "$minimal_config" .config
+rm -f "$profile_kmods"
+
+grep -qx '# CONFIG_ALL_KMODS is not set' .config
+grep -qx '# CONFIG_ALL_NONSHARED is not set' .config
+
+# These target-profile modules are not in Steer's dependency closure.  Seeing
+# either one means the SDK config still selected unrelated target state.
+if grep -Eq '^CONFIG_PACKAGE_(kmod-r8169|kmod-video[^=]*)=[ym]' .config; then
+  echo 'Unexpected unrelated kmod selected by SDK defconfig:' >&2
+  grep -E '^CONFIG_PACKAGE_(kmod-r8169|kmod-video[^=]*)=[ym]' .config >&2
+  exit 1
+fi
+
+selected_kmods="$(grep -c '^CONFIG_PACKAGE_kmod-.*=[my]' .config || true)"
+if [ "$selected_kmods" -gt 100 ]; then
+  echo "Minimal package config unexpectedly selected $selected_kmods kernel modules." >&2
+  exit 1
+fi
+echo "Selected kernel module packages: $selected_kmods"
+
+mkdir -p "$CCACHE_DIR" "$GO_BUILD_CACHE_DIR"
+touch "$CCACHE_CONFIGPATH2"
+printf '%s\n' \
+  'compiler_type=gcc' \
+  'max_size=8G' \
+  'depend_mode=true' \
+  'sloppiness=file_macro,locale,time_macros,include_file_ctime,include_file_mtime' \
+  'compiler_check=string:openwrt-sdk-x86_64-25.12.5:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a' \
+  > "$CCACHE_CONFIGPATH2"
+resolved_ccache_dir="$(make --no-print-directory val.CCACHE_DIR)"
+[ "$resolved_ccache_dir" = "$CCACHE_DIR" ] || {
+  echo "OpenWrt resolved CCACHE_DIR to $resolved_ccache_dir instead of $CCACHE_DIR." >&2
+  exit 1
+}
+staging_dir/host/bin/ccache --zero-stats || true
+
+# Keep the Steer package source archives on the official serial make download
+# path. Only the actual compilation is parallelised.
+phase package-download
+for package in $PACKAGES; do
+  make "package/$package/download" V=s
+done
+
+# Compile one top-level dependency closure.  OpenWrt's dependency graph pulls
+# geoview, steer-geodata and steer-openwrt into the LuCI package build.
+phase package-compile
+make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)" CONFIG_AUTOREMOVE=y $kmod_overrides
+
+phase package-index
+make package/index
+
+for package_pattern in \
+  'geoview-*.apk' \
+  'steer-geodata-*.apk' \
+  'steer-openwrt-*.apk' \
+  'luci-app-steer-*.apk' \
+  'luci-i18n-steer-zh-cn-*.apk'; do
+  find bin/packages -type f -name "$package_pattern" -print -quit | grep -q . || {
+    echo "Required package was not produced: $package_pattern" >&2
+    exit 1
+  }
+done
+
+phase ccache-stats
+staging_dir/host/bin/ccache -vv --show-stats || true
+mkdir -p "$ARTIFACTS_DIR"
+mv bin "$ARTIFACTS_DIR/"
+[ ! -d logs ] || mv logs "$ARTIFACTS_DIR/"

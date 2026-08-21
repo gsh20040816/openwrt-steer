@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - master
-    paths-ignore:
-      - '.github/workflows/**'
 
 concurrency:
   group: openwrt-package-build
@@ -20,7 +18,6 @@ jobs:
     name: OpenWrt 25.12.5 x86_64
     runs-on: ubuntu-latest
     permissions:
-      actions: write
       contents: write
 
     steps:
@@ -35,7 +32,7 @@ jobs:
       - name: Check package ownership boundaries
         run: python3 tests/check-package-boundaries.py
 
-      - name: Check build cache invariants
+      - name: Check official SDK workflow invariants
         run: python3 tests/check-build-cache.py
 
       - name: Check share URL parser
@@ -47,122 +44,57 @@ jobs:
       - name: Check LuCI apply and status interactions
         run: node tests/node/steer_helper_test.js
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+      - name: Prepare official SDK artifacts directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/steer-sdk-artifacts"
+          mkdir -p "$RUNNER_TEMP/steer-sdk-dl"
+          mkdir -p "$RUNNER_TEMP/steer-sdk-ccache"
+          mkdir -p "$RUNNER_TEMP/steer-sdk-go-cache"
 
-      - name: Build cached OpenWrt source and toolchain image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
-        with:
-          context: .github/actions/openwrt-builder
-          build-args: |
-            GO_BOOTSTRAP_IMAGE=docker.io/library/golang:1.26.4-bookworm@sha256:b305420a68d0f229d91eb3b3ed9e519fcf2cf5461da4bef997bf927e8c0bfd2b
-            TOOLCHAIN_IMAGE=ghcr.io/openwrt/toolchain@sha256:16fe9150edb39da54b50f5d7e99e9baf0f2c9afb16183c54bfb07bc4e08b3b38
-            OPENWRT_REF=f0a60eee2fe051741c643ea6118718aae1ef17fb
-          tags: steer-openwrt-builder:25.12.5-x86_64
-          cache-from: type=gha,scope=openwrt-builder-25.12.5-x86_64
-          cache-to: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'type=gha,mode=max,scope=openwrt-builder-25.12.5-x86_64' || '' }}
-          load: true
-
-      - name: Restore OpenWrt package ccache
-        id: openwrt-ccache
+      - name: Restore OpenWrt SDK ccache
+        id: sdk-ccache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          path: ${{ runner.temp }}/steer-openwrt-ccache
-          # Match OpenWrt's package-ccache boundary. The source and official
-          # toolchain digests are part of the key; target state is never cached.
-          key: openwrt-ccache-packages-v2-${{ runner.os }}-25.12.5-x86_64-f0a60eee-16fe9150
+          path: ${{ runner.temp }}/steer-sdk-ccache
+          key: openwrt-sdk-ccache-v1-${{ runner.os }}-x86_64-c8a248ce-${{ github.sha }}
+          restore-keys: |
+            openwrt-sdk-ccache-v1-${{ runner.os }}-x86_64-c8a248ce-
 
-      - name: Report OpenWrt ccache result
-        env:
-          CACHE_HIT: ${{ steps.openwrt-ccache.outputs.cache-hit }}
-          MATCHED_KEY: ${{ steps.openwrt-ccache.outputs.cache-matched-key }}
-        run: |
-          echo "Exact OpenWrt ccache hit: ${CACHE_HIT:-false}"
-          echo "Matched OpenWrt ccache key: ${MATCHED_KEY:-none}"
-
-      - name: Restore OpenWrt download and Go caches
-        id: openwrt-language-cache
+      - name: Restore OpenWrt Go build cache
+        id: sdk-go-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          path: ${{ runner.temp }}/steer-openwrt-language-cache
-          key: openwrt-language-v1-${{ runner.os }}-25.12.5-x86_64-f0a60eee-16fe9150-go1.26.4-packages5caa62e0-luci128a7812
+          path: ${{ runner.temp }}/steer-sdk-go-cache
+          key: openwrt-sdk-gocache-v1-${{ runner.os }}-x86_64-go1.26.4-5caa62e0-${{ github.sha }}
+          restore-keys: |
+            openwrt-sdk-gocache-v1-${{ runner.os }}-x86_64-go1.26.4-5caa62e0-
 
-      - name: Report OpenWrt download and Go cache result
-        env:
-          CACHE_HIT: ${{ steps.openwrt-language-cache.outputs.cache-hit }}
-          MATCHED_KEY: ${{ steps.openwrt-language-cache.outputs.cache-matched-key }}
+      - name: Build packages with official OpenWrt SDK
         run: |
-          echo "Exact OpenWrt language cache hit: ${CACHE_HIT:-false}"
-          echo "Matched OpenWrt language cache key: ${MATCHED_KEY:-none}"
-
-      - name: Build packages
-        run: |
-          ccache_dir="$RUNNER_TEMP/steer-openwrt-ccache"
-          language_cache_dir="$RUNNER_TEMP/steer-openwrt-language-cache"
-          output_dir="$RUNNER_TEMP/steer-build-output"
           source_dir="$RUNNER_TEMP/steer-source"
-          mkdir -p "$ccache_dir" "$language_cache_dir/dl" "$language_cache_dir/go-build" "$output_dir" "$source_dir"
-          # A checkout gives tracked files the checkout time. LuCI copies
-          # those mtimes into APK v3 metadata, so build the local feed from a
-          # git archive whose mtimes are fixed to the source commit.
+          mkdir -p "$source_dir"
           git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_dir"
-          chmod -R a+rwx "$ccache_dir" "$language_cache_dir" "$output_dir"
           docker run --rm \
-            --env CCACHE_DIR=/work/openwrt/.ccache \
             --volume "$source_dir:/feed:ro" \
-            --volume "$output_dir:/artifacts" \
-            --volume "$ccache_dir:/work/openwrt/.ccache" \
-            --volume "$language_cache_dir/dl:/work/openwrt/dl" \
-            --volume "$language_cache_dir/go-build:/work/go-build-cache" \
-            steer-openwrt-builder:25.12.5-x86_64
-          # The builder runs as buildbot, while actions/cache archives as runner.
-          docker run --rm \
-            --user 0:0 \
-            --entrypoint /bin/sh \
-            --volume "$ccache_dir:/cache" \
-            --volume "$language_cache_dir:/language-cache" \
-            steer-openwrt-builder:25.12.5-x86_64 \
-            -c 'chmod -R a+rX /cache /language-cache'
-          cp -R "$output_dir/bin" "$GITHUB_WORKSPACE/bin"
-          if [ -d "$output_dir/logs" ]; then
-            cp -R "$output_dir/logs" "$GITHUB_WORKSPACE/logs"
+            --volume "$RUNNER_TEMP/steer-sdk-artifacts:/artifacts" \
+            --volume "$RUNNER_TEMP/steer-sdk-dl:/builder/dl" \
+            --volume "$RUNNER_TEMP/steer-sdk-ccache:/builder/.ccache" \
+            --volume "$RUNNER_TEMP/steer-sdk-go-cache:/go-build-cache" \
+            --volume "$GITHUB_WORKSPACE/.github/actions/openwrt-sdk/entrypoint.sh:/entrypoint.sh:ro" \
+            --env FEEDNAME=steer \
+            --env ARTIFACTS_DIR=/artifacts \
+            --env PACKAGES="geoview steer-geodata steer-openwrt luci-app-steer" \
+            --env BUILD_LOG=1 \
+            --env V=s \
+            ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a \
+            /bin/sh /entrypoint.sh
+
+      - name: Collect SDK artifacts
+        run: |
+          cp -R "$RUNNER_TEMP/steer-sdk-artifacts/bin" "$GITHUB_WORKSPACE/bin"
+          if [ -d "$RUNNER_TEMP/steer-sdk-artifacts/logs" ]; then
+            cp -R "$RUNNER_TEMP/steer-sdk-artifacts/logs" "$GITHUB_WORKSPACE/logs"
           fi
-
-      - name: Delete previously restored OpenWrt ccache
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.openwrt-ccache.outputs.cache-hit == 'true' }}
-        uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae
-        with:
-          route: DELETE /repos/{repository}/actions/caches?key={key}&ref={ref}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INPUT_REPOSITORY: ${{ github.repository }}
-          INPUT_KEY: ${{ steps.openwrt-ccache.outputs.cache-primary-key }}
-          INPUT_REF: ${{ github.ref }}
-
-      - name: Save OpenWrt package ccache
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ${{ runner.temp }}/steer-openwrt-ccache
-          key: ${{ steps.openwrt-ccache.outputs.cache-primary-key }}
-
-      - name: Delete previously restored OpenWrt download and Go caches
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.openwrt-language-cache.outputs.cache-hit == 'true' }}
-        uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae
-        with:
-          route: DELETE /repos/{repository}/actions/caches?key={key}&ref={ref}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          INPUT_REPOSITORY: ${{ github.repository }}
-          INPUT_KEY: ${{ steps.openwrt-language-cache.outputs.cache-primary-key }}
-          INPUT_REF: ${{ github.ref }}
-
-      - name: Save OpenWrt download and Go caches
-        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ${{ runner.temp }}/steer-openwrt-language-cache
-          key: ${{ steps.openwrt-language-cache.outputs.cache-primary-key }}
 
       - name: Collect exact release assets
         env:
@@ -171,6 +103,20 @@ jobs:
           OPENWRT_TARGET: x86/64
           SOURCE_REVISION: ${{ github.sha }}
         run: ./scripts/collect-release-artifacts.sh
+
+      - name: Save OpenWrt SDK ccache
+        if: success() && steps.sdk-ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/steer-sdk-ccache
+          key: ${{ steps.sdk-ccache.outputs.cache-primary-key }}
+
+      - name: Save OpenWrt Go build cache
+        if: success() && steps.sdk-go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/steer-sdk-go-cache
+          key: ${{ steps.sdk-go-cache.outputs.cache-primary-key }}
 
       - name: Upload build evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
