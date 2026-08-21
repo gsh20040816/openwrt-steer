@@ -114,9 +114,6 @@ msgstr "客户端 IP/CIDR"
 msgid "Client MAC address"
 msgstr "客户端 MAC 地址"
 
-msgid "Compile explicit routing and DNS intent into one verified sing-box execution plan."
-msgstr "将明确的路由与 DNS 意图编译为一个经过验证的 sing-box 执行计划。"
-
 msgid "Compiling and verifying the candidate execution plan."
 msgstr "正在编译并验证候选执行计划。"
 
@@ -131,9 +128,6 @@ msgstr "核心进程"
 
 msgid "Create a proxy node before adding a single-node route."
 msgstr "请先创建代理节点，再添加单节点路由。"
-
-msgid "Create named SOCKS, HTTP or mixed entry points. An entry point does not own a node: ordered rules choose its DNS profile and route, just like transparent traffic. Existing service ports are not imported automatically."
-msgstr "创建具名的 SOCKS、HTTP 或混合入口。入口不绑定节点：与透明代理流量一样，由有序规则选择 DNS 配置和路由。现有服务端口不会自动导入。"
 
 msgid "Credentials"
 msgstr "凭据"
@@ -189,9 +183,6 @@ msgstr "域名匹配"
 msgid "Download Mbps"
 msgstr "下载 Mbps"
 
-msgid "Each profile owns exactly one upstream. Every referenced (DNS profile, route) pair becomes an independent sing-box DNS transport and cache path."
-msgstr "每个配置只拥有一个上游；每个被引用的（DNS 配置，路由）组合都会成为独立的 sing-box DNS 传输与缓存路径。"
-
 msgid "Enable Steer"
 msgstr "启用 Steer"
 
@@ -233,15 +224,6 @@ msgstr "代理连通性探测地址"
 
 msgid "Proxy speed-test URLs"
 msgstr "代理测速地址"
-
-msgid "Used by “steer probe --kind direct” to test the router network without a proxy."
-msgstr "供“steer probe --kind direct”使用，用于不经过代理测试路由器网络。"
-
-msgid "Used by “steer probe --kind proxy” through the currently active proxy route."
-msgstr "供“steer probe --kind proxy”使用，通过当前活动的代理出口测试。"
-
-msgid "Used by temporary node speed tests; these probes never change the active route."
-msgstr "供临时节点测速使用；这些探测不会改变当前活动出口。"
 
 msgid "Ignored compatibility-only parameter: %s"
 msgstr "已忽略仅用于兼容的参数：%s"
@@ -312,12 +294,6 @@ msgstr "网络"
 msgid "Node subscriptions"
 msgstr "节点订阅"
 
-msgid "Only standard URI lines or a Base64-wrapped URI list are accepted. Subscription updates create a candidate snapshot and never Apply automatically."
-msgstr "仅接受标准 URI 行或 Base64 包装的 URI 列表。订阅更新只创建候选快照，不会自动应用。"
-
-msgid "The scheduled updater uses this interval; use “steer subscription update” to fetch explicitly."
-msgstr "定时更新器使用此间隔；也可以使用“steer subscription update”显式获取。"
-
 msgid "Transport"
 msgstr "传输方式"
 
@@ -335,9 +311,6 @@ msgstr "节点导入失败"
 
 msgid "Nodes & Routes"
 msgstr "节点与路由"
-
-msgid "Nodes describe transport credentials. Rules never point at a node directly; they point at a named route so subscriptions and failover can evolve without rewriting policy."
-msgstr "节点描述传输凭据。规则从不直接指向节点，而是指向具名路由，因此订阅和故障转移可以独立演进，无需重写策略。"
 
 msgid "Non-globally-reachable and local destinations bypass Steer before user rules. Router-originated UDP NTP on port 123 always goes direct. Traditional TCP and UDP DNS on port 53 enters the dedicated DNS shim."
 msgstr "非全球可达地址和本地目的地址会在用户规则之前绕过 Steer。路由器发起的 UDP 123 端口 NTP 始终直连，传统 TCP/UDP 53 端口 DNS 进入专用 DNS 辅助层。"
@@ -437,9 +410,6 @@ msgstr "规则执行模型"
 
 msgid "Rules"
 msgstr "规则"
-
-msgid "Rules run from top to bottom. Entries inside one field are OR; all non-empty fields are AND. DNS evaluates only domain, inbound and client conditions."
-msgstr "规则从上到下执行。同一字段内的条目为或关系，所有非空字段之间为与关系。DNS 只判断域名、入站和客户端条件。"
 
 msgid "Schema"
 msgstr "模式版本"
@@ -690,6 +660,9 @@ msgstr "手动添加"
 msgid "Missing references"
 msgstr "缺失引用"
 
+msgid "Missing node"
+msgstr "节点缺失"
+
 msgid "Missing subscription: %s"
 msgstr "订阅已缺失：%s"
 
@@ -719,9 +692,6 @@ msgstr "正在更新订阅"
 
 msgid "Use 1–32 lowercase characters beginning with a letter."
 msgstr "请输入 1–32 个字符，以小写字母开头。"
-
-msgid "Use a stable lowercase ID beginning with a letter; allowed characters are letters, digits and underscores."
-msgstr "请使用以小写字母开头的稳定 ID；只能包含字母、数字和下划线。"
 
 msgid "Remove %s"
 msgstr "移除 %s"

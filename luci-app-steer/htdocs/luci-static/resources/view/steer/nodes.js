@@ -47,7 +47,7 @@ function collectNodeReferences(nodes, routes, groups) {
 	}).forEach((node) => {
 		known[node['.name']] = true;
 		const group = groups.find((candidate) => candidate.id == nodeGroupID(node));
-		references.push({ id: node['.name'], label: node.name || node['.name'], group: group?.label || nodeGroupID(node) });
+		references.push({ id: node['.name'], label: node.name || _('Unnamed'), group: group?.label || nodeGroupID(node) });
 	});
 	routes.forEach((route) => {
 		const node = route.kind == 'single' ? route.node : null;
@@ -61,6 +61,33 @@ function collectNodeReferences(nodes, routes, groups) {
 
 function addNodeValues(option, references) {
 	references.forEach((reference) => option.value(reference.id, reference.label, _('Group: %s').format(reference.group)));
+}
+
+function nodeReferenceLabel(references, nodeId) {
+	if (!nodeId)
+		return null;
+	const reference = references.find((candidate) => candidate.id == nodeId);
+	return reference ? reference.label : _('Missing node');
+}
+
+function protocolLabel(value) {
+	const labels = {
+		socks: 'SOCKS',
+		http: 'HTTP CONNECT',
+		shadowsocks: 'Shadowsocks',
+		vmess: 'VMess',
+		vless: 'VLESS',
+		hysteria: 'Hysteria',
+		hysteria2: 'Hysteria2',
+		shadowtls: 'ShadowTLS',
+		tuic: 'TUIC',
+		anytls: 'AnyTLS',
+		naive: 'NaiveProxy',
+		ssh: 'SSH',
+		tor: 'Tor',
+		trojan: 'Trojan'
+	};
+	return labels[value] || value || null;
 }
 
 function selectedNodeGroup(groups) {
@@ -280,10 +307,10 @@ return view.extend({
 		const activeNodeGroup = selectedNodeGroup(nodeGroups);
 		const activeGroup = nodeGroups.find((group) => group.id == activeNodeGroup);
 		const nodeReferences = collectNodeReferences(nodes, routes, nodeGroups);
+		const summaryOnly = activeNodeGroup != manualNodeGroup;
 		steer.loadStyle();
 
-		m = new form.Map('steer', _('Nodes & Routes'),
-			_('Nodes describe transport credentials. Rules never point at a node directly; they point at a named route so subscriptions and failover can evolve without rewriting policy.'));
+		m = new form.Map('steer', _('Nodes & Routes'));
 
 		s = m.section(form.GridSection, 'route', _('Routes'));
 		s.anonymous = true;
@@ -317,11 +344,16 @@ return view.extend({
 			o.depends('kind', 'single');
 			o.rmempty = false;
 			addNodeValues(o, nodeReferences);
+			o.textvalue = function(sectionId) {
+				return nodeReferenceLabel(nodeReferences, uci.get('steer', sectionId, 'node'));
+			};
 		}
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
 		s.anonymous = true;
 		s.addremove = activeNodeGroup == manualNodeGroup;
+		/* Subscription nodes are generated data; avoid building editable widgets for every row. */
+		s.readonly = summaryOnly;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add proxy node');
 		s.filter = function(sectionId) {
@@ -336,7 +368,7 @@ return view.extend({
 
 		o = s.taboption('general', form.Flag, 'enabled', _('Enabled'));
 		o.default = '1';
-		o.editable = true;
+		o.editable = !summaryOnly;
 
 		o = s.taboption('general', form.Button, '_speedtest', _('Speed test'));
 		o.inputtitle = _('Test');
@@ -363,16 +395,19 @@ return view.extend({
 		o.value('tor', 'Tor');
 		o.value('trojan', 'Trojan');
 		o.rmempty = false;
-		o.editable = true;
+		o.editable = !summaryOnly;
+		o.textvalue = function(sectionId) {
+			return protocolLabel(uci.get('steer', sectionId, 'type'));
+		};
 
 		o = s.taboption('general', form.Value, 'server', _('Server'));
 		o.rmempty = false;
-		o.editable = true;
+		o.editable = !summaryOnly;
 
 		o = s.taboption('general', form.Value, 'server_port', _('Port'));
 		o.datatype = 'port';
 		o.rmempty = false;
-		o.editable = true;
+		o.editable = !summaryOnly;
 
 		o = s.taboption('protocol', form.Value, 'uuid', _('UUID'));
 		o.modalonly = true;

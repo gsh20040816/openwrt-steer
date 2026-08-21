@@ -17,8 +17,7 @@ return view.extend({
 		let m, s, o;
 		steer.loadStyle();
 
-		m = new form.Map('steer', _('Local proxies'),
-			_('Create named SOCKS, HTTP or mixed entry points. An entry point does not own a node: ordered rules choose its DNS profile and route, just like transparent traffic. Existing service ports are not imported automatically.'));
+		m = new form.Map('steer', _('Local proxies'));
 
 		s = m.section(form.GridSection, 'local_proxy', _('Named proxy entry points'));
 		s.anonymous = true;

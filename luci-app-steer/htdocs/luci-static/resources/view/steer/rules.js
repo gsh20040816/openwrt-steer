@@ -264,8 +264,7 @@ return view.extend({
 		const routeReferences = collectReferences(routes, rules, 'route');
 		const inboundReferences = collectReferences(localProxies, rules, 'inbound');
 
-		m = new form.Map('steer', _('Rules'),
-			_('Rules run from top to bottom. Entries inside one field are OR; all non-empty fields are AND. DNS evaluates only domain, inbound and client conditions.'));
+		m = new form.Map('steer', _('Rules'));
 
 		s = m.section(form.GridSection, 'rule', _('Ordered steering rules'));
 		s.anonymous = true;

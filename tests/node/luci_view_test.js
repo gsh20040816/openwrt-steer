@@ -420,6 +420,8 @@ async function main() {
 		.find((option) => option.name == 'node');
 	assert.ok(groupedPicker && groupedPicker.type == 'RichListValue' && groupedPicker.values.some((value) => value[2]?.includes('Jdub')),
 		'Node selectors expose the source subscription as a visual group');
+	assert.equal(groupedPicker.textvalue('route_proxy'), 'Subscribed',
+		'Route summaries show the node name instead of its internal UCI ID');
 	environment = await renderNodes({
 		node: [
 			{ '.name': 'cfg_manual', name: 'Manual' },
@@ -431,6 +433,13 @@ async function main() {
 	const subscriptionNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
 	assert.ok(subscriptionNodes && subscriptionNodes.addremove === false && !subscriptionNodes.filter('cfg_manual') && subscriptionNodes.filter('jdub_0123456789ab'),
 		'A subscription group renders only that subscription and cannot create manual nodes inside it');
+	assert.equal(subscriptionNodes.readonly, true,
+		'Subscription nodes render as a compact read-only summary');
+	[ 'enabled', 'type', 'server', 'server_port' ].forEach((name) => {
+		const option = subscriptionNodes.options.find((candidate) => candidate.name == name);
+		assert.equal(option && option.editable, false,
+			`Subscription node option ${name} does not create an editable widget per row`);
+	});
 	environment = await renderOverview({ subscription: [] });
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,

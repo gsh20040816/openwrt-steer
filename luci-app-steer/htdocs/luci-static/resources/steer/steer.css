@@ -8,6 +8,11 @@
 	--steer-line: color-mix(in srgb, currentColor 16%, transparent);
 }
 
+/* LuCI already renders the first title cell; Argon's pseudo title would duplicate it. */
+[data-page^="admin-services-steer-"] .cbi-section-table-row[data-title]::before {
+	display: none;
+}
+
 .steer-status {
 	display: grid;
 	grid-template-columns: minmax(15rem, 1.2fr) minmax(20rem, 2fr);

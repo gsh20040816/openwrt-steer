@@ -79,7 +79,7 @@ return view.extend({
 		const status = data[1];
 		steer.loadStyle();
 
-		m = new form.Map('steer', _('Steer'), _('Compile explicit routing and DNS intent into one verified sing-box execution plan.'));
+		m = new form.Map('steer', _('Steer'));
 		s = m.section(form.NamedSection, 'main', 'steer', _('Traffic steering'));
 		s.tab('general', _('General'));
 		s.tab('dns', _('DNS cache'));
@@ -108,17 +108,14 @@ return view.extend({
 		o = s.taboption('probes', form.DynamicList, 'probe_direct', _('Direct connectivity probe URLs'));
 		o.datatype = 'url';
 		o.placeholder = 'https://www.example.com/';
-		o.description = _('Used by “steer probe --kind direct” to test the router network without a proxy.');
 
 		o = s.taboption('probes', form.DynamicList, 'probe_proxy', _('Proxy connectivity probe URLs'));
 		o.datatype = 'url';
 		o.placeholder = 'https://www.example.com/';
-		o.description = _('Used by “steer probe --kind proxy” through the currently active proxy route.');
 
 		o = s.taboption('probes', form.DynamicList, 'speedtest_proxy', _('Proxy speed-test URLs'));
 		o.datatype = 'url';
 		o.placeholder = 'https://speed.cloudflare.com/__down?bytes=1000000';
-		o.description = _('Used by temporary node speed tests; these probes never change the active route.');
 
 		s = m.section(form.NamedSection, 'bootstrap', 'bootstrap', _('Bootstrap DNS'));
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
@@ -129,7 +126,7 @@ return view.extend({
 		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
 		o.rmempty = false;
 
-		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'), _('Use a stable lowercase ID beginning with a letter; allowed characters are letters, digits and underscores.'));
+		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
 		s.anonymous = false;
 		s.addremove = true;
 		s.nodescriptions = true;
@@ -148,9 +145,7 @@ return view.extend({
 		o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 		o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
 		o = s.option(form.Value, 'url', 'HTTPS subscription URL'); o.datatype = 'url'; o.rmempty = false; o.editable = true;
-		o.description = _('Only standard URI lines or a Base64-wrapped URI list are accepted. Subscription updates create a candidate snapshot and never Apply automatically.');
 		o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = '6h'; o.modalonly = true;
-		o.description = _('The scheduled updater uses this interval; use “steer subscription update” to fetch explicitly.');
 
 		return m.render().then((formNode) => E([], [ steer.renderStatus(status), renderPlan(data[2]), renderSubscriptions(data[3]), formNode ]));
 	},

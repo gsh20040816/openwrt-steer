@@ -11,7 +11,8 @@ return view.extend({
 
 	render: function() {
 		let m, s, o;
-		m = new form.Map('steer', _('DNS profiles'), _('Each profile owns exactly one upstream. Every referenced (DNS profile, route) pair becomes an independent sing-box DNS transport and cache path.'));
+		steer.loadStyle();
+		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
 		s.anonymous = true;
 		s.addremove = true;
