@@ -14,7 +14,7 @@ PKG_BUILD_FLAGS:=no-mips16
 
 GO_PKG:=github.com/gsh20040816/openwrt-steer/steer-openwrt
 GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/steer-openwrt
-GO_PKG_LDFLAGS_X:=$(GO_PKG)/cmd/steer-openwrt.version=$(PKG_VERSION)-r$(PKG_RELEASE)
+GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)-r$(PKG_RELEASE)
 
 include $(INCLUDE_DIR)/package.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
