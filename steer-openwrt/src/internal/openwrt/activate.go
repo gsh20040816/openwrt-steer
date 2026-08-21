@@ -20,13 +20,13 @@ func ActivateGeneration(ctx context.Context, runner Runner, generation Generatio
 	if nftBinary == "" {
 		nftBinary = "/usr/sbin/nft"
 	}
-	if err := CleanupPlatform(ctx, runner, generation.Bundle.Plan, generation.Environment, nftBinary); err != nil {
+	if err := CleanupPlatform(ctx, runner, generation.Bundle.Plan, nftBinary); err != nil {
 		return err
 	}
 	if _, err := runner.Output(ctx, nftBinary, "-f", filepath.Join(generation.Directory, "firewall.nft")); err != nil {
 		return fmt.Errorf("load Steer nftables shim: %w", err)
 	}
-	for _, command := range RenderMACRoutes(generation.Bundle.Plan, generation.Environment.ManagedDevices) {
+	for _, command := range RenderMACRoutes(generation.Bundle.Plan) {
 		args := append([]string{command.Family}, command.Args...)
 		if _, err := runner.Output(ctx, "ip", args...); err != nil {
 			return fmt.Errorf("load MAC policy route: %w", err)
@@ -45,7 +45,7 @@ func ActivateGeneration(ctx context.Context, runner Runner, generation Generatio
 	return nil
 }
 
-func CleanupPlatform(ctx context.Context, runner Runner, plan compiler.Plan, environment Environment, nftBinary string) error {
+func CleanupPlatform(ctx context.Context, runner Runner, plan compiler.Plan, nftBinary string) error {
 	if nftBinary == "" {
 		nftBinary = "/usr/sbin/nft"
 	}
@@ -79,11 +79,17 @@ func CleanupPlatform(ctx context.Context, runner Runner, plan compiler.Plan, env
 			return fmt.Errorf("decode %s policy rules: %w", family, err)
 		}
 		for _, rule := range rules {
-			if jsonInt(rule["priority"]) != plan.Resources.MACPriority || jsonInt(rule["table"]) != plan.Resources.MACTable || jsonInt(rule["fwmark"]) != plan.Resources.MACMark {
+			mark := jsonInt(rule["fwmark"])
+			legacyMark := compiler.AutoRedirectOutputMark
+			if jsonInt(rule["priority"]) != plan.Resources.MACPriority || jsonInt(rule["table"]) != plan.Resources.MACTable || (mark != plan.Resources.MACMark && mark != legacyMark) {
 				continue
 			}
-			iif := fmt.Sprint(rule["iif"])
-			if _, err := runner.Output(ctx, "ip", family, "rule", "del", "priority", fmt.Sprint(plan.Resources.MACPriority), "iif", iif, "fwmark", fmt.Sprintf("0x%x", plan.Resources.MACMark), "lookup", fmt.Sprint(plan.Resources.MACTable)); err != nil {
+			args := []string{"rule", "del", "priority", fmt.Sprint(plan.Resources.MACPriority)}
+			if iif := fmt.Sprint(rule["iif"]); iif != "" && iif != "<nil>" {
+				args = append(args, "iif", iif)
+			}
+			args = append(args, "fwmark", fmt.Sprintf("0x%x", mark), "lookup", fmt.Sprint(plan.Resources.MACTable))
+			if _, err := runner.Output(ctx, "ip", append([]string{family}, args...)...); err != nil {
 				return fmt.Errorf("delete Steer MAC policy rule: %w", err)
 			}
 		}

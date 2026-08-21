@@ -3,14 +3,10 @@ package openwrt
 
 import (
 	"fmt"
-	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/gsh20040816/openwrt-steer/steer-openwrt/internal/compiler"
 )
-
-var validDevice = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,15}$`)
 
 var nftNonGlobalIPv4 = []string{
 	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
@@ -31,32 +27,25 @@ var nftGlobalExceptionsIPv6 = []string{
 	"2001:4:112::/48", "2001:20::/28", "2001:30::/28",
 }
 
-func RenderFirewall(plan compiler.Plan, requestedDevices []string) (string, error) {
-	devices := append([]string(nil), requestedDevices...)
-	sort.Strings(devices)
-	devices = uniqueStrings(devices)
-	if len(devices) == 0 {
-		return "", fmt.Errorf("managed firewall zones resolve to no ingress devices")
-	}
-	for _, device := range devices {
-		if !validDevice.MatchString(device) {
-			return "", fmt.Errorf("invalid managed device %q", device)
-		}
-	}
-
+func RenderFirewall(plan compiler.Plan) (string, error) {
 	var lines []string
 	add := func(values ...string) { lines = append(lines, values...) }
-	add("table inet steer {", renderSet("managed_devices", "ifname", quoteAll(devices)),
+	add("table inet steer {",
 		renderSet("non_global_ipv4", "ipv4_addr", nftNonGlobalIPv4),
 		renderSet("global_exceptions_ipv4", "ipv4_addr", nftGlobalExceptionsIPv4),
 		renderSet("non_global_ipv6", "ipv6_addr", nftNonGlobalIPv6),
 		renderSet("global_exceptions_ipv6", "ipv6_addr", nftGlobalExceptionsIPv6),
 		"\tchain dns_prerouting {", "\t\ttype nat hook prerouting priority dstnat - 2; policy accept;")
+	add("\t\tiifname \"steer0\" return",
+		fmt.Sprintf("\t\tmeta mark 0x%x return", plan.Resources.AutoRedirectOutputMark),
+	)
 	for _, binding := range plan.Resources.MACBindings {
-		add(fmt.Sprintf("\t\tiifname @managed_devices ether saddr %s meta l4proto { tcp, udp } th dport 53 counter redirect to :%d", binding.Address, binding.DNSPort))
+		add(fmt.Sprintf("\t\tether saddr %s meta l4proto { tcp, udp } th dport 53 counter redirect to :%d", binding.Address, binding.DNSPort))
 	}
-	add(fmt.Sprintf("\t\tiifname @managed_devices meta l4proto { tcp, udp } th dport 53 counter redirect to :%d", plan.Resources.DNSPort), "\t}",
+	add(
+		fmt.Sprintf("\t\tmeta l4proto { tcp, udp } th dport 53 counter redirect to :%d", plan.Resources.DNSPort), "\t}",
 		"\tchain dns_output {", "\t\ttype nat hook output priority mangle - 2; policy accept;",
+		"\t\toifname \"steer0\" return",
 		fmt.Sprintf("\t\tmeta mark 0x%x counter return", plan.Resources.AutoRedirectOutputMark),
 		fmt.Sprintf("\t\tmeta nfproto ipv4 meta l4proto { tcp, udp } th dport 53 counter dnat ip to 127.0.0.1:%d", plan.Resources.DNSPort),
 		fmt.Sprintf("\t\tmeta nfproto ipv6 meta l4proto { tcp, udp } th dport 53 counter dnat ip6 to [::1]:%d", plan.Resources.DNSPort), "\t}",
@@ -67,13 +56,15 @@ func RenderFirewall(plan compiler.Plan, requestedDevices []string) (string, erro
 		fmt.Sprintf("\t\tmeta l4proto udp udp dport 123 counter meta mark set 0x%x", plan.Resources.AutoRedirectOutputMark), "\t}")
 	if len(plan.Resources.MACBindings) > 0 {
 		add("\tchain mac_tproxy {", "\t\ttype filter hook prerouting priority mangle - 2; policy accept;",
-			"\t\tiifname @managed_devices meta l4proto { tcp, udp } th dport 53 return",
-			"\t\tiifname @managed_devices fib daddr type { local, broadcast, anycast, multicast } return",
-			"\t\tiifname @managed_devices ip daddr @global_exceptions_ipv4 goto mac_eligible",
-			"\t\tiifname @managed_devices ip6 daddr @global_exceptions_ipv6 goto mac_eligible",
-			"\t\tiifname @managed_devices ip daddr @non_global_ipv4 return",
-			"\t\tiifname @managed_devices ip6 daddr @non_global_ipv6 return",
-			"\t\tiifname @managed_devices goto mac_eligible", "\t}", "\tchain mac_eligible {")
+			"\t\tiifname \"steer0\" return",
+			fmt.Sprintf("\t\tmeta mark 0x%x return", plan.Resources.AutoRedirectOutputMark),
+			"\t\tmeta l4proto { tcp, udp } th dport 53 return",
+			"\t\tfib daddr type { local, broadcast, anycast, multicast } return",
+			"\t\tip daddr @global_exceptions_ipv4 goto mac_eligible",
+			"\t\tip6 daddr @global_exceptions_ipv6 goto mac_eligible",
+			"\t\tip daddr @non_global_ipv4 return",
+			"\t\tip6 daddr @non_global_ipv6 return",
+			"\t\tgoto mac_eligible", "\t}", "\tchain mac_eligible {")
 		for _, binding := range plan.Resources.MACBindings {
 			add(fmt.Sprintf("\t\tether saddr %s meta l4proto { tcp, udp } meta mark set 0x%x tproxy to :%d counter accept", binding.Address, plan.Resources.MACMark, binding.TProxyPort))
 		}
@@ -83,22 +74,18 @@ func RenderFirewall(plan compiler.Plan, requestedDevices []string) (string, erro
 	return strings.Join(lines, "\n"), nil
 }
 
-func RenderMACRoutes(plan compiler.Plan, devices []string) []RouteCommand {
+func RenderMACRoutes(plan compiler.Plan) []RouteCommand {
 	if len(plan.Resources.MACBindings) == 0 {
 		return nil
 	}
-	devices = uniqueStrings(append([]string(nil), devices...))
-	sort.Strings(devices)
 	commands := []RouteCommand{
 		{Family: "-4", Args: []string{"route", "replace", "local", "0.0.0.0/0", "dev", "lo", "table", fmt.Sprint(plan.Resources.MACTable)}},
 		{Family: "-6", Args: []string{"route", "replace", "local", "::/0", "dev", "lo", "table", fmt.Sprint(plan.Resources.MACTable)}},
 	}
-	for _, device := range devices {
-		commands = append(commands,
-			RouteCommand{Family: "-4", Args: []string{"rule", "add", "priority", fmt.Sprint(plan.Resources.MACPriority), "iif", device, "fwmark", fmt.Sprintf("0x%x", plan.Resources.MACMark), "lookup", fmt.Sprint(plan.Resources.MACTable)}},
-			RouteCommand{Family: "-6", Args: []string{"rule", "add", "priority", fmt.Sprint(plan.Resources.MACPriority), "iif", device, "fwmark", fmt.Sprintf("0x%x", plan.Resources.MACMark), "lookup", fmt.Sprint(plan.Resources.MACTable)}},
-		)
-	}
+	commands = append(commands,
+		RouteCommand{Family: "-4", Args: []string{"rule", "add", "priority", fmt.Sprint(plan.Resources.MACPriority), "fwmark", fmt.Sprintf("0x%x", plan.Resources.MACMark), "lookup", fmt.Sprint(plan.Resources.MACTable)}},
+		RouteCommand{Family: "-6", Args: []string{"rule", "add", "priority", fmt.Sprint(plan.Resources.MACPriority), "fwmark", fmt.Sprintf("0x%x", plan.Resources.MACMark), "lookup", fmt.Sprint(plan.Resources.MACTable)}},
+	)
 	return commands
 }
 
@@ -109,20 +96,4 @@ type RouteCommand struct {
 
 func renderSet(name, kind string, values []string) string {
 	return fmt.Sprintf("\tset %s {\n\t\ttype %s\n\t\tflags interval\n\t\tauto-merge\n\t\telements = { %s }\n\t}", name, kind, strings.Join(values, ", "))
-}
-func quoteAll(values []string) []string {
-	result := make([]string, len(values))
-	for index, value := range values {
-		result[index] = fmt.Sprintf("%q", value)
-	}
-	return result
-}
-func uniqueStrings(values []string) []string {
-	result := values[:0]
-	for _, value := range values {
-		if len(result) == 0 || result[len(result)-1] != value {
-			result = append(result, value)
-		}
-	}
-	return result
 }

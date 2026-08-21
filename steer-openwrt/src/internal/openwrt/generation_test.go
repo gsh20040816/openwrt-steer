@@ -3,7 +3,6 @@ package openwrt
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,10 +21,6 @@ func (runner *prepareRunner) Output(_ context.Context, name string, args ...stri
 	switch {
 	case strings.HasSuffix(call, "sing-box version"):
 		return []byte("sing-box version 1.13.18\nTags: with_quic,with_utls\n"), nil
-	case call == "ubus call network.interface.lan status":
-		return []byte(`{"up":true,"l3_device":"br-lan"}`), nil
-	case call == "ip -json -4 route show default", call == "ip -json -6 route show default":
-		return []byte(`[{"dev":"wan"}]`), nil
 	case strings.Contains(call, "sing-box check -c") || strings.Contains(call, "nft -c -f"):
 		if runner.failCheck {
 			return nil, fmt.Errorf("injected native check failure")
@@ -43,25 +38,14 @@ func TestPrepareGenerationPerformsAllPreMutationChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &prepareRunner{}
-	generation, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)})
+	generation, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"steer.uci", "bundle.json", "plan.json", "sing-box.json", "environment.json", "firewall.nft"} {
+	for _, name := range []string{"steer.uci", "bundle.json", "plan.json", "sing-box.json", "firewall.nft"} {
 		if _, err := os.Stat(filepath.Join(generation.Directory, name)); err != nil {
 			t.Fatalf("missing %s: %v", name, err)
 		}
-	}
-	content, err := os.ReadFile(filepath.Join(generation.Directory, "environment.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var environment Environment
-	if err := json.Unmarshal(content, &environment); err != nil {
-		t.Fatal(err)
-	}
-	if environment.WANDevice != "wan" {
-		t.Fatalf("unexpected environment: %#v", environment)
 	}
 	joined := strings.Join(runner.calls, "\n")
 	for _, required := range []string{"sing-box version", "sing-box check -c", "nft -c -f"} {
@@ -78,7 +62,7 @@ func TestPrepareGenerationRemovesRejectedCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &prepareRunner{failCheck: true}
-	if _, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)}); err == nil {
+	if _, err := PrepareGeneration(context.Background(), runner, PrepareOptions{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"}); err == nil {
 		t.Fatal("native check failure accepted")
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "run", "generations"))

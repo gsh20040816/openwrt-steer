@@ -14,7 +14,7 @@ import (
 )
 
 var optionNames = map[string]map[string]bool{
-	"steer":       set("schema_version", "enabled", "managed_zone", "log_level", "probe_url", "dns_cache_capacity", "dns_cache_persist", "dns_optimistic_cache"),
+	"steer":       set("schema_version", "enabled", "log_level", "probe_url", "dns_cache_capacity", "dns_cache_persist", "dns_optimistic_cache"),
 	"bootstrap":   set("protocol", "server", "server_port", "strategy"),
 	"node":        set("enabled", "name", "type", "server", "server_port", "uuid", "flow", "packet_encoding", "password", "server_ports", "hop_interval", "obfs_type", "obfs_password", "up_mbps", "down_mbps", "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint"),
 	"route":       set("enabled", "name", "kind", "node"),
@@ -24,7 +24,7 @@ var optionNames = map[string]map[string]bool{
 }
 
 var listNames = map[string]map[string]bool{
-	"steer": set("managed_zone", "probe_url"),
+	"steer": set("probe_url"),
 	"node":  set("server_ports"),
 	"rule":  set("inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
 }
@@ -133,7 +133,7 @@ func decodeMain(s uci.Section) (model.Main, error) {
 		probes = []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}
 	}
 	return model.Main{ID: s.ID, SchemaVersion: schema, Enabled: enabled,
-		ManagedZones: clone(s.Lists["managed_zone"]), LogLevel: value(s, "log_level", "warn"),
+		LogLevel: value(s, "log_level", "warn"),
 		ProbeURLs: probes, DNSCacheCapacity: capacity, DNSCachePersist: persist,
 		DNSOptimisticCache: optimistic}, nil
 }

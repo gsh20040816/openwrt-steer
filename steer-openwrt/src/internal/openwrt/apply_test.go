@@ -24,12 +24,6 @@ func (runner *applyRunner) Output(_ context.Context, name string, args ...string
 	switch {
 	case strings.HasSuffix(call, "sing-box version"):
 		return []byte("sing-box version 1.13.18\nTags: with_quic,with_utls\n"), nil
-	case call == `ubus call uci get {"config":"firewall","type":"zone"}`:
-		return []byte(`{"values":{"cfg":{"name":"lan","network":["lan"]}}}`), nil
-	case call == "ubus call network.interface.lan status":
-		return []byte(`{"up":true,"l3_device":"br-lan"}`), nil
-	case call == "ip -json -4 route show default", call == "ip -json -6 route show default":
-		return []byte(`[{"dev":"wan"}]`), nil
 	case strings.Contains(call, "sing-box check -c"), strings.Contains(call, "nft -c -f"):
 		return nil, nil
 	case call == "/test/init stop", call == "/test/init start", call == "/usr/bin/env STEER_USE_CURRENT=1 /test/init start":
@@ -67,7 +61,7 @@ func TestApplyCommitsHealthyCandidateWithoutRunningConfiguredProbes(t *testing.T
 	configPath, runDirectory := writeApplyFixture(t, root, config, nil)
 	runner := &applyRunner{}
 	result, err := Apply(context.Background(), runner, ApplyOptions{
-		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)},
+		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"},
 		InitScript: "/test/init", HealthTimeout: time.Second,
 		CheckListeners: func(ports []int) error {
 			if len(ports) != 1 || ports[0] != 1053 {
@@ -99,7 +93,7 @@ func TestApplyHealthFailurePreservesCandidateAndFailureScene(t *testing.T) {
 	configPath, runDirectory := writeApplyFixture(t, root, minimalConfig, nil)
 	runner := &applyRunner{}
 	result, err := Apply(context.Background(), runner, ApplyOptions{
-		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)},
+		Prepare:    PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"},
 		InitScript: "/test/init", HealthTimeout: time.Millisecond,
 		CheckListeners: func([]int) error { return errors.New("listener missing") },
 	})
@@ -133,7 +127,7 @@ func TestApplyBacksUpHealthyCurrentAndRollbackConsumesBackup(t *testing.T) {
 	backupPath := filepath.Join(root, "state", "rollback.uci")
 	runner := &applyRunner{}
 	options := ApplyOptions{
-		Prepare:        PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", FirewallConfig: writeFirewallConfig(t, root)},
+		Prepare:        PrepareOptions{ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"},
 		InitScript:     "/test/init",
 		BackupPath:     backupPath,
 		HealthTimeout:  time.Second,

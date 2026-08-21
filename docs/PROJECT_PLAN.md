@@ -132,7 +132,7 @@ Steer 按当前配置引用的分类把包内数据转换为 `/var/lib/steer` �
 明确失败并保留当前运行代。数据只提供匹配集合，不能定义规则顺序、DNS Profile、Route 或
 fallback。
 
-DNS 接管不能按 private/direct 源地址集合猜测受管客户端。Steer 必须依据用户选择的 firewall zone 及其实际设备建立双栈接管边界，并用独立测试覆盖公网 IPv6 GUA 客户端。
+DNS 接管不再猜测或解析受管客户端。Steer 使用全局双栈入口接管 TCP/UDP 53，并用独立测试覆盖公网 IPv6 GUA 客户端。
 
 ## 6. 核心语义模型
 
@@ -242,7 +242,7 @@ UCI 字段固定为 `source_mac_address`，与 sing-box 1.14 的原生规则字�
 
 第一版界面采用以下入口：
 
-- Overview：运行状态、受管 firewall zone、Bootstrap DNS 和收起的运行高级参数；
+- Overview：运行状态、全局入口范围、Bootstrap DNS 和收起的运行高级参数；
 - Rules：可拖动的统一规则表，行内只呈现“匹配、DNS Profile、逻辑出口”，其余匹配字段进入编辑框；
 - Local Proxies：具名 SOCKS、HTTP 或 mixed 入口，不直接绑定节点；
 - DNS：DNS Profile 与上游 DNS Server 分成两个对象表；
@@ -370,11 +370,11 @@ SSR、Hysteria1 和 WireGuard 不作为默认公网抗审查节点协议目标�
 - 资源支持范围必须由真实设备和代表性压力测试决定。
 - 低配设备可以使用收缩后的缓存、并发和诊断预算；高配设备应能扩大这些预算。
 
-### 12.2 Firewall zone
+### 12.2 全局透明代理边界
 
-安装向导由用户明确选择需要接管的 firewall zone，例如 LAN、Guest、IoT。未托管 zone 必须明确显示为“不受 Steer 管理”。
-
-受管客户端必须根据 OpenWrt zone 解析得到的实际 ingress interface/device 识别，不能通过“源地址是否属于私有地址集合”间接推断。该规则同时适用于 IPv4、ULA、link-local 和动态前缀委派得到的公网 IPv6 GUA。DNS 重定向还必须显式排除 WAN ingress，覆盖 UDP 与 TCP 53，并在接口重建或 IPv6 前缀变化后保持成立。
+Steer 不再解析或维护 OpenWrt firewall zone。启用 Steer 后，DNS 规则在 `inet` 表中全局接管所有入口和
+路由器自身的 TCP/UDP 53；这意味着 WAN 入站 DNS 也会被重定向，风险由用户明确承担。源 MAC 规则同样
+使用全局 ingress，不绑定接口；普通私网、本地、广播和组播目的地仍按既有排除语义绕行。
 
 源 MAC 分类必须位于同一个 `table inet` 接管边界中，在协议族判断前用 `ether saddr` 选择专用
 入口；IPv4 与 IPv6 不得生成两套语义不同的设备规则。未命中 MAC 专用入口的流量继续进入通用

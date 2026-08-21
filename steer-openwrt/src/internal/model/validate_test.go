@@ -5,7 +5,7 @@ import "testing"
 
 func validIntent() Intent {
 	return Intent{
-		Main:        Main{ID: "main", SchemaVersion: SchemaVersion, Enabled: true, ManagedZones: []string{"lan"}, LogLevel: "warn", ProbeURLs: []string{"https://example.com/"}},
+		Main:        Main{ID: "main", SchemaVersion: SchemaVersion, Enabled: true, LogLevel: "warn", ProbeURLs: []string{"https://example.com/"}},
 		Bootstrap:   Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:       []Node{{ID: "proxy", Enabled: true, Type: "vless", Server: "proxy.example", ServerPort: 443, UUID: "00000000-0000-4000-8000-000000000001", PacketEncoding: "xudp"}},
 		Routes:      []Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy_route", Enabled: true, Kind: "single", Node: "proxy"}, {ID: "block", Enabled: true, Kind: "block"}},

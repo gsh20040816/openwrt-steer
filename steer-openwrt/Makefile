@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -39,6 +39,29 @@ endef
 
 define Package/steer-openwrt/conffiles
 /etc/config/steer
+endef
+
+define Package/steer-openwrt/postinst
+#!/bin/sh
+# One release transition only: remove this block entirely when schema 6 ships.
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+
+config=/etc/config/steer
+[ -f "$$config" ] || exit 0
+schema="$$(uci -q get steer.main.schema_version 2>/dev/null)"
+case "$$schema" in
+	4)
+		uci -q delete steer.main.managed_zone
+		uci set steer.main.schema_version='5'
+		uci commit steer
+		;;
+	5)
+		;;
+	*)
+		echo "steer: unsupported existing schema '$$schema'; refusing automatic migration" >&2
+		exit 1
+		;;
+esac
 endef
 
 define Build/Prepare

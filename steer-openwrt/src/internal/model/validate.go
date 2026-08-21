@@ -12,7 +12,6 @@ import (
 
 var (
 	validID       = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
-	validZone     = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
 	validMAC      = regexp.MustCompile(`(?i)^([0-9a-f]{2}:){5}[0-9a-f]{2}$`)
 	validGeo      = regexp.MustCompile(`^[a-z0-9_!.\-]+(@[a-z0-9_!.\-]+)?$`)
 	validDuration = regexp.MustCompile(`^[1-9][0-9]*(ms|s|m|h)$`)
@@ -28,18 +27,10 @@ func Validate(intent Intent) Validation {
 	}
 
 	if intent.Main.SchemaVersion != SchemaVersion {
-		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 4 is supported")
+		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 5 is supported")
 	}
 	if !validID.MatchString(intent.Main.ID) {
 		err("INVALID_ID", "steer", intent.Main.ID, "id", "invalid section ID")
-	}
-	if len(intent.Main.ManagedZones) == 0 && intent.Main.Enabled {
-		err("NO_MANAGED_ZONE", "steer", intent.Main.ID, "managed_zone", "enabled Steer requires at least one managed firewall zone")
-	}
-	for _, zone := range intent.Main.ManagedZones {
-		if !validZone.MatchString(zone) {
-			err("INVALID_MANAGED_ZONE", "steer", intent.Main.ID, "managed_zone", "invalid firewall zone: "+zone)
-		}
 	}
 	if !oneOf(intent.Main.LogLevel, "error", "warn", "info", "debug") {
 		err("INVALID_LOG_LEVEL", "steer", intent.Main.ID, "log_level", "log level must be error, warn, info or debug")

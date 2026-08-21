@@ -56,7 +56,7 @@ procd 直接监督发行版 `/usr/bin/sing-box`。Steer 不常驻，不再增加
 Steer 不 fork、不复制、不替换 sing-box。后续支持 1.14 必须作为显式能力基线变更处理，不能
 把两个配置后端暴露给用户。
 
-## schema 4
+## schema 5
 
 公开 UCI 只包含以下对象：
 
@@ -182,7 +182,7 @@ HTTPS probe 已退出 Apply，只能由用户显式运行 `steer probe`。该命
 - 发行版 `sing-box`：上游二进制。
 
 不创建独立 `steer-core` APK。`steer-openwrt` 必须通过包管理器正确 replace/conflict 旧
-`steer`。切包时停止旧服务并保留 `/etc/config/steer`；只有 schema 4 preflight 通过才启动新
+`steer`。切包时停止旧服务并保留 `/etc/config/steer`；只有 schema 5 preflight 通过才启动新
 服务。失败时不恢复默认配置、不运行旧后端、不自动降级 APK。
 
 ## LuCI

@@ -20,16 +20,14 @@ type PrepareOptions struct {
 	StateDirectory string
 	SingBoxBinary  string
 	NFTBinary      string
-	FirewallConfig string
 	SeedDirectory  string
 	GeoViewBinary  string
 }
 
 type Generation struct {
-	Directory   string          `json:"directory"`
-	Bundle      compiler.Bundle `json:"bundle"`
-	Environment Environment     `json:"environment"`
-	Firewall    string          `json:"-"`
+	Directory string          `json:"directory"`
+	Bundle    compiler.Bundle `json:"bundle"`
+	Firewall  string          `json:"-"`
 }
 
 func PrepareGeneration(ctx context.Context, runner Runner, options PrepareOptions) (generation Generation, returnErr error) {
@@ -56,11 +54,7 @@ func PrepareGeneration(ctx context.Context, runner Runner, options PrepareOption
 	if !capabilityReport.OK {
 		return Generation{}, fmt.Errorf("sing-box capability check failed: %v", capabilityReport.Errors)
 	}
-	environment, err := ResolveEnvironmentWithConfig(ctx, runner, intent.Main.ManagedZones, options.FirewallConfig)
-	if err != nil {
-		return Generation{}, err
-	}
-	firewall, err := RenderFirewall(bundle.Plan, environment.ManagedDevices)
+	firewall, err := RenderFirewall(bundle.Plan)
 	if err != nil {
 		return Generation{}, err
 	}
@@ -94,7 +88,7 @@ func PrepareGeneration(ctx context.Context, runner Runner, options PrepareOption
 		mode  os.FileMode
 	}{
 		{"steer.uci", configBytes, 0o600}, {"bundle.json", bundle, 0o600}, {"plan.json", bundle.Plan, 0o600},
-		{"sing-box.json", bundle.SingBox, 0o600}, {"environment.json", environment, 0o600}, {"firewall.nft", []byte(firewall), 0o600},
+		{"sing-box.json", bundle.SingBox, 0o600}, {"firewall.nft", []byte(firewall), 0o600},
 	}
 	for _, file := range files {
 		var content []byte
@@ -119,7 +113,7 @@ func PrepareGeneration(ctx context.Context, runner Runner, options PrepareOption
 	if _, err := runner.Output(ctx, options.NFTBinary, "-c", "-f", filepath.Join(directory, "firewall.nft")); err != nil {
 		return Generation{}, fmt.Errorf("nftables native check failed: %w", err)
 	}
-	return Generation{Directory: directory, Bundle: bundle, Environment: environment, Firewall: firewall}, nil
+	return Generation{Directory: directory, Bundle: bundle, Firewall: firewall}, nil
 }
 
 func normalizePrepareOptions(options PrepareOptions) PrepareOptions {
@@ -137,9 +131,6 @@ func normalizePrepareOptions(options PrepareOptions) PrepareOptions {
 	}
 	if options.NFTBinary == "" {
 		options.NFTBinary = "/usr/sbin/nft"
-	}
-	if options.FirewallConfig == "" {
-		options.FirewallConfig = "/etc/config/firewall"
 	}
 	return options
 }

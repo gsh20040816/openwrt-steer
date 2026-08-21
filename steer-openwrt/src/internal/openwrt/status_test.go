@@ -3,10 +3,23 @@ package openwrt
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+type fakeRunner map[string]string
+
+func (runner fakeRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	key := name + " " + strings.Join(args, " ")
+	value, ok := runner[key]
+	if !ok {
+		return nil, fmt.Errorf("unexpected command: %s", key)
+	}
+	return []byte(value), nil
+}
 
 func TestStatusReportsRunningGenerationWhenCandidateIsInvalid(t *testing.T) {
 	directory := t.TempDir()

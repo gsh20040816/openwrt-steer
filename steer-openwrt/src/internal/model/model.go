@@ -3,7 +3,7 @@
 // Package model defines Steer's platform-neutral canonical intent.
 package model
 
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 type Intent struct {
 	Main         Main         `json:"main"`
@@ -19,7 +19,6 @@ type Main struct {
 	ID                 string   `json:"id"`
 	SchemaVersion      int      `json:"schema_version"`
 	Enabled            bool     `json:"enabled"`
-	ManagedZones       []string `json:"managed_zones"`
 	LogLevel           string   `json:"log_level"`
 	ProbeURLs          []string `json:"probe_urls"`
 	DNSCacheCapacity   int      `json:"dns_cache_capacity,omitempty"`

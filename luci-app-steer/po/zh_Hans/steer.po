@@ -264,12 +264,6 @@ msgstr "日志级别"
 msgid "Loopback, private-use, shared, link-local, documentation, benchmarking, discard-only and multicast ranges. Globally reachable special-purpose exceptions remain eligible for user rules. The NTP exception applies only to traffic created by the router; LAN client UDP/123 still follows user rules."
 msgstr "环回、私有、共享、链路本地、文档、基准测试、仅丢弃和组播地址范围会绕行。全球可达的特殊用途例外仍可匹配用户规则。NTP 例外仅适用于路由器自身产生的流量；LAN 客户端的 UDP/123 仍遵循用户规则。"
 
-msgid "Managed firewall zones"
-msgstr "管理的防火墙区域"
-
-msgid "Managed zones"
-msgstr "受管区域"
-
 msgid "Match"
 msgstr "匹配"
 
@@ -629,3 +623,9 @@ msgstr "等待已提交的 Steer 配置重载超时。"
 
 msgid "uTLS fingerprint"
 msgstr "uTLS 指纹"
+
+msgid "Ingress scope"
+msgstr "入口范围"
+
+msgid "All interfaces"
+msgstr "所有接口"

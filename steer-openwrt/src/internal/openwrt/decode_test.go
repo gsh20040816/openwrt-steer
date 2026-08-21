@@ -10,9 +10,8 @@ import (
 
 const minimalConfig = `
 config steer 'main'
-	option schema_version '4'
+	option schema_version '5'
 	option enabled '1'
-	list managed_zone 'lan'
 	option log_level 'warn'
 
 config bootstrap 'bootstrap'
@@ -41,7 +40,7 @@ func TestDecodeCanonicalIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if intent.Main.SchemaVersion != 4 || !intent.Main.Enabled || len(intent.Main.ProbeURLs) != 3 {
+	if intent.Main.SchemaVersion != 5 || !intent.Main.Enabled || len(intent.Main.ProbeURLs) != 3 {
 		t.Fatalf("unexpected main: %#v", intent.Main)
 	}
 	if validation := model.Validate(intent); !validation.OK {
@@ -67,8 +66,8 @@ func TestDecodeRejectsImplementationAndLegacyFields(t *testing.T) {
 }
 
 func TestDecodeRejectsWrongScalarShape(t *testing.T) {
-	config := strings.Replace(minimalConfig, "list managed_zone 'lan'", "option managed_zone 'lan'", 1)
+	config := strings.Replace(minimalConfig, "option log_level 'warn'", "option managed_zone 'lan'\n\toption log_level 'warn'", 1)
 	if _, err := Decode(strings.NewReader(config)); err == nil {
-		t.Fatal("managed_zone option must be rejected")
+		t.Fatal("removed managed_zone option must be rejected")
 	}
 }

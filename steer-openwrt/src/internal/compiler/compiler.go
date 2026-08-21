@@ -19,11 +19,10 @@ import (
 const (
 	TunInterface = "steer0"
 	DNSPort      = 1053
-	// MAC TPROXY packets deliberately reuse the auto_redirect output mark so
-	// sing-box's later nft chains leave them alone. The OpenWrt adapter installs
-	// local-table rules scoped by managed iif, so sing-box's own local outbounds
-	// carrying this mark still bypass normally.
-	MACMark                = AutoRedirectOutputMark
+	// MAC policy packets need a distinct mark now that their policy rule is global.
+	// Reusing the sing-box output mark would route locally generated auto-redirect
+	// traffic through the MAC table before sing-box's own rules can handle it.
+	MACMark                = 0x2026
 	MACTable               = 2023
 	MACPriority            = 8999
 	TunTable               = 2022
@@ -60,7 +59,6 @@ type Options struct {
 
 type Plan struct {
 	SchemaVersion        int          `json:"schema_version"`
-	ManagedZones         []string     `json:"managed_zones"`
 	RequiredCapabilities []string     `json:"required_capabilities"`
 	Resources            Resources    `json:"resources"`
 	DNSPaths             []DNSPath    `json:"dns_paths"`
@@ -140,7 +138,6 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 	dnsPaths := collectDNSPaths(intent)
 	plan := Plan{
 		SchemaVersion:        model.SchemaVersion,
-		ManagedZones:         append([]string(nil), intent.Main.ManagedZones...),
 		RequiredCapabilities: requiredCapabilities(intent, bindings),
 		Resources: Resources{
 			TunInterface: TunInterface,

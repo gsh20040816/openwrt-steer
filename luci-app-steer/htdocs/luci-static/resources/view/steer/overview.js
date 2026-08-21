@@ -13,7 +13,7 @@ function renderPlan(result) {
 		return E('div', { 'class': 'alert-message warning' }, result?.error || _('Execution plan is unavailable.'));
 	let summary = [
 		[ _('Schema'), String(plan.schema_version) ],
-		[ _('Managed zones'), (plan.managed_zones || []).join(', ') ],
+		[ _('Ingress scope'), _('All interfaces') ],
 		[ _('TUN interface'), plan.resources?.tun_interface || '-' ],
 		[ _('DNS paths'), String((plan.dns_paths || []).length) ],
 		[ _('Geo rule sets'), String((plan.geo_rule_sets || []).length) ]
@@ -29,12 +29,12 @@ function renderPlan(result) {
 
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), uci.load('firewall'), steer.status(), steer.plan() ]);
+		return Promise.all([ uci.load('steer'), steer.status(), steer.plan() ]);
 	},
 
 	render: function(data) {
 		let m, s, o;
-		const status = data[2];
+		const status = data[1];
 		steer.loadStyle();
 
 		m = new form.Map('steer', _('Steer'), _('Compile explicit routing and DNS intent into one verified sing-box execution plan.'));
@@ -46,10 +46,6 @@ return view.extend({
 		o = s.taboption('general', form.Flag, 'enabled', _('Enable Steer'));
 		o.rmempty = false;
 		o.description = _('A disabled configuration stops Steer and removes its runtime resources when applied.');
-
-		o = s.taboption('general', form.DynamicList, 'managed_zone', _('Managed firewall zones'));
-		o.rmempty = false;
-		uci.sections('firewall', 'zone').forEach((zone) => { if (zone.name) o.value(zone.name, zone.name); });
 
 		o = s.taboption('general', form.ListValue, 'log_level', _('Log level'));
 		[ 'error', 'warn', 'info', 'debug' ].forEach((level) => o.value(level, level));
@@ -81,7 +77,7 @@ return view.extend({
 		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
 		o.rmempty = false;
 
-		return m.render().then((formNode) => E([], [ steer.renderStatus(status), renderPlan(data[3]), formNode ]));
+		return m.render().then((formNode) => E([], [ steer.renderStatus(status), renderPlan(data[2]), formNode ]));
 	},
 
 	handleSaveApply: function(ev, mode) { return steer.apply(this, ev, mode); }

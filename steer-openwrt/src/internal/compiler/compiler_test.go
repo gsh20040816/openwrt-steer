@@ -12,7 +12,7 @@ import (
 
 func representativeIntent() model.Intent {
 	return model.Intent{
-		Main:         model.Main{ID: "main", SchemaVersion: 4, Enabled: true, ManagedZones: []string{"lan"}, LogLevel: "warn", ProbeURLs: []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}, DNSCacheCapacity: 4096},
+		Main:         model.Main{ID: "main", SchemaVersion: 5, Enabled: true, LogLevel: "warn", ProbeURLs: []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}, DNSCacheCapacity: 4096},
 		Bootstrap:    model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, UUID: "00000000-0000-4000-8000-000000000001", Flow: "xtls-rprx-vision", PacketEncoding: "xudp", TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}},
 		Routes:       []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy", Enabled: true, Kind: "single", Node: "node"}, {ID: "block", Enabled: true, Kind: "block"}},
@@ -55,6 +55,9 @@ func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
 	bundle := Compile(representativeIntent())
 	if len(bundle.Plan.Resources.MACBindings) != 1 || bundle.Plan.Resources.MACMark == 0 {
 		t.Fatalf("MAC shim not planned: %#v", bundle.Plan.Resources)
+	}
+	if bundle.Plan.Resources.MACMark == bundle.Plan.Resources.AutoRedirectOutputMark {
+		t.Fatalf("global MAC policy mark collides with sing-box output mark: %#v", bundle.Plan.Resources)
 	}
 	encoded, _ := json.Marshal(bundle.SingBox)
 	text := string(encoded)

@@ -81,18 +81,6 @@ if grep -Eq 'fakeip|udp.*443.*reject|smartdns' "$TEST_DIR/representative-sing-bo
 fi
 
 cp "$REPO_DIR/tests/fixtures/m1-openwrt-direct-valid/steer" /etc/config/steer
-ip link add br-steer type bridge
-ip link set br-steer up
-uci set firewall.steertest='zone'
-uci set firewall.steertest.name='steertest'
-uci add_list firewall.steertest.device='br-steer'
-uci set firewall.steertest.input='ACCEPT'
-uci set firewall.steertest.output='ACCEPT'
-uci set firewall.steertest.forward='ACCEPT'
-uci commit firewall
-uci -q delete steer.main.managed_zone
-uci add_list steer.main.managed_zone='steertest'
-uci commit steer
 
 # Package installation/boot establishes the procd service and its config
 # trigger before LuCI can edit an already running configuration.
@@ -138,8 +126,8 @@ if grep -Eq 'udp dport 443.*(drop|reject)' "$TEST_DIR/steer.nft"; then
 	echo 'Steer blocks QUIC instead of routing it.' >&2
 	exit 1
 fi
-ip -4 rule show | grep -q '8999:.*fwmark 0x2024.*iif br-steer.*lookup 2023'
-ip -6 rule show | grep -q '8999:.*fwmark 0x2024.*iif br-steer.*lookup 2023'
+ip -4 rule show | grep -Eq '8999:.*fwmark 0x2026.*lookup 2023'
+ip -6 rule show | grep -Eq '8999:.*fwmark 0x2026.*lookup 2023'
 nslookup openwrt.org 1.1.1.1 > "$TEST_DIR/dns.txt"
 grep -q 'Address' "$TEST_DIR/dns.txt"
 

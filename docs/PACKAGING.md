@@ -35,8 +35,10 @@
 不创建独立 `steer-core` APK。平台中立的 Go 包与 OpenWrt adapter 编译进同一个
 `steer-openwrt` 二进制；这不妨碍后续其他平台复用源码，也不制造没有独立生命周期价值的包。
 
-`steer-openwrt` 必须声明替换并冲突旧 `steer`，保留 `/etc/config/steer`，且只在 schema 4
-preflight 通过时启用服务。包升级不承担配置迁移或 APK 自动降级。
+`steer-openwrt` 必须声明替换并冲突旧 `steer`，保留 `/etc/config/steer`，且只在 schema 5
+preflight 通过时启用服务。当前 release 只在 post-upgrade 中执行一次精确的 schema 4→5
+迁移（删除废弃的 `managed_zone` 并提交 UCI）；schema 5 原样保留，未知 schema 直接失败。
+schema 6 发布时必须删除这段迁移代码，不保留通用兼容层，也不自动降级 APK。
 
 ## 发布约束
 

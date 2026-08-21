@@ -17,7 +17,7 @@ x86 固件镜像的默认包，拒绝 target-profile firmware，并在单包构�
 `=y` kmod；包含 kmod 时必须先构建当前配置的 target kernel。构建只提交
 `luci-app-steer` 这一个完整依赖闭包。
 
-`steer-openwrt/src/internal` 的 Go 测试直接验证 schema 4 语义模型、编译器和 OpenWrt adapter。首批回归用例覆盖：
+`steer-openwrt/src/internal` 的 Go 测试直接验证 schema 5 语义模型、编译器和 OpenWrt adapter。首批回归用例覆盖：
 
 - 最小直连配置；
 - 启用规则的悬空引用；
@@ -30,7 +30,7 @@ x86 固件镜像的默认包，拒绝 target-profile firmware，并在单包构�
 - 源 MAC 规则生成独立的双栈 DNS/TPROXY 入口，DNS 与 Route 投影保留同一客户端上下文；
 - 严格 IPv4/IPv6 字面量与 CIDR 校验，包括压缩 IPv6 和非法冒号序列；
 - 仅连接阶段规则不生成空 DNS 规则；
-- firewall zone 实际设备去重、双栈 DNS/MAC shim 和空设备拒绝；
+- 全局双栈 DNS/MAC shim、旧策略规则清理和 MAC mark 隔离；
 - Apply 串行锁、候选预检、本地健康检查、失败现场、单份健康 UCI 备份与一次性 rollback；
 - HTTPS probe 与 Apply 解耦，只作为显式手动诊断。
 

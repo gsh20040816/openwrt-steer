@@ -20,7 +20,7 @@ runtime 已删除，不构成兼容接口。
 - 只能存在一条启用的 Default；LuCI 将它固定在所有普通规则之后，只允许选择 DNS Profile 和 Route；
 - 启用对象出现悬空引用时拒绝编译，不能静默落入 Default；
 - 禁用规则保留但不进入生成配置；
-- 启用透明代理时必须明确选择受管 firewall zone；
+- 启用透明代理时使用全局 ingress；不依赖 firewall zone；
 - Bootstrap DNS 必须使用 IP 字面量直连；每个实际使用的 `(DNS Profile, Route)` 都编译为独立 sing-box DNS transport；
 - 路由器本机与受管客户端进入同一规则体系；传统 TCP/UDP 53 由最小 nft redirect shim 送入 sing-box DNS；
 - 不生成 Fake-IP，也不生成全局 UDP/443 或 QUIC 阻断规则；
@@ -44,7 +44,7 @@ runtime 已删除，不构成兼容接口。
 
 ## 当前状态
 
-当前后端已经建立 schema 4 Canonical Intent、严格引用校验、确定性编译、sing-box/nft 原生
+当前后端已经建立 schema 5 Canonical Intent、严格引用校验、确定性编译、sing-box/nft 原生
 预检和可运行的 OpenWrt 接管闭环。procd 只监督发行版 sing-box；普通流量使用 TUN
 `auto_route`/`auto_redirect`，Steer 只保留传统 DNS redirect 与 sing-box 1.13 源 MAC 能力所需
 的最小 nft shim。GeoSite/GeoIP 由包管理器拥有的固定数据生成本地 `.srs`。

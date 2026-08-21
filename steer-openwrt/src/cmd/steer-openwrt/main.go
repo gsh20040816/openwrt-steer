@@ -248,8 +248,6 @@ func runIntentCommand(command string, args []string) error {
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
 	activate := flags.Bool("activate", false, "load platform resources and publish the generation")
-	var devices stringList
-	flags.Var(&devices, "device", "resolved managed ingress device (repeatable)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -279,7 +277,7 @@ func runIntentCommand(command string, args []string) error {
 	case "compile-sing-box":
 		writeJSON(bundle.SingBox)
 	case "compile-firewall":
-		firewall, err := openwrt.RenderFirewall(bundle.Plan, devices)
+		firewall, err := openwrt.RenderFirewall(bundle.Plan)
 		if err != nil {
 			return err
 		}
@@ -333,11 +331,7 @@ func runCleanup(args []string) error {
 	if err := readJSON(filepath.Join(*runDirectory, "current", "bundle.json"), &bundle); err != nil {
 		return err
 	}
-	var environment openwrt.Environment
-	if err := readJSON(filepath.Join(*runDirectory, "current", "environment.json"), &environment); err != nil {
-		return err
-	}
-	return openwrt.CleanupPlatform(context.Background(), openwrt.ExecRunner{}, bundle.Plan, environment, "")
+	return openwrt.CleanupPlatform(context.Background(), openwrt.ExecRunner{}, bundle.Plan, "")
 }
 
 func readJSON(path string, value any) error {
@@ -375,10 +369,6 @@ func writeJSON(value any) {
 	_ = encoder.Encode(value)
 }
 
-type stringList []string
-
-func (values *stringList) String() string         { return fmt.Sprint([]string(*values)) }
-func (values *stringList) Set(value string) error { *values = append(*values, value); return nil }
 
 func usage() error {
 	return errors.New("usage: steer version|validate|compile|compile-sing-box|compile-firewall|plan|capabilities|prepare|apply|rollback|probe|health|status|geo-catalog|cleanup [flags]")
