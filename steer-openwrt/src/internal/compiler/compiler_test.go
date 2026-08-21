@@ -12,9 +12,9 @@ import (
 
 func representativeIntent() model.Intent {
 	return model.Intent{
-		Main:         model.Main{ID: "main", SchemaVersion: 5, Enabled: true, LogLevel: "warn", ProbeDirectURLs: []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}, ProbeProxyURLs: []string{"https://www.google.com/generate_204"}, SpeedtestProxyURLs: []string{"https://speed.cloudflare.com/__down?bytes=1000000"}, DNSCacheCapacity: 4096},
+		Main:         model.Main{ID: "main", SchemaVersion: 6, Enabled: true, LogLevel: "warn", ProbeDirectURLs: []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}, ProbeProxyURLs: []string{"https://www.google.com/generate_204"}, SpeedtestProxyURLs: []string{"https://speed.cloudflare.com/__down?bytes=1000000"}, DNSCacheCapacity: 4096},
 		Bootstrap:    model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
-		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, UUID: "00000000-0000-4000-8000-000000000001", Flow: "xtls-rprx-vision", PacketEncoding: "xudp", TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}},
+		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeTransport: model.NodeTransport{Flow: "xtls-rprx-vision", PacketEncoding: "xudp"}, NodeTLS: model.NodeTLS{TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}}},
 		Routes:       []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy", Enabled: true, Kind: "single", Node: "node"}, {ID: "block", Enabled: true, Kind: "block"}},
 		DNSProfiles:  []model.DNSProfile{{ID: "public", Enabled: true, Protocol: "https", Server: "1.1.1.1", ServerPort: 443, TLSServerName: "one.one.one.one", Path: "/dns-query", Strategy: "prefer_ipv4"}},
 		LocalProxies: []model.LocalProxy{{ID: "local", Enabled: true, Protocol: "mixed", Listen: "127.0.0.1", ListenPort: 1090}},
@@ -101,5 +101,31 @@ func TestCompileIsDeterministic(t *testing.T) {
 	second := Compile(representativeIntent())
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("same intent produced different bundle")
+	}
+}
+
+func TestCompileSingBoxProxyNodeFamilies(t *testing.T) {
+	base := representativeIntent()
+	base.Nodes = []model.Node{
+		{ID: "ss", Enabled: true, Type: "shadowsocks", Server: "ss.example", ServerPort: 8388, NodeCredentials: model.NodeCredentials{Password: "secret"}, NodeProtocol: model.NodeProtocol{Method: "2022-blake3-aes-128-gcm"}},
+		{ID: "vmess", Enabled: true, Type: "vmess", Server: "vmess.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeProtocol: model.NodeProtocol{Security: "auto"}, NodeTransport: model.NodeTransport{Transport: "ws", TransportPath: "/ws"}, NodeTLS: model.NodeTLS{TLSServerName: "vmess.example"}},
+		{ID: "tuic", Enabled: true, Type: "tuic", Server: "tuic.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000002", Password: "secret"}, NodeTLS: model.NodeTLS{TLSServerName: "tuic.example"}},
+		{ID: "ssh", Enabled: true, Type: "ssh", Server: "ssh.example", ServerPort: 22, NodeCredentials: model.NodeCredentials{Username: "root", Password: "secret"}},
+	}
+	base.Routes[1].Node = "ss"
+	base.Routes = append(base.Routes,
+		model.Route{ID: "vmess_route", Enabled: true, Kind: "single", Node: "vmess"},
+		model.Route{ID: "tuic_route", Enabled: true, Kind: "single", Node: "tuic"},
+		model.Route{ID: "ssh_route", Enabled: true, Kind: "single", Node: "ssh"},
+	)
+	bundle := Compile(base)
+	if !bundle.Validation.OK {
+		t.Fatalf("proxy family validation failed: %#v", bundle.Validation.Errors)
+	}
+	encoded, _ := json.Marshal(bundle.SingBox["outbounds"])
+	for _, expected := range []string{`"type":"shadowsocks"`, `"type":"vmess"`, `"type":"tuic"`, `"type":"ssh"`} {
+		if !strings.Contains(string(encoded), expected) {
+			t.Fatalf("compiled outbounds missing %s: %s", expected, encoded)
+		}
 	}
 }

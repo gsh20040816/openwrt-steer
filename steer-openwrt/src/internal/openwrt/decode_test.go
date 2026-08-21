@@ -10,7 +10,7 @@ import (
 
 const minimalConfig = `
 config steer 'main'
-	option schema_version '5'
+	option schema_version '6'
 	option enabled '1'
 	option log_level 'warn'
 	list probe_direct 'https://www.baidu.com/'
@@ -43,11 +43,31 @@ func TestDecodeCanonicalIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if intent.Main.SchemaVersion != 5 || !intent.Main.Enabled || len(intent.Main.ProbeDirectURLs) != 3 {
+	if intent.Main.SchemaVersion != 6 || !intent.Main.Enabled || len(intent.Main.ProbeDirectURLs) != 3 {
 		t.Fatalf("unexpected main: %#v", intent.Main)
 	}
 	if validation := model.Validate(intent); !validation.OK {
 		t.Fatalf("decoded intent is invalid: %#v", validation.Errors)
+	}
+}
+
+func TestDecodeSubscriptionConfiguration(t *testing.T) {
+	config := minimalConfig + `
+config subscription 'example'
+	option enabled '1'
+	option name 'Example'
+	option url 'https://example.com/nodes'
+	option update_interval '6h'
+`
+	intent, err := Decode(strings.NewReader(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(intent.Subscriptions) != 1 || intent.Subscriptions[0].URL != "https://example.com/nodes" {
+		t.Fatalf("unexpected subscriptions: %#v", intent.Subscriptions)
+	}
+	if validation := model.Validate(intent); !validation.OK {
+		t.Fatalf("decoded subscription is invalid: %#v", validation.Errors)
 	}
 }
 

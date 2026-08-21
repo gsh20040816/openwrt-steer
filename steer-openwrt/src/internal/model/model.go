@@ -3,16 +3,17 @@
 // Package model defines Steer's platform-neutral canonical intent.
 package model
 
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 type Intent struct {
-	Main         Main         `json:"main"`
-	Bootstrap    Bootstrap    `json:"bootstrap"`
-	Nodes        []Node       `json:"nodes"`
-	Routes       []Route      `json:"routes"`
-	DNSProfiles  []DNSProfile `json:"dns_profiles"`
-	LocalProxies []LocalProxy `json:"local_proxies"`
-	Rules        []Rule       `json:"rules"`
+	Main          Main           `json:"main"`
+	Bootstrap     Bootstrap      `json:"bootstrap"`
+	Nodes         []Node         `json:"nodes"`
+	Subscriptions []Subscription `json:"subscriptions"`
+	Routes        []Route        `json:"routes"`
+	DNSProfiles   []DNSProfile   `json:"dns_profiles"`
+	LocalProxies  []LocalProxy   `json:"local_proxies"`
+	Rules         []Rule         `json:"rules"`
 }
 
 type Main struct {
@@ -37,27 +38,87 @@ type Bootstrap struct {
 }
 
 type Node struct {
-	ID               string   `json:"id"`
-	Enabled          bool     `json:"enabled"`
-	Name             string   `json:"name,omitempty"`
-	Type             string   `json:"type"`
-	Server           string   `json:"server"`
-	ServerPort       int      `json:"server_port"`
-	UUID             string   `json:"uuid,omitempty"`
-	Flow             string   `json:"flow,omitempty"`
-	PacketEncoding   string   `json:"packet_encoding,omitempty"`
-	Password         string   `json:"password,omitempty"`
-	ServerPorts      []string `json:"server_ports,omitempty"`
-	HopInterval      string   `json:"hop_interval,omitempty"`
-	ObfsType         string   `json:"obfs_type,omitempty"`
-	ObfsPassword     string   `json:"obfs_password,omitempty"`
-	UpMbps           int      `json:"up_mbps,omitempty"`
-	DownMbps         int      `json:"down_mbps,omitempty"`
-	TLSServerName    string   `json:"tls_server_name,omitempty"`
-	Insecure         bool     `json:"insecure,omitempty"`
-	RealityPublicKey string   `json:"reality_public_key,omitempty"`
-	RealityShortID   string   `json:"reality_short_id,omitempty"`
-	UTLSFingerprint  string   `json:"utls_fingerprint,omitempty"`
+	ID         string `json:"id"`
+	Enabled    bool   `json:"enabled"`
+	Name       string `json:"name,omitempty"`
+	Type       string `json:"type"`
+	Server     string `json:"server"`
+	ServerPort int    `json:"server_port"`
+	NodeCredentials
+	NodeTransport
+	NodeProtocol
+	NodeTLS
+	NodeSource
+}
+
+// NodeCredentials contains authentication and host-key material shared by
+// proxy protocols. It is embedded in Node so the canonical model stays easy
+// to consume while the ownership of fields remains explicit.
+type NodeCredentials struct {
+	UUID              string   `json:"uuid,omitempty"`
+	Username          string   `json:"username,omitempty"`
+	Password          string   `json:"password,omitempty"`
+	PrivateKey        string   `json:"private_key,omitempty"`
+	HostKey           string   `json:"host_key,omitempty"`
+	HostKeyAlgorithms []string `json:"host_key_algorithms,omitempty"`
+}
+
+type NodeTransport struct {
+	Network        string `json:"network,omitempty"`
+	Transport      string `json:"transport,omitempty"`
+	TransportPath  string `json:"transport_path,omitempty"`
+	TransportHost  string `json:"transport_host,omitempty"`
+	ServiceName    string `json:"service_name,omitempty"`
+	PacketEncoding string `json:"packet_encoding,omitempty"`
+	Flow           string `json:"flow,omitempty"`
+}
+
+type NodeProtocol struct {
+	Security              string   `json:"security,omitempty"`
+	AlterID               int      `json:"alter_id,omitempty"`
+	Version               int      `json:"version,omitempty"`
+	Method                string   `json:"method,omitempty"`
+	Plugin                string   `json:"plugin,omitempty"`
+	PluginOptions         string   `json:"plugin_options,omitempty"`
+	CongestionControl     string   `json:"congestion_control,omitempty"`
+	UDPRelayMode          string   `json:"udp_relay_mode,omitempty"`
+	UDPOverStream         bool     `json:"udp_over_stream,omitempty"`
+	ZeroRTTHandshake      bool     `json:"zero_rtt_handshake,omitempty"`
+	Heartbeat             string   `json:"heartbeat,omitempty"`
+	QUIC                  bool     `json:"quic,omitempty"`
+	QUICCongestionControl string   `json:"quic_congestion_control,omitempty"`
+	InsecureConcurrency   int      `json:"insecure_concurrency,omitempty"`
+	ServerPorts           []string `json:"server_ports,omitempty"`
+	HopInterval           string   `json:"hop_interval,omitempty"`
+	ObfsType              string   `json:"obfs_type,omitempty"`
+	ObfsPassword          string   `json:"obfs_password,omitempty"`
+	UpMbps                int      `json:"up_mbps,omitempty"`
+	DownMbps              int      `json:"down_mbps,omitempty"`
+	ExecutablePath        string   `json:"executable_path,omitempty"`
+	ExtraArgs             []string `json:"extra_args,omitempty"`
+	DataDirectory         string   `json:"data_directory,omitempty"`
+}
+
+type NodeTLS struct {
+	TLSServerName    string `json:"tls_server_name,omitempty"`
+	Insecure         bool   `json:"insecure,omitempty"`
+	RealityPublicKey string `json:"reality_public_key,omitempty"`
+	RealityShortID   string `json:"reality_short_id,omitempty"`
+	UTLSFingerprint  string `json:"utls_fingerprint,omitempty"`
+}
+
+type NodeSource struct {
+	SourceSubscription string `json:"source_subscription,omitempty"`
+	SourceFingerprint  string `json:"source_fingerprint,omitempty"`
+	PinnedStale        bool   `json:"pinned_stale,omitempty"`
+}
+
+type Subscription struct {
+	ID             string `json:"id"`
+	Enabled        bool   `json:"enabled"`
+	Name           string `json:"name,omitempty"`
+	URL            string `json:"url"`
+	UpdateInterval string `json:"update_interval,omitempty"`
 }
 
 type Route struct {

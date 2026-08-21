@@ -9,7 +9,7 @@ Steer 是面向 OpenWrt 的透明代理意图编译器和控制平面。它把�
 [打包与文件所有权](docs/PACKAGING.md)为准。旧 SmartDNS、通用 TPROXY、schema 3 和 shell
 runtime 已删除，不构成兼容接口。
 
-当前 UCI schema 为 4。旧配置会明确拒绝编译，不会静默迁移或忽略遗留语义。
+当前 UCI schema 为 6。上一版 schema 5 只在本次升级中迁移到 6；更早版本会明确拒绝编译，不会静默迁移或忽略遗留语义。
 
 ## 第一版边界
 
@@ -24,8 +24,9 @@ runtime 已删除，不构成兼容接口。
 - Bootstrap DNS 必须使用 IP 字面量直连；每个实际使用的 `(DNS Profile, Route)` 都编译为独立 sing-box DNS transport；
 - 路由器本机与受管客户端进入同一规则体系；传统 TCP/UDP 53 由最小 nft redirect shim 送入 sing-box DNS；
 - 不生成 Fake-IP，也不生成全局 UDP/443 或 QUIC 阻断规则；
-- 首批节点协议包括 VLESS、Hysteria2 与 Trojan；
-- LuCI 在浏览器本地解析单个 `vless://`、`hysteria2://`、`hy2://` 或 `trojan://` 分享链接，先显示不含凭据的审查结果再写入待提交 UCI；无法由当前节点模型保留的传输或安全参数会明确拒绝，不会静默丢弃；
+- 节点模型覆盖 sing-box 1.13 基线的远端代理出站：SOCKS、HTTP、Shadowsocks、VMess、VLESS、Trojan、Hysteria、ShadowTLS、TUIC、Hysteria2、AnyTLS、SSH、NaiveProxy 与本机 Tor；WireGuard 旧 outbound 已在 sing-box 1.13 移除，Snell/Bridge 属于 1.14 能力，不伪装成 1.13 可用节点；
+- LuCI 在浏览器本地解析单个标准分享 URI；订阅解析器接受逐行 URI 或整段 Base64 URI 列表。两条路径都只保留强类型模型明确支持的字段，无法保留的传输或安全参数会明确拒绝；
+- 节点订阅只接受公开 HTTPS 地址，更新通过 `uci batch` 直接写入节点列表并执行普通 `uci commit steer`，不会触发 Apply；快照只记录更新时间和 `pinned-stale` 状态，消失节点直到用户显式清理；
 - 首批逻辑出口只支持单节点、直连和阻断；连接失败后的自动切换尚未实现。
 - 混合规则的 DNS 投影只使用查询阶段可见字段，Route 投影保留目标 IP、端口和 TCP/UDP；只有连接阶段条件时不会生成空 DNS 规则。
 - 源 MAC 是普通客户端条件：字段内多个 MAC 为 OR，并与其他非空字段 AND。当前 sing-box 1.13 基线由 nftables `ether saddr` 分类到专用双栈入口，不做 MAC→IP 解析；UCI 使用 1.14 原生字段名 `source_mac_address`，以后切换原生后端不迁移规则。
@@ -44,7 +45,7 @@ runtime 已删除，不构成兼容接口。
 
 ## 当前状态
 
-当前后端已经建立 schema 5 Canonical Intent、严格引用校验、确定性编译、sing-box/nft 原生
+当前后端已经建立 schema 6 Canonical Intent、严格引用校验、确定性编译、sing-box/nft 原生
 预检和可运行的 OpenWrt 接管闭环。procd 只监督发行版 sing-box；普通流量使用 TUN
 `auto_route`/`auto_redirect`，Steer 只保留传统 DNS redirect 与 sing-box 1.13 源 MAC 能力所需
 的最小 nft shim。GeoSite/GeoIP 由包管理器拥有的固定数据生成本地 `.srs`。
@@ -60,11 +61,14 @@ Apply。单节点分享 URL 在浏览器本地严格解析；这不等于订阅�
 - `steer plan` / `status` / `health`：查看计划、候选与运行状态；
 - `steer apply`：串行预检、切换并验证本地运行态；
 - `steer probe`：手动执行当前 Plan 的 HTTPS 诊断，不影响 Apply；
+- `steer probe --kind speedtest --node <id>`：用临时 sing-box 出站测量指定节点，不切换当前路由；
+- `steer subscription update [--id <id>]`：下载并解析订阅，批量更新 UCI 节点并普通提交，不触发 Apply；`steer subscription status` 查看更新时间和失联节点，`steer subscription clean --id <id> --node <node-id>` 显式清理节点；
 - `steer rollback`：一次性恢复上一份本地健康 UCI，并复用正常 Apply。
 
 LuCI/ubus commit 会自动触发 reload。终端裸 `/sbin/uci commit` 不发送 ubus 事件，因此 CLI
 修改使用 `uci commit steer && /etc/init.d/steer reload`。Steer 不包装系统 `uci`，也不运行
-常驻文件监视器。
+常驻文件监视器。订阅包安装时注册 `/etc/crontabs/root` 的每 15 分钟 dispatcher；它只更新
+UCI 节点，不执行 Apply。
 
 ## 许可证
 

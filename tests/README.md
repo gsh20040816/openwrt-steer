@@ -2,8 +2,8 @@
 
 `tests/check-package-boundaries.py` 固定 M1 的包所有权：可安全选择的运行依赖必须进入 OpenWrt
 标准构建依赖图；存在上游 Kconfig 环的 curl 与 sing-box 仍必须进入 APK 运行依赖元数据。
-主包不能安装第三方二进制，GeoSite/GeoIP 只能由 `steer-geodata` 包提供，运行时和 LuCI 不得
-恢复联网 updater 或调度器。
+主包不能安装第三方二进制，GeoSite/GeoIP 只能由 `steer-geodata` 包提供。普通 Apply 不得
+隐式联网更新订阅；订阅下载由显式命令或每 15 分钟 cron dispatcher 触发，批量写入 UCI 节点并普通提交，等待用户下一次 Apply 才改变运行时。
 
 `tests/check-build-cache.py` 固定 OpenWrt 官方缓存边界：发布必须使用固定源码、官方
 external toolchain、预构建 host tools 和 package ccache，配置 `CONFIG_CCACHE=y`
@@ -17,7 +17,7 @@ x86 固件镜像的默认包，拒绝 target-profile firmware，并在单包构�
 `=y` kmod；包含 kmod 时必须先构建当前配置的 target kernel。构建只提交
 `luci-app-steer` 这一个完整依赖闭包。
 
-`steer-openwrt/src/internal` 的 Go 测试直接验证 schema 5 语义模型、编译器和 OpenWrt adapter。首批回归用例覆盖：
+`steer-openwrt/src/internal` 的 Go 测试直接验证 schema 6 语义模型、编译器和 OpenWrt adapter。首批回归用例覆盖：
 
 - 最小直连配置；
 - 启用规则的悬空引用；
@@ -33,6 +33,7 @@ x86 固件镜像的默认包，拒绝 target-profile firmware，并在单包构�
 - 全局双栈 DNS/MAC shim、旧策略规则清理和 MAC mark 隔离；
 - Apply 串行锁、候选预检、本地健康检查、失败现场、单份健康 UCI 备份与一次性 rollback；
 - HTTPS probe 与 Apply 解耦，只作为显式手动诊断。
+- sing-box 1.13 代理出站族的强类型校验和编译、标准 URI/Base64 订阅解析、UCI 批量更新与 pinned-stale 保留、临时节点测速指标。
 
 Go 单元测试不能替代目标 OpenWrt 上的 procd、ubus、rpcd、nftables、TUN 和内核模块验证。
 

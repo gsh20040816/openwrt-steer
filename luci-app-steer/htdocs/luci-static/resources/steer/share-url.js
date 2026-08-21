@@ -184,6 +184,123 @@ function baseNode(link, authority, type) {
 	};
 }
 
+function decodeBase64(value) {
+	try {
+		let normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+		while (normalized.length % 4)
+			normalized += '=';
+		const binary = atob(normalized);
+		const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+		return new TextDecoder().decode(bytes);
+	}
+	catch (error) {
+		fail('INVALID_BASE64');
+	}
+}
+
+function parseSimpleCredential(link, type, tls) {
+	const known = [ 'sni', 'serverName', 'allowInsecure', 'insecure', 'version' ];
+	validateKnownParameters(link.params, known);
+	const authority = parseAuthority(link.authority, tls ? 443 : 1080, false);
+	const credential = link.credential.split(':');
+	const node = baseNode(link, authority, type);
+	if (credential.length > 2)
+		fail('INVALID_CREDENTIAL');
+	if (credential.length == 2) {
+		node.username = credential[0];
+		node.password = credential[1];
+	}
+	else if (type == 'socks' || type == 'http') {
+		node.password = credential[0];
+	}
+	if (tls) {
+		node.tls_server_name = parameterValues(link.params, [ 'sni', 'serverName' ]) || authority.host;
+		node.insecure = booleanParameter(link.params, [ 'allowInsecure', 'insecure' ], false) ? '1' : '0';
+	}
+	return { node, warnings: [] };
+}
+
+function parseShadowsocksURL(input) {
+	let value = String(input || '').trim().substring(5);
+	const hashAt = value.indexOf('#');
+	const fragment = hashAt >= 0 ? decode(value.substring(hashAt + 1), 'fragment') : '';
+	if (hashAt >= 0)
+		value = value.substring(0, hashAt);
+	const at = value.lastIndexOf('@');
+	if (at < 0)
+		fail('MISSING_CREDENTIAL');
+	const decoded = decodeBase64(value.substring(0, at));
+	const pair = decoded.split(':');
+	if (pair.length != 2)
+		fail('INVALID_CREDENTIAL');
+	const authority = parseAuthority(value.substring(at + 1), 443, false);
+	return { node: Object.assign(baseNode({ fragment }, authority, 'shadowsocks'), { method: pair[0], password: pair[1] }), warnings: [] };
+}
+
+function parseVMessURL(input) {
+	const payload = decodeBase64(String(input || '').trim().substring(8));
+	let value;
+	try { value = JSON.parse(payload); }
+	catch (error) { fail('INVALID_VMESS_JSON'); }
+	const authority = parseAuthority('%s:%s'.format(value.add, value.port || 443), 443, false);
+	const node = baseNode({ fragment: value.ps || '' }, authority, 'vmess');
+	node.uuid = value.id || '';
+	node.alter_id = String(value.aid || 0);
+	node.security = value.scy || 'auto';
+	node.network = value.net || 'tcp';
+	node.transport = value.net || 'tcp';
+	node.transport_host = value.host || '';
+	node.transport_path = value.path || '';
+	if (value.tls && value.tls != 'none')
+		node.tls_server_name = value.sni || value.add;
+	return { node, warnings: [] };
+}
+
+function parseExtended(link) {
+	if (link.scheme == 'socks' || link.scheme == 'socks5')
+		return parseSimpleCredential(link, 'socks', false);
+	if (link.scheme == 'http' || link.scheme == 'https')
+		return parseSimpleCredential(link, 'http', link.scheme == 'https');
+	if (link.scheme == 'shadowtls') {
+		const result = parseSimpleCredential(link, 'shadowtls', true);
+		result.node.password = link.credential;
+		result.node.username = '';
+		result.node.version = parameterValues(link.params, [ 'version' ]) || '1';
+		return result;
+	}
+	if (link.scheme == 'anytls') {
+		const result = parseSimpleCredential(link, 'anytls', true);
+		result.node.password = link.credential;
+		result.node.username = '';
+		return result;
+	}
+	if (link.scheme == 'naive+https') {
+		const result = parseSimpleCredential(link, 'naive', true);
+		return result;
+	}
+	if (link.scheme == 'ssh')
+		return parseSimpleCredential(link, 'ssh', false);
+	if (link.scheme == 'tuic') {
+		const known = [ 'congestion_control', 'udp_relay_mode', 'udp_over_stream', 'zero_rtt_handshake', 'heartbeat', 'sni', 'insecure' ];
+		validateKnownParameters(link.params, known);
+		const authority = parseAuthority(link.authority, 443, false);
+		const credential = link.credential.split(':');
+		if (credential.length != 2)
+			fail('INVALID_CREDENTIAL');
+		const node = baseNode(link, authority, 'tuic');
+		node.uuid = credential[0]; node.password = credential[1];
+		node.congestion_control = parameterValues(link.params, [ 'congestion_control' ]);
+		node.udp_relay_mode = parameterValues(link.params, [ 'udp_relay_mode' ]);
+		node.udp_over_stream = booleanParameter(link.params, [ 'udp_over_stream' ], false) ? '1' : '0';
+		node.zero_rtt_handshake = booleanParameter(link.params, [ 'zero_rtt_handshake' ], false) ? '1' : '0';
+		node.heartbeat = parameterValues(link.params, [ 'heartbeat' ]);
+		node.tls_server_name = parameterValues(link.params, [ 'sni' ]) || authority.host;
+		node.insecure = booleanParameter(link.params, [ 'insecure' ], false) ? '1' : '0';
+		return { node, warnings: [] };
+	}
+	return null;
+}
+
 function parseVless(link) {
 	const known = [
 		'encryption', 'flow', 'security', 'sni', 'serverName', 'fp', 'fingerprint',
@@ -342,7 +459,15 @@ function parseTrojan(link) {
 
 return baseclass.extend({
 	parse: function(input) {
-		const link = splitLink(input);
+		const raw = String(input || '').trim();
+		if (raw.toLowerCase().startsWith('vmess://'))
+			return parseVMessURL(raw);
+		if (raw.toLowerCase().startsWith('ss://'))
+			return parseShadowsocksURL(raw);
+		const link = splitLink(raw);
+		const extended = parseExtended(link);
+		if (extended)
+			return extended;
 		if (link.scheme == 'vless')
 			return parseVless(link);
 		if (link.scheme == 'hysteria2' || link.scheme == 'hy2')

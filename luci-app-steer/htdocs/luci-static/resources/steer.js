@@ -9,6 +9,9 @@
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
 const callPlan = rpc.declare({ object: 'luci.steer', method: 'plan', expect: { '': {} } });
 const callGeodataCatalog = rpc.declare({ object: 'luci.steer', method: 'geodata_catalog', expect: { '': {} } });
+const callSubscriptions = rpc.declare({ object: 'luci.steer', method: 'subscriptions', expect: { '': {} } });
+const callSubscriptionClean = rpc.declare({ object: 'luci.steer', method: 'subscription_clean', params: [ 'id', 'node' ], expect: { '': {} } });
+const callNodeSpeedtest = rpc.declare({ object: 'luci.steer', method: 'node_speedtest', params: [ 'node' ], expect: { '': {} } });
 const callRollback = rpc.declare({ object: 'luci.steer', method: 'rollback', expect: { '': {} } });
 const callUCICommit = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ], expect: { '': 0 } });
 
@@ -52,6 +55,9 @@ return baseclass.extend({
 	status: function() { return L.resolveDefault(callStatus(), {}); },
 	plan: function() { return L.resolveDefault(callPlan(), {}); },
 	geodataCatalog: function() { return L.resolveDefault(callGeodataCatalog(), {}); },
+	subscriptions: function() { return L.resolveDefault(callSubscriptions(), {}); },
+	cleanSubscription: function(id, node) { return callSubscriptionClean(id, node); },
+	speedtest: function(node) { return callNodeSpeedtest(node); },
 
 	apply: function(view, ev, mode) {
 		let previousSequence = '';

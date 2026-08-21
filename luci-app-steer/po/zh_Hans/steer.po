@@ -6,6 +6,9 @@ msgstr ""
 msgid "%d added, %d modified, %d removed"
 msgstr "新增 %d 项，修改 %d 项，删除 %d 项"
 
+msgid "%d (%d stale)"
+msgstr "%d（其中 %d 个已失联）"
+
 msgid "%d client MAC addresses"
 msgstr "%d 个客户端 MAC 地址"
 
@@ -47,6 +50,9 @@ msgstr "添加本地代理"
 
 msgid "Add proxy node"
 msgstr "添加代理节点"
+
+msgid "Add subscription"
+msgstr "添加订阅"
 
 msgid "Add route"
 msgstr "添加路由"
@@ -303,6 +309,18 @@ msgstr "具名代理入口"
 msgid "Network"
 msgstr "网络"
 
+msgid "Node subscriptions"
+msgstr "节点订阅"
+
+msgid "Only standard URI lines or a Base64-wrapped URI list are accepted. Subscription updates create a candidate snapshot and never Apply automatically."
+msgstr "仅接受标准 URI 行或 Base64 包装的 URI 列表。订阅更新只创建候选快照，不会自动应用。"
+
+msgid "The scheduled updater uses this interval; use “steer subscription update” to fetch explicitly."
+msgstr "定时更新器使用此间隔；也可以使用“steer subscription update”显式获取。"
+
+msgid "Transport"
+msgstr "传输方式"
+
 msgid "No match condition"
 msgstr "无匹配条件"
 
@@ -356,9 +374,6 @@ msgstr "概览"
 
 msgid "Parse and review"
 msgstr "解析并审查"
-
-msgid "Parse one VLESS, Hysteria2 or Trojan share URL in this browser. The URL is never sent to a Steer RPC or written to logs."
-msgstr "在本浏览器中解析一个 VLESS、Hysteria2 或 Trojan 分享 URL。该 URL 不会发送给 Steer RPC，也不会写入日志。"
 
 msgid "Password"
 msgstr "密码"
@@ -531,6 +546,15 @@ msgstr "分享 URL 包含互相冲突的参数别名。"
 msgid "The share URL contains invalid percent encoding."
 msgstr "分享 URL 包含无效的百分号编码。"
 
+msgid "The share URL contains invalid Base64."
+msgstr "分享 URL 包含无效的 Base64。"
+
+msgid "The share URL contains invalid credentials."
+msgstr "分享 URL 包含无效的凭据。"
+
+msgid "The VMess Base64 payload is not valid JSON."
+msgstr "VMess Base64 内容不是有效的 JSON。"
+
 msgid "The share URL could not be parsed."
 msgstr "无法解析该分享 URL。"
 
@@ -539,6 +563,9 @@ msgstr "分享 URL 中没有凭据。"
 
 msgid "The share URL is malformed."
 msgstr "分享 URL 格式错误。"
+
+msgid "Parse a standard proxy share URL in this browser. The URL is never sent to a Steer RPC or written to logs."
+msgstr "在浏览器中解析标准代理分享 URL。链接不会发送到 Steer RPC，也不会写入日志。"
 
 msgid "The share URL is missing a required parameter."
 msgstr "分享 URL 缺少必需参数。"
@@ -641,3 +668,69 @@ msgstr "入口范围"
 
 msgid "All interfaces"
 msgstr "所有接口"
+
+msgid "Action"
+msgstr "操作"
+
+msgid "Last update"
+msgstr "最近更新"
+
+msgid "No cleanup needed"
+msgstr "无需清理"
+
+msgid "No subscriptions configured."
+msgstr "未配置订阅。"
+
+msgid "Nodes"
+msgstr "节点数"
+
+msgid "Not fetched"
+msgstr "尚未获取"
+
+msgid "Remove %s"
+msgstr "移除 %s"
+
+msgid "Subscription status"
+msgstr "订阅状态"
+
+msgid "%d bytes / %d ms"
+msgstr "%d 字节 / %d 毫秒"
+
+msgid "%d ms"
+msgstr "%d 毫秒"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Connect"
+msgstr "连接"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "First byte"
+msgstr "首字节"
+
+msgid "No speed-test result was returned."
+msgstr "未返回测速结果。"
+
+msgid "Node speed test"
+msgstr "节点测速"
+
+msgid "Node speed test failed"
+msgstr "节点测速失败"
+
+msgid "Speed test"
+msgstr "测速"
+
+msgid "Starting a temporary sing-box instance. The active route will not change."
+msgstr "正在启动临时 sing-box 实例，当前路由不会改变。"
+
+msgid "Test"
+msgstr "测试"
+
+msgid "Testing node"
+msgstr "正在测试节点"
+
+msgid "URL"
+msgstr "地址"

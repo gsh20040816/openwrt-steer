@@ -14,18 +14,19 @@ import (
 )
 
 var optionNames = map[string]map[string]bool{
-	"steer":       set("schema_version", "enabled", "log_level", "probe_direct", "probe_proxy", "speedtest_proxy", "dns_cache_capacity", "dns_cache_persist", "dns_optimistic_cache"),
-	"bootstrap":   set("protocol", "server", "server_port", "strategy"),
-	"node":        set("enabled", "name", "type", "server", "server_port", "uuid", "flow", "packet_encoding", "password", "server_ports", "hop_interval", "obfs_type", "obfs_password", "up_mbps", "down_mbps", "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint"),
-	"route":       set("enabled", "name", "kind", "node"),
-	"dns_profile": set("enabled", "name", "protocol", "server", "server_port", "tls_server_name", "path", "insecure", "strategy", "cache_persist", "optimistic_cache"),
-	"local_proxy": set("enabled", "name", "protocol", "listen", "listen_port", "username", "password"),
-	"rule":        set("enabled", "default", "name", "dns_profile", "route", "inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
+	"steer":        set("schema_version", "enabled", "log_level", "probe_direct", "probe_proxy", "speedtest_proxy", "dns_cache_capacity", "dns_cache_persist", "dns_optimistic_cache"),
+	"bootstrap":    set("protocol", "server", "server_port", "strategy"),
+	"node":         set("enabled", "name", "type", "server", "server_port", "uuid", "username", "flow", "packet_encoding", "password", "method", "plugin", "plugin_options", "security", "alter_id", "version", "network", "transport", "transport_path", "transport_host", "service_name", "congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat", "quic", "quic_congestion_control", "insecure_concurrency", "private_key", "host_key", "executable_path", "data_directory", "host_key_algorithms", "server_ports", "extra_args", "hop_interval", "obfs_type", "obfs_password", "up_mbps", "down_mbps", "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint", "source_subscription", "source_fingerprint", "pinned_stale"),
+	"subscription": set("enabled", "name", "url", "update_interval"),
+	"route":        set("enabled", "name", "kind", "node"),
+	"dns_profile":  set("enabled", "name", "protocol", "server", "server_port", "tls_server_name", "path", "insecure", "strategy", "cache_persist", "optimistic_cache"),
+	"local_proxy":  set("enabled", "name", "protocol", "listen", "listen_port", "username", "password"),
+	"rule":         set("enabled", "default", "name", "dns_profile", "route", "inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
 }
 
 var listNames = map[string]map[string]bool{
 	"steer": set("probe_direct", "probe_proxy", "speedtest_proxy"),
-	"node":  set("server_ports"),
+	"node":  set("server_ports", "host_key_algorithms", "extra_args"),
 	"rule":  set("inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
 }
 
@@ -77,6 +78,10 @@ func Decode(r io.Reader) (model.Intent, error) {
 			var value model.Node
 			value, err = decodeNode(section)
 			intent.Nodes = append(intent.Nodes, value)
+		case "subscription":
+			var value model.Subscription
+			value, err = decodeSubscription(section)
+			intent.Subscriptions = append(intent.Subscriptions, value)
 		case "route":
 			var value model.Route
 			value, err = decodeRoute(section)
@@ -132,7 +137,7 @@ func decodeMain(s uci.Section) (model.Main, error) {
 	probeProxy := clone(s.Lists["probe_proxy"])
 	speedtestProxy := clone(s.Lists["speedtest_proxy"])
 	return model.Main{ID: s.ID, SchemaVersion: schema, Enabled: enabled,
-		LogLevel: value(s, "log_level", "warn"),
+		LogLevel:        value(s, "log_level", "warn"),
 		ProbeDirectURLs: probeDirect, ProbeProxyURLs: probeProxy, SpeedtestProxyURLs: speedtestProxy,
 		DNSCacheCapacity: capacity, DNSCachePersist: persist,
 		DNSOptimisticCache: optimistic}, nil
@@ -163,15 +168,52 @@ func decodeNode(s uci.Section) (model.Node, error) {
 	if err != nil {
 		return model.Node{}, err
 	}
+	alterID, err := integer(s, "alter_id", false)
+	if err != nil {
+		return model.Node{}, err
+	}
+	version, err := integer(s, "version", false)
+	if err != nil {
+		return model.Node{}, err
+	}
+	insecureConcurrency, err := integer(s, "insecure_concurrency", false)
+	if err != nil {
+		return model.Node{}, err
+	}
+	udpOverStream, err := boolean(s, "udp_over_stream", false)
+	if err != nil {
+		return model.Node{}, err
+	}
+	zeroRTT, err := boolean(s, "zero_rtt_handshake", false)
+	if err != nil {
+		return model.Node{}, err
+	}
+	quic, err := boolean(s, "quic", false)
+	if err != nil {
+		return model.Node{}, err
+	}
 	insecure, err := boolean(s, "insecure", false)
 	if err != nil {
 		return model.Node{}, err
 	}
+	pinnedStale, err := boolean(s, "pinned_stale", false)
+	if err != nil {
+		return model.Node{}, err
+	}
 	return model.Node{ID: s.ID, Enabled: enabled, Name: s.Options["name"], Type: s.Options["type"], Server: s.Options["server"], ServerPort: port,
-		UUID: s.Options["uuid"], Flow: s.Options["flow"], PacketEncoding: s.Options["packet_encoding"], Password: s.Options["password"],
-		ServerPorts: clone(s.Lists["server_ports"]), HopInterval: s.Options["hop_interval"], ObfsType: s.Options["obfs_type"], ObfsPassword: s.Options["obfs_password"],
-		UpMbps: up, DownMbps: down, TLSServerName: s.Options["tls_server_name"], Insecure: insecure, RealityPublicKey: s.Options["reality_public_key"],
-		RealityShortID: s.Options["reality_short_id"], UTLSFingerprint: s.Options["utls_fingerprint"]}, nil
+		NodeCredentials: model.NodeCredentials{UUID: s.Options["uuid"], Username: s.Options["username"], Password: s.Options["password"], PrivateKey: s.Options["private_key"], HostKey: s.Options["host_key"], HostKeyAlgorithms: clone(s.Lists["host_key_algorithms"])},
+		NodeTransport:   model.NodeTransport{Network: s.Options["network"], Transport: s.Options["transport"], TransportPath: s.Options["transport_path"], TransportHost: s.Options["transport_host"], ServiceName: s.Options["service_name"], Flow: s.Options["flow"], PacketEncoding: s.Options["packet_encoding"]},
+		NodeProtocol:    model.NodeProtocol{Method: s.Options["method"], Plugin: s.Options["plugin"], PluginOptions: s.Options["plugin_options"], Security: s.Options["security"], AlterID: alterID, Version: version, CongestionControl: s.Options["congestion_control"], UDPRelayMode: s.Options["udp_relay_mode"], UDPOverStream: udpOverStream, ZeroRTTHandshake: zeroRTT, Heartbeat: s.Options["heartbeat"], QUIC: quic, QUICCongestionControl: s.Options["quic_congestion_control"], InsecureConcurrency: insecureConcurrency, ExtraArgs: clone(s.Lists["extra_args"]), DataDirectory: s.Options["data_directory"], ServerPorts: clone(s.Lists["server_ports"]), HopInterval: s.Options["hop_interval"], ObfsType: s.Options["obfs_type"], ObfsPassword: s.Options["obfs_password"], UpMbps: up, DownMbps: down, ExecutablePath: s.Options["executable_path"]},
+		NodeTLS:         model.NodeTLS{TLSServerName: s.Options["tls_server_name"], Insecure: insecure, RealityPublicKey: s.Options["reality_public_key"], RealityShortID: s.Options["reality_short_id"], UTLSFingerprint: s.Options["utls_fingerprint"]},
+		NodeSource:      model.NodeSource{SourceSubscription: s.Options["source_subscription"], SourceFingerprint: s.Options["source_fingerprint"], PinnedStale: pinnedStale}}, nil
+}
+
+func decodeSubscription(s uci.Section) (model.Subscription, error) {
+	enabled, err := booleanDefault(s, "enabled", true)
+	if err != nil {
+		return model.Subscription{}, err
+	}
+	return model.Subscription{ID: s.ID, Enabled: enabled, Name: s.Options["name"], URL: s.Options["url"], UpdateInterval: s.Options["update_interval"]}, nil
 }
 
 func decodeRoute(s uci.Section) (model.Route, error) {

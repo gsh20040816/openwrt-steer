@@ -27,9 +27,29 @@ function renderPlan(result) {
 	]);
 }
 
+function renderSubscriptions(result) {
+	const subscriptions = result?.subscriptions || [];
+	return E('section', { 'class': 'cbi-section' }, [
+		E('h3', {}, _('Subscription status')),
+		subscriptions.length ? E('div', { 'class': 'table' }, [
+			E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('Name')), E('div', { 'class': 'th' }, _('Last update')), E('div', { 'class': 'th' }, _('Nodes')), E('div', { 'class': 'th' }, _('Action')) ]),
+			...subscriptions.map((subscription) => {
+				const stale = subscription.stale_node_ids || [];
+				const last = subscription.fetched_at ? new Date(subscription.fetched_at).toLocaleString() : (subscription.error || _('Not fetched'));
+				return E('div', { 'class': 'tr' }, [
+					E('div', { 'class': 'td' }, subscription.name || subscription.id),
+					E('div', { 'class': 'td' }, last),
+					E('div', { 'class': 'td' }, stale.length ? _('%d (%d stale)').format(subscription.node_count, stale.length) : String(subscription.node_count || 0)),
+					E('div', { 'class': 'td' }, stale.length ? stale.map((node) => E('button', { 'class': 'btn cbi-button-negative', 'click': function() { return steer.cleanSubscription(subscription.id, node).then(() => window.location.reload()); } }, _('Remove %s').format(node))) : _('No cleanup needed'))
+				]);
+			})
+		]) : E('p', {}, _('No subscriptions configured.'))
+	]);
+}
+
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.status(), steer.plan() ]);
+		return Promise.all([ uci.load('steer'), steer.status(), steer.plan(), steer.subscriptions() ]);
 	},
 
 	render: function(data) {
@@ -87,7 +107,22 @@ return view.extend({
 		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
 		o.rmempty = false;
 
-		return m.render().then((formNode) => E([], [ steer.renderStatus(status), renderPlan(data[2]), formNode ]));
+		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
+		s.anonymous = true;
+		s.addremove = true;
+		s.nodescriptions = true;
+		s.addbtntitle = _('Add subscription');
+		s.sectiontitle = function(sectionId) {
+			return uci.get('steer', sectionId, 'name') || uci.get('steer', sectionId, 'url') || _('Unnamed');
+		};
+		o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
+		o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
+		o = s.option(form.Value, 'url', 'HTTPS subscription URL'); o.datatype = 'url'; o.rmempty = false; o.editable = true;
+		o.description = _('Only standard URI lines or a Base64-wrapped URI list are accepted. Subscription updates create a candidate snapshot and never Apply automatically.');
+		o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = '6h'; o.modalonly = true;
+		o.description = _('The scheduled updater uses this interval; use “steer subscription update” to fetch explicitly.');
+
+		return m.render().then((formNode) => E([], [ steer.renderStatus(status), renderPlan(data[2]), renderSubscriptions(data[3]), formNode ]));
 	},
 
 	handleSaveApply: function(ev, mode) { return steer.apply(this, ev, mode); }

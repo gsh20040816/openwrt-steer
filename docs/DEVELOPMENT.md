@@ -28,7 +28,7 @@ SING_BOX_BIN=/usr/bin/sing-box \
 脚本会：
 
 1. 安装当前工作树的 `steer`、init 和 LuCI RPC 测试副本；
-2. 用完全虚构的 schema 5 fixture 编译三种节点、六种 DNS transport、Geo 与本地代理；
+2. 用完全虚构的 schema 6 fixture 编译多种 sing-box 1.13 节点、六种 DNS transport、Geo 与本地代理；
 3. 执行 sing-box 和 nftables 原生检查；
 4. 通过 procd 启动 sing-box，检查 TUN、NFQUEUE、双栈 DNS/MAC shim 和实际 DNS 查询；
 5. 用真实 authenticated UCI session 复现 LuCI 生命周期，确认首次 commit 恰好触发一次 Apply；

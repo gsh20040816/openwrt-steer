@@ -27,7 +27,7 @@ func Validate(intent Intent) Validation {
 	}
 
 	if intent.Main.SchemaVersion != SchemaVersion {
-		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 5 is supported")
+		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 6 is supported")
 	}
 	if !validID.MatchString(intent.Main.ID) {
 		err("INVALID_ID", "steer", intent.Main.ID, "id", "invalid section ID")
@@ -65,6 +65,9 @@ func Validate(intent Intent) Validation {
 	for _, value := range intent.Nodes {
 		register("node", value.ID)
 	}
+	for _, value := range intent.Subscriptions {
+		register("subscription", value.ID)
+	}
 	for _, value := range intent.Routes {
 		register("route", value.ID)
 	}
@@ -85,6 +88,12 @@ func Validate(intent Intent) Validation {
 			continue
 		}
 		validateNode(node, err, warn)
+	}
+	for _, subscription := range intent.Subscriptions {
+		if !subscription.Enabled {
+			continue
+		}
+		validateSubscription(subscription, err)
 	}
 	routes := make(map[string]Route, len(intent.Routes))
 	directRouteCount := 0
@@ -168,6 +177,16 @@ func validateProbeURLs(values []string, objectID, option string, err issueFn) {
 	}
 }
 
+func validateSubscription(value Subscription, err issueFn) {
+	parsed, parseErr := url.Parse(value.URL)
+	if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		err("INVALID_SUBSCRIPTION_URL", "subscription", value.ID, "url", "subscription URL must be public HTTPS without credentials or fragment")
+	}
+	if value.UpdateInterval != "" && !validDuration.MatchString(value.UpdateInterval) {
+		err("INVALID_UPDATE_INTERVAL", "subscription", value.ID, "update_interval", "update interval must be a positive duration such as 6h")
+	}
+}
+
 type issueFn func(string, string, string, string, string)
 
 func validateBootstrap(value Bootstrap, err issueFn) {
@@ -184,19 +203,54 @@ func validateBootstrap(value Bootstrap, err issueFn) {
 }
 
 func validateNode(value Node, err, warn issueFn) {
-	if !oneOf(value.Type, "vless", "hysteria2", "trojan") {
-		err("UNSUPPORTED_NODE_TYPE", "node", value.ID, "type", "node type must be vless, hysteria2 or trojan")
+	if value.PinnedStale {
+		warn("SUBSCRIPTION_NODE_STALE", "node", value.ID, "pinned_stale", "subscription no longer advertises this node; remove it explicitly when confirmed")
+	}
+	if !oneOf(value.Type, "socks", "http", "shadowsocks", "vmess", "trojan", "hysteria", "vless", "shadowtls", "tuic", "hysteria2", "anytls", "ssh", "naive", "tor") {
+		err("UNSUPPORTED_NODE_TYPE", "node", value.ID, "type", "node type is not supported by the sing-box 1.13 baseline")
 		return
 	}
-	if !validHost(value.Server) {
+	if value.Type != "tor" && !validHost(value.Server) {
 		err("INVALID_SERVER", "node", value.ID, "server", "invalid node server")
 	}
-	validPort(value.ServerPort, "node", value.ID, "server_port", err)
+	if value.Type != "tor" {
+		validPort(value.ServerPort, "node", value.ID, "server_port", err)
+	}
 	switch value.Type {
-	case "vless":
-		if value.UUID == "" {
-			err("REQUIRED", "node", value.ID, "uuid", "VLESS UUID is required")
+	case "socks":
+		if value.TLSServerName != "" || value.Insecure {
+			err("UNSUPPORTED_NODE_OPTION", "node", value.ID, "tls_server_name", "SOCKS outbound has no TLS options")
 		}
+	case "http":
+		if value.TransportPath != "" {
+			err("UNSUPPORTED_NODE_OPTION", "node", value.ID, "transport_path", "HTTP outbound path is not represented")
+		}
+	case "shadowsocks":
+		if value.Method == "" {
+			err("REQUIRED", "node", value.ID, "method", "Shadowsocks method is required")
+		}
+		if value.Password == "" {
+			err("REQUIRED", "node", value.ID, "password", "Shadowsocks password is required")
+		}
+		if value.Plugin != "" && !oneOf(value.Plugin, "obfs-local", "v2ray-plugin") {
+			err("UNSUPPORTED_SHADOWSOCKS_PLUGIN", "node", value.ID, "plugin", "only obfs-local and v2ray-plugin are supported")
+		}
+	case "vmess":
+		validateUUID(value.UUID, "VMess", value.ID, err)
+		if value.Security != "" && !oneOf(value.Security, "auto", "none", "zero", "aes-128-gcm", "chacha20-poly1305", "aes-128-ctr") {
+			err("UNSUPPORTED_VMESS_SECURITY", "node", value.ID, "security", "unsupported VMess security")
+		}
+		if value.AlterID < 0 {
+			err("INVALID_INTEGER", "node", value.ID, "alter_id", "alter_id cannot be negative")
+		}
+		validateTransport(value, err)
+	case "hysteria":
+		if value.Password == "" {
+			err("REQUIRED", "node", value.ID, "password", "Hysteria authentication is required")
+		}
+		validateHysteria(value, err)
+	case "vless":
+		validateUUID(value.UUID, "VLESS", value.ID, err)
 		if value.Flow != "" && value.Flow != "xtls-rprx-vision" {
 			err("UNSUPPORTED_VLESS_FLOW", "node", value.ID, "flow", "unsupported VLESS flow")
 		}
@@ -206,6 +260,7 @@ func validateNode(value Node, err, warn issueFn) {
 		if value.RealityPublicKey != "" && (value.TLSServerName == "" || value.RealityShortID == "") {
 			err("INCOMPLETE_REALITY", "node", value.ID, "reality_public_key", "Reality requires TLS server name and short ID")
 		}
+		validateTransport(value, err)
 	case "hysteria2":
 		if value.Password == "" {
 			err("REQUIRED", "node", value.ID, "password", "Hysteria2 password is required")
@@ -237,9 +292,105 @@ func validateNode(value Node, err, warn issueFn) {
 		if value.TLSServerName == "" {
 			err("REQUIRED", "node", value.ID, "tls_server_name", "Trojan TLS server name is required")
 		}
+		validateTransport(value, err)
+	case "shadowtls":
+		if value.Version < 1 || value.Version > 3 {
+			err("INVALID_VERSION", "node", value.ID, "version", "ShadowTLS version must be 1, 2 or 3")
+		}
+		if value.Version >= 2 && value.Password == "" {
+			err("REQUIRED", "node", value.ID, "password", "ShadowTLS v2/v3 password is required")
+		}
+		if value.TLSServerName == "" {
+			err("REQUIRED", "node", value.ID, "tls_server_name", "ShadowTLS TLS server name is required")
+		}
+	case "tuic":
+		validateUUID(value.UUID, "TUIC", value.ID, err)
+		if value.Password == "" {
+			err("REQUIRED", "node", value.ID, "password", "TUIC password is required")
+		}
+		if !oneOf(value.CongestionControl, "", "cubic", "new_reno", "bbr") {
+			err("INVALID_CONGESTION_CONTROL", "node", value.ID, "congestion_control", "TUIC congestion control must be cubic, new_reno or bbr")
+		}
+		if !oneOf(value.UDPRelayMode, "", "native", "quic") {
+			err("INVALID_UDP_RELAY_MODE", "node", value.ID, "udp_relay_mode", "TUIC UDP relay mode must be native or quic")
+		}
+		if value.UDPRelayMode != "" && value.UDPOverStream {
+			err("CONFLICTING_OPTIONS", "node", value.ID, "udp_relay_mode", "TUIC udp_relay_mode conflicts with udp_over_stream")
+		}
+		if value.TLSServerName == "" {
+			err("REQUIRED", "node", value.ID, "tls_server_name", "TUIC TLS server name is required")
+		}
+	case "anytls":
+		if value.Password == "" {
+			err("REQUIRED", "node", value.ID, "password", "AnyTLS password is required")
+		}
+		if value.TLSServerName == "" {
+			err("REQUIRED", "node", value.ID, "tls_server_name", "AnyTLS TLS server name is required")
+		}
+	case "naive":
+		if value.Password == "" {
+			err("REQUIRED", "node", value.ID, "password", "NaiveProxy password is required")
+		}
+		if value.TLSServerName == "" {
+			err("REQUIRED", "node", value.ID, "tls_server_name", "NaiveProxy TLS server name is required")
+		}
+	case "ssh":
+		if value.Username == "" {
+			err("REQUIRED", "node", value.ID, "username", "SSH user is required")
+		}
+		if value.Password == "" && value.PrivateKey == "" {
+			err("REQUIRED", "node", value.ID, "password", "SSH requires password or private key")
+		}
+	case "tor":
+		if value.Server != "" || value.ServerPort != 0 {
+			err("UNEXPECTED_NODE_OPTION", "node", value.ID, "server", "Tor uses a local executable and does not accept a remote server")
+		}
 	}
 	if value.Insecure {
 		warn("INSECURE_TLS", "node", value.ID, "insecure", "TLS certificate verification is disabled")
+	}
+}
+
+func validateUUID(value, protocol, objectID string, err issueFn) {
+	if value == "" {
+		err("REQUIRED", "node", objectID, "uuid", protocol+" UUID is required")
+		return
+	}
+	if !regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(value) {
+		err("INVALID_UUID", "node", objectID, "uuid", protocol+" UUID is invalid")
+	}
+}
+
+func validateTransport(value Node, err issueFn) {
+	if value.Transport == "" || value.Transport == "tcp" || value.Transport == "raw" {
+		return
+	}
+	if !oneOf(value.Transport, "ws", "grpc", "http", "quic") {
+		err("UNSUPPORTED_TRANSPORT", "node", value.ID, "transport", "transport must be tcp, raw, ws, grpc, http or quic")
+		return
+	}
+	if value.Transport == "ws" && value.TransportPath == "" {
+		err("REQUIRED", "node", value.ID, "transport_path", "WebSocket transport path is required")
+	}
+	if value.Transport == "grpc" && value.ServiceName == "" {
+		err("REQUIRED", "node", value.ID, "service_name", "gRPC service name is required")
+	}
+}
+
+func validateHysteria(value Node, err issueFn) {
+	for _, portRange := range value.ServerPorts {
+		if !validPortRange(portRange) {
+			err("INVALID_PORT_RANGE", "node", value.ID, "server_ports", "invalid Hysteria port range: "+portRange)
+		}
+	}
+	if value.TLSServerName == "" {
+		err("REQUIRED", "node", value.ID, "tls_server_name", "Hysteria TLS server name is required")
+	}
+	if value.UpMbps == 0 || value.DownMbps == 0 {
+		err("REQUIRED", "node", value.ID, "up_mbps", "Hysteria upload and download Mbps are required")
+	}
+	if value.UpMbps < 0 || value.DownMbps < 0 {
+		err("INVALID_BANDWIDTH", "node", value.ID, "up_mbps", "bandwidth cannot be negative")
 	}
 }
 

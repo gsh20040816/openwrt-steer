@@ -37,6 +37,9 @@ function importErrorText(error) {
 		EMPTY_URL: _('Paste one share URL.'),
 		INVALID_URL: _('The share URL is malformed.'),
 		INVALID_ENCODING: _('The share URL contains invalid percent encoding.'),
+		INVALID_BASE64: _('The share URL contains invalid Base64.'),
+		INVALID_CREDENTIAL: _('The share URL contains invalid credentials.'),
+		INVALID_VMESS_JSON: _('The VMess Base64 payload is not valid JSON.'),
 		UNSUPPORTED_SCHEME: _('This share URL protocol is not supported.'),
 		MISSING_CREDENTIAL: _('The share URL does not contain credentials.'),
 		INVALID_HOST: _('The share URL contains an invalid server address.'),
@@ -100,7 +103,7 @@ function renderImportButton() {
 		E('div', { 'class': 'steer-section-heading' }, [
 			E('div', {}, [
 				E('h3', {}, _('Import share URL')),
-				E('p', {}, _('Parse one VLESS, Hysteria2 or Trojan share URL in this browser. The URL is never sent to a Steer RPC or written to logs.'))
+				E('p', {}, _('Parse a standard proxy share URL in this browser. The URL is never sent to a Steer RPC or written to logs.'))
 			]),
 			E('button', {
 				'class': 'cbi-button cbi-button-add',
@@ -113,13 +116,35 @@ function renderImportButton() {
 	]);
 }
 
+function runSpeedtest(sectionId) {
+	ui.showModal(_('Testing node'), [ E('p', { 'class': 'spinning' }, _('Starting a temporary sing-box instance. The active route will not change.')) ]);
+	return steer.speedtest(sectionId).then((report) => {
+		const results = report?.results || [];
+		ui.showModal(_('Node speed test'), [
+			results.length ? E('div', { 'class': 'table' }, [
+				E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('URL')), E('div', { 'class': 'th' }, _('Connect')), E('div', { 'class': 'th' }, _('TLS')), E('div', { 'class': 'th' }, _('First byte')), E('div', { 'class': 'th' }, _('Download')) ]),
+				...results.map((result) => E('div', { 'class': 'tr' }, [
+					E('div', { 'class': 'td' }, result.url),
+					E('div', { 'class': 'td' }, result.error || _('%d ms').format(result.connect_milliseconds || 0)),
+					E('div', { 'class': 'td' }, result.error ? '-' : _('%d ms').format(result.tls_milliseconds || 0)),
+					E('div', { 'class': 'td' }, result.error ? '-' : _('%d ms').format(result.first_byte_milliseconds || 0)),
+					E('div', { 'class': 'td' }, result.error ? '-' : _('%d bytes / %d ms').format(result.downloaded_bytes || 0, result.download_milliseconds || 0))
+				]))
+			]) : E('div', { 'class': 'alert-message danger' }, report?.error || _('No speed-test result was returned.')),
+			E('div', { 'class': 'right' }, E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Close')))
+		]);
+	}).catch((error) => {
+		ui.showModal(_('Node speed test failed'), [ E('p', {}, String(error)), E('div', { 'class': 'right' }, E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Close'))) ]);
+	});
+}
+
 function showImportDialog() {
 	const input = E('textarea', {
 		'class': 'cbi-input-textarea',
 		'rows': 5,
 		'autocomplete': 'off',
 		'spellcheck': 'false',
-		'placeholder': 'vless://…  hysteria2://…  hy2://…  trojan://…'
+			'placeholder': 'vless://…  vmess://…  ss://…  hysteria2://…  tuic://…  trojan://…'
 	});
 	const preview = E('div', { 'class': 'steer-import-preview' });
 
@@ -257,13 +282,29 @@ return view.extend({
 		o.default = '1';
 		o.editable = true;
 
+		o = s.taboption('general', form.Button, '_speedtest', _('Speed test'));
+		o.inputtitle = _('Test');
+		o.inputstyle = 'action';
+		o.onclick = function(sectionId) { return runSpeedtest(sectionId); };
+
 		o = s.taboption('general', form.Value, 'name', _('Name'));
 		o.rmempty = false;
 		o.modalonly = true;
 
 		o = s.taboption('general', form.ListValue, 'type', _('Protocol'));
+		o.value('socks', 'SOCKS');
+		o.value('http', 'HTTP CONNECT');
+		o.value('shadowsocks', 'Shadowsocks');
+		o.value('vmess', 'VMess');
 		o.value('vless', 'VLESS');
+		o.value('hysteria', 'Hysteria');
 		o.value('hysteria2', 'Hysteria2');
+		o.value('shadowtls', 'ShadowTLS');
+		o.value('tuic', 'TUIC');
+		o.value('anytls', 'AnyTLS');
+		o.value('naive', 'NaiveProxy');
+		o.value('ssh', 'SSH');
+		o.value('tor', 'Tor');
 		o.value('trojan', 'Trojan');
 		o.rmempty = false;
 		o.editable = true;
@@ -280,6 +321,66 @@ return view.extend({
 		o = s.taboption('protocol', form.Value, 'uuid', _('UUID'));
 		o.modalonly = true;
 		o.depends('type', 'vless');
+		o.depends('type', 'vmess');
+		o.depends('type', 'tuic');
+
+		o = s.taboption('protocol', form.Value, 'username', _('Username'));
+		o.modalonly = true;
+		o.depends('type', 'socks');
+		o.depends('type', 'http');
+		o.depends('type', 'naive');
+		o.depends('type', 'ssh');
+
+		o = s.taboption('protocol', form.Value, 'method', 'Method');
+		o.modalonly = true;
+		o.depends('type', 'shadowsocks');
+
+		o = s.taboption('protocol', form.Value, 'plugin', 'Plugin');
+		o.modalonly = true;
+		o.depends('type', 'shadowsocks');
+
+		o = s.taboption('protocol', form.Value, 'plugin_options', 'Plugin options');
+		o.modalonly = true;
+		o.depends('type', 'shadowsocks');
+
+		o = s.taboption('protocol', form.ListValue, 'security', 'Security');
+		o.value('', _('Default'));
+		o.value('auto', 'auto');
+		o.value('none', 'none');
+		o.value('zero', 'zero');
+		o.value('aes-128-gcm', 'aes-128-gcm');
+		o.value('chacha20-poly1305', 'chacha20-poly1305');
+		o.depends('type', 'vmess');
+
+		o = s.taboption('protocol', form.Value, 'alter_id', 'Alter ID');
+		o.datatype = 'uinteger';
+		o.modalonly = true;
+		o.depends('type', 'vmess');
+
+		o = s.taboption('protocol', form.ListValue, 'transport', _('Transport'));
+		o.value('tcp', 'TCP');
+		o.value('ws', 'WebSocket');
+		o.value('grpc', 'gRPC');
+		o.value('http', 'HTTP');
+		o.value('quic', 'QUIC');
+		o.modalonly = true;
+		o.depends('type', 'vmess');
+		o.depends('type', 'vless');
+		o.depends('type', 'trojan');
+
+		o = s.taboption('protocol', form.Value, 'transport_path', 'Transport path');
+		o.modalonly = true;
+		o.depends('transport', 'ws');
+		o.depends('transport', 'http');
+
+		o = s.taboption('protocol', form.Value, 'transport_host', 'Transport host');
+		o.modalonly = true;
+		o.depends('transport', 'ws');
+		o.depends('transport', 'http');
+
+		o = s.taboption('protocol', form.Value, 'service_name', 'gRPC service name');
+		o.modalonly = true;
+		o.depends('transport', 'grpc');
 
 		o = s.taboption('protocol', form.ListValue, 'flow', _('Flow'));
 		o.modalonly = true;
@@ -298,6 +399,14 @@ return view.extend({
 		o.modalonly = true;
 		o.depends('type', 'hysteria2');
 		o.depends('type', 'trojan');
+		o.depends('type', 'shadowsocks');
+		o.depends('type', 'http');
+		o.depends('type', 'anytls');
+		o.depends('type', 'shadowtls');
+		o.depends('type', 'tuic');
+		o.depends('type', 'hysteria');
+		o.depends('type', 'naive');
+		o.depends('type', 'ssh');
 
 		o = s.taboption('protocol', form.DynamicList, 'server_ports', _('Port hopping ranges'));
 		o.placeholder = '20000:21000';
@@ -329,6 +438,72 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.modalonly = true;
 		o.depends('type', 'hysteria2');
+		o.depends('type', 'hysteria');
+
+		o = s.taboption('protocol', form.ListValue, 'version', 'Version');
+		o.value('1', '1'); o.value('2', '2'); o.value('3', '3');
+		o.modalonly = true;
+		o.depends('type', 'shadowtls');
+
+		o = s.taboption('protocol', form.ListValue, 'congestion_control', 'Congestion control');
+		o.value('', _('Default')); o.value('cubic', 'cubic'); o.value('new_reno', 'new_reno'); o.value('bbr', 'bbr');
+		o.modalonly = true;
+		o.depends('type', 'tuic');
+
+		o = s.taboption('protocol', form.ListValue, 'udp_relay_mode', 'UDP relay mode');
+		o.value('', _('Default')); o.value('native', 'native'); o.value('quic', 'quic');
+		o.modalonly = true;
+		o.depends('type', 'tuic');
+
+		o = s.taboption('protocol', form.Flag, 'udp_over_stream', 'UDP over stream');
+		o.modalonly = true;
+		o.depends('type', 'tuic');
+
+		o = s.taboption('protocol', form.Flag, 'zero_rtt_handshake', '0-RTT handshake');
+		o.modalonly = true;
+		o.depends('type', 'tuic');
+
+		o = s.taboption('protocol', form.Value, 'heartbeat', 'Heartbeat');
+		o.modalonly = true;
+		o.depends('type', 'tuic');
+
+		o = s.taboption('protocol', form.Flag, 'quic', 'QUIC');
+		o.modalonly = true;
+		o.depends('type', 'naive');
+
+		o = s.taboption('protocol', form.ListValue, 'quic_congestion_control', 'QUIC congestion control');
+		o.value('', _('Default')); o.value('bbr', 'bbr'); o.value('bbr2', 'bbr2'); o.value('cubic', 'cubic'); o.value('reno', 'reno');
+		o.modalonly = true;
+		o.depends('type', 'naive');
+
+		o = s.taboption('protocol', form.Value, 'insecure_concurrency', 'Insecure concurrency');
+		o.datatype = 'uinteger';
+		o.modalonly = true;
+		o.depends('type', 'naive');
+
+		o = s.taboption('protocol', form.Value, 'private_key', 'Private key');
+		o.modalonly = true;
+		o.depends('type', 'ssh');
+
+		o = s.taboption('protocol', form.Value, 'host_key', 'Host key');
+		o.modalonly = true;
+		o.depends('type', 'ssh');
+
+		o = s.taboption('protocol', form.DynamicList, 'host_key_algorithms', 'Host key algorithms');
+		o.modalonly = true;
+		o.depends('type', 'ssh');
+
+		o = s.taboption('protocol', form.Value, 'executable_path', 'Executable path');
+		o.modalonly = true;
+		o.depends('type', 'tor');
+
+		o = s.taboption('protocol', form.DynamicList, 'extra_args', 'Extra arguments');
+		o.modalonly = true;
+		o.depends('type', 'tor');
+
+		o = s.taboption('protocol', form.Value, 'data_directory', 'Data directory');
+		o.modalonly = true;
+		o.depends('type', 'tor');
 
 		o = s.taboption('tls', form.Value, 'tls_server_name', _('TLS server name'));
 		o.modalonly = true;

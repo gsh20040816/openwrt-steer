@@ -56,6 +56,25 @@ const methods = {
 				geoip: geoip.names ? { ok: true, names: geoip.names } : { ok: false, names: [], error: geoip.error }
 			};
 		}
+	},
+	subscriptions: {
+		call: function() {
+			return command_json('/usr/sbin/steer subscription status');
+		}
+	},
+	subscription_clean: {
+		call: function(request) {
+			if (!request?.id || !request?.node)
+				return { ok: false, error: '缺少订阅 ID 或节点 ID' };
+			return command_json([ '/usr/sbin/steer', 'subscription', 'clean', '--id', request.id, '--node', request.node ]);
+		}
+	},
+	node_speedtest: {
+		call: function(request) {
+			if (!request?.node)
+				return { ok: false, error: '缺少节点 ID' };
+			return command_json([ '/usr/sbin/steer', 'probe', '--kind', 'speedtest', '--node', request.node, '--download' ]);
+		}
 	}
 };
 

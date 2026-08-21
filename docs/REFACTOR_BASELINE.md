@@ -56,13 +56,14 @@ procd 直接监督发行版 `/usr/bin/sing-box`。Steer 不常驻，不再增加
 Steer 不 fork、不复制、不替换 sing-box。后续支持 1.14 必须作为显式能力基线变更处理，不能
 把两个配置后端暴露给用户。
 
-## schema 5
+## schema 6
 
 公开 UCI 只包含以下对象：
 
 - `steer`；
 - `bootstrap`；
 - `node`；
+- `subscription`；
 - `route`；
 - `dns_profile`；
 - `local_proxy`；
@@ -76,7 +77,7 @@ Node、Route、DNS Profile、Local Proxy 和 Rule 保留统一 `enabled` 语义�
 编译；启用对象引用禁用对象是硬错误；未引用对象允许存在。所有 section ID 共享一个全局
 命名空间。
 
-schema 3 及更早版本不迁移、不猜测、不兼容。用户在升级 APK 前人工完成生产配置迁移；旧
+schema 4 及更早版本不迁移、不猜测、不兼容。用户在升级 APK 前人工完成生产配置迁移；旧
 schema 必须保留原文件并拒绝启动。
 
 ## 冻结产品语义
@@ -100,7 +101,7 @@ schema 必须保留原文件并拒绝启动。
 - package-owned GeoSite/GeoIP 数据及本地 `.srs` 派生；
 - CLI/LuCI 的 Plan、语义差异、校验、Apply 和关键状态。
 
-M1 不交付订阅更新、多节点故障转移、高级规则 DSL 或 `steer why`。
+当前重构在上述 M1 数据面之外补交付了标准 URI/Base64 订阅、UCI 批量节点更新、定时调度、失联节点显式清理和临时节点测速；多节点故障转移、高级规则 DSL 与 `steer why` 仍不交付。
 
 ## DNS
 
@@ -182,8 +183,8 @@ HTTPS probe 已退出 Apply，只能由用户显式运行 `steer probe`。该命
 - 发行版 `sing-box`：上游二进制。
 
 不创建独立 `steer-core` APK。`steer-openwrt` 必须通过包管理器正确 replace/conflict 旧
-`steer`。切包时停止旧服务并保留 `/etc/config/steer`；只有 schema 5 preflight 通过才启动新
-服务。失败时不恢复默认配置、不运行旧后端、不自动降级 APK。
+`steer`。切包时停止旧服务并保留 `/etc/config/steer`；只有 schema 6 preflight 通过才启动新
+服务。失败时不恢复默认配置、不运行旧后端、不自动降级 APK。当前 schema 5→6 是唯一迁移窗口。
 
 ## LuCI
 

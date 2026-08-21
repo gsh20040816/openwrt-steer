@@ -66,6 +66,15 @@ expect(result.node.password == 'fixture@password', 'Trojan decoded password');
 expect(result.node.tls_server_name == 'edge.example.com', 'Trojan SNI');
 expect(result.node.utls_fingerprint == 'chrome', 'Trojan fingerprint');
 
+result = parser.parse('ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#Shadowsocks');
+expect(result.node.type == 'shadowsocks' && result.node.method == 'aes-256-gcm', 'Shadowsocks parser');
+
+result = parser.parse('tuic://00000000-0000-4000-8000-000000000001:password@example.com:443?sni=edge.example.com');
+expect(result.node.type == 'tuic' && result.node.uuid.startsWith('00000000-'), 'TUIC parser');
+
+result = parser.parse('socks5://user:password@example.com:1080');
+expect(result.node.type == 'socks' && result.node.username == 'user', 'SOCKS parser');
+
 expectError('UNSUPPORTED_TRANSPORT', 'vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=example.com&type=ws&path=%2Fws');
 expectError('UNSUPPORTED_TRANSPORT', 'trojan://password@example.com:443?type=grpc&sni=example.com');
 expectError('UNSUPPORTED_HYSTERIA2_OBFS', 'hy2://password@example.com:443?sni=example.com&obfs=gecko&obfs-password=secret');

@@ -57,6 +57,16 @@ if "$(1)/usr/sbin/steer" not in makefile:
 if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc:
     fail("retired steer-openwrt CLI name is still user-visible")
 
+if "case \"$$schema\" in" not in makefile or "\n\t5)" not in makefile or "\n\t6)" not in makefile:
+    fail("package must expose exactly the schema 5 to 6 migration window")
+for forbidden_schema in ("\n\t3)", "\n\t4)", "\n\t7)"):
+    if forbidden_schema in makefile:
+        fail(f"package retained an out-of-window schema migration: {forbidden_schema.strip()}")
+if "*/15 * * * * /usr/sbin/steer subscription update" not in makefile:
+    fail("subscription cron dispatcher is not package-managed")
+if "[ -x /etc/init.d/cron ]" not in makefile:
+    fail("subscription dispatcher must fail fast when BusyBox crond is unavailable")
+
 for required in (
     "$(DL_DIR)/$(GEOSITE_FILE)",
     "$(DL_DIR)/$(GEOIP_FILE)",

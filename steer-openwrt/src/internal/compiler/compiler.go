@@ -150,9 +150,9 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 			AutoRedirectNFQueue: AutoRedirectNFQueue, MACMark: MACMark,
 			MACTable: MACTable, MACPriority: MACPriority, MACBindings: bindings,
 		},
-		DNSPaths:    dnsPaths,
-		GeoRuleSets: geoSets,
-		Objects:     planObjects(intent),
+		DNSPaths:       dnsPaths,
+		GeoRuleSets:    geoSets,
+		Objects:        planObjects(intent),
 		ProbeDirect:    append([]string(nil), intent.Main.ProbeDirectURLs...),
 		ProbeProxy:     append([]string(nil), intent.Main.ProbeProxyURLs...),
 		SpeedtestProxy: append([]string(nil), intent.Main.SpeedtestProxyURLs...),
@@ -204,6 +204,9 @@ func planObjects(intent model.Intent) []PlanObject {
 	for _, value := range intent.Nodes {
 		add("node", value.ID, value)
 	}
+	for _, value := range intent.Subscriptions {
+		add("subscription", value.ID, value)
+	}
 	for _, value := range intent.Routes {
 		add("route", value.ID, value)
 	}
@@ -247,7 +250,7 @@ func requiredCapabilities(intent model.Intent, bindings []MACBinding) []string {
 		if !node.Enabled {
 			continue
 		}
-		if node.Type == "hysteria2" {
+		if node.Type == "hysteria" || node.Type == "hysteria2" || node.Type == "tuic" || node.Transport == "quic" || node.QUIC {
 			capabilities = append(capabilities, "with_quic")
 		}
 		if node.UTLSFingerprint != "" {
@@ -485,29 +488,170 @@ func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 }
 
 func compileNode(node model.Node) map[string]any {
-	result := map[string]any{"type": node.Type, "tag": nodeTag(node.ID), "server": node.Server}
-	if len(node.ServerPorts) > 0 {
-		result["server_ports"] = node.ServerPorts
-	} else {
-		result["server_port"] = node.ServerPort
+	result := map[string]any{"type": node.Type, "tag": nodeTag(node.ID)}
+	if node.Type != "tor" {
+		result["server"] = node.Server
+		if len(node.ServerPorts) > 0 {
+			result["server_ports"] = node.ServerPorts
+		} else {
+			result["server_port"] = node.ServerPort
+		}
 	}
 	switch node.Type {
+	case "socks":
+		if node.Username != "" {
+			result["username"] = node.Username
+		}
+		if node.Password != "" {
+			result["password"] = node.Password
+		}
+	case "http":
+		result["username"], result["password"] = node.Username, node.Password
+		if node.TLSServerName != "" || node.Insecure {
+			result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		}
+	case "shadowsocks":
+		result["method"], result["password"] = node.Method, node.Password
+		if node.Plugin != "" {
+			result["plugin"], result["plugin_opts"] = node.Plugin, node.PluginOptions
+		}
+	case "vmess":
+		result["uuid"] = node.UUID
+		if node.Security != "" {
+			result["security"] = node.Security
+		}
+		if node.AlterID != 0 {
+			result["alter_id"] = node.AlterID
+		}
+		if node.Network != "" {
+			result["network"] = node.Network
+		}
+		if node.PacketEncoding != "" {
+			result["packet_encoding"] = node.PacketEncoding
+		}
+		if tls := compileTLSIfConfigured(node); tls != nil {
+			result["tls"] = tls
+		}
+		if transport := compileTransport(node); transport != nil {
+			result["transport"] = transport
+		}
 	case "vless":
 		result["uuid"], result["flow"], result["packet_encoding"] = node.UUID, node.Flow, node.PacketEncoding
-		if node.TLSServerName != "" || node.RealityPublicKey != "" {
-			result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, node.RealityPublicKey, node.RealityShortID)
+		if tls := compileTLSIfConfigured(node); tls != nil {
+			result["tls"] = tls
 		}
+		if transport := compileTransport(node); transport != nil {
+			result["transport"] = transport
+		}
+	case "trojan":
+		result["password"] = node.Password
+		if tls := compileTLSIfConfigured(node); tls != nil {
+			result["tls"] = tls
+		}
+		if transport := compileTransport(node); transport != nil {
+			result["transport"] = transport
+		}
+	case "hysteria":
+		result["auth_str"], result["hop_interval"], result["up_mbps"], result["down_mbps"] = node.Password, node.HopInterval, node.UpMbps, node.DownMbps
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		if node.ObfsPassword != "" {
+			result["obfs"] = node.ObfsPassword
+		}
+	case "shadowtls":
+		result["version"], result["password"] = node.Version, node.Password
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+	case "tuic":
+		result["uuid"], result["password"] = node.UUID, node.Password
+		result["congestion_control"] = node.CongestionControl
+		if node.UDPRelayMode != "" {
+			result["udp_relay_mode"] = node.UDPRelayMode
+		} else if node.UDPOverStream {
+			result["udp_over_stream"] = true
+		}
+		result["zero_rtt_handshake"], result["heartbeat"] = node.ZeroRTTHandshake, node.Heartbeat
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
 	case "hysteria2":
 		result["password"], result["hop_interval"], result["up_mbps"], result["down_mbps"] = node.Password, node.HopInterval, node.UpMbps, node.DownMbps
 		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
 		if node.ObfsType != "" {
 			result["obfs"] = map[string]any{"type": node.ObfsType, "password": node.ObfsPassword}
 		}
-	case "trojan":
+	case "anytls":
 		result["password"] = node.Password
 		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+	case "naive":
+		result["username"], result["password"] = node.Username, node.Password
+		if node.InsecureConcurrency != 0 {
+			result["insecure_concurrency"] = node.InsecureConcurrency
+		}
+		if node.QUIC {
+			result["quic"] = true
+		}
+		if node.QUICCongestionControl != "" {
+			result["quic_congestion_control"] = node.QUICCongestionControl
+		}
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+	case "ssh":
+		result["user"], result["password"] = node.Username, node.Password
+		if node.PrivateKey != "" {
+			result["private_key"] = node.PrivateKey
+		}
+		if len(node.HostKeyAlgorithms) > 0 {
+			result["host_key_algorithms"] = node.HostKeyAlgorithms
+		}
+		if node.HostKey != "" {
+			result["host_key"] = []string{node.HostKey}
+		}
+	case "tor":
+		if node.ExecutablePath != "" {
+			result["executable_path"] = node.ExecutablePath
+		}
+		if len(node.ExtraArgs) > 0 {
+			result["extra_args"] = node.ExtraArgs
+		}
+		if node.DataDirectory != "" {
+			result["data_directory"] = node.DataDirectory
+		}
 	}
 	return clean(result)
+}
+
+// CompileNodeOutbound exposes the same typed lowering used by the full plan
+// for temporary node diagnostics such as speed tests.
+func CompileNodeOutbound(node model.Node) map[string]any { return compileNode(node) }
+
+func NodeOutboundTag(id string) string { return nodeTag(id) }
+
+func compileTLSIfConfigured(node model.Node) map[string]any {
+	if node.TLSServerName == "" && node.RealityPublicKey == "" && !node.Insecure && node.UTLSFingerprint == "" {
+		return nil
+	}
+	return compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, node.RealityPublicKey, node.RealityShortID)
+}
+
+func compileTransport(node model.Node) map[string]any {
+	switch node.Transport {
+	case "", "tcp", "raw":
+		return nil
+	case "ws":
+		result := map[string]any{"type": "ws", "path": node.TransportPath}
+		if node.TransportHost != "" {
+			result["headers"] = map[string]any{"Host": []string{node.TransportHost}}
+		}
+		return result
+	case "grpc":
+		return map[string]any{"type": "grpc", "service_name": node.ServiceName}
+	case "http":
+		result := map[string]any{"type": "http", "path": node.TransportPath}
+		if node.TransportHost != "" {
+			result["host"] = []string{node.TransportHost}
+		}
+		return result
+	case "quic":
+		return map[string]any{"type": "quic"}
+	default:
+		return nil
+	}
 }
 
 func compileTLS(serverName string, insecure bool, fingerprint, publicKey, shortID string) map[string]any {

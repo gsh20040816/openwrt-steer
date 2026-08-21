@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,6 +47,8 @@ func run(args []string) error {
 		return runRollback(args[1:])
 	case "probe":
 		return runProbe(args[1:])
+	case "subscription":
+		return runSubscription(args[1:])
 	case "health":
 		return runHealth(args[1:])
 	case "status":
@@ -194,12 +197,28 @@ func acquireApplyLock(runDirectory string) (*os.File, error) {
 func runProbe(args []string) error {
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
+	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	kind := flags.String("kind", "direct", "probe kind: direct, proxy or speedtest")
+	nodeID := flags.String("node", "", "run a temporary speed test through this node")
+	download := flags.Bool("download", false, "download the complete speed-test response")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("probe accepts flags only")
+	}
+	if *nodeID != "" {
+		if *kind != "speedtest" {
+			return errors.New("--node requires --kind speedtest")
+		}
+		report, err := openwrt.SpeedTestNode(context.Background(), *configPath, *stateDirectory, *singBoxPath, *nodeID, *download)
+		if err != nil {
+			return err
+		}
+		writeJSON(report)
+		return nil
 	}
 	report, err := openwrt.ProbeCurrent(context.Background(), *runDirectory, *kind, nil)
 	if err != nil {
@@ -209,6 +228,54 @@ func runProbe(args []string) error {
 	if !report.OK {
 		return errors.New("one or more HTTPS probes failed")
 	}
+	return nil
+}
+
+func runSubscription(args []string) error {
+	flags := flag.NewFlagSet("subscription", flag.ContinueOnError)
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	stateDirectory := flags.String("state-dir", "/var/lib/steer", "subscription snapshot directory")
+	id := flags.String("id", "", "only update this subscription ID")
+	nodeID := flags.String("node", "", "subscription node ID for clean")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 || (flags.Arg(0) != "update" && flags.Arg(0) != "status" && flags.Arg(0) != "clean") {
+		return errors.New("usage: steer subscription update|status [--id ID] | clean --id ID --node NODE_ID")
+	}
+	if flags.Arg(0) == "status" {
+		statuses, err := openwrt.ReadSubscriptionStatus(*configPath, *stateDirectory)
+		if err != nil {
+			return err
+		}
+		writeJSON(struct {
+			OK            bool                         `json:"ok"`
+			Subscriptions []openwrt.SubscriptionStatus `json:"subscriptions"`
+		}{true, statuses})
+		return nil
+	}
+	if flags.Arg(0) == "clean" {
+		if *id == "" || *nodeID == "" {
+			return errors.New("subscription clean requires --id and --node")
+		}
+		snapshot, err := openwrt.CleanSubscriptionNode(*configPath, *stateDirectory, *id, *nodeID)
+		if err != nil {
+			return err
+		}
+		writeJSON(struct {
+			OK       bool                         `json:"ok"`
+			Snapshot openwrt.SubscriptionSnapshot `json:"snapshot"`
+		}{true, snapshot})
+		return nil
+	}
+	snapshots, err := openwrt.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
+	if err != nil {
+		return err
+	}
+	writeJSON(struct {
+		OK        bool                           `json:"ok"`
+		Snapshots []openwrt.SubscriptionSnapshot `json:"snapshots"`
+	}{true, snapshots})
 	return nil
 }
 
@@ -370,7 +437,6 @@ func writeJSON(value any) {
 	_ = encoder.Encode(value)
 }
 
-
 func usage() error {
-	return errors.New("usage: steer version|validate|compile|compile-sing-box|compile-firewall|plan|capabilities|prepare|apply|rollback|probe|health|status|geo-catalog|cleanup [flags]")
+	return errors.New("usage: steer version|validate|compile|compile-sing-box|compile-firewall|plan|capabilities|prepare|apply|rollback|probe|subscription|health|status|geo-catalog|cleanup [flags]")
 }

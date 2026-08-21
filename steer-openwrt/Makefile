@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=5
+PKG_RELEASE:=7
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -24,7 +24,7 @@ define Package/steer-openwrt
   CATEGORY:=Network
   TITLE:=Intent-driven transparent proxy controller for OpenWrt
   URL:=https://github.com/gsh20040816/openwrt-steer
-  DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +geoview +ip \
+	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +geoview +ip \
 	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun +steer-geodata
   EXTRA_DEPENDS:=sing-box (>=1.13.18)
   PROVIDES:=steer
@@ -43,19 +43,18 @@ endef
 
 define Package/steer-openwrt/postinst
 #!/bin/sh
-# One release transition only: remove this block entirely when schema 6 ships.
+# One release transition only: remove this block entirely when schema 7 ships.
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 
 config=/etc/config/steer
 [ -f "$$config" ] || exit 0
 schema="$$(uci -q get steer.main.schema_version 2>/dev/null)"
 case "$$schema" in
-	4)
-		uci -q delete steer.main.managed_zone
-		uci set steer.main.schema_version='5'
+	5)
+		uci set steer.main.schema_version='6'
 		uci commit steer
 		;;
-	5)
+	6)
 		;;
 	*)
 		echo "steer: unsupported existing schema '$$schema'; refusing automatic migration" >&2
@@ -63,12 +62,29 @@ case "$$schema" in
 		;;
 esac
 
-# default_postinst runs before this package-specific migration. On upgrades
-# the init script suppresses that premature start; now that UCI is valid, start
-# the new generation and fail the package transaction if it cannot become
-# healthy.
-if [ "$${PKG_UPGRADE:-0}" = 1 ]; then
-	PKG_UPGRADE=0 /etc/init.d/steer start
+cron_file=/etc/crontabs/root
+cron_line='*/15 * * * * /usr/sbin/steer subscription update 2>&1 | logger -t steer-subscription'
+[ -x /etc/init.d/cron ] || { echo 'steer: BusyBox crond is required' >&2; exit 1; }
+mkdir -p /etc/crontabs
+grep -Fqx "$$cron_line" "$$cron_file" 2>/dev/null || echo "$$cron_line" >> "$$cron_file"
+/etc/init.d/cron restart
+
+# Start only after the package's UCI migration and cron registration. The
+# explicit environment value also prevents the init script from treating this
+# as an upgrade-triggered recursive start.
+PKG_UPGRADE=0 /etc/init.d/steer start
+endef
+
+define Package/steer-openwrt/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+cron_file=/etc/crontabs/root
+cron_line='*/15 * * * * /usr/sbin/steer subscription update 2>&1 | logger -t steer-subscription'
+if [ -f "$$cron_file" ]; then
+	tmp="$${cron_file}.steer.$$"
+	grep -Fvx "$$cron_line" "$$cron_file" > "$$tmp" || true
+	mv "$$tmp" "$$cron_file"
+	/etc/init.d/cron restart
 fi
 endef
 
