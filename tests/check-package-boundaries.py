@@ -16,6 +16,7 @@ def fail(message: str) -> None:
 makefile = (ROOT / "steer-openwrt/Makefile").read_text()
 geodata_makefile = (ROOT / "steer-geodata/Makefile").read_text()
 rpc = (ROOT / "luci-app-steer/root/usr/share/rpcd/ucode/luci.steer").read_text()
+acl = (ROOT / "luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json").read_text()
 
 for dependency in (
     "steer-geodata",
@@ -66,6 +67,12 @@ if "*/15 * * * * /usr/sbin/steer subscription update" not in makefile:
     fail("subscription cron dispatcher is not package-managed")
 if "[ -x /etc/init.d/cron ]" not in makefile:
     fail("subscription dispatcher must fail fast when BusyBox crond is unavailable")
+if "PKG_UPGRADE=0 /usr/sbin/steer apply" not in makefile:
+    fail("post-upgrade must switch the migrated intent through verified Apply")
+if "PKG_UPGRADE=0 /etc/init.d/steer start" in makefile:
+    fail("post-upgrade must not leave an already-running sing-box instance unchanged")
+if "subscription_update" not in rpc or "subscription_update" not in acl:
+    fail("LuCI subscription update must be implemented and authorized explicitly")
 
 for required in (
     "$(DL_DIR)/$(GEOSITE_FILE)",

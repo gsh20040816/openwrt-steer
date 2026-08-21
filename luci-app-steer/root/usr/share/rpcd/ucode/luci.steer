@@ -62,6 +62,13 @@ const methods = {
 			return command_json('/usr/sbin/steer subscription status');
 		}
 	},
+	subscription_update: {
+		call: function(request) {
+			if (!request?.id)
+				return { ok: false, error: '缺少订阅 ID' };
+			return command_json([ '/usr/sbin/steer', 'subscription', 'update', '--id', request.id ]);
+		}
+	},
 	subscription_clean: {
 		call: function(request) {
 			if (!request?.id || !request?.node)

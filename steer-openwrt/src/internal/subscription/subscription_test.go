@@ -42,9 +42,29 @@ func TestRejectInvalidAndConflictingParameters(t *testing.T) {
 	for _, raw := range []string{
 		"tuic://00000000-0000-4000-8000-000000000001:secret@example.com:443?insecure=maybe",
 		"vless://00000000-0000-4000-8000-000000000001@example.com:443?sni=a.example&serverName=b.example",
+		"trojan://secret@example.com:443?sni=a.example&peer=b.example",
+		"anytls://secret@example.com:443?type=ws",
 	} {
 		if _, err := ParseURI(raw); err == nil {
 			t.Fatalf("invalid URI was accepted: %s", raw)
+		}
+	}
+}
+
+func TestParsePassWallCompatibleAliases(t *testing.T) {
+	nodes, err := ParseList(
+		"trojan://secret@example.com:443?type=tcp&sni=edge.example&peer=edge.example&allowInsecure=1#trojan\n" +
+			"anytls://secret@example.com:443?type=tcp&sni=edge.example&insecure=1#anytls\n" +
+			"hysteria://secret@example.com:443?peer=edge.example&allowInsecure=1#hysteria\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 3 {
+		t.Fatalf("unexpected compatible node count: %d", len(nodes))
+	}
+	for _, node := range nodes {
+		if node.TLSServerName != "edge.example" || !node.Insecure {
+			t.Fatalf("compatibility aliases were not lowered explicitly: %#v", node)
 		}
 	}
 }

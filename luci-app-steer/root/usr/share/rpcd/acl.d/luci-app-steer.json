@@ -10,7 +10,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.steer": [ "rollback", "subscription_clean", "node_speedtest" ]
+				"luci.steer": [ "rollback", "subscription_update", "subscription_clean", "node_speedtest" ]
 			},
 			"uci": [ "steer" ]
 		}

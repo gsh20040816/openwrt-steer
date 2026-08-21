@@ -140,6 +140,9 @@ function createEnvironment(sections) {
 		status: () => Promise.resolve({}),
 		plan: () => Promise.resolve({}),
 		geodataCatalog: () => Promise.resolve({}),
+		subscriptions: () => Promise.resolve({ subscriptions: [] }),
+		renderStatus: () => element('div'),
+		updateSubscription: () => Promise.resolve({ ok: true }),
 		apply: () => Promise.resolve()
 	};
 	const ui = {};
@@ -228,6 +231,24 @@ async function renderLocalProxies(sections) {
 		}
 	);
 	await view.render();
+	return environment;
+}
+
+async function renderOverview(sections) {
+	const environment = createEnvironment(sections);
+	const view = loadView(
+		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js',
+		{
+			form: environment.form,
+			uci: environment.uci,
+			ui: environment.ui,
+			view: environment.view,
+			steer: environment.steer,
+			E: element,
+			_: environment.translate
+		}
+	);
+	await view.render([ null, {}, {}, { subscriptions: [] } ]);
 	return environment;
 }
 
@@ -377,12 +398,23 @@ async function main() {
 		'DNS profiles expose exactly the six M1 transports');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertGeneratedIds(environment, 'Local proxies');
+	environment = await renderOverview({ subscription: [] });
+	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
+	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
+		'Subscriptions require an explicit stable UCI section ID');
+	assert.equal(typeof subscriptionSection.handleAdd, 'function',
+		'Subscription creation validates the stricter Steer ID syntax');
 
 	const nodeSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodeSource.includes("const id = uci.add('steer', 'node');") &&
 		!nodeSource.includes("uci.add('steer', 'node', id)"),
 		'Share URL import uses an internal UCI-generated node ID');
+	const overviewSource = fs.readFileSync(path.join(root,
+		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js'), 'utf8');
+	assert.ok(overviewSource.includes('steer.updateSubscription(subscription.id)') &&
+		overviewSource.includes("_('Update now')"),
+		'Subscription status exposes an immediate atomic update action');
 
 	console.log('LuCI view regression tests passed.');
 }

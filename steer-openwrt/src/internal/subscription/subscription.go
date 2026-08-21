@@ -131,13 +131,13 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 	query := u.Query()
 	allowed := map[string][]string{
 		"vless":       {"encryption", "flow", "security", "sni", "serverName", "fp", "fingerprint", "pbk", "publicKey", "sid", "shortId", "type", "packetEncoding", "packet_encoding", "allowInsecure", "insecure", "path", "host", "serviceName"},
-		"trojan":      {"sni", "serverName", "fp", "fingerprint", "type", "allowInsecure", "insecure", "path", "host", "serviceName"},
-		"hysteria":    {"sni", "insecure", "allowInsecure", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
+		"trojan":      {"sni", "serverName", "peer", "fp", "fingerprint", "type", "allowInsecure", "insecure", "path", "host", "serviceName"},
+		"hysteria":    {"sni", "peer", "insecure", "allowInsecure", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
 		"hysteria2":   {"sni", "insecure", "allowInsecure", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
 		"hy2":         {"sni", "insecure", "allowInsecure", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
 		"shadowtls":   {"version", "sni", "insecure", "allowInsecure", "fp", "fingerprint"},
 		"tuic":        {"congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat", "sni", "insecure", "fp", "fingerprint"},
-		"anytls":      {"sni", "insecure", "fp", "fingerprint"},
+		"anytls":      {"sni", "insecure", "fp", "fingerprint", "type"},
 		"naive+https": {"sni", "insecure", "quic", "quic_congestion_control", "fp", "fingerprint"},
 		"ssh":         {},
 	}
@@ -146,6 +146,9 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 	}
 	if err := validateQueryValues(query); err != nil {
 		return model.Node{}, err
+	}
+	if scheme == "anytls" && query.Get("type") != "" && !strings.EqualFold(query.Get("type"), "tcp") {
+		return model.Node{}, fmt.Errorf("anytls URI parameter %q must be tcp", "type")
 	}
 	node.UTLSFingerprint = first(query.Get("fp"), query.Get("fingerprint"))
 	switch scheme {
@@ -166,7 +169,7 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 		setTransport(&node, query)
 	case "trojan":
 		node.Type, node.Password = "trojan", username
-		node.TLSServerName = first(query.Get("sni"), query.Get("serverName"), node.Server)
+		node.TLSServerName = first(query.Get("sni"), query.Get("serverName"), query.Get("peer"), node.Server)
 		// uTLS fingerprint is carried by the shared TLS group.
 		node.Insecure = boolValue(first(query.Get("allowInsecure"), query.Get("insecure")))
 		setTransport(&node, query)
@@ -175,7 +178,7 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 		if scheme == "hysteria" {
 			node.Type = "hysteria"
 		}
-		node.TLSServerName = first(query.Get("sni"), node.Server)
+		node.TLSServerName = first(query.Get("sni"), query.Get("peer"), node.Server)
 		node.Insecure = boolValue(first(query.Get("insecure"), query.Get("allowInsecure")))
 		node.HopInterval = first(query.Get("hop-interval"), query.Get("hopInterval"))
 		node.ObfsType, node.ObfsPassword = query.Get("obfs"), query.Get("obfs-password")
@@ -341,7 +344,7 @@ func validateQueryValues(values url.Values) error {
 			}
 		}
 	}
-	for _, aliases := range [][]string{{"sni", "serverName"}, {"fp", "fingerprint"}, {"pbk", "publicKey"}, {"sid", "shortId"}, {"packetEncoding", "packet_encoding"}, {"allowInsecure", "insecure"}, {"hop-interval", "hopInterval"}, {"upmbps", "upMbps"}, {"downmbps", "downMbps"}} {
+	for _, aliases := range [][]string{{"sni", "serverName", "peer"}, {"fp", "fingerprint"}, {"pbk", "publicKey"}, {"sid", "shortId"}, {"packetEncoding", "packet_encoding"}, {"allowInsecure", "insecure"}, {"hop-interval", "hopInterval"}, {"upmbps", "upMbps"}, {"downmbps", "downMbps"}} {
 		var previous string
 		for _, alias := range aliases {
 			if value := values.Get(alias); value != "" {

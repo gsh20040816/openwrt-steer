@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -69,10 +69,12 @@ mkdir -p /etc/crontabs
 grep -Fqx "$$cron_line" "$$cron_file" 2>/dev/null || echo "$$cron_line" >> "$$cron_file"
 /etc/init.d/cron restart
 
-# Start only after the package's UCI migration and cron registration. The
-# explicit environment value also prevents the init script from treating this
-# as an upgrade-triggered recursive start.
-PKG_UPGRADE=0 /etc/init.d/steer start
+# Switch to the migrated intent through Steer's verified generation
+# transaction. PKG_UPGRADE must not leak into the init calls made by Apply.
+apply_output="$$(PKG_UPGRADE=0 /usr/sbin/steer apply 2>&1)" || {
+	echo "$$apply_output" >&2
+	exit 1
+}
 endef
 
 define Package/steer-openwrt/prerm

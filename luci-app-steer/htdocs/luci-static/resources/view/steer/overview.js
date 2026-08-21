@@ -3,6 +3,7 @@
 'use strict';
 'require form';
 'require uci';
+'require ui';
 'require view';
 'require steer as steer';
 
@@ -36,11 +37,28 @@ function renderSubscriptions(result) {
 			...subscriptions.map((subscription) => {
 				const stale = subscription.stale_node_ids || [];
 				const last = subscription.fetched_at ? new Date(subscription.fetched_at).toLocaleString() : (subscription.error || _('Not fetched'));
+				const actions = [ E('button', {
+					'class': 'btn cbi-button-action',
+					'click': function() {
+						ui.showModal(_('Updating subscription'), [ E('p', { 'class': 'spinning' }, _('Downloading and validating every node.')) ]);
+						return steer.updateSubscription(subscription.id).then((update) => {
+							ui.hideModal();
+							if (!update?.ok) {
+								ui.addNotification(_('Subscription update failed'), E('p', {}, update?.error || _('Unknown error')), 'danger');
+								return update;
+							}
+							ui.addNotification(null, E('p', {}, _('Subscription updated.')), 'info');
+							window.location.reload();
+							return update;
+						});
+					}
+				}, _('Update now')) ];
+				stale.forEach((node) => actions.push(' ', E('button', { 'class': 'btn cbi-button-negative', 'click': function() { return steer.cleanSubscription(subscription.id, node).then(() => window.location.reload()); } }, _('Remove %s').format(node))));
 				return E('div', { 'class': 'tr' }, [
 					E('div', { 'class': 'td' }, subscription.name || subscription.id),
 					E('div', { 'class': 'td' }, last),
 					E('div', { 'class': 'td' }, stale.length ? _('%d (%d stale)').format(subscription.node_count, stale.length) : String(subscription.node_count || 0)),
-					E('div', { 'class': 'td' }, stale.length ? stale.map((node) => E('button', { 'class': 'btn cbi-button-negative', 'click': function() { return steer.cleanSubscription(subscription.id, node).then(() => window.location.reload()); } }, _('Remove %s').format(node))) : _('No cleanup needed'))
+					E('div', { 'class': 'td' }, actions)
 				]);
 			})
 		]) : E('p', {}, _('No subscriptions configured.'))
@@ -107,13 +125,21 @@ return view.extend({
 		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
 		o.rmempty = false;
 
-		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
-		s.anonymous = true;
+		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'), _('Use a stable lowercase ID beginning with a letter; allowed characters are letters, digits, underscores and hyphens.'));
+		s.anonymous = false;
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add subscription');
 		s.sectiontitle = function(sectionId) {
 			return uci.get('steer', sectionId, 'name') || uci.get('steer', sectionId, 'url') || _('Unnamed');
+		};
+		s.handleAdd = function(ev, sectionId) {
+			if (!/^[a-z][a-z0-9_-]{0,31}$/.test(sectionId)) {
+				ui.addNotification(_('Invalid subscription ID'), E('p', {}, _('Use 1–32 lowercase characters beginning with a letter.')), 'danger');
+				return;
+			}
+			this.map.data.add(this.uciconfig || this.map.config, this.sectiontype, sectionId);
+			return this.map.save(null, true);
 		};
 		o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 		o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
