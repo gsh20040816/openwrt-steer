@@ -11,6 +11,7 @@ readonly CCACHE_DIR="${CCACHE_DIR:-/work/openwrt/.ccache}"
 readonly CCACHE_CONFIGPATH2=staging_dir/host/etc/ccache.conf
 readonly EXTERNAL_TOOLCHAIN_ROOT=/external-toolchain
 readonly GO_BOOTSTRAP_ROOT=/external-go
+readonly GO_BUILD_CACHE_DIR=/work/go-build-cache
 export CCACHE_DIR CCACHE_CONFIGPATH2
 
 group_open=0
@@ -116,6 +117,7 @@ printf '%s\n' \
 	'CONFIG_AUTOREMOVE=y' \
 	'CONFIG_LOCALMIRROR="https://sources.cdn.openwrt.org"' \
 	'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/external-go"' \
+	'CONFIG_GOLANG_BUILD_CACHE_DIR="/work/go-build-cache"' \
 	'# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' \
 	'CONFIG_LUCI_LANG_zh_Hans=y' \
 	>> .config
@@ -133,6 +135,7 @@ grep -qx 'CONFIG_CCACHE=y' .config
 grep -qx 'CONFIG_AUTOREMOVE=y' .config
 grep -qx 'CONFIG_LOCALMIRROR="https://sources.cdn.openwrt.org"' .config
 grep -qx 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="/external-go"' .config
+grep -qx 'CONFIG_GOLANG_BUILD_CACHE_DIR="/work/go-build-cache"' .config
 grep -qx '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' .config
 grep -qx 'CONFIG_LUCI_LANG_zh_Hans=y' .config
 selected_kmods="$(grep -c '^CONFIG_PACKAGE_kmod-.*=[my]' .config || true)"
@@ -206,7 +209,7 @@ staging_dir/host/bin/ccache --evict-older-than 1d
 staging_dir/host/bin/ccache --cleanup
 
 group 'Show OpenWrt download and Go caches'
-du -sh dl tmp/go-build
+du -sh dl "$GO_BUILD_CACHE_DIR"
 
 group 'Export build outputs'
 [ ! -e /artifacts/bin ] || {

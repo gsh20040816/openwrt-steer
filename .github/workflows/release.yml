@@ -113,7 +113,7 @@ jobs:
             --volume "$output_dir:/artifacts" \
             --volume "$ccache_dir:/work/openwrt/.ccache" \
             --volume "$language_cache_dir/dl:/work/openwrt/dl" \
-            --volume "$language_cache_dir/go-build:/work/openwrt/tmp/go-build" \
+            --volume "$language_cache_dir/go-build:/work/go-build-cache" \
             steer-openwrt-builder:25.12.5-x86_64
           # The builder runs as buildbot, while actions/cache archives as runner.
           docker run --rm \
