@@ -50,6 +50,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/steer-sdk-dl"
           mkdir -p "$RUNNER_TEMP/steer-sdk-ccache"
           mkdir -p "$RUNNER_TEMP/steer-sdk-go-cache"
+          chmod -R a+rwx \
+            "$RUNNER_TEMP/steer-sdk-artifacts" \
+            "$RUNNER_TEMP/steer-sdk-dl" \
+            "$RUNNER_TEMP/steer-sdk-ccache" \
+            "$RUNNER_TEMP/steer-sdk-go-cache"
 
       - name: Restore OpenWrt SDK ccache
         id: sdk-ccache

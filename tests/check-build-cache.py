@@ -27,6 +27,7 @@ required_fragments = (
     "--volume \"$RUNNER_TEMP/steer-sdk-dl:/builder/dl\"",
     "--volume \"$RUNNER_TEMP/steer-sdk-ccache:/builder/.ccache\"",
     "--volume \"$RUNNER_TEMP/steer-sdk-go-cache:/go-build-cache\"",
+    "chmod -R a+rwx",
     "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "--env PACKAGES=\"geoview steer-geodata steer-openwrt luci-app-steer\"",
