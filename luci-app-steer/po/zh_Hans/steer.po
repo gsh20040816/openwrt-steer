@@ -3,9 +3,6 @@ msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 
-msgid "%d added, %d modified, %d removed"
-msgstr "新增 %d 项，修改 %d 项，删除 %d 项"
-
 msgid "%d (%d stale)"
 msgstr "%d（其中 %d 个已失联）"
 
@@ -96,9 +93,6 @@ msgstr "缓存容量"
 msgid "Cancel"
 msgstr "取消"
 
-msgid "Candidate changes"
-msgstr "候选变更"
-
 msgid "Certificate verification"
 msgstr "证书校验"
 
@@ -123,6 +117,9 @@ msgstr "配置"
 msgid "Connection"
 msgstr "连接"
 
+msgid "Connection test"
+msgstr "连接测速"
+
 msgid "Core process"
 msgstr "核心进程"
 
@@ -143,9 +140,6 @@ msgstr "DNS 缓存"
 
 msgid "DNS continues to the next rule"
 msgstr "DNS 继续匹配下一条规则"
-
-msgid "DNS paths"
-msgstr "DNS 路径"
 
 msgid "DNS profile"
 msgstr "DNS 配置"
@@ -183,6 +177,9 @@ msgstr "域名匹配"
 msgid "Download Mbps"
 msgstr "下载 Mbps"
 
+msgid "Download test"
+msgstr "下载测速"
+
 msgid "Enable Steer"
 msgstr "启用 Steer"
 
@@ -191,12 +188,6 @@ msgstr "启用"
 
 msgid "Exact ports only. This condition is evaluated by traffic routing, not DNS."
 msgstr "仅支持精确端口。此条件由流量路由判断，不参与 DNS 判断。"
-
-msgid "Execution plan"
-msgstr "执行计划"
-
-msgid "Execution plan is unavailable."
-msgstr "执行计划不可用。"
 
 msgid "Firewall shim"
 msgstr "防火墙辅助层"
@@ -209,9 +200,6 @@ msgstr "流程"
 
 msgid "General"
 msgstr "常规"
-
-msgid "Geo rule sets"
-msgstr "Geo 规则集"
 
 msgid "HTTP path"
 msgstr "HTTP 路径"
@@ -299,9 +287,6 @@ msgstr "传输方式"
 
 msgid "No match condition"
 msgstr "无匹配条件"
-
-msgid "No semantic changes"
-msgstr "没有语义变更"
 
 msgid "Node"
 msgstr "节点"
@@ -411,17 +396,11 @@ msgstr "规则执行模型"
 msgid "Rules"
 msgstr "规则"
 
-msgid "Schema"
-msgstr "模式版本"
-
 msgid "Server"
 msgstr "服务器"
 
 msgid "Server IP"
 msgstr "服务器 IP"
-
-msgid "Show complete plan"
-msgstr "显示完整计划"
 
 msgid "Show fixed boundary"
 msgstr "显示固定边界"
@@ -630,12 +609,6 @@ msgstr "等待已提交的 Steer 配置重载超时。"
 msgid "uTLS fingerprint"
 msgstr "uTLS 指纹"
 
-msgid "Ingress scope"
-msgstr "入口范围"
-
-msgid "All interfaces"
-msgstr "所有接口"
-
 msgid "Action"
 msgstr "操作"
 
@@ -720,23 +693,14 @@ msgstr "首字节"
 msgid "No speed-test result was returned."
 msgstr "未返回测速结果。"
 
-msgid "Node speed test"
-msgstr "节点测速"
-
 msgid "Node speed test failed"
 msgstr "节点测速失败"
 
-msgid "Speed test"
-msgstr "测速"
-
-msgid "Starting a temporary sing-box instance. The active route will not change."
-msgstr "正在启动临时 sing-box 实例，当前路由不会改变。"
+msgid "Starting a temporary sing-box instance."
+msgstr "正在启动临时 sing-box 实例。"
 
 msgid "Test"
 msgstr "测试"
-
-msgid "Testing node"
-msgstr "正在测试节点"
 
 msgid "URL"
 msgstr "地址"

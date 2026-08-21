@@ -8,9 +8,9 @@
 	--steer-line: color-mix(in srgb, currentColor 16%, transparent);
 }
 
-/* LuCI already renders the first title cell; Argon's pseudo title would duplicate it. */
+/* Keep Argon's flex item for column sizing, but hide its duplicate title text. */
 [data-page^="admin-services-steer-"] .cbi-section-table-row[data-title]::before {
-	display: none;
+	visibility: hidden;
 }
 
 .steer-status {
@@ -227,6 +227,27 @@
 	margin: 0 0 1rem;
 	overflow-x: auto;
 	padding-bottom: .2rem;
+}
+
+.steer-subscription-status {
+	margin: 0 0 1rem;
+	padding: .8rem 1rem;
+	border: 1px solid var(--steer-line);
+	border-radius: .35rem;
+}
+
+.steer-subscription-status h3 {
+	margin: 0 0 .6rem;
+	font-size: 1rem;
+}
+
+.steer-subscription-status .table {
+	font-size: .85rem;
+}
+
+.steer-subscription-status .tr > .td,
+.steer-subscription-status .tr > .th {
+	padding: .45rem .6rem;
 }
 
 .steer-node-groups__item {

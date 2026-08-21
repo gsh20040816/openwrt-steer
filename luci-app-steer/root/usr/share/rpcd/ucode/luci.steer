@@ -80,7 +80,10 @@ const methods = {
 		call: function(request) {
 			if (!request?.node)
 				return { ok: false, error: '缺少节点 ID' };
-			return command_json([ '/usr/sbin/steer', 'probe', '--kind', 'speedtest', '--node', request.node, '--download' ]);
+			const command = [ '/usr/sbin/steer', 'probe', '--kind', 'speedtest', '--node', request.node ];
+			if (request.download)
+				command.push('--download');
+			return command_json(command);
 		}
 	}
 };

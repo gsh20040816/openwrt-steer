@@ -107,6 +107,43 @@ function renderNodeGroupNavigation(groups, activeGroup) {
 	}));
 }
 
+function renderSubscriptionStatus(result) {
+	const subscriptions = result?.subscriptions || [];
+	return E('section', { 'class': 'steer-subscription-status' }, [
+		E('h3', {}, _('Subscription status')),
+		subscriptions.length ? E('div', { 'class': 'table' }, [
+			E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('Name')), E('div', { 'class': 'th' }, _('Last update')), E('div', { 'class': 'th' }, _('Nodes')), E('div', { 'class': 'th' }, _('Action')) ]),
+			...subscriptions.map((subscription) => {
+				const stale = subscription.stale_node_ids || [];
+				const last = subscription.fetched_at ? new Date(subscription.fetched_at).toLocaleString() : (subscription.error || _('Not fetched'));
+				const actions = [ E('button', {
+					'class': 'btn cbi-button-action',
+					'click': function() {
+						ui.showModal(_('Updating subscription'), [ E('p', { 'class': 'spinning' }, _('Downloading and validating every node.')) ]);
+						return steer.updateSubscription(subscription.id).then((update) => {
+							ui.hideModal();
+							if (!update?.ok) {
+								ui.addNotification(_('Subscription update failed'), E('p', {}, update?.error || _('Unknown error')), 'danger');
+								return update;
+							}
+							ui.addNotification(null, E('p', {}, _('Subscription updated.')), 'info');
+							window.location.reload();
+							return update;
+						});
+					}
+				}, _('Update now')) ];
+				stale.forEach((node) => actions.push(' ', E('button', { 'class': 'btn cbi-button-negative', 'click': function() { return steer.cleanSubscription(subscription.id, node).then(() => window.location.reload()); } }, _('Remove %s').format(node))));
+				return E('div', { 'class': 'tr' }, [
+					E('div', { 'class': 'td' }, subscription.name || subscription.id),
+					E('div', { 'class': 'td' }, last),
+					E('div', { 'class': 'td' }, stale.length ? _('%d (%d stale)').format(subscription.node_count, stale.length) : String(subscription.node_count || 0)),
+					E('div', { 'class': 'td' }, actions)
+				]);
+			})
+		]) : E('p', {}, _('No subscriptions configured.'))
+	]);
+}
+
 function importErrorText(error) {
 	const detail = error?.detail ? ' (%s)'.format(error.detail) : '';
 	const messages = {
@@ -192,11 +229,12 @@ function renderImportButton() {
 	]);
 }
 
-function runSpeedtest(sectionId) {
-	ui.showModal(_('Testing node'), [ E('p', { 'class': 'spinning' }, _('Starting a temporary sing-box instance. The active route will not change.')) ]);
-	return steer.speedtest(sectionId).then((report) => {
+function runSpeedtest(sectionId, download) {
+	const testTitle = download ? _('Download test') : _('Connection test');
+	ui.showModal(testTitle, [ E('p', { 'class': 'spinning' }, _('Starting a temporary sing-box instance.')) ]);
+	return steer.speedtest(sectionId, download).then((report) => {
 		const results = report?.results || [];
-		ui.showModal(_('Node speed test'), [
+		ui.showModal(testTitle, [
 			results.length ? E('div', { 'class': 'table' }, [
 				E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('URL')), E('div', { 'class': 'th' }, _('Connect')), E('div', { 'class': 'th' }, _('TLS')), E('div', { 'class': 'th' }, _('First byte')), E('div', { 'class': 'th' }, _('Download')) ]),
 				...results.map((result) => E('div', { 'class': 'tr' }, [
@@ -295,10 +333,10 @@ function showImportDialog() {
 
 return view.extend({
 	load: function() {
-		return uci.load('steer');
+		return Promise.all([ uci.load('steer'), steer.subscriptions() ]);
 	},
 
-	render: function() {
+	render: function(data) {
 		let m, s, o;
 		const nodes = uci.sections('steer', 'node');
 		const routes = uci.sections('steer', 'route');
@@ -370,10 +408,19 @@ return view.extend({
 		o.default = '1';
 		o.editable = !summaryOnly;
 
-		o = s.taboption('general', form.Button, '_speedtest', _('Speed test'));
+		o = s.taboption('general', form.Button, '_connect_speedtest', _('Connection test'));
+		o.default = '1';
+		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
-		o.onclick = function(sectionId) { return runSpeedtest(sectionId); };
+		o.onclick = function(sectionId) { return runSpeedtest(sectionId, false); };
+
+		o = s.taboption('general', form.Button, '_download_speedtest', _('Download test'));
+		o.default = '1';
+		o.editable = true;
+		o.inputtitle = _('Test');
+		o.inputstyle = 'action';
+		o.onclick = function(sectionId) { return runSpeedtest(sectionId, true); };
 
 		o = s.taboption('general', form.Value, 'name', _('Name'));
 		o.rmempty = false;
@@ -618,7 +665,7 @@ return view.extend({
 		o.depends('type', 'trojan');
 
 		return m.render().then((formNode) => {
-			const contents = [ renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
+			const contents = [ renderSubscriptionStatus(data?.[1]), renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
 			if (activeNodeGroup == manualNodeGroup)
 				contents.push(renderImportButton());
 			contents.push(formNode);

@@ -440,6 +440,11 @@ async function main() {
 		assert.equal(option && option.editable, false,
 			`Subscription node option ${name} does not create an editable widget per row`);
 	});
+	[ '_connect_speedtest', '_download_speedtest' ].forEach((name) => {
+		const option = subscriptionNodes.options.find((candidate) => candidate.name == name);
+		assert.equal(option && option.editable, true,
+			`Subscription node exposes the ${name} action`);
+	});
 	environment = await renderOverview({ subscription: [] });
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
@@ -458,9 +463,24 @@ async function main() {
 		'Share URL import uses an internal UCI-generated node ID');
 	const overviewSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js'), 'utf8');
-	assert.ok(overviewSource.includes('steer.updateSubscription(subscription.id)') &&
-		overviewSource.includes("_('Update now')"),
-		'Subscription status exposes an immediate atomic update action');
+	assert.ok(!overviewSource.includes('renderPlan') && !overviewSource.includes('renderSubscriptions'),
+		'Overview keeps only runtime status and configuration');
+	const nodesSource = fs.readFileSync(path.join(root,
+		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
+	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
+		nodesSource.includes("_('Update now')") &&
+		nodesSource.includes("_('Connection test')") &&
+		nodesSource.includes("_('Download test')"),
+		'Nodes page exposes subscription actions and both speed-test actions');
+	const steerSource = fs.readFileSync(path.join(root,
+		'luci-app-steer/htdocs/luci-static/resources/steer.js'), 'utf8');
+	assert.ok(steerSource.includes("params: [ 'node', 'download' ]") &&
+		steerSource.includes('speedtest: function(node, download)'),
+		'Speed-test RPC accepts an explicit download mode');
+	const rpcSource = fs.readFileSync(path.join(root,
+		'luci-app-steer/root/usr/share/rpcd/ucode/luci.steer'), 'utf8');
+	assert.ok(rpcSource.includes("command.push('--download')"),
+		'RPC backend adds download mode only for download tests');
 
 	console.log('LuCI view regression tests passed.');
 }
