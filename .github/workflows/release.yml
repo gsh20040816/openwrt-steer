@@ -44,6 +44,10 @@ jobs:
       - name: Check LuCI apply and status interactions
         run: node tests/node/steer_helper_test.js
 
+      - name: Check shared Go core and OpenWrt adapter
+        working-directory: go
+        run: go test ./...
+
       - name: Prepare official SDK artifacts directory
         run: |
           mkdir -p "$RUNNER_TEMP/steer-sdk-artifacts"

@@ -1,52 +1,53 @@
 # Steer
 
-Steer 是面向 OpenWrt 的透明代理意图编译器和控制平面。用户通过 UCI 或 LuCI 配置节点、逻辑路由、DNS Profile 与有序规则；Steer 将这些意图严格校验后，确定性地编译为 sing-box 1.13 配置和最小 OpenWrt 网络辅助规则。
+Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前公开配置版本为 **schema 7**，软件版本线为 **0.3.x**。项目仍以预览版发布，但核心配置、编译、Apply、订阅和诊断路径均有自动化测试。
+当前版本线为 **0.4.0 alpha**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 是目前唯一可运行的平台；Linux 和 macOS 尚未提供适配器。本次 alpha 的目标是冻结公共功能并验证跨平台边界，不是提前提供不完整的桌面端运行时。
 
-## 当前能力
+## 已实现能力
 
-- 使用 OpenWrt 原生 UCI、procd、firewall4 与 apk；Steer 本身不常驻监督子进程。
-- 普通流量由 sing-box TUN `auto_route` / `auto_redirect` 接管，传统 DNS 与源 MAC 匹配只使用必要的 nftables 辅助规则。
-- 支持 Direct、Block 和单节点路由；单节点路由可通过 `detour` 引用另一条单节点路由，组成任意深度的无环前置代理链。
-- 同一节点可以被多条路由复用，每条路由拥有独立的前置链；自环、间接环、悬空、禁用或非单节点前置引用都会拒绝 Apply。
-- 节点覆盖 SOCKS、HTTP、Shadowsocks、VMess、VLESS、Trojan、Hysteria、ShadowTLS、TUIC、Hysteria2、AnyTLS、SSH、NaiveProxy 和本机 Tor。
-- DNS 支持 UDP、TCP、DoT、DoH、DoQ 与 DoH3。每个实际使用的 `(DNS Profile, Route)` 会生成独立 DNS transport，代理路由也会包含完整前置链。
-- 规则支持域名、GeoSite、目标 IP、GeoIP、源 CIDR、源 MAC、网络、协议、端口和本地代理入口；非空条件之间为 AND，同一字段内多个值为 OR。
-- 订阅接受公开 HTTPS URL，内容可以是逐行标准代理 URI 或整段 Base64 URI 列表；订阅只能管理节点，不能修改路由、DNS 或规则。
-- LuCI 支持单 URI 本地导入、订阅更新、节点分组、裸节点测试、逐路由链测试，以及概览页直连、代理、代理速度测试。
+- 严格 first-match 规则，支持域名、GeoSite、目标 IP、GeoIP、源 CIDR、源 MAC、网络、协议、端口和本地代理入口。
+- Direct、Block、单节点逻辑路由；单节点路由可选择另一条单节点路由作为前置代理，任意深度但不得成环。
+- SOCKS、HTTP、Shadowsocks、VMess、VLESS、Trojan、Hysteria、ShadowTLS、TUIC、Hysteria2、AnyTLS、SSH、NaiveProxy 和本机 Tor 节点。
+- UDP、TCP、DoT、DoH、DoQ、DoH3 DNS Profile；每个实际使用的 `(DNS Profile, Route)` 拥有独立传输路径。
+- HTTPS 节点订阅、稳定节点 ID、过期节点显式清理。
+- 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
+- OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、最小 DNS/MAC nftables 辅助层。
 
-## 关键边界
+## 明确边界
 
-- 只支持 sing-box `>= 1.13.18` 且 `< 1.14.0`，并按当前配置检查 `with_quic`、`with_utls` 等实际 build tags。
-- Bootstrap DNS 必须是 IP 字面量并固定直连；远程数据不能携带动作或改变本地策略。
+- 只支持 sing-box `>= 1.13.18` 且 `< 1.14.0`；使用到 QUIC/uTLS 时会检查对应 build tags。
+- Bootstrap DNS 必须是 IP 字面量并固定直连。远程订阅和 Geo 数据不能携带本地动作。
 - 启用配置中必须恰好有一个 Direct 路由和一个 Default 规则。
-- `probe_direct`、`probe_proxy`、`speedtest_proxy` 都是不可缺失的单个 HTTPS URL。默认值只存在于包内默认 UCI，程序没有隐藏兜底。
-- 概览测试通过当前运行规则访问目标 URL，能证明可达性和性能，但不能单独证明连接命中了哪个命名路由。
-- 当前没有自动节点故障转移、运行时 outbound 追踪、配置历史或自动启动恢复。后端仍保留一次性 `steer rollback`，LuCI 概览不再提供恢复按钮。
+- 三个测试 URL 都是必填 HTTPS scalar option，没有隐藏默认值。
+- 没有自动故障转移、配置历史、自动回滚、人工 rollback 命令或运行时 outbound 命中追踪。
+- 配置、能力或原生检查失败时直接拒绝；切换运行态后的失败保留现场，不伪装成功，也不自动恢复。
 
 ## 文档
 
-- [配置与使用](docs/CONFIGURATION.md)：安装、schema 7、LuCI、CLI、代理链和诊断。
-- [架构](docs/ARCHITECTURE.md)：数据流、编译不变量、OpenWrt 接管和状态目录。
-- [开发与验证](docs/DEVELOPMENT.md)：本地测试、OpenWrt VM、原生校验和发布门。
-- [打包与发布](docs/PACKAGING.md)：包所有权、版本、配置边界、构建产物和持久状态。
-- [测试说明](tests/README.md)：各测试层具体覆盖范围。
+- [范围与冻结规则](docs/SCOPE.md)
+- [架构](docs/ARCHITECTURE.md)
+- [配置与使用](docs/CONFIGURATION.md)
+- [开发与验证](docs/DEVELOPMENT.md)
+- [打包与发布](docs/PACKAGING.md)
+- [测试说明](tests/README.md)
 
-## 快速检查
+## 公共 CLI
 
 ```sh
+steer version
 steer validate
-steer plan
 steer apply
+steer health
 steer status
 steer probe --kind direct
-steer probe --kind proxy
-steer probe --kind speedtest
+steer subscription status
+steer geo-catalog --kind geosite
+steer cleanup
 ```
 
-完整配置示例和节点/路由测试命令见[配置与使用](docs/CONFIGURATION.md)。
+公共命令固定为 `version validate apply health status probe subscription geo-catalog cleanup`。编译器中间结果和平台计划属于内部接口，不通过 CLI 或 RPC 暴露。
 
 ## 许可证
 
-GPL-3.0-or-later。第三方组件和数据仍遵循各自许可证，Steer 不复制或 fork sing-box。
+GPL-3.0-or-later。sing-box、Geo 数据和其他第三方组件继续遵循各自许可证；Steer 不复制或 fork sing-box。

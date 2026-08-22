@@ -66,12 +66,13 @@ function renderOverviewTests() {
 
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.status() ]);
+		return Promise.all([ uci.load('steer'), steer.status(), steer.validate() ]);
 	},
 
 	render: function(data) {
 		let m, s, o;
 		const status = data[1];
+		const validation = data[2];
 		steer.loadStyle();
 
 		m = new form.Map('steer', _('Steer'));
@@ -145,7 +146,10 @@ return view.extend({
 		o = s.option(form.Value, 'url', 'HTTPS subscription URL'); o.datatype = 'url'; o.rmempty = false; o.editable = true;
 		o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = '6h'; o.modalonly = true;
 
-		return m.render().then((formNode) => E([], [ steer.renderStatus(status), renderOverviewTests(), formNode ]));
+		return m.render().then((formNode) => E([], [
+			steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1'),
+			renderOverviewTests(), formNode
+		]));
 	},
 
 	handleSaveApply: function(ev, mode) { return steer.apply(this, ev, mode); }

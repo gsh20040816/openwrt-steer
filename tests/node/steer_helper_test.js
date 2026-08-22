@@ -63,6 +63,10 @@ function loadHelper(runtime) {
 						{ sequence: '10', result: { ok: true } }
 				}));
 			}
+			if (method == 'validate') {
+				runtime.validationCalls++;
+				return Promise.resolve(runtime.validation);
+			}
 			if (method == 'overview_probe' || method == 'route_speedtest' || method == 'node_speedtest') {
 				runtime.testCalls.push({ method, args });
 				return Promise.resolve({ ok: true });
@@ -91,7 +95,10 @@ function loadHelper(runtime) {
 		getElementById: (id) => id == 'steer-runtime-status' ? runtime.currentStatusNode : null
 	};
 	const translate = (value) => String(value);
-	const uci = { changes: () => Promise.resolve({}) };
+	const uci = {
+		changes: () => Promise.resolve({}),
+		get: (config, section, option) => config == 'steer' && section == 'main' && option == 'enabled' ? runtime.enabled : null
+	};
 	const window = { setTimeout: (callback) => callback(), location: { reload: () => { runtime.reloaded = true; } } };
 
 	return new Function('baseclass', 'rpc', 'uci', 'ui', 'E', '_', 'L', 'document', 'window', source)(
@@ -101,8 +108,11 @@ function loadHelper(runtime) {
 async function main() {
 	const runtime = {
 		status: {},
+		validation: { ok: true, errors: [], warnings: [] },
+		enabled: '1',
 		applyResult: { ok: true, output: 'applied' },
 		statusCalls: 0,
+		validationCalls: 0,
 		commitCalls: 0,
 		testCalls: [],
 		sequence: [],
@@ -113,46 +123,24 @@ async function main() {
 	};
 	const helper = loadHelper(runtime);
 
-	let rendered = helper.renderStatus({
-		desired_enabled: false,
-		validation: { ok: true, errors: [], warnings: [] },
-		core_running: false,
-		tun_ready: false,
-		firewall_ready: false,
-		listeners_ready: false
-	});
+	let rendered = helper.renderStatus({ healthy: false }, runtime.validation, false);
 	assert.ok(textContent(rendered).includes('Steer is disabled'),
 		'An intentionally disabled Steer reports a disabled state');
 
-	rendered = helper.renderStatus({
-		desired_enabled: true,
-		validation: { ok: true, errors: [], warnings: [] },
-		core_running: false,
-		tun_ready: false,
-		firewall_ready: false,
-		listeners_ready: false,
-		healthy: false
-	});
+	rendered = helper.renderStatus({ healthy: false }, runtime.validation, true);
 	assert.ok(textContent(rendered).includes('Traffic steering is not healthy'),
 		'Live component readiness determines unhealthy state');
 
-	rendered = helper.renderStatus({
-		desired_enabled: true,
-		validation: { ok: false, errors: [ { code: 'DANGLING_ROUTE', object_type: 'rule', object_id: 'broken', option: 'route', message: 'route is missing' } ], warnings: [] }
-	});
+	rendered = helper.renderStatus({ healthy: false }, {
+		ok: false,
+		errors: [ { code: 'DANGLING_ROUTE', object_type: 'rule', object_id: 'broken', option: 'route', message: 'route is missing' } ],
+		warnings: []
+	}, true);
 	const failedText = textContent(rendered);
 	assert.ok(failedText.includes('The saved configuration is invalid') && failedText.includes('route is missing'),
 		'Invalid saved intent exposes the exact validation issue');
 
-	runtime.status = {
-		desired_enabled: true,
-		validation: { ok: true, errors: [], warnings: [] },
-		core_running: true,
-		tun_ready: true,
-		firewall_ready: true,
-		listeners_ready: true,
-		healthy: true
-	};
+	runtime.status = { healthy: true };
 	await helper.apply({ handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); } }, null, '1');
 	assert.deepEqual(runtime.sequence, [ 'save', 'commit' ],
 		'LuCI saves and commits once, leaving the resulting config.change Apply to procd');
@@ -161,17 +149,14 @@ async function main() {
 		'Apply shows an explicit transaction progress modal');
 	assert.equal(runtime.modalHidden, true, 'Apply closes the progress modal after RPC completion');
 	assert.equal(runtime.statusCalls, 2, 'LuCI snapshots the Apply sequence and observes exactly one newer result');
+	assert.equal(runtime.validationCalls, 1, 'LuCI refreshes validation independently from runtime status');
 	assert.ok(textContent(runtime.replacement).includes('Traffic steering is active'),
 		'Apply replaces stale overview status with the final runtime result');
 	assert.equal(runtime.notifications.at(-1).level, 'info');
 
-	rendered = helper.renderStatus({
-		desired_enabled: true,
-		validation: { ok: true, errors: [], warnings: [] },
-		rollback_available: true
-	});
-	assert.ok(!textContent(rendered).includes('Restore previous configuration'),
-		'Overview status no longer exposes rollback even when a backend backup exists');
+	rendered = helper.renderStatus({ healthy: true, ignored_detail: true }, runtime.validation, true);
+	assert.ok(!textContent(rendered).includes('ignored_detail'),
+		'Overview status renders only the public health contract');
 	await helper.overviewProbe('direct');
 	await helper.routeSpeedtest('route_a', true);
 	await helper.speedtest('node_a', false);

@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package subscription
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"sort"
+	"time"
+
+	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+)
+
+// Store is the only mutable configuration boundary required by shared
+// subscription logic. UCI and future JSON adapters implement it differently.
+type Store interface {
+	ReplaceNodes(context.Context, string, []model.Node, []model.Node) error
+	RemoveNode(context.Context, string, string) error
+}
+
+type Change struct {
+	SubscriptionID string
+	Existing       []model.Node
+	Replacement    []model.Node
+}
+
+func Persist(ctx context.Context, store Store, changes []Change) error {
+	for _, change := range changes {
+		if err := store.ReplaceNodes(ctx, change.SubscriptionID, change.Existing, change.Replacement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type Snapshot struct {
+	SubscriptionID string       `json:"subscription_id"`
+	URL            string       `json:"url"`
+	FetchedAt      time.Time    `json:"fetched_at"`
+	Nodes          []model.Node `json:"nodes"`
+}
+
+func Fetch(ctx context.Context, client *http.Client, configured model.Subscription) ([]model.Node, error) {
+	parsedURL, parseErr := url.Parse(configured.URL)
+	if parseErr != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.Fragment != "" {
+		return nil, fmt.Errorf("subscription URL must be public HTTPS without credentials or fragment")
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, configured.URL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create subscription request: %w", err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("download subscription: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("subscription returned HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 16<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read subscription: %w", err)
+	}
+	return ParseList(string(body))
+}
+
+func Merge(subscriptionID string, old, fresh []model.Node) []model.Node {
+	oldByFingerprint := make(map[string]model.Node, len(old))
+	for _, node := range old {
+		oldByFingerprint[Fingerprint(node)] = node
+	}
+	seen := make(map[string]bool, len(fresh))
+	merged := make([]model.Node, 0, len(old)+len(fresh))
+	for _, node := range fresh {
+		fingerprint := Fingerprint(node)
+		if seen[fingerprint] {
+			continue
+		}
+		previous, exists := oldByFingerprint[fingerprint]
+		enabled := true
+		if exists {
+			node.ID = previous.ID
+			enabled = previous.Enabled
+		}
+		if node.ID == "" {
+			node.ID = stableNodeID(subscriptionID, fingerprint)
+		}
+		node.Enabled, node.SourceSubscription, node.SourceFingerprint, node.PinnedStale = enabled, subscriptionID, fingerprint, false
+		merged = append(merged, node)
+		seen[fingerprint] = true
+	}
+	for _, node := range old {
+		fingerprint := Fingerprint(node)
+		if seen[fingerprint] {
+			continue
+		}
+		node.SourceSubscription, node.SourceFingerprint, node.PinnedStale = subscriptionID, fingerprint, true
+		merged = append(merged, node)
+	}
+	sort.SliceStable(merged, func(left, right int) bool { return merged[left].ID < merged[right].ID })
+	return merged
+}
+
+func Replace(existing []model.Node, subscriptionID string, replacement []model.Node) []model.Node {
+	result := make([]model.Node, 0, len(existing)+len(replacement))
+	for _, node := range existing {
+		if node.SourceSubscription != subscriptionID {
+			result = append(result, node)
+		}
+	}
+	return append(result, replacement...)
+}
+
+func stableNodeID(subscriptionID, fingerprint string) string {
+	prefix := subscriptionID
+	if len(prefix) > 19 {
+		prefix = prefix[:19]
+	}
+	return prefix + "_" + fingerprint[:12]
+}

@@ -69,10 +69,12 @@ for retired_migration in (
 ):
     if retired_migration in makefile:
         fail(f"package retained expired alpha migration: {retired_migration}")
-if "PKG_VERSION:=0.3.1" not in makefile or "PKG_RELEASE:=1" not in makefile:
-    fail("steer-openwrt package version must be the 0.3.1-r1 release")
-if "PKG_VERSION:=0.3.1" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
-    fail("LuCI packages must use the 0.3.1-r1 release")
+if "PKG_VERSION:=0.4.0_alpha1" not in makefile or "PKG_RELEASE:=1" not in makefile:
+    fail("steer-openwrt package version must be the 0.4.0_alpha1-r1 release")
+if "PKG_VERSION:=0.4.0_alpha1" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
+    fail("LuCI packages must use the 0.4.0_alpha1-r1 release")
+if "github.com/gsh20040816/openwrt-steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
+    fail("steer-openwrt must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
     if stale_repair in makefile:
         fail(f"package retained the expired subscription network repair: {stale_repair}")
@@ -86,6 +88,11 @@ if "PKG_UPGRADE=0 /etc/init.d/steer start" in makefile:
     fail("post-upgrade must not leave an already-running sing-box instance unchanged")
 if "subscription_update" not in rpc or "subscription_update" not in acl:
     fail("LuCI subscription update must be implemented and authorized explicitly")
+for removed_contract in ("steer rollback", "steer plan", "method: 'rollback'", "method: 'plan'"):
+    if removed_contract in rpc:
+        fail(f"LuCI RPC retained removed public contract: {removed_contract}")
+if "rm -f /var/lib/steer/rollback.uci" not in makefile:
+    fail("the removed rollback state file must be cleaned during upgrade")
 
 for required in (
     "$(DL_DIR)/$(GEOSITE_FILE)",

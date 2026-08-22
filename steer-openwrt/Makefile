@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
-PKG_VERSION:=0.3.1
+PKG_VERSION:=0.4.0_alpha1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -12,7 +12,7 @@ PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
 
-GO_PKG:=github.com/gsh20040816/openwrt-steer/steer-openwrt
+GO_PKG:=github.com/gsh20040816/openwrt-steer/go
 GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/steer-openwrt
 GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)-r$(PKG_RELEASE)
 
@@ -33,8 +33,8 @@ define Package/steer-openwrt
 endef
 
 define Package/steer-openwrt/description
- Steer compiles strict UCI routing and DNS intent into a verified sing-box
- execution plan and OpenWrt platform configuration.
+ Steer validates strict routing and DNS intent, compiles the final sing-box
+ configuration, and applies the required OpenWrt platform resources.
 endef
 
 define Package/steer-openwrt/conffiles
@@ -52,6 +52,10 @@ schema="$$(uci -q get steer.main.schema_version 2>/dev/null)"
 	echo "steer: schema 7 is required, found '$$schema'" >&2
 	exit 1
 }
+
+# The rollback interface was removed before the cross-platform alpha. Delete
+# its single legacy state file instead of carrying an inactive migration path.
+rm -f /var/lib/steer/rollback.uci
 
 cron_file=/etc/crontabs/root
 cron_line='*/15 * * * * /usr/sbin/steer subscription update 2>&1 | logger -t steer-subscription'
@@ -83,7 +87,7 @@ endef
 
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	$(CP) ./src/. $(PKG_BUILD_DIR)/
+	$(CP) $(CURDIR)/../go/. $(PKG_BUILD_DIR)/
 	$(CP) $(CURDIR)/../LICENSE $(PKG_BUILD_DIR)/
 endef
 

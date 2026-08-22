@@ -3,7 +3,7 @@
 
 'use strict';
 
-import { access, popen } from 'fs';
+import { popen } from 'fs';
 
 function shellquote(value) {
 	if (value == null)
@@ -39,19 +39,6 @@ const methods = {
 	validate: {
 		call: function() {
 			return command_json('/usr/sbin/steer validate');
-		}
-	},
-	plan: {
-		call: function() {
-			const current = '/run/steer/current/plan.json';
-			return command_json(access(current) ?
-				`/usr/sbin/steer plan --current-plan ${current}` :
-				'/usr/sbin/steer plan');
-		}
-	},
-	rollback: {
-		call: function() {
-			return command_json('/usr/sbin/steer rollback');
 		}
 	},
 	geodata_catalog: {

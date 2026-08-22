@@ -7,7 +7,7 @@
 'require ui';
 
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
-const callPlan = rpc.declare({ object: 'luci.steer', method: 'plan', expect: { '': {} } });
+const callValidate = rpc.declare({ object: 'luci.steer', method: 'validate', expect: { '': {} } });
 const callGeodataCatalog = rpc.declare({ object: 'luci.steer', method: 'geodata_catalog', expect: { '': {} } });
 const callSubscriptions = rpc.declare({ object: 'luci.steer', method: 'subscriptions', expect: { '': {} } });
 const callSubscriptionUpdate = rpc.declare({ object: 'luci.steer', method: 'subscription_update', params: [ 'id' ], expect: { '': {} } });
@@ -32,10 +32,6 @@ function resultMessage(result) {
 	return E('p', {}, result?.error || _('Apply failed without a diagnostic message.'));
 }
 
-function stateText(value) {
-	return value ? _('Ready') : _('Not ready');
-}
-
 function waitForApply(sequence, attempts) {
 	return L.resolveDefault(callStatus(), null).then((status) => {
 		if (status?.last_apply?.sequence && status.last_apply.sequence !== sequence)
@@ -55,7 +51,7 @@ return baseclass.extend({
 	},
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },
-	plan: function() { return L.resolveDefault(callPlan(), {}); },
+	validate: function() { return L.resolveDefault(callValidate(), {}); },
 	geodataCatalog: function() { return L.resolveDefault(callGeodataCatalog(), {}); },
 	subscriptions: function() { return L.resolveDefault(callSubscriptions(), {}); },
 	updateSubscription: function(id) { return callSubscriptionUpdate(id); },
@@ -73,12 +69,13 @@ return baseclass.extend({
 			.then(() => uci.changes())
 			.then((changes) => ui.changes.renderChangeIndicator(changes))
 			.then(() => {
-				ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate execution plan.')) ]);
+				ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
 				return waitForApply(previousSequence, 240);
 			})
-			.then(({ result, status }) => {
+			.then(({ result, status }) => this.validate().then((validation) => ({ result, status, validation })))
+			.then(({ result, status, validation }) => {
 				if (status)
-					this.refreshStatus(status);
+					this.refreshStatus(status, validation);
 				ui.hideModal();
 				if (!result?.ok) {
 					ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
@@ -89,14 +86,14 @@ return baseclass.extend({
 			});
 	},
 
-	refreshStatus: function(status) {
+	refreshStatus: function(status, validation) {
 		const current = document.getElementById('steer-runtime-status');
 		if (current)
-			current.replaceWith(this.renderStatus(status));
+			current.replaceWith(this.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1'));
 	},
 
-	renderStatus: function(status) {
-		const valid = status?.validation?.ok === true;
+	renderStatus: function(status, validation, desiredEnabled) {
+		const valid = validation?.ok === true;
 		let headline = _('Steer is disabled');
 		let stateClass = 'is-stopped';
 		let panelClass = '';
@@ -104,25 +101,20 @@ return baseclass.extend({
 			headline = _('The saved configuration is invalid');
 			panelClass = ' steer-status--error';
 		}
+		else if (!desiredEnabled) {
+			headline = _('Steer is disabled');
+		}
 		else if (status?.healthy) {
 			headline = _('Traffic steering is active');
 			stateClass = 'is-running';
 		}
-		else if (status?.desired_enabled) {
+		else {
 			headline = _('Traffic steering is not healthy');
 			panelClass = ' steer-status--error';
 		}
-		const facts = [
-			[ _('Configuration'), valid ? _('Valid') : _('Invalid') ],
-			[ _('Core process'), stateText(status?.core_running) ],
-			[ _('TUN interface'), stateText(status?.tun_ready) ],
-			[ _('Firewall shim'), stateText(status?.firewall_ready) ],
-			[ _('Listeners'), stateText(status?.listeners_ready) ]
-		];
 		return E('div', { 'id': 'steer-runtime-status' }, E('div', { 'class': 'steer-status' + panelClass }, [
 			E('div', { 'class': 'steer-status__lead' }, [ E('span', { 'class': 'steer-status__eyebrow' }, _('Current state')), E('strong', { 'class': stateClass }, headline) ]),
-			E('dl', { 'class': 'steer-status__facts' }, facts.map((fact) => E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, fact[1]) ]))),
-			!valid && status?.validation?.errors?.length ? E('ul', {}, status.validation.errors.map((issue) => E('li', {}, issueText(issue)))) : ''
+			!valid && validation?.errors?.length ? E('ul', {}, validation.errors.map((issue) => E('li', {}, issueText(issue)))) : ''
 		]));
 	}
 });

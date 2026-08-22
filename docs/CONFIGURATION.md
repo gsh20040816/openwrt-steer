@@ -1,20 +1,8 @@
 # 配置与使用
 
-本文描述 Steer 0.3.x 的公开 schema 7。UCI 是唯一配置真相；LuCI 只编辑同一份 `/etc/config/steer`，不会维护第二套模型。
+当前公开配置是 schema 7。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；未来平台将使用严格 Canonical JSON，不读取或迁移 UCI。
 
-## 安装与入口
-
-发布资产面向 OpenWrt 25.12.5 x86/64，包含 `steer-openwrt`、`steer-geodata`、`geoview`、`luci-app-steer` 和简体中文语言包。安装后 LuCI 入口位于“服务 → Steer”，CLI 为 `/usr/sbin/steer`。
-
-首次配置建议按以下顺序：
-
-1. 在“概览”确认 Bootstrap DNS 和三个测试 URL；
-2. 在“节点与路由”导入或创建节点，再创建逻辑路由；
-3. 在“DNS”创建业务 DNS Profile；
-4. 在“规则”从上到下配置条件，最后设置固定 Default；
-5. 保存并 Apply，确认概览状态健康后执行手动测试。
-
-## 主配置与测试 URL
+## 基本配置
 
 ```uci
 config steer 'main'
@@ -25,19 +13,7 @@ config steer 'main'
 	option probe_direct 'https://www.baidu.com/'
 	option probe_proxy 'https://www.google.com/generate_204'
 	option speedtest_proxy 'https://speed.cloudflare.com/__down?bytes=1000000'
-```
 
-三个测试地址都必须是无凭据、无 fragment 的 HTTPS URL，并且只能各配置一个：
-
-- `probe_direct`：概览“直连测试”使用；
-- `probe_proxy`：概览“代理测试”、裸节点连接测试和路由链连接测试使用；
-- `speedtest_proxy`：概览、节点和路由链的完整下载测速使用。
-
-删除任意一项都会使配置校验失败。默认 URL 只由新装包的默认 UCI 提供，后端不会在字段缺失时偷偷替换。
-
-## Bootstrap DNS
-
-```uci
 config bootstrap 'bootstrap'
 	option protocol 'udp'
 	option server '1.1.1.1'
@@ -45,11 +21,17 @@ config bootstrap 'bootstrap'
 	option strategy 'prefer_ipv4'
 ```
 
-Bootstrap 服务器必须使用 IP 字面量。协议为 `udp` 或 `tcp`，地址策略可选 `prefer_ipv4`、`prefer_ipv6`、`ipv4_only`、`ipv6_only`。
+三个测试地址都必须是没有凭据和 fragment 的单个 HTTPS URL：
 
-## 节点与路由
+- `probe_direct`：当前运行配置的直连测试；
+- `probe_proxy`：当前代理、裸节点和路由链连接测试；
+- `speedtest_proxy`：完整下载测速。
 
-节点只描述代理协议和认证参数，规则不会直接引用节点。规则引用稳定的逻辑路由，路由再选择节点。
+后端不会补默认 URL。Bootstrap 只支持 UDP/TCP，服务器必须是 IP 字面量，策略为 `prefer_ipv4`、`prefer_ipv6`、`ipv4_only` 或 `ipv6_only`。
+
+## 节点、路由和前置代理
+
+规则引用 Route，不直接引用 Node。Route 可以是 `direct`、`block` 或 `single`：
 
 ```uci
 config node 'front_node'
@@ -67,34 +49,29 @@ config node 'exit_node'
 	option tls_server_name 'proxy.example'
 
 config route 'direct'
-	option name 'Direct'
 	option kind 'direct'
 
 config route 'front'
-	option name 'Front route'
 	option kind 'single'
 	option node 'front_node'
 
 config route 'exit'
-	option name 'Exit through front'
 	option kind 'single'
 	option node 'exit_node'
 	option detour 'front'
 
 config route 'block'
-	option name 'Block'
 	option kind 'block'
 ```
 
-`route.detour` 只允许出现在启用的 `single` 路由上，目标也必须是另一条启用的 `single` 路由。链可以继续引用下一条前置路由，但不能形成环。LuCI 会显示所有单节点候选，包括会形成环的候选；保存后由同一后端校验器给出完整环路径，不在浏览器里复制一套不完整判断。
+`detour` 可留空，表示节点直接拨号；非空时必须引用另一条启用的 single Route。链可以多级，但不能自环或间接成环。Direct/Block 不能携带或充当前置 Route。后端是唯一语义裁决者，Apply 会拒绝完整非法路径。
 
-同一节点可以被多条路由引用。例如可同时创建“Exit 直出”和“Exit 经 Front”，两条路由会编译为独立 sing-box 出站，不共享 `detour`。
+支持的节点类型：`socks http shadowsocks vmess vless trojan hysteria shadowtls tuic hysteria2 anytls ssh naive tor`。具体字段由协议决定；未知字段、错误字段形态和该协议不支持的选项都会明确失败。
 
 ## DNS Profile
 
 ```uci
 config dns_profile 'secure_dns'
-	option name 'Secure DNS'
 	option protocol 'https'
 	option server '1.1.1.1'
 	option server_port '443'
@@ -103,13 +80,11 @@ config dns_profile 'secure_dns'
 	option strategy 'prefer_ipv4'
 ```
 
-协议支持 `udp`、`tcp`、`tls`、`https`、`quic`、`h3`。当一条规则同时选择 DNS Profile 和代理路由时，DNS transport 也固定通过该路由及其完整前置链。
-
-持久 DNS cache 和 optimistic cache 字段为 sing-box 1.14 预留；在当前 1.13 基线上启用会明确失败。
+协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。`dns_cache_persist` 和 `dns_optimistic_cache` 为 sing-box 1.14 预留，在当前 1.13 基线上启用会被拒绝。
 
 ## 规则
 
-规则严格从上到下匹配，第一条命中后停止。Default 固定在普通规则之后，只能选择 DNS Profile 和 Route。
+规则严格按 UCI 顺序 first-match。最后必须恰好有一条启用的 Default；Default 之后不能再有启用普通规则。
 
 ```uci
 config rule 'service'
@@ -127,7 +102,7 @@ config rule 'default'
 	option route 'direct'
 ```
 
-支持的条件字段：
+条件包括：
 
 - `inbound`：本地 SOCKS/Mixed 入口 ID；
 - `domain_match`：普通关键字、`full:`、`domain:`、`regexp:`、`geosite:`；
@@ -135,9 +110,20 @@ config rule 'default'
 - `source_ip_cidr`、`source_mac_address`；
 - `network`、`protocol`、`port`。
 
-同一字段内多值为 OR，不同非空字段之间为 AND。源 MAC 由当前 sing-box 1.13 所需的 nftables/TProxy 辅助路径实现，不会解析成邻居表中的临时 IP。
+同一字段多值为 OR，不同非空字段为 AND。目标 IP、网络、协议和端口只参与业务路由，不参与 DNS 选择。
 
-## 订阅
+## 本地入口和订阅
+
+本地入口支持 `socks` 与 `mixed`，监听地址必须是 loopback：
+
+```uci
+config local_proxy 'local'
+	option protocol 'mixed'
+	option listen '127.0.0.1'
+	option listen_port '1090'
+```
+
+订阅只管理节点：
 
 ```uci
 config subscription 'public'
@@ -147,19 +133,26 @@ config subscription 'public'
 	option update_interval '6h'
 ```
 
-订阅 URL 必须是公开 HTTPS 地址。更新命令只提交节点变化，不自动 Apply：
-
 ```sh
 steer subscription update --id public
 steer subscription status
 steer subscription clean --id public --node <node-id>
 ```
 
-订阅节点使用稳定 ID。上游删除但仍需人工确认的节点会保留并标记 `pinned_stale`，只有显式 clean 才删除。
+URL 必须是公开 HTTPS。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。更新使用稳定 ID，保留本地启用状态；上游消失的节点标为 `pinned_stale`，必须显式 clean。订阅提交节点后不自动 Apply。
 
-## 手动测试
+## Apply、状态和测试
 
-概览页三个按钮读取 `/run/steer/current/plan.json`，因此只测试当前真正运行的配置，未 Apply 的 UCI 修改不会参与：
+```sh
+steer validate
+steer apply
+steer health --timeout 10s
+steer status
+```
+
+`validate` 只做严格解码和共享语义校验。`apply` 还会执行能力检查、Geo 准备、sing-box/nftables 原生检查、切换与本地健康检查。`status` 只包含 `healthy` 和可选 `last_apply`，不会把配置合法性或组件明细混在状态对象中。
+
+概览测试读取当前运行 generation 的 Intent；未 Apply 的 UCI 修改不会参与：
 
 ```sh
 steer probe --kind direct
@@ -167,46 +160,17 @@ steer probe --kind proxy
 steer probe --kind speedtest
 ```
 
-节点和路由测试读取当前磁盘 UCI，临时启动只监听环回地址的 sing-box，不切换运行态：
+裸节点和路由链测试读取磁盘 UCI并启动临时环回 sing-box，不切换当前运行态：
 
 ```sh
-# 裸节点：不包含任何 route.detour
 steer probe --kind speedtest --node <node-id>
 steer probe --kind speedtest --node <node-id> --download
-
-# 路由：包含完整 detour 链
 steer probe --kind speedtest --route <route-id>
 steer probe --kind speedtest --route <route-id> --download
 ```
 
-连接测试超时 10 秒，失败重试一次；完整下载超时 30 秒且不重试。报告包含 HTTP 状态、连接/TLS/首字节延迟，或下载字节、耗时和 Mbps。最新报告保存在：
+连接测试记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试记录字节和耗时。报告保存在 `/var/lib/steer/logs/tests/{overview,nodes,routes}`。测试证明对应配置下 URL 可达，不提供命名 outbound 的命中回执。
 
-```text
-/var/lib/steer/logs/tests/overview/<direct|proxy|speedtest>.json
-/var/lib/steer/logs/tests/nodes/<node-id>/<connect|download>.json
-/var/lib/steer/logs/tests/routes/<route-id>/<connect|download>.json
-```
+## 版本与升级
 
-测试只能证明目标 URL 在相应配置下可达。概览测试没有 sing-box outbound 命中回执，不能把“可达”解释为对某个命名路由的独立证明。
-
-## 常用 CLI
-
-```sh
-steer validate
-steer compile
-steer compile-sing-box
-steer compile-firewall
-steer plan
-steer capabilities
-steer prepare
-steer apply
-steer health
-steer status
-steer cleanup
-```
-
-`steer rollback` 仍可一次性恢复 Apply 前保存的上一份本地健康 UCI，并复用正常 Apply。LuCI 概览不提供此按钮；它不是配置历史、自动回退或开机恢复机制。
-
-## 配置版本要求
-
-0.3.0 正式版只接受 schema 7，不自动转换旧配置。新安装直接使用包内默认配置；旧版本升级前必须先把 UCI 转换为 schema 7，并确保三个测试 URL 都是非空的 HTTPS scalar option。版本不匹配或配置非法时，安装会明确失败，不会注入默认值或静默修改用户配置。
+0.4 只接受 schema 7，不迁移旧 schema，也不注入缺失字段。安装/升级在 schema 不匹配时 fail-fast。旧版本遗留的 `/var/lib/steer/rollback.uci` 会被删除，因为 rollback 功能和接口已经完全移除。

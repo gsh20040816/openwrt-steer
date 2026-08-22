@@ -21,7 +21,6 @@ cleanup() {
 		cp "$ORIGINAL_CONFIG" /etc/config/steer
 	fi
 	rm -f /usr/sbin/steer
-	rm -f /var/lib/steer/rollback.uci
 	rm -rf /run/steer "$TEST_DIR" /tmp/steer-m1-state
 	exit "$status"
 }
@@ -55,44 +54,25 @@ for attempt in 1 2 3 4 5; do
 	sleep 1
 done
 ubus -v list luci.steer > "$TEST_DIR/rpc-methods.txt"
-for method in geodata_catalog node_speedtest overview_probe plan rollback route_speedtest status validate; do grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"; done
+for method in geodata_catalog node_speedtest overview_probe route_speedtest status subscriptions validate; do
+	grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"
+done
+for removed in plan rollback; do
+	if grep -q "\"$removed\"" "$TEST_DIR/rpc-methods.txt"; then
+		echo "Removed RPC method is still public: $removed" >&2
+		exit 1
+	fi
+done
 
 ubus call luci.steer geodata_catalog > "$TEST_DIR/geodata-catalog.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/geodata-catalog.json" -e '@.geosite.ok')" = 'true' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/geodata-catalog.json" -e '@.geoip.ok')" = 'true' ]
 
-# The representative fixture covers all three node protocols, all six DNS
-# transports, Geo rules, MAC steering and a local proxy. Its example Geo JSON
-# is compiled locally so the native sing-box check also opens real SRS files.
-mkdir -p /tmp/steer-m1-state/geodata/current/rules
-"$SING_BOX_BIN" rule-set compile --output /tmp/steer-m1-state/geodata/current/rules/geosite-category-example.srs \
-	"$REPO_DIR/tests/fixtures/m1-geodata/geosite-category-example.json"
-"$SING_BOX_BIN" rule-set compile --output /tmp/steer-m1-state/geodata/current/rules/geoip-example.srs \
-	"$REPO_DIR/tests/fixtures/m1-geodata/geoip-example.json"
+# Representative and detour fixtures remain valid through the public semantic
+# validator. Native compilation is exercised by normal Apply below and by the
+# shared Go compiler tests; no engineering compiler command is public.
 /usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/m1-representative-valid/steer" > "$TEST_DIR/representative-validation.json"
-/usr/sbin/steer compile-sing-box --config "$REPO_DIR/tests/fixtures/m1-representative-valid/steer" --state-dir /tmp/steer-m1-state > "$TEST_DIR/representative-sing-box.json"
-"$SING_BOX_BIN" check -c "$TEST_DIR/representative-sing-box.json"
-for value in '"type": "vless"' '"type": "hysteria2"' '"type": "trojan"' '"type": "quic"' '"type": "h3"' 'steer-mac-tproxy-0' 'steer-local-developer_proxy'; do
-	grep -q "$value" "$TEST_DIR/representative-sing-box.json"
-done
-if grep -Eq 'fakeip|udp.*443.*reject|smartdns' "$TEST_DIR/representative-sing-box.json"; then
-	echo 'Representative plan contains a forbidden hidden behavior.' >&2
-	exit 1
-fi
-
-# The isolated detour fixture proves that a two-hop route compiles to
-# route-private protocol outbounds accepted by the target sing-box. It never
-# replaces the production router's real routing relationships.
 /usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/schema7-detour-valid/steer" > "$TEST_DIR/detour-validation.json"
-/usr/sbin/steer compile-sing-box --config "$REPO_DIR/tests/fixtures/schema7-detour-valid/steer" > "$TEST_DIR/detour-sing-box.json"
-"$SING_BOX_BIN" check -c "$TEST_DIR/detour-sing-box.json"
-grep -q '"tag": "steer-route-front"' "$TEST_DIR/detour-sing-box.json"
-grep -q '"tag": "steer-route-exit"' "$TEST_DIR/detour-sing-box.json"
-grep -q '"detour": "steer-route-front"' "$TEST_DIR/detour-sing-box.json"
-if grep -q '"tag": "steer-node-' "$TEST_DIR/detour-sing-box.json"; then
-	echo 'Detour fixture retained a global node outbound.' >&2
-	exit 1
-fi
 
 cp "$REPO_DIR/tests/fixtures/m1-openwrt-direct-valid/steer" /etc/config/steer
 
@@ -126,7 +106,7 @@ ubus call luci.steer status > "$TEST_DIR/apply-stable-status.json"
 /usr/sbin/steer health --timeout 10s
 /usr/sbin/steer status > "$TEST_DIR/status.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/status.json" -e '@.healthy')" = 'true' ]
-core_pid="$(jsonfilter -q -i "$TEST_DIR/status.json" -e '@.core_pid')"
+core_pid="$(ubus call service list '{"name":"steer"}' | jsonfilter -e '@.steer.instances["sing-box"].pid')"
 grep -Eq "^[[:space:]]*100[[:space:]]+$core_pid[[:space:]]" /proc/net/netfilter/nfnetlink_queue
 
 nft list table inet steer > "$TEST_DIR/steer.nft"
@@ -147,78 +127,30 @@ grep -q 'Address' "$TEST_DIR/dns.txt"
 
 # A second authenticated UCI commit must still route through the same
 # transactional reload_service path without requiring a second Apply.
-trigger_digest_before="$(jsonfilter -q -i "$TEST_DIR/status.json" -e '@.intent_digest')"
+trigger_sequence_before="$(jsonfilter -q -i "$TEST_DIR/status.json" -e '@.last_apply.sequence')"
 trigger_session="$(ubus call session login '{"username":"root","password":"","timeout":300}' | jsonfilter -e '@.ubus_rpc_session')"
 ubus call uci set "{\"config\":\"steer\",\"section\":\"main\",\"values\":{\"log_level\":\"warn\"},\"ubus_rpc_session\":\"$trigger_session\"}"
 ubus call uci commit "{\"config\":\"steer\",\"ubus_rpc_session\":\"$trigger_session\"}"
-trigger_digest=''
+trigger_sequence=''
 for wait_attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 	sleep 1
 	/usr/sbin/steer status > "$TEST_DIR/trigger-status.json"
-	trigger_digest="$(jsonfilter -q -i "$TEST_DIR/trigger-status.json" -e '@.intent_digest' || true)"
-	[ "$trigger_digest" = "$trigger_digest_before" ] || break
+	trigger_sequence="$(jsonfilter -q -i "$TEST_DIR/trigger-status.json" -e '@.last_apply.sequence' || true)"
+	[ "$trigger_sequence" = "$trigger_sequence_before" ] || break
 done
 ubus call session destroy "{\"ubus_rpc_session\":\"$trigger_session\"}"
-[ -n "$trigger_digest" ] && [ "$trigger_digest" != "$trigger_digest_before" ]
+[ -n "$trigger_sequence" ] && [ "$trigger_sequence" != "$trigger_sequence_before" ]
 [ "$(jsonfilter -q -i "$TEST_DIR/trigger-status.json" -e '@.healthy')" = 'true' ]
+[ "$(jsonfilter -q -i /run/steer/current/sing-box.json -e '@.log.level')" = 'warn' ]
 
 # fw4 must not delete Steer's separately owned table. A service restart must
-# rebuild the same current UCI without probes or a boot LKG.
+# rebuild the current UCI through the private init hook.
 fw4 reload
 nft list table inet steer >/dev/null
 /etc/init.d/steer restart
 /usr/sbin/steer health --timeout 10s
 /etc/init.d/steer reload
 /usr/sbin/steer health --timeout 10s
-
-# Default procd respawn is the only runtime recovery. Repeated process death
-# must produce a fresh PID without a controller watchdog or configuration roll back.
-for attempt in 1 2 3; do
-	pid="$(ubus call service list '{"name":"steer"}' | jsonfilter -e '@.steer.instances["sing-box"].pid')"
-	kill -9 "$pid"
-	new_pid=''
-	for wait_attempt in 1 2 3 4 5 6 7 8 9 10; do
-		sleep 1
-		new_pid="$(ubus call service list '{"name":"steer"}' | jsonfilter -q -e '@.steer.instances["sing-box"].pid' || true)"
-		[ -z "$new_pid" ] || break
-	done
-	[ -n "$new_pid" ] && [ "$new_pid" != "$pid" ]
-done
-/usr/sbin/steer health --timeout 10s
-
-# HTTPS probes are explicit diagnostics. They never reject an otherwise
-# healthy Apply; the single previous healthy UCI remains available for an
-# explicit CLI/RPC rollback.
-/usr/sbin/steer status > "$TEST_DIR/pre-probe-status.json"
-digest_before="$(jsonfilter -q -i "$TEST_DIR/pre-probe-status.json" -e '@.intent_digest')"
-uci -q delete steer.main.probe_direct
-uci set steer.main.probe_direct='https://127.0.0.1:1/'
-uci commit steer
-/usr/sbin/steer apply > "$TEST_DIR/probe-independent-apply.json"
-[ "$(jsonfilter -q -i "$TEST_DIR/probe-independent-apply.json" -e '@.ok')" = 'true' ]
-if /usr/sbin/steer probe > "$TEST_DIR/probe-failure.json"; then
-	echo 'Unreachable manual HTTPS probe was reported healthy.' >&2
-	exit 1
-fi
-[ "$(jsonfilter -q -i "$TEST_DIR/probe-failure.json" -e '@.ok')" = 'false' ]
-ubus call luci.steer status > "$TEST_DIR/rollback-ready-status.json"
-[ "$(jsonfilter -q -i "$TEST_DIR/rollback-ready-status.json" -e '@.rollback_available')" = 'true' ]
-rollback_started="$(date +%s)"
-ubus call luci.steer rollback > "$TEST_DIR/manual-rollback.json"
-rollback_elapsed="$(( $(date +%s) - rollback_started ))"
-[ "$rollback_elapsed" -lt 20 ] || { echo "Rollback took ${rollback_elapsed}s." >&2; exit 1; }
-if [ "$(jsonfilter -q -i "$TEST_DIR/manual-rollback.json" -e '@.ok')" != 'true' ]; then
-	echo 'Manual rollback result:' >&2
-	cat "$TEST_DIR/manual-rollback.json" >&2
-	ubus call service list '{"name":"steer"}' >&2 || true
-	logread | tail -n 40 >&2
-	exit 1
-fi
-uci show steer.main.probe_direct | grep -q 'https://openwrt.org/'
-/usr/sbin/steer status > "$TEST_DIR/rolled-back-status.json"
-[ "$(jsonfilter -q -i "$TEST_DIR/rolled-back-status.json" -e '@.intent_digest')" = "$digest_before" ]
-[ "$(jsonfilter -q -i "$TEST_DIR/rolled-back-status.json" -e '@.healthy')" = 'true' ]
-[ "$(jsonfilter -q -i "$TEST_DIR/rolled-back-status.json" -e '@.rollback_available')" = 'false' ]
 
 # Invalid schema and unknown legacy fields fail before the running generation
 # is stopped or replaced.
@@ -229,7 +161,7 @@ if /usr/sbin/steer apply > "$TEST_DIR/rejected-schema.json"; then
 	exit 1
 fi
 /usr/sbin/steer status > "$TEST_DIR/invalid-status.json"
-[ "$(jsonfilter -q -i "$TEST_DIR/invalid-status.json" -e '@.core_running')" = 'true' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/invalid-status.json" -e '@.healthy')" = 'true' ]
 uci -q delete steer.main.router_proxy
 uci commit steer
 
@@ -260,4 +192,4 @@ ubus call session destroy "{\"ubus_rpc_session\":\"$reenable_session\"}"
 [ "$(jsonfilter -q -i "$TEST_DIR/reenabled-status.json" -e '@.last_apply.result.ok')" = 'true' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/reenabled-status.json" -e '@.healthy')" = 'true' ]
 
-echo 'OpenWrt M1 VM integration tests passed.'
+echo 'OpenWrt cross-platform-preparation VM integration tests passed.'

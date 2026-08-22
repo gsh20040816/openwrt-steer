@@ -1,34 +1,32 @@
 # 开发与验证
 
-Steer 主线面向 OpenWrt 25.12.5 x86/64 和 sing-box 1.13.18。修改必须先证明 Canonical Intent 与编译不变量，再验证 OpenWrt adapter 和 LuCI；不能用浏览器校验代替后端校验，也不能只靠 JSON 形状测试冒充 sing-box 原生可用。
+0.4 的任务是固定跨平台边界并保持 OpenWrt 正常使用可靠。功能边界已经冻结；修改应落在正确包中，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构。
 
 ## 仓库结构
 
 ```text
-steer-openwrt/src/internal/model       Canonical Intent 与语义校验
-steer-openwrt/src/internal/compiler    Execution Plan 与 sing-box 编译
-steer-openwrt/src/internal/openwrt     UCI、Apply、平台资源、订阅和测试
-steer-openwrt/src/cmd                  /usr/sbin/steer CLI
-luci-app-steer                         LuCI 页面、RPC、ACL、翻译
-steer-geodata                          固定 Geo 数据包
-geoview                                上游工具打包与补丁
-tests/node                             LuCI 与分享 URL 回归
-tests/integration                      一次性 OpenWrt VM 集成
+go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
+go/internal/{subscription,probe,capability}     共享服务
+go/internal/platform/openwrt                    OpenWrt 适配器
+go/cmd/steer-openwrt                            OpenWrt CLI
+luci-app-steer                                  LuCI、RPC、ACL、翻译
+steer-openwrt                                   OpenWrt 控制器包
+steer-geodata                                   固定 Geo 数据包
+geoview                                         上游工具打包与补丁
+tests/node                                      LuCI/分享 URL 回归
+tests/integration                               一次性 OpenWrt VM 正常路径
 ```
 
-## 本地测试
+旧 `steer-openwrt/src` 已原子删除。共享模块路径为 `github.com/gsh20040816/openwrt-steer/go`。
 
-Go 模块位于 `steer-openwrt/src`：
+## 本地验证
 
 ```sh
-cd steer-openwrt/src
+cd go
 gofmt -w <changed-go-files>
 go test ./...
-```
 
-仓库根目录的前端和边界检查：
-
-```sh
+cd ..
 node tests/node/share_url_test.js
 node tests/node/luci_view_test.js
 node tests/node/steer_helper_test.js
@@ -38,79 +36,49 @@ python3 tests/check-build-cache.py
 git diff --check
 ```
 
-每次修改必须运行与改动直接相关的测试；准备提交和发布时运行以上全部检查。不得删除、跳过或弱化失败测试。
+修改后必须运行相关测试；提交和发布前运行完整集合。不能删除、跳过或弱化失败测试。当前不建设故障注入矩阵；验证集中于用户正常配置、正常 Apply、启动、订阅和诊断路径，以及正常输入中的 fail-fast 边界。
 
-## 代理链回归要求
+## 包职责
 
-`route.detour` 修改至少覆盖：
+- `intent` 只定义用户语义。新增字段必须有跨平台意义，并同时进入严格 JSON/UCI codec 和校验。
+- `compiler` 输出最终 sing-box 配置与能力/Geo 需求，不输出 nftables、服务管理器或公共平台计划。
+- `apply` 保持同步 KISS，仅编排五个 Backend 方法，不加入重试、回滚、事件总线或工作流引擎。
+- `generation` 只拥有 `intent.json` 和 `sing-box.json`；平台文件由平台适配器添加。
+- `subscription.Store` 必须保持窄接口，不能让共享逻辑依赖 UCI 命令。
+- `probe` 只测量和报告；目标选择、临时核心进程与日志路径由平台适配器处理。
+- `platform/openwrt` 是 UCI、nftables、策略路由、procd、Geo 和 OpenWrt 目录的唯一所有者。
 
-- 单级和多级合法链；
-- 同一节点由多条路由以不同 detour 复用；
-- 自环、两节点环和更长间接环，错误包含完整路径；
-- 悬空、禁用、Direct、Block 目标；
-- 生成的每条单节点 Route 都是协议出站，不残留全局 node selector；
-- DNS transport 引用 Route tag 后包含同一代理链；
-- 完整生成配置通过目标 sing-box 1.13 的 `check`。
+## 公共契约
 
-在线 sing-box 文档可能已经描述 1.14 或更新行为，不能据此放宽 1.13 输出。测试二进制必须先核对版本和 build tags。
+公开 CLI 只有：
 
-## 诊断回归要求
-
-测试功能至少覆盖：
-
-- 三个必填 URL 只能使用 UCI scalar option；
-- 连接成功、HTTP 失败、失败后第二次成功、完整下载和超时；
-- 概览从当前 Plan 选择正确 URL；
-- 节点连接使用 `probe_proxy`，节点下载使用 `speedtest_proxy`；
-- 路由测试的 final 为目标 Route tag，且包含全部 detour 出站；
-- 禁用节点/路由被拒绝；
-- 报告权限为 `0600`，目录按 overview/nodes/routes 隔离且覆盖最新同类报告；
-- RPC 参数声明、shell quoting、ACL 和 LuCI 非持久按钮；
-- 概览没有 rollback 操作。
-
-## schema 版本管理
-
-公开 schema 变化必须同时修改 model 常量、UCI scalar/list 形态、默认配置、fixture、LuCI、包安装脚本、边界测试和文档。
-
-0.3.0 正式版只接受 schema 7，不携带 alpha 阶段的 schema 6 转换和旧运行计划兼容代码。发布验证必须确认新装默认配置和待升级设备均已是 schema 7；版本不匹配时必须明确失败且不能改写 UCI。
-
-## OpenWrt VM
-
-`tests/integration/run-openwrt-vm.sh` 只允许在一次性测试 VM 运行。它会替换 `/etc/config/steer`、加载 nftables/策略路由、启动 procd、写入 `/run/steer` 和 `/var/lib/steer`，并执行显式 rollback 与清理。
-
-典型入口：
-
-```sh
-OPENWRT_HOST=<test-vm> \
-SING_BOX_BIN=/usr/bin/sing-box \
-tests/integration/run-openwrt-vm.sh
+```text
+version validate apply health status probe subscription geo-catalog cleanup
 ```
 
-当前 VM 主要验证控制面、配置编译、原生检查、procd、TUN、DNS/MAC 辅助规则、RPC 注册和 Apply 事务。没有独立 veth LAN 客户端时，不能声称已经覆盖真实 LAN IPv4/IPv6 TCP、UDP、QUIC、GUA、flow offload 或跨接口二层行为。
+`_start` 仅供 init 脚本使用，不属于公共接口。不得重新公开 compile、plan、prepare、capabilities 或 rollback。RPC 只包装用户/界面需要的公共操作；状态对象固定为 `healthy + last_apply`，合法性由 validate 单独返回。
 
-## 真机发布门
+## 新平台开发顺序
 
-正式版发布前至少确认：
+稳定版晋级后，Linux 适配器按以下顺序开始：
 
-- 目标 OpenWrt、sing-box 版本和 build tags；
-- UCI schema 7 内容与 `/etc/rc.d` 状态；
-- `steer validate`、`plan`、`apply`、`health`、`status`；
-- procd 进程、TUN、nftables、监听端口；
-- 概览 direct/proxy/speedtest；
-- 一个裸节点连接与下载测试；
-- 一条路由链连接与下载测试；
-- `/var/lib/steer/logs/tests` 的路径、内容与权限；
-- 重载 LuCI 后没有未知 UCI 字段。
+1. 只实现 schema 7 严格 Canonical JSON 文件读写；
+2. 实现平台目录、权限和 systemd 生命周期；
+3. 选择并验证 Linux 网络接管方式，生成平台内部计划；
+4. 接入共享 Backend 五方法；
+5. 复用 subscription/probe，并实现 JSON Store 和平台日志路径；
+6. 先提供 CLI/包，再决定是否需要图形界面。
 
-如果生产配置没有可用多级链，不得为了验收改变真实路由关系。多级 detour 应在隔离 fixture 或 VM 中验证，真机只测试已有合法路径。
+macOS 在 Linux 接口稳定后开始，允许使用 launchd、utun/pf 和不同权限模型，但不得改变共享规则、路由、DNS 或订阅语义。
 
-## 发布流程
+## OpenWrt VM 与发布门
 
-1. 完整测试通过并确认工作树只包含本次变更；
-2. 使用英文 `<type>: <message>` 提交到 `master`；
-3. 推送后等待 `Build OpenWrt packages` 对同一 commit 成功；
-4. 校验构建资产的 `SHA256SUMS` 和 `BUILD-METADATA.txt`；
-5. 在该 commit 创建版本 tag；
-6. `Publish tagged release` 只能复用同一 commit 的成功 master 构建，发布为 GitHub prerelease；
-7. 从 Release 资产安装真机，而不是使用本地未发布包；
-8. 记录实际版本和验收结果。
+`tests/integration/run-openwrt-vm.sh` 只能运行在一次性 OpenWrt 25.12.5 x86/64 VM。它会替换 UCI、运行目录、nftables、策略路由和 procd，并覆盖公开 RPC、正常 Apply/reload/restart、DNS/MAC 辅助层、禁用/重新启用及非法配置 fail-fast。
+
+发布门：
+
+1. 全部本地检查通过；
+2. 官方 OpenWrt SDK 完整构建并产出五个 APK；
+3. 构建产物来自拟发布 commit；
+4. 安装后运行 `validate`、`health`、`status` 和显式测试；
+5. alpha 在真实路由器正常使用至少一周后再晋级稳定版。

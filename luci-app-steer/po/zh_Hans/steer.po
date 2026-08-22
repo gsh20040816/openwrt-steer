@@ -108,8 +108,8 @@ msgstr "客户端 IP/CIDR"
 msgid "Client MAC address"
 msgstr "客户端 MAC 地址"
 
-msgid "Compiling and verifying the candidate execution plan."
-msgstr "正在编译并验证候选执行计划。"
+msgid "Compiling and verifying the candidate configuration."
+msgstr "正在编译并验证候选配置。"
 
 msgid "Configuration"
 msgstr "配置"
@@ -122,9 +122,6 @@ msgstr "连接测速"
 
 msgid "Batch connection test"
 msgstr "批量连接测速"
-
-msgid "Core process"
-msgstr "核心进程"
 
 msgid "Create a proxy node before adding a single-node route."
 msgstr "请先创建代理节点，再添加单节点路由。"
@@ -213,9 +210,6 @@ msgstr "启用"
 msgid "Exact ports only. This condition is evaluated by traffic routing, not DNS."
 msgstr "仅支持精确端口。此条件由流量路由判断，不参与 DNS 判断。"
 
-msgid "Firewall shim"
-msgstr "防火墙辅助层"
-
 msgid "First"
 msgstr "第一个"
 
@@ -255,17 +249,11 @@ msgstr "入站"
 msgid "Intent"
 msgstr "意图"
 
-msgid "Invalid"
-msgstr "无效"
-
 msgid "Kind"
 msgstr "类型"
 
 msgid "Listen address"
 msgstr "监听地址"
-
-msgid "Listeners"
-msgstr "监听端口"
 
 msgid "Local Proxies"
 msgstr "本地代理"
@@ -326,9 +314,6 @@ msgstr "非全球可达地址和本地目的地址会在用户规则之前绕过
 
 msgid "None"
 msgstr "无"
-
-msgid "Not ready"
-msgstr "未就绪"
 
 msgid "Obfuscation"
 msgstr "混淆"
@@ -392,9 +377,6 @@ msgstr "REALITY 公钥"
 
 msgid "REALITY short ID"
 msgstr "REALITY 短 ID"
-
-msgid "Ready"
-msgstr "就绪"
 
 msgid "Reserved for sing-box 1.14; the current 1.13 baseline rejects it."
 msgstr "为 sing-box 1.14 预留；当前 1.13 基线会拒绝启用。"
@@ -479,9 +461,6 @@ msgstr "TLS / REALITY"
 
 msgid "TLS server name"
 msgstr "TLS 服务器名称"
-
-msgid "TUN interface"
-msgstr "TUN 接口"
 
 msgid "The VLESS credential is not a UUID."
 msgstr "VLESS 凭据不是有效的 UUID。"
@@ -596,9 +575,6 @@ msgstr "用户名"
 
 msgid "Username and password must either both be set or both be empty."
 msgstr "用户名和密码必须同时设置或同时留空。"
-
-msgid "Valid"
-msgstr "有效"
 
 msgid "Manual probes"
 msgstr "手动探测"

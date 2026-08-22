@@ -180,7 +180,7 @@ function createEnvironment(sections) {
 	const steer = {
 		loadStyle: () => {},
 		status: () => Promise.resolve({}),
-		plan: () => Promise.resolve({}),
+		validate: () => Promise.resolve({ ok: true, errors: [], warnings: [] }),
 		geodataCatalog: () => Promise.resolve({}),
 		subscriptions: () => Promise.resolve({ subscriptions: [] }),
 		renderStatus: () => element('div'),
@@ -302,7 +302,7 @@ async function renderLocalProxies(sections) {
 	return environment;
 }
 
-async function renderOverview(sections, planResult = {}) {
+async function renderOverview(sections) {
 	const environment = createEnvironment(sections);
 	const view = loadView(
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js',
@@ -316,7 +316,7 @@ async function renderOverview(sections, planResult = {}) {
 			_: environment.translate
 		}
 	);
-	environment.rendered = await view.render([ null, {}, planResult, { subscriptions: [] } ]);
+	environment.rendered = await view.render([ null, {}, { ok: true, errors: [], warnings: [] } ]);
 	return environment;
 }
 
@@ -569,11 +569,6 @@ async function main() {
 	await overviewTestButtons[1].attributes.click({ preventDefault: () => {}, currentTarget: overviewTestButtons[1] });
 	assert.deepEqual(environment.overviewProbeCalls, [ 'proxy' ],
 		'Overview proxy test remains clickable when no healthy running status was returned');
-	await renderOverview({ subscription: [] }, {
-		plan: { schema_version: 7 },
-		diff: { changed: true, added: [ { id: 'new' } ], modified: null, removed: null }
-	});
-
 	const nodeSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodeSource.includes("const id = uci.add('steer', 'node');") &&
@@ -601,8 +596,9 @@ async function main() {
 		steerSource.includes('speedtest: function(node, download)') &&
 		steerSource.includes('routeSpeedtest: function(route, download)') &&
 		steerSource.includes('overviewProbe: function(kind)') &&
-		!steerSource.includes('confirmRollback'),
-		'LuCI helper exposes node, route and overview tests without the rollback UI');
+		steerSource.includes('validate: function()') &&
+		!steerSource.includes('callPlan'),
+		'LuCI helper exposes diagnostics and independent validation without a plan contract');
 	const rpcSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/root/usr/share/rpcd/ucode/luci.steer'), 'utf8');
 	assert.ok(rpcSource.includes("args: { node: '', download: false }") &&
@@ -613,7 +609,9 @@ async function main() {
 		rpcSource.includes('request.args.download') &&
 		rpcSource.includes("command += ' --download'") &&
 		rpcSource.includes('shellquote(node)') &&
-		!rpcSource.includes('command_json(['),
+		!rpcSource.includes('command_json([') &&
+		!rpcSource.includes('rollback') &&
+		!rpcSource.includes('steer plan'),
 		'RPC backend declares and reads the speed-test arguments');
 	assert.ok(rpcSource.includes("args: { id: '' }") &&
 		rpcSource.includes("args: { id: '', node: '' }"),
