@@ -487,17 +487,19 @@ return view.extend({
 		o.editable = !summaryOnly;
 
 		o = s.taboption('general', form.Button, '_connect_speedtest', _('Connection test'));
-		o.default = '1';
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
+		o.write = function() {};
+		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, false, ev.currentTarget); };
 
 		o = s.taboption('general', form.Button, '_download_speedtest', _('Download test'));
-		o.default = '1';
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
+		o.write = function() {};
+		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget); };
 
 		o = s.taboption('general', form.Value, 'name', _('Name'));

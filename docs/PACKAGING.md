@@ -5,8 +5,9 @@
 - 软件、第三方二进制和规则数据必须由系统包管理器安装、升级和删除。
 - Steer 不在运行时下载文件并覆盖 `/usr`，不从网络替换包管理器拥有的文件。
 - 第三方依赖独立成包；Steer 主包只声明依赖，不复制 sing-box、SmartDNS 或 geoview 二进制。
-- `/usr` 是只读发布输入，`/etc` 是用户配置，`/var/lib/steer` 保存可重建 Geo 派生物和唯一的
-  `rollback.uci`，`/run/steer` 是临时运行状态。
+- `/usr` 是只读发布输入，`/etc` 是用户配置，`/var/lib/steer` 保存可重建 Geo 派生物、测速日志和
+  唯一的 `rollback.uci`，`/run/steer` 是临时运行状态。每个节点最近一次连接和下载测速报告保存到
+  `/var/lib/steer/logs/speedtests/<node-id>/{connect,download}.json`，测速数据不得进入 UCI 意图模型。
 - 生成物不作为包更新输入；删除生成物后必须能从包和配置重新构建。
 
 ## 当前 OpenWrt 包
@@ -37,8 +38,9 @@
 
 `steer-openwrt` 必须声明替换并冲突旧 `steer`，保留 `/etc/config/steer`，且只在 schema 6
 preflight 通过时启用服务。schema 5→6 的迁移窗口已经关闭，当前包要求 schema 6，未知 schema
-直接失败。本次 release 仅修复上一版 VMess 订阅错误写入的冗余 `network` 字段；下一包必须删除
-这段精确修复，不保留通用兼容层，也不自动降级 APK。
+直接失败。上一版 VMess 订阅冗余 `network` 字段的迁移窗口已经关闭。本次 release 仅删除
+`luci-app-steer` 0.2.0-r7 及更早版本错误写入的测速按钮字段；下一包必须删除这段精确修复，
+不保留通用兼容层，也不自动降级 APK。
 包升级期间允许旧 init 脚本按 OpenWrt 约定停止；新包必须先完成唯一一次 UCI 迁移，再显式启动
 新 generation。不能让 `default_postinst` 在迁移前启动服务，否则旧 schema 会导致配置解码失败，
 并留下“包已升级、数据面未启动”的半完成状态。启动失败必须让包事务失败并暴露错误。

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
 PKG_VERSION:=0.2.0
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -53,20 +53,17 @@ schema="$$(uci -q get steer.main.schema_version 2>/dev/null)"
 	exit 1
 }
 
-# One release transition only: remove this repair in the next package release.
-repaired_subscription_network=0
-for section in $$(uci -q show steer | sed -n "s/^steer\.\([a-z][a-z0-9_]*\)\.source_subscription=.*/\1/p"); do
-	network="$$(uci -q get steer.$$section.network)"
-	transport="$$(uci -q get steer.$$section.transport)"
-	[ "$$network" = "$$transport" ] || continue
-	case "$$network" in
-		tcp|raw|ws|grpc|http|quic)
-			uci -q delete steer.$$section.network
-			repaired_subscription_network=1
-			;;
-	esac
+# One release transition only: remove LuCI speed-test button values written by
+# 0.2.0-r7 and older after all supported installations have upgraded.
+repaired_speedtest_buttons=0
+for section in $$(uci -q show steer | sed -n "s/^steer\.\([a-z][a-z0-9_]*\)=node/\1/p"); do
+	for option in _connect_speedtest _download_speedtest; do
+		uci -q get steer.$$section.$$option >/dev/null || continue
+		uci -q delete steer.$$section.$$option
+		repaired_speedtest_buttons=1
+	done
 done
-[ "$$repaired_subscription_network" = 0 ] || uci commit steer
+[ "$$repaired_speedtest_buttons" = 0 ] || uci commit steer
 
 cron_file=/etc/crontabs/root
 cron_line='*/15 * * * * /usr/sbin/steer subscription update 2>&1 | logger -t steer-subscription'

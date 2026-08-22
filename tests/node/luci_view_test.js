@@ -454,6 +454,14 @@ async function main() {
 		const option = subscriptionNodes.options.find((candidate) => candidate.name == name);
 		assert.equal(option && option.editable, true,
 			`Subscription node exposes the ${name} action`);
+		assert.equal(option.default, undefined,
+			`Speed-test action ${name} has no value for LuCI to persist`);
+		assert.equal(option.write('jdub_0123456789ab', '1'), undefined,
+			`Speed-test action ${name} ignores form writes`);
+		assert.equal(option.remove('jdub_0123456789ab'), undefined,
+			`Speed-test action ${name} ignores form removal`);
+		assert.equal(environment.uci.get('steer', 'jdub_0123456789ab', name), undefined,
+			`Speed-test action ${name} never enters the UCI node model`);
 	});
 	const speedtestButton = { disabled: false, textContent: '', title: '', classList: { toggle: () => {} } };
 	const connectSpeedtest = subscriptionNodes.options.find((candidate) => candidate.name == '_connect_speedtest');

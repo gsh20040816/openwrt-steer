@@ -21,8 +21,10 @@ import (
 )
 
 type NodeSpeedTestReport struct {
-	NodeID  string             `json:"node_id"`
-	Results []NodeSpeedTestURL `json:"results"`
+	NodeID   string             `json:"node_id"`
+	Download bool               `json:"download"`
+	TestedAt time.Time          `json:"tested_at"`
+	Results  []NodeSpeedTestURL `json:"results"`
 }
 
 type NodeSpeedTestURL struct {
@@ -66,7 +68,14 @@ func SpeedTestNode(ctx context.Context, configPath, stateDirectory, singBoxPath,
 	if singBoxPath == "" {
 		singBoxPath = "/usr/bin/sing-box"
 	}
-	return runTemporaryNodeProxy(ctx, singBoxPath, node, intent.Main.SpeedtestProxyURLs, download)
+	report, err := runTemporaryNodeProxy(ctx, singBoxPath, node, intent.Main.SpeedtestProxyURLs, download)
+	if err != nil {
+		return NodeSpeedTestReport{}, err
+	}
+	if err := saveNodeSpeedTestReport(stateDirectory, report); err != nil {
+		return NodeSpeedTestReport{}, err
+	}
+	return report, nil
 }
 
 func runTemporaryNodeProxy(ctx context.Context, singBoxPath string, node model.Node, targets []string, download bool) (NodeSpeedTestReport, error) {
@@ -114,12 +123,40 @@ func runTemporaryNodeProxy(ctx context.Context, singBoxPath string, node model.N
 	}
 	proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 30 * time.Second}
-	report := NodeSpeedTestReport{NodeID: node.ID, Results: make([]NodeSpeedTestURL, 0, len(targets))}
+	report := NodeSpeedTestReport{
+		NodeID:   node.ID,
+		Download: download,
+		TestedAt: time.Now().UTC(),
+		Results:  make([]NodeSpeedTestURL, 0, len(targets)),
+	}
 	for _, target := range targets {
 		result := measureNodeSpeedTest(ctx, client, target, download)
 		report.Results = append(report.Results, result)
 	}
 	return report, nil
+}
+
+func saveNodeSpeedTestReport(stateDirectory string, report NodeSpeedTestReport) error {
+	if stateDirectory == "" {
+		stateDirectory = "/var/lib/steer"
+	}
+	directory := filepath.Join(stateDirectory, "logs", "speedtests", report.NodeID)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("create speed-test log directory: %w", err)
+	}
+	encoded, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode speed-test report: %w", err)
+	}
+	kind := "connect"
+	if report.Download {
+		kind = "download"
+	}
+	path := filepath.Join(directory, kind+".json")
+	if err := atomicWrite(path, append(encoded, '\n')); err != nil {
+		return fmt.Errorf("save speed-test report: %w", err)
+	}
+	return nil
 }
 
 func waitProxyReady(ctx context.Context, port int) error {

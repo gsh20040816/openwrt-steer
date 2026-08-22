@@ -60,11 +60,14 @@ if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc
 
 if '[ "$$schema" = 6 ]' not in makefile or "uci set steer.main.schema_version" in makefile:
     fail("package must require schema 6 without retaining an older schema migration")
-if "One release transition only: remove this repair in the next package release." not in makefile:
-    fail("package must mark the temporary subscription network repair for removal")
-for fragment in ("source_subscription", "repaired_subscription_network", "uci -q delete steer.$$section.network"):
+for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
+    if stale_repair in makefile:
+        fail(f"package retained the expired subscription network repair: {stale_repair}")
+for fragment in ("repaired_speedtest_buttons", "_connect_speedtest _download_speedtest", "uci -q delete steer.$$section.$$option"):
     if fragment not in makefile:
-        fail(f"package is missing the one-release subscription network repair: {fragment}")
+        fail(f"package is missing the one-release LuCI speed-test repair: {fragment}")
+if "One release transition only: remove LuCI speed-test button values" not in makefile:
+    fail("package must mark the temporary LuCI speed-test repair for removal")
 if "*/15 * * * * /usr/sbin/steer subscription update" not in makefile:
     fail("subscription cron dispatcher is not package-managed")
 if "[ -x /etc/init.d/cron ]" not in makefile:
