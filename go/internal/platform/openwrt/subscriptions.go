@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -107,8 +106,7 @@ func SystemUCIWriter(configPath string) UCIWriter {
 	return func(ctx context.Context, batch string) error {
 		commandCtx, cancel := withCommandTimeout(ctx, defaultCommandTimeout)
 		defer cancel()
-		command := exec.CommandContext(commandCtx, "/sbin/uci", "-c", configDirectory, "batch")
-		command.WaitDelay = commandWaitDelay
+		command := newCommandContext(commandCtx, "/sbin/uci", "-c", configDirectory, "batch")
 		command.Stdin = strings.NewReader(batch)
 		output, err := command.CombinedOutput()
 		if err != nil {

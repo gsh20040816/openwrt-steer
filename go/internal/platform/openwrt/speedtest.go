@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -159,12 +158,11 @@ func runTemporaryProbe(ctx context.Context, singBoxPath string, outbounds []any,
 	if err := os.WriteFile(configPath, append(encoded, '\n'), 0o600); err != nil {
 		return TestReport{}, fmt.Errorf("write test config: %w", err)
 	}
-	check := exec.CommandContext(ctx, singBoxPath, "check", "-c", configPath)
-	check.WaitDelay = commandWaitDelay
+	check := newCommandContext(ctx, singBoxPath, "check", "-c", configPath)
 	if output, err := check.CombinedOutput(); err != nil {
 		return TestReport{}, fmt.Errorf("sing-box test config check failed: %w: %s", err, output)
 	}
-	process := exec.CommandContext(ctx, singBoxPath, "run", "-c", configPath)
+	process := newCommandContext(ctx, singBoxPath, "run", "-c", configPath)
 	process.Stdout, process.Stderr = io.Discard, io.Discard
 	if err := process.Start(); err != nil {
 		return TestReport{}, fmt.Errorf("start temporary sing-box: %w", err)

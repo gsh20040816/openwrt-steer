@@ -4,11 +4,13 @@ package openwrt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -28,8 +30,7 @@ type ExecRunner struct {
 func (runner ExecRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
 	commandCtx, cancel := withCommandTimeout(ctx, runner.Timeout)
 	defer cancel()
-	command := exec.CommandContext(commandCtx, name, args...)
-	command.WaitDelay = commandWaitDelay
+	command := newCommandContext(commandCtx, name, args...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		if commandCtx.Err() != nil {
@@ -38,6 +39,25 @@ func (runner ExecRunner) Output(ctx context.Context, name string, args ...string
 		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return output, nil
+}
+
+func newCommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, name, args...)
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error {
+		if command.Process == nil {
+			return os.ErrProcessDone
+		}
+		if err := syscall.Kill(-command.Process.Pid, syscall.SIGKILL); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
+		}
+		return nil
+	}
+	command.WaitDelay = commandWaitDelay
+	return command
 }
 
 func withCommandTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
