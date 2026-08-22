@@ -67,8 +67,8 @@ for migration_fragment in (
 ):
     if migration_fragment not in makefile:
         fail(f"package is missing schema 6 to 7 migration step: {migration_fragment}")
-if "PKG_VERSION:=0.3.0" not in makefile or "PKG_RELEASE:=1" not in makefile:
-    fail("steer-openwrt package version must start the 0.3.0 release line")
+if "PKG_VERSION:=0.3.0" not in makefile or "PKG_RELEASE:=2" not in makefile:
+    fail("steer-openwrt package version must be the corrected 0.3.0-r2 release")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
     if stale_repair in makefile:
         fail(f"package retained the expired subscription network repair: {stale_repair}")

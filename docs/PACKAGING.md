@@ -6,9 +6,9 @@ Steer 0.3.0 使用 OpenWrt 官方 25.12.5 x86/64 SDK构建。仓库中的包定�
 
 | 包 | 当前版本 | 职责 |
 | --- | --- | --- |
-| `steer-openwrt` | `0.3.0-r1` | `/usr/sbin/steer`、默认 UCI、init/procd、升级迁移 |
-| `luci-app-steer` | `0.3.0-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.3.0-r1` | 简体中文翻译，由 LuCI 构建系统生成 |
+| `steer-openwrt` | `0.3.0-r2` | `/usr/sbin/steer`、默认 UCI、init/procd、升级迁移 |
+| `luci-app-steer` | `0.3.0-r2` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.3.0-r2` | 简体中文翻译，由 LuCI 构建系统生成 |
 | `steer-geodata` | `202608162214-r1` | 固定版本 GeoSite/GeoIP seed |
 | `geoview` | `0.2.6-r2` | 提取 Geo 分类的上游工具 |
 
@@ -74,7 +74,7 @@ post-install 只接受 schema 6 或 7。schema 6 升级事务按以下顺序执�
 
 ## Tag 与 Release
 
-0.3.0 的首个预发布 tag 为 `v0.3.0-alpha.1`。推送 tag 前必须确认同一 commit 的 master 构建成功。
+0.3.0-r2 的预发布 tag 为 `v0.3.0-alpha.2`。推送 tag 前必须确认同一 commit 的 master 构建成功。
 
 `Publish tagged release` 会：
 

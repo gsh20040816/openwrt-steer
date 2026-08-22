@@ -162,6 +162,30 @@ func TestPlanDiffJSONUsesArraysForEmptyCategories(t *testing.T) {
 	}
 }
 
+func TestPlanDecodesSchemaSixProbeArraysForRuntimeCleanup(t *testing.T) {
+	var plan Plan
+	legacy := `{
+		"schema_version": 6,
+		"resources": {"dns_port": 1053, "mac_bindings": []},
+		"probe_direct": ["https://first.example/", "https://second.example/"],
+		"probe_proxy": ["https://proxy.example/"],
+		"speedtest_proxy": ["https://speed.example/"]
+	}`
+	if err := json.Unmarshal([]byte(legacy), &plan); err != nil {
+		t.Fatalf("schema 7 binary cannot decode the schema 6 runtime plan: %v", err)
+	}
+	if plan.SchemaVersion != 6 || plan.Resources.DNSPort != 1053 || plan.ProbeDirect != "https://first.example/" || plan.ProbeProxy != "https://proxy.example/" || plan.SpeedtestProxy != "https://speed.example/" {
+		t.Fatalf("legacy runtime plan was decoded incorrectly: %#v", plan)
+	}
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"probe_direct":[`) || !strings.Contains(string(encoded), `"probe_direct":"https://first.example/"`) {
+		t.Fatalf("legacy plan did not marshal back as schema 7 scalars: %s", encoded)
+	}
+}
+
 func TestCompileSingBoxProxyNodeFamilies(t *testing.T) {
 	base := representativeIntent()
 	base.Nodes = []model.Node{

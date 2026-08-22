@@ -78,7 +78,8 @@ git diff --check
 2. 转换后 `uci show` 是 option 而不是 list；
 3. 二次安装保持相同配置；
 4. 旧日志移动到统一目录；
-5. Apply 使用迁移后 UCI 并保持运行健康。
+5. 新二进制能解码旧 generation 的 probe 数组并完成清理；
+6. Apply 使用迁移后 UCI 并保持运行健康。
 
 ## OpenWrt VM
 
