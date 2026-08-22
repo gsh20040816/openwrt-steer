@@ -633,6 +633,9 @@ msgstr "订阅更新失败"
 msgid "Subscription updated."
 msgstr "订阅已更新。"
 
+msgid "Subscription updated; %d invalid nodes skipped."
+msgstr "订阅已更新；已跳过 %d 个无效节点。"
+
 msgid "Subscription node removal failed"
 msgstr "删除订阅节点失败"
 
@@ -650,6 +653,9 @@ msgstr "移除 %s"
 
 msgid "Subscription status"
 msgstr "订阅状态"
+
+msgid "Subscription URL"
+msgstr "订阅地址"
 
 msgid "%d ms"
 msgstr "%d 毫秒"

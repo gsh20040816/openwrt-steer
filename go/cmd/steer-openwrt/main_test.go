@@ -4,10 +4,30 @@ package main
 // CLI tests lock the OpenWrt command surface and Apply serialization.
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	coreapply "github.com/gsh20040816/openwrt-steer/go/internal/apply"
 )
+
+func TestApplyRecordFailurePreservesOperationError(t *testing.T) {
+	runDirectory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(runDirectory, "last-apply.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := errors.New("original apply failure")
+	err := runLockedApply(runDirectory, func() (coreapply.Result, error) {
+		return coreapply.Result{}, original
+	})
+	if !errors.Is(err, original) || !strings.Contains(err.Error(), "publish Apply result") {
+		t.Fatalf("Apply errors were not preserved together: %v", err)
+	}
+}
 
 func TestApplyLockSerializesTransactions(t *testing.T) {
 	runDirectory := t.TempDir()
@@ -41,6 +61,21 @@ func TestApplyLockSerializesTransactions(t *testing.T) {
 		close(release)
 	case <-time.After(time.Second):
 		t.Fatal("second Apply did not acquire the released lock")
+	}
+}
+
+func TestApplyLockWaitHonorsContextDeadline(t *testing.T) {
+	runDirectory := t.TempDir()
+	first, err := acquireApplyLock(runDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err = acquireApplyLockContext(ctx, runDirectory)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Apply lock wait returned %v", err)
 	}
 }
 

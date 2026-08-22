@@ -7,22 +7,55 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
 )
 
-func TestFetchPublicHTTPSSubscription(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+func TestFetchHTTPSubscription(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = response.Write([]byte("vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com\n"))
 	}))
 	defer server.Close()
-	nodes, err := Fetch(context.Background(), server.Client(), model.Subscription{ID: "public", Enabled: true, URL: server.URL})
+	result, err := Fetch(context.Background(), server.Client(), model.Subscription{ID: "public", Enabled: true, URL: server.URL})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(nodes) != 1 || nodes[0].Type != "vless" {
-		t.Fatalf("unexpected fetched nodes: %#v", nodes)
+	if len(result.Nodes) != 1 || result.Nodes[0].Type != "vless" || result.Skipped != 0 {
+		t.Fatalf("unexpected fetched nodes: %#v", result)
+	}
+}
+
+func TestFetchFollowsHTTPSRedirectToHTTP(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("socks5://user:password@example.com:1080\n"))
+	}))
+	defer target.Close()
+	redirect := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, target.URL, http.StatusFound)
+	}))
+	defer redirect.Close()
+	result, err := Fetch(context.Background(), redirect.Client(), model.Subscription{ID: "redirect", Enabled: true, URL: redirect.URL})
+	if err != nil || len(result.Nodes) != 1 || result.Nodes[0].Type != "socks" {
+		t.Fatalf("HTTPS to HTTP redirect was not accepted: result=%#v err=%v", result, err)
+	}
+}
+
+func TestFetchAllowsCredentialsAndFragment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		username, password, ok := request.BasicAuth()
+		if !ok || username != "user" || password != "password" {
+			http.Error(response, "missing credentials", http.StatusUnauthorized)
+			return
+		}
+		_, _ = response.Write([]byte("socks://example.com:1080\n"))
+	}))
+	defer server.Close()
+	address := strings.Replace(server.URL, "http://", "http://user:password@", 1) + "#client-only"
+	result, err := Fetch(context.Background(), server.Client(), model.Subscription{ID: "authenticated", Enabled: true, URL: address})
+	if err != nil || len(result.Nodes) != 1 {
+		t.Fatalf("ordinary authenticated URL was rejected: result=%#v err=%v", result, err)
 	}
 }
 

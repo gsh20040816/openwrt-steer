@@ -139,7 +139,7 @@ steer subscription status
 steer subscription clean --id public --node <node-id>
 ```
 
-URL 必须是公开 HTTPS。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。更新使用稳定 ID，保留本地启用状态；上游消失的节点标为 `pinned_stale`，必须显式 clean。订阅提交节点后不自动 Apply。
+URL 必须是可访问的 HTTP 或 HTTPS 地址，允许私网地址和正常重定向。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。单条无效节点会被跳过并计数；如果没有任何有效节点，更新会提交空节点集并删除该订阅此前生成的节点。非空更新使用稳定 ID，保留本地启用状态；上游消失的节点标为 `pinned_stale`，必须显式 clean。订阅提交节点后不自动 Apply。
 
 ## Apply、状态和测试
 

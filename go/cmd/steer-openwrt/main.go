@@ -22,6 +22,8 @@ import (
 
 var version = "development"
 
+const applyLockTimeout = 2 * time.Minute
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		if len(os.Args) < 2 || os.Args[1] != "apply" {
@@ -123,13 +125,26 @@ func runLockedApply(runDirectory string, operation func() (coreapply.Result, err
 		result.Error = err.Error()
 	}
 	if recordErr := writeApplyRecord(runDirectory, coreapply.Record{Sequence: strconv.FormatInt(time.Now().UnixNano(), 10), Result: result}); recordErr != nil {
-		return recordErr
+		combined := recordErr
+		if err != nil {
+			combined = errors.Join(err, recordErr)
+		}
+		result.OK = false
+		result.Error = combined.Error()
+		writeJSON(result)
+		return combined
 	}
 	writeJSON(result)
 	return err
 }
 
 func acquireApplyLock(runDirectory string) (*os.File, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), applyLockTimeout)
+	defer cancel()
+	return acquireApplyLockContext(ctx, runDirectory)
+}
+
+func acquireApplyLockContext(ctx context.Context, runDirectory string) (*os.File, error) {
 	if err := os.MkdirAll(runDirectory, 0o755); err != nil {
 		return nil, fmt.Errorf("create runtime directory for Apply lock: %w", err)
 	}
@@ -137,11 +152,24 @@ func acquireApplyLock(runDirectory string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open Apply lock: %w", err)
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		lock.Close()
-		return nil, fmt.Errorf("lock Apply transaction: %w", err)
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return lock, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			lock.Close()
+			return nil, fmt.Errorf("lock Apply transaction: %w", err)
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			lock.Close()
+			return nil, fmt.Errorf("lock Apply transaction: %w", ctx.Err())
+		case <-timer.C:
+		}
 	}
-	return lock, nil
 }
 
 func runServiceStart(args []string) error {

@@ -619,6 +619,7 @@ async function main() {
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
 		nodesSource.includes("_('Update now')") &&
+		nodesSource.includes("_('Subscription updated; %d invalid nodes skipped.')") &&
 		nodesSource.includes("_('Connection test')") &&
 		nodesSource.includes("_('Download test')") &&
 		nodesSource.includes("_('Batch connection test')") &&

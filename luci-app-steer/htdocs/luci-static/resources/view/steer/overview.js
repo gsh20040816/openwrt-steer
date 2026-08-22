@@ -143,7 +143,7 @@ return view.extend({
 		};
 		o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 		o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
-		o = s.option(form.Value, 'url', 'HTTPS subscription URL'); o.datatype = 'url'; o.rmempty = false; o.editable = true;
+		o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
 		o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = '6h'; o.modalonly = true;
 
 		return m.render().then((formNode) => E([], [

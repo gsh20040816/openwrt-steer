@@ -12,6 +12,16 @@ function fail(code, detail) {
 	throw error;
 }
 
+function checkedResult(result) {
+	for (const value of Object.values(result.node || {})) {
+		const values = Array.isArray(value) ? value : [ value ];
+		for (const item of values)
+			if (typeof item == 'string' && /[\u0000-\u001f\u007f-\u009f]/u.test(item))
+				fail('CONTROL_CHARACTER');
+	}
+	return result;
+}
+
 function decode(value, field) {
 	try {
 		return decodeURIComponent(value || '');
@@ -226,15 +236,60 @@ function parseShadowsocksURL(input) {
 	const fragment = hashAt >= 0 ? decode(value.substring(hashAt + 1), 'fragment') : '';
 	if (hashAt >= 0)
 		value = value.substring(0, hashAt);
+	let query = '';
+	const queryAt = value.indexOf('?');
+	if (queryAt >= 0) {
+		query = value.substring(queryAt + 1);
+		value = value.substring(0, queryAt);
+	}
+	const params = new URLSearchParams(query);
+	validateKnownParameters(params, [ 'plugin', 'plugin-opts' ]);
+
+	let credential;
+	let authority;
 	const at = value.lastIndexOf('@');
-	if (at < 0)
-		fail('MISSING_CREDENTIAL');
-	const decoded = decodeBase64(value.substring(0, at));
-	const pair = decoded.split(':');
-	if (pair.length != 2)
+	if (at >= 0) {
+		credential = decode(value.substring(0, at), 'credential');
+		authority = value.substring(at + 1);
+		if (credential.indexOf(':') < 0)
+			credential = decodeBase64(credential);
+	}
+	else {
+		const decoded = decodeBase64(value);
+		const legacyAt = decoded.lastIndexOf('@');
+		if (legacyAt < 0)
+			fail('MISSING_CREDENTIAL');
+		credential = decoded.substring(0, legacyAt);
+		authority = decoded.substring(legacyAt + 1);
+	}
+	const colon = credential.indexOf(':');
+	if (colon <= 0 || colon == credential.length - 1)
 		fail('INVALID_CREDENTIAL');
-	const authority = parseAuthority(value.substring(at + 1), 443, false);
-	return { node: Object.assign(baseNode({ fragment }, authority, 'shadowsocks'), { method: pair[0], password: pair[1] }), warnings: [] };
+	const parsedAuthority = parseAuthority(authority, 443, false);
+	const node = Object.assign(baseNode({ fragment }, parsedAuthority, 'shadowsocks'), {
+		method: credential.substring(0, colon),
+		password: credential.substring(colon + 1)
+	});
+	let plugin = parameterValues(params, [ 'plugin' ]);
+	let pluginOptions = '';
+	const separator = plugin.indexOf(';');
+	if (separator >= 0) {
+		pluginOptions = plugin.substring(separator + 1);
+		plugin = plugin.substring(0, separator);
+	}
+	const legacyOptions = parameterValues(params, [ 'plugin-opts' ]);
+	if (pluginOptions && legacyOptions && pluginOptions != legacyOptions)
+		fail('CONFLICTING_PARAMETER', 'plugin/plugin-opts');
+	pluginOptions = pluginOptions || legacyOptions;
+	if (!plugin && pluginOptions)
+		fail('REQUIRED_PARAMETER', 'plugin');
+	if (plugin && !([ 'obfs-local', 'v2ray-plugin' ].includes(plugin)))
+		fail('UNSUPPORTED_SHADOWSOCKS_PLUGIN', plugin);
+	if (plugin)
+		node.plugin = plugin;
+	if (pluginOptions)
+		node.plugin_options = pluginOptions;
+	return { node, warnings: [] };
 }
 
 function parseVMessURL(input) {
@@ -461,19 +516,19 @@ return baseclass.extend({
 	parse: function(input) {
 		const raw = String(input || '').trim();
 		if (raw.toLowerCase().startsWith('vmess://'))
-			return parseVMessURL(raw);
+			return checkedResult(parseVMessURL(raw));
 		if (raw.toLowerCase().startsWith('ss://'))
-			return parseShadowsocksURL(raw);
+			return checkedResult(parseShadowsocksURL(raw));
 		const link = splitLink(raw);
 		const extended = parseExtended(link);
 		if (extended)
-			return extended;
+			return checkedResult(extended);
 		if (link.scheme == 'vless')
-			return parseVless(link);
+			return checkedResult(parseVless(link));
 		if (link.scheme == 'hysteria2' || link.scheme == 'hy2')
-			return parseHysteria2(link);
+			return checkedResult(parseHysteria2(link));
 		if (link.scheme == 'trojan')
-			return parseTrojan(link);
+			return checkedResult(parseTrojan(link));
 		fail('UNSUPPORTED_SCHEME', link.scheme);
 	}
 });

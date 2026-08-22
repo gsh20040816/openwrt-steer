@@ -25,6 +25,23 @@ func TestValidateRepresentativeIntent(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsHTTPSubscriptionURL(t *testing.T) {
+	intent := validIntent()
+	intent.Subscriptions = []Subscription{{ID: "feed", Enabled: true, URL: "http://192.168.1.2/subscription"}}
+	if validation := Validate(intent); !validation.OK {
+		t.Fatalf("ordinary HTTP subscription URL was rejected: %#v", validation.Errors)
+	}
+}
+
+func TestValidateNodeRejectsControlCharacters(t *testing.T) {
+	node := validIntent().Nodes[0]
+	node.Name = "bad\nname"
+	validation := ValidateNode(node)
+	if validation.OK || !hasIssue(validation, "CONTROL_CHARACTER") {
+		t.Fatalf("node control character was accepted: %#v", validation.Errors)
+	}
+}
+
 func TestValidateRequiresEveryHTTPSProbe(t *testing.T) {
 	intent := validIntent()
 	intent.Main.ProbeDirectURL = ""

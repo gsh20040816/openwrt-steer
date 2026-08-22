@@ -8,7 +8,21 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
+
+func ValidateNode(value Node) Validation {
+	validation := Validation{Errors: []Issue{}, Warnings: []Issue{}}
+	err := func(code, objectType, objectID, option, message string) {
+		validation.Errors = append(validation.Errors, Issue{Code: code, ObjectType: objectType, ObjectID: objectID, Option: option, Message: message})
+	}
+	warn := func(code, objectType, objectID, option, message string) {
+		validation.Warnings = append(validation.Warnings, Issue{Code: code, ObjectType: objectType, ObjectID: objectID, Option: option, Message: message})
+	}
+	validateNode(value, err, warn)
+	validation.OK = len(validation.Errors) == 0
+	return validation
+}
 
 var (
 	validID       = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
@@ -231,8 +245,8 @@ func validateRouteDetourCycles(routes map[string]Route, ordered []Route, err iss
 
 func validateSubscription(value Subscription, err issueFn) {
 	parsed, parseErr := url.Parse(value.URL)
-	if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
-		err("INVALID_SUBSCRIPTION_URL", "subscription", value.ID, "url", "subscription URL must be public HTTPS without credentials or fragment")
+	if parseErr != nil || (!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) || parsed.Host == "" {
+		err("INVALID_SUBSCRIPTION_URL", "subscription", value.ID, "url", "subscription URL must be an absolute HTTP or HTTPS URL")
 	}
 	if value.UpdateInterval != "" && !validDuration.MatchString(value.UpdateInterval) {
 		err("INVALID_UPDATE_INTERVAL", "subscription", value.ID, "update_interval", "update interval must be a positive duration such as 6h")
@@ -255,6 +269,7 @@ func validateBootstrap(value Bootstrap, err issueFn) {
 }
 
 func validateNode(value Node, err, warn issueFn) {
+	validateNodeText(value, err)
 	if value.PinnedStale {
 		warn("SUBSCRIPTION_NODE_STALE", "node", value.ID, "pinned_stale", "subscription no longer advertises this node; remove it explicitly when confirmed")
 	}
@@ -410,6 +425,39 @@ func validateNode(value Node, err, warn issueFn) {
 	}
 	if value.Insecure {
 		warn("INSECURE_TLS", "node", value.ID, "insecure", "TLS certificate verification is disabled")
+	}
+}
+
+func validateNodeText(value Node, err issueFn) {
+	type field struct {
+		option string
+		value  string
+	}
+	fields := []field{
+		{"id", value.ID}, {"name", value.Name}, {"type", value.Type}, {"server", value.Server},
+		{"uuid", value.UUID}, {"username", value.Username}, {"password", value.Password}, {"private_key", value.PrivateKey}, {"host_key", value.HostKey},
+		{"network", value.Network}, {"transport", value.Transport}, {"transport_path", value.TransportPath}, {"transport_host", value.TransportHost},
+		{"service_name", value.ServiceName}, {"packet_encoding", value.PacketEncoding}, {"flow", value.Flow},
+		{"security", value.Security}, {"method", value.Method}, {"plugin", value.Plugin}, {"plugin_options", value.PluginOptions},
+		{"congestion_control", value.CongestionControl}, {"udp_relay_mode", value.UDPRelayMode}, {"heartbeat", value.Heartbeat},
+		{"quic_congestion_control", value.QUICCongestionControl}, {"hop_interval", value.HopInterval}, {"obfs_type", value.ObfsType},
+		{"obfs_password", value.ObfsPassword}, {"executable_path", value.ExecutablePath}, {"data_directory", value.DataDirectory},
+		{"tls_server_name", value.TLSServerName}, {"reality_public_key", value.RealityPublicKey}, {"reality_short_id", value.RealityShortID},
+		{"utls_fingerprint", value.UTLSFingerprint}, {"source_subscription", value.SourceSubscription}, {"source_fingerprint", value.SourceFingerprint},
+	}
+	for _, item := range value.HostKeyAlgorithms {
+		fields = append(fields, field{"host_key_algorithms", item})
+	}
+	for _, item := range value.ServerPorts {
+		fields = append(fields, field{"server_ports", item})
+	}
+	for _, item := range value.ExtraArgs {
+		fields = append(fields, field{"extra_args", item})
+	}
+	for _, item := range fields {
+		if strings.IndexFunc(item.value, unicode.IsControl) >= 0 {
+			err("CONTROL_CHARACTER", "node", value.ID, item.option, "node text fields cannot contain control characters")
+		}
 	}
 }
 

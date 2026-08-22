@@ -10,7 +10,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - Direct、Block、单节点逻辑路由；单节点路由可选择另一条单节点路由作为前置代理，任意深度但不得成环。
 - SOCKS、HTTP、Shadowsocks、VMess、VLESS、Trojan、Hysteria、ShadowTLS、TUIC、Hysteria2、AnyTLS、SSH、NaiveProxy 和本机 Tor 节点。
 - UDP、TCP、DoT、DoH、DoQ、DoH3 DNS Profile；每个实际使用的 `(DNS Profile, Route)` 拥有独立传输路径。
-- HTTPS 节点订阅、稳定节点 ID、过期节点显式清理。
+- HTTP(S) 节点订阅、稳定节点 ID、过期节点显式清理。
 - 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
 - OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、最小 DNS/MAC nftables 辅助层。
 

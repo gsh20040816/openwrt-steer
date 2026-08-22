@@ -141,7 +141,11 @@ function renderSubscriptionStatus(result) {
 								ui.addNotification(_('Subscription update failed'), E('p', {}, update?.error || _('Unknown error')), 'danger');
 								return update;
 							}
-							ui.addNotification(null, E('p', {}, _('Subscription updated.')), 'info');
+							const skipped = (update.snapshots || []).reduce((count, snapshot) => count + (snapshot.skipped || 0), 0);
+							const message = skipped
+								? _('Subscription updated; %d invalid nodes skipped.').format(skipped)
+								: _('Subscription updated.');
+							ui.addNotification(null, E('p', {}, message), skipped ? 'warning' : 'info');
 							window.location.reload();
 							return update;
 						});

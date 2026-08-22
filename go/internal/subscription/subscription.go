@@ -19,56 +19,70 @@ import (
 	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
 )
 
-func ParseList(raw string) ([]model.Node, error) {
+type ParseResult struct {
+	Nodes   []model.Node
+	Skipped int
+}
+
+func ParseList(raw string) (ParseResult, error) {
+	result := ParseResult{Nodes: []model.Node{}}
 	text := strings.TrimSpace(raw)
 	if text == "" {
-		return nil, fmt.Errorf("subscription is empty")
+		return result, nil
 	}
 	if !strings.Contains(text, "://") {
 		decoded, err := decodeBase64(text)
-		if err != nil {
-			return nil, fmt.Errorf("subscription is neither URI text nor valid Base64: %w", err)
-		}
-		text = strings.TrimSpace(decoded)
-		if strings.HasPrefix(text, "{") {
-			node, err := parseVMessPayload(text)
-			if err != nil {
-				return nil, err
+		if err == nil {
+			text = strings.TrimSpace(decoded)
+			if strings.HasPrefix(text, "{") {
+				node, parseErr := parseVMessPayload(text)
+				appendParsedNode(&result, node, parseErr)
+				return result, nil
 			}
-			return []model.Node{node}, nil
 		}
 	}
-	var nodes []model.Node
-	for lineNumber, line := range strings.Split(text, "\n") {
+	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		node, err := ParseURI(line)
-		if err != nil {
-			return nil, fmt.Errorf("subscription line %d: %w", lineNumber+1, err)
+		appendParsedNode(&result, node, err)
+	}
+	return result, nil
+}
+
+func appendParsedNode(result *ParseResult, node model.Node, err error) {
+	if err == nil {
+		validation := model.ValidateNode(node)
+		if !validation.OK {
+			err = fmt.Errorf("invalid node")
 		}
-		nodes = append(nodes, node)
 	}
-	if len(nodes) == 0 {
-		return nil, fmt.Errorf("subscription contains no node URI")
+	if err != nil {
+		result.Skipped++
+		return
 	}
-	return nodes, nil
+	result.Nodes = append(result.Nodes, node)
 }
 
 func ParseURI(raw string) (model.Node, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" {
 		return model.Node{}, fmt.Errorf("invalid node URI")
 	}
 	scheme := strings.ToLower(u.Scheme)
 	if scheme == "vmess" {
-		return parseVMess(u)
+		return parseVMess(raw)
 	}
 	if scheme == "ss" {
-		return parseShadowsocks(u)
+		return parseShadowsocks(raw, u)
 	}
-	if scheme == "socks" || scheme == "socks5" || scheme == "http" || scheme == "https" {
+	if scheme == "socks5" {
+		return parseCredentialProxy(u, "socks")
+	}
+	if scheme == "socks" || scheme == "http" || scheme == "https" {
 		return parseCredentialProxy(u, scheme)
 	}
 	if scheme == "vless" || scheme == "trojan" || scheme == "hysteria" || scheme == "hysteria2" || scheme == "hy2" || scheme == "shadowtls" || scheme == "tuic" || scheme == "anytls" || scheme == "naive+https" || scheme == "ssh" {
@@ -238,53 +252,88 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 	return node, nil
 }
 
-func parseShadowsocks(u *url.URL) (model.Node, error) {
+func parseShadowsocks(raw string, u *url.URL) (model.Node, error) {
 	if err := rejectUnknown(u.Query(), map[string]bool{"plugin": true, "plugin-opts": true}); err != nil {
 		return model.Node{}, err
 	}
-	if u.Hostname() == "" && u.Opaque == "" {
-		return model.Node{}, fmt.Errorf("ss URI has no server")
+	if err := validateQueryValues(u.Query()); err != nil {
+		return model.Node{}, err
 	}
-	payload := strings.TrimPrefix(u.Host, "//")
-	if u.User != nil {
-		encoded := u.User.Username()
-		decoded, err := decodeBase64(encoded)
-		if err != nil {
-			return model.Node{}, fmt.Errorf("invalid Shadowsocks credential: %w", err)
-		}
-		payload = decoded + "@" + u.Host
+	plugin, pluginOptions, err := shadowsocksPlugin(u.Query())
+	if err != nil {
+		return model.Node{}, err
 	}
-	if u.User == nil {
-		if at := strings.LastIndex(payload, "@"); at >= 0 {
-			decoded, err := decodeBase64(payload[:at])
+	var credential, server string
+	serverPort := 443
+	if u.User != nil && u.Hostname() != "" {
+		server, serverPort = u.Hostname(), port(u, 443)
+		if password, plaintext := u.User.Password(); plaintext {
+			credential = u.User.Username() + ":" + password
+		} else {
+			credential, err = decodeBase64(u.User.Username())
 			if err != nil {
 				return model.Node{}, fmt.Errorf("invalid Shadowsocks credential: %w", err)
 			}
-			payload = decoded + "@" + payload[at+1:]
-		} else {
-			decoded, err := decodeBase64(payload)
-			if err == nil {
-				payload = decoded
-			}
 		}
+	} else {
+		payload, decodeErr := decodeBase64(opaquePayload(raw))
+		if decodeErr != nil {
+			return model.Node{}, fmt.Errorf("invalid legacy Shadowsocks payload: %w", decodeErr)
+		}
+		at := strings.LastIndex(payload, "@")
+		if at < 0 {
+			return model.Node{}, fmt.Errorf("ss URI must contain method/password and server")
+		}
+		credential = payload[:at]
+		serverURL, parseErr := url.Parse("ss://" + payload[at+1:])
+		if parseErr != nil || serverURL.Hostname() == "" {
+			return model.Node{}, fmt.Errorf("invalid Shadowsocks server")
+		}
+		server, serverPort = serverURL.Hostname(), port(serverURL, 443)
 	}
-	parts := strings.SplitN(payload, "@", 2)
-	if len(parts) != 2 {
-		return model.Node{}, fmt.Errorf("ss URI must contain method/password and server")
-	}
-	methodPassword := strings.SplitN(parts[0], ":", 2)
+	methodPassword := strings.SplitN(credential, ":", 2)
 	if len(methodPassword) != 2 {
 		return model.Node{}, fmt.Errorf("ss URI credential must be method:password")
 	}
-	serverURL, err := url.Parse("ss://" + parts[1])
-	if err != nil || serverURL.Hostname() == "" {
-		return model.Node{}, fmt.Errorf("invalid Shadowsocks server")
+	if methodPassword[0] == "" || methodPassword[1] == "" {
+		return model.Node{}, fmt.Errorf("ss URI method and password must be non-empty")
 	}
-	return model.Node{Enabled: true, Type: "shadowsocks", Name: u.Fragment, Server: serverURL.Hostname(), ServerPort: port(serverURL, 443), NodeCredentials: model.NodeCredentials{Password: methodPassword[1]}, NodeProtocol: model.NodeProtocol{Method: methodPassword[0], Plugin: u.Query().Get("plugin"), PluginOptions: u.Query().Get("plugin-opts")}}, nil
+	return model.Node{Enabled: true, Type: "shadowsocks", Name: u.Fragment, Server: server, ServerPort: serverPort, NodeCredentials: model.NodeCredentials{Password: methodPassword[1]}, NodeProtocol: model.NodeProtocol{Method: methodPassword[0], Plugin: plugin, PluginOptions: pluginOptions}}, nil
 }
 
-func parseVMess(u *url.URL) (model.Node, error) {
-	decoded, err := decodeBase64(strings.TrimPrefix(u.Host, "//"))
+func shadowsocksPlugin(query url.Values) (string, string, error) {
+	plugin := query.Get("plugin")
+	options := ""
+	if separator := strings.IndexByte(plugin, ';'); separator >= 0 {
+		plugin, options = plugin[:separator], plugin[separator+1:]
+	}
+	legacyOptions := query.Get("plugin-opts")
+	if options != "" && legacyOptions != "" && options != legacyOptions {
+		return "", "", fmt.Errorf("conflicting Shadowsocks plugin options")
+	}
+	if options == "" {
+		options = legacyOptions
+	}
+	if plugin == "" && options != "" {
+		return "", "", fmt.Errorf("Shadowsocks plugin options require a plugin")
+	}
+	return plugin, options, nil
+}
+
+func opaquePayload(raw string) string {
+	separator := strings.IndexByte(raw, ':')
+	if separator < 0 {
+		return ""
+	}
+	payload := strings.TrimPrefix(raw[separator+1:], "//")
+	if end := strings.IndexAny(payload, "?#"); end >= 0 {
+		payload = payload[:end]
+	}
+	return payload
+}
+
+func parseVMess(raw string) (model.Node, error) {
+	decoded, err := decodeBase64(opaquePayload(raw))
 	if err != nil {
 		return model.Node{}, fmt.Errorf("invalid VMess Base64 payload: %w", err)
 	}

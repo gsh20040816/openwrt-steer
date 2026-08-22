@@ -5,17 +5,22 @@ package subscription
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 )
 
 func TestParseStandardURIs(t *testing.T) {
-	nodes, err := ParseList("vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy\n" +
+	result, err := ParseList("vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy\n" +
 		"ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#ss")
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodes := result.Nodes
 	if len(nodes) != 2 || nodes[0].Type != "vless" || nodes[0].Transport != "ws" || nodes[1].Type != "shadowsocks" {
 		t.Fatalf("unexpected parsed nodes: %#v", nodes)
+	}
+	if result.Skipped != 0 {
+		t.Fatalf("valid nodes were skipped: %#v", result)
 	}
 	if Fingerprint(nodes[0]) != Fingerprint(nodes[0]) {
 		t.Fatal("fingerprint is not stable")
@@ -25,10 +30,11 @@ func TestParseStandardURIs(t *testing.T) {
 func TestParseBase64VMess(t *testing.T) {
 	raw := `{"v":"2","ps":"fixture","add":"vmess.example.com","port":"443","id":"00000000-0000-4000-8000-000000000001","aid":"0","scy":"auto","net":"ws","tls":"tls","sni":"edge.example.com","host":"edge.example.com","path":"/ws","type":"none"}`
 	encoded := base64.StdEncoding.EncodeToString([]byte(raw))
-	nodes, err := ParseList(encoded)
+	result, err := ParseList(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodes := result.Nodes
 	if len(nodes) != 1 || nodes[0].Type != "vmess" || nodes[0].Transport != "ws" || nodes[0].Network != "" {
 		t.Fatalf("unexpected VMess node: %#v", nodes)
 	}
@@ -54,19 +60,90 @@ func TestRejectInvalidAndConflictingParameters(t *testing.T) {
 }
 
 func TestParsePassWallCompatibleAliases(t *testing.T) {
-	nodes, err := ParseList(
+	result, err := ParseList(
 		"trojan://secret@example.com:443?type=tcp&sni=edge.example&peer=edge.example&allowInsecure=1#trojan\n" +
 			"anytls://secret@example.com:443?type=tcp&sni=edge.example&insecure=1#anytls\n" +
-			"hysteria://secret@example.com:443?peer=edge.example&allowInsecure=1#hysteria\n")
+			"hysteria://secret@example.com:443?peer=edge.example&allowInsecure=1&upmbps=100&downmbps=100#hysteria\n")
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodes := result.Nodes
 	if len(nodes) != 3 {
 		t.Fatalf("unexpected compatible node count: %d", len(nodes))
 	}
 	for _, node := range nodes {
 		if node.TLSServerName != "edge.example" || !node.Insecure {
 			t.Fatalf("compatibility aliases were not lowered explicitly: %#v", node)
+		}
+	}
+}
+
+func TestParseListSkipsOnlyInvalidNodes(t *testing.T) {
+	result, err := ParseList("not-a-node\n" +
+		"socks5://user:password@example.com:1080#SOCKS\n" +
+		"trojan://secret@example.com:443?sni=edge.example#bad%0Aname\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Skipped != 2 || len(result.Nodes) != 1 || result.Nodes[0].Type != "socks" {
+		t.Fatalf("unexpected lenient parse result: %#v", result)
+	}
+}
+
+func TestParseListAllowsAllNodesToBeSkipped(t *testing.T) {
+	result, err := ParseList("not-a-node\nstill-not-a-node\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Skipped != 2 || len(result.Nodes) != 0 {
+		t.Fatalf("all-invalid subscription did not become an empty result: %#v", result)
+	}
+}
+
+func TestParseOpaqueBase64PayloadsContainingSlash(t *testing.T) {
+	vmessJSON := `{"v":"2","ps":"࠿","add":"vmess.example.com","port":"443","id":"00000000-0000-4000-8000-000000000001","aid":"0","scy":"auto","net":"tcp","tls":"none","type":"none"}`
+	vmessPayload := base64.StdEncoding.EncodeToString([]byte(vmessJSON))
+	if !strings.Contains(vmessPayload, "/") {
+		t.Fatal("VMess fixture does not exercise a slash in standard Base64")
+	}
+	vmess, err := ParseURI("vmess://" + vmessPayload)
+	if err != nil || vmess.Name != "࠿" {
+		t.Fatalf("VMess slash payload: node=%#v err=%v", vmess, err)
+	}
+
+	ssPayload := base64.StdEncoding.EncodeToString([]byte("2022-blake3-aes-128-gcm:࠿@example.com:8388"))
+	if !strings.Contains(ssPayload, "/") {
+		t.Fatal("Shadowsocks fixture does not exercise a slash in standard Base64")
+	}
+	shadowsocks, err := ParseURI("ss://" + ssPayload + "#SS2022")
+	if err != nil || shadowsocks.Method != "2022-blake3-aes-128-gcm" || shadowsocks.Password != "࠿" {
+		t.Fatalf("Shadowsocks slash payload: node=%#v err=%v", shadowsocks, err)
+	}
+}
+
+func TestParseCompleteSIP002Forms(t *testing.T) {
+	for name, raw := range map[string]string{
+		"plaintext 2022":     "ss://2022-blake3-aes-128-gcm:password@example.com:8388#SS2022",
+		"plaintext escaped":  "ss://2022-blake3-aes-128-gcm:p%40ss%3Aword%2Fkey@example.com:8388",
+		"encoded userinfo":   "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388",
+		"legacy password at": "ss://" + base64.StdEncoding.EncodeToString([]byte("aes-256-gcm:p@ssword@example.com:8388")),
+		"standard plugin":    "ss://aes-256-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dexample.com",
+	} {
+		node, err := ParseURI(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if node.Type != "shadowsocks" || node.Server != "example.com" || node.ServerPort != 8388 {
+			t.Fatalf("%s: unexpected node %#v", name, node)
+		}
+		if name == "legacy password at" && node.Password != "p@ssword" {
+			t.Fatalf("legacy @ password was truncated: %#v", node)
+		}
+		if name == "plaintext escaped" && node.Password != "p@ss:word/key" {
+			t.Fatalf("escaped plaintext password was truncated: %#v", node)
+		}
+		if name == "standard plugin" && (node.Plugin != "obfs-local" || node.PluginOptions != "obfs=http;obfs-host=example.com") {
+			t.Fatalf("standard plugin was not split: %#v", node)
 		}
 	}
 }

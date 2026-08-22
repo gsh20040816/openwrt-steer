@@ -13,7 +13,7 @@
 - 单节点路由前置链：目标必须存在、启用且同为 single，悬空、禁用、类型错误、自环和间接环全部拒绝；
 - 确定性 sing-box 最终配置编译，包括 Route 私有出站、DNS 路径、Geo 引用和能力需求；
 - 同步 Apply 生命周期 `Prepare → Activate → Healthy → Finalize` 与 `Disable`；
-- HTTPS 订阅的抓取、解析、合并、稳定 ID、stale pin 和窄持久化接口；
+- HTTP(S) 订阅的抓取、解析、合并、稳定 ID、stale pin 和窄持久化接口；
 - HTTP/TLS 测量、连接测试和完整下载报告格式。
 
 共享核心不认识 UCI、procd、launchd、systemd、nftables、pf、路由表号或平台目录。`status` 的公共语义只有 `healthy` 和 `last_apply`；配置合法性由独立 `validate` 返回。

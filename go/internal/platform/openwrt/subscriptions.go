@@ -27,6 +27,7 @@ type SubscriptionStatus struct {
 	UpdateInterval string    `json:"update_interval,omitempty"`
 	FetchedAt      time.Time `json:"fetched_at,omitempty"`
 	NodeCount      int       `json:"node_count"`
+	Skipped        int       `json:"skipped"`
 	StaleNodeIDs   []string  `json:"stale_node_ids,omitempty"`
 	Error          string    `json:"error,omitempty"`
 }
@@ -52,7 +53,7 @@ func ReadSubscriptionStatus(configPath, stateDirectory string) ([]SubscriptionSt
 		if readErr != nil {
 			status.Error = "not fetched: " + readErr.Error()
 		} else {
-			status.FetchedAt, status.NodeCount = snapshot.FetchedAt, len(snapshot.Nodes)
+			status.FetchedAt, status.NodeCount, status.Skipped = snapshot.FetchedAt, len(snapshot.Nodes), snapshot.Skipped
 			for _, node := range snapshot.Nodes {
 				if node.PinnedStale {
 					status.StaleNodeIDs = append(status.StaleNodeIDs, node.ID)
@@ -104,10 +105,16 @@ func (store *UCIStore) Commit(ctx context.Context) error {
 func SystemUCIWriter(configPath string) UCIWriter {
 	configDirectory := filepath.Dir(configPath)
 	return func(ctx context.Context, batch string) error {
-		command := exec.CommandContext(ctx, "/sbin/uci", "-c", configDirectory, "batch")
+		commandCtx, cancel := withCommandTimeout(ctx, defaultCommandTimeout)
+		defer cancel()
+		command := exec.CommandContext(commandCtx, "/sbin/uci", "-c", configDirectory, "batch")
+		command.WaitDelay = commandWaitDelay
 		command.Stdin = strings.NewReader(batch)
 		output, err := command.CombinedOutput()
 		if err != nil {
+			if commandCtx.Err() != nil {
+				err = commandCtx.Err()
+			}
 			return fmt.Errorf("uci batch: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 		if detail := strings.TrimSpace(string(output)); detail != "" {
@@ -146,7 +153,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 				continue
 			}
 		}
-		fresh, err := subscription.Fetch(ctx, client, configured)
+		fetched, err := subscription.Fetch(ctx, client, configured)
 		if err != nil {
 			return nil, fmt.Errorf("update subscription %s: %w", configured.ID, err)
 		}
@@ -159,7 +166,10 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 				old = append(old, node)
 			}
 		}
-		merged := subscription.Merge(configured.ID, old, fresh)
+		merged := []model.Node{}
+		if len(fetched.Nodes) > 0 {
+			merged = subscription.Merge(configured.ID, old, fetched.Nodes)
+		}
 		for _, node := range merged {
 			if !uci.IsIdentifier(node.ID) {
 				return nil, fmt.Errorf("subscription node %q has an unsafe UCI section ID", node.ID)
@@ -168,7 +178,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		existingNodes := intent.Nodes
 		intent.Nodes = subscription.Replace(existingNodes, configured.ID, merged)
 		changes = append(changes, subscription.Change{SubscriptionID: configured.ID, Existing: existingNodes, Replacement: merged})
-		snapshot := SubscriptionSnapshot{SubscriptionID: configured.ID, URL: configured.URL, FetchedAt: time.Now().UTC(), Nodes: merged}
+		snapshot := SubscriptionSnapshot{SubscriptionID: configured.ID, URL: configured.URL, FetchedAt: time.Now().UTC(), Nodes: merged, Skipped: fetched.Skipped}
 		result = append(result, snapshot)
 	}
 	if id != "" && len(result) == 0 {

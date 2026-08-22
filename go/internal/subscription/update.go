@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 
 	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
@@ -41,36 +42,37 @@ type Snapshot struct {
 	URL            string       `json:"url"`
 	FetchedAt      time.Time    `json:"fetched_at"`
 	Nodes          []model.Node `json:"nodes"`
+	Skipped        int          `json:"skipped"`
 }
 
 const maxSubscriptionBytes = 16 << 20
 
-func Fetch(ctx context.Context, client *http.Client, configured model.Subscription) ([]model.Node, error) {
+func Fetch(ctx context.Context, client *http.Client, configured model.Subscription) (ParseResult, error) {
 	parsedURL, parseErr := url.Parse(configured.URL)
-	if parseErr != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.Fragment != "" {
-		return nil, fmt.Errorf("subscription URL must be public HTTPS without credentials or fragment")
+	if parseErr != nil || (!strings.EqualFold(parsedURL.Scheme, "http") && !strings.EqualFold(parsedURL.Scheme, "https")) || parsedURL.Host == "" {
+		return ParseResult{}, fmt.Errorf("subscription URL must be an absolute HTTP or HTTPS URL")
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, configured.URL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create subscription request: %w", err)
+		return ParseResult{}, fmt.Errorf("create subscription request: %w", err)
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("download subscription: %w", err)
+		return ParseResult{}, fmt.Errorf("download subscription: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("subscription returned HTTP %d", response.StatusCode)
+		return ParseResult{}, fmt.Errorf("subscription returned HTTP %d", response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxSubscriptionBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read subscription: %w", err)
+		return ParseResult{}, fmt.Errorf("read subscription: %w", err)
 	}
 	if len(body) > maxSubscriptionBytes {
-		return nil, fmt.Errorf("subscription exceeds the 16 MiB size limit")
+		return ParseResult{}, fmt.Errorf("subscription exceeds the 16 MiB size limit")
 	}
 	return ParseList(string(body))
 }

@@ -69,6 +69,20 @@ expect(result.node.utls_fingerprint == 'chrome', 'Trojan fingerprint');
 result = parser.parse('ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#Shadowsocks');
 expect(result.node.type == 'shadowsocks' && result.node.method == 'aes-256-gcm', 'Shadowsocks parser');
 
+result = parser.parse('ss://2022-blake3-aes-128-gcm:p%40ss%3Aword@example.com:8388#SS2022');
+expect(result.node.method == '2022-blake3-aes-128-gcm' && result.node.password == 'p@ss:word',
+	'Shadowsocks plaintext SIP002 credentials');
+
+result = parser.parse('ss://aes-256-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dexample.com#Plugin');
+expect(result.node.plugin == 'obfs-local' && result.node.plugin_options == 'obfs=http;obfs-host=example.com',
+	'Shadowsocks SIP002 plugin');
+
+const legacyShadowsocks = Buffer.from('2022-blake3-aes-128-gcm:࠿@example.com:8388').toString('base64');
+expect(legacyShadowsocks.includes('/'), 'Shadowsocks legacy fixture includes a Base64 slash');
+result = parser.parse('ss://' + legacyShadowsocks);
+expect(result.node.method == '2022-blake3-aes-128-gcm' && result.node.password == '࠿',
+	'Shadowsocks whole-Base64 payload with slash');
+
 result = parser.parse('tuic://00000000-0000-4000-8000-000000000001:password@example.com:443?sni=edge.example.com');
 expect(result.node.type == 'tuic' && result.node.uuid.startsWith('00000000-'), 'TUIC parser');
 
@@ -86,5 +100,12 @@ expectError('PARAMETER_REQUIRES_OBFS', 'hy2://password@example.com:443?sni=examp
 expectError('INVALID_PORT', 'hy2://password@example.com:443?sni=example.com&mport=12010-12000');
 expectError('CONFLICTING_PARAMETER', 'hy2://password@example.com:443,12000-12010?sni=example.com&mport=13000-13010');
 expectError('INVALID_VLESS_UUID', 'vless://not-a-uuid@example.com:443?security=tls&sni=example.com');
+expectError('CONTROL_CHARACTER', 'trojan://password@example.com:443?sni=example.com#bad%0Aname');
+
+const controlVMess = Buffer.from(JSON.stringify({
+	v: '2', ps: 'bad\nname', add: 'example.com', port: '443',
+	id: '00000000-0000-4000-8000-000000000001', aid: '0', scy: 'auto', net: 'tcp', tls: 'none'
+})).toString('base64');
+expectError('CONTROL_CHARACTER', 'vmess://' + controlVMess);
 
 console.log('share URL parser tests passed');

@@ -9,20 +9,42 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Runner interface {
 	Output(context.Context, string, ...string) ([]byte, error)
 }
 
-type ExecRunner struct{}
+const (
+	defaultCommandTimeout = 2 * time.Minute
+	commandWaitDelay      = 5 * time.Second
+)
 
-func (ExecRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
-	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+type ExecRunner struct {
+	Timeout time.Duration
+}
+
+func (runner ExecRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	commandCtx, cancel := withCommandTimeout(ctx, runner.Timeout)
+	defer cancel()
+	command := exec.CommandContext(commandCtx, name, args...)
+	command.WaitDelay = commandWaitDelay
+	output, err := command.CombinedOutput()
 	if err != nil {
+		if commandCtx.Err() != nil {
+			err = commandCtx.Err()
+		}
 		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return output, nil
+}
+
+func withCommandTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		timeout = defaultCommandTimeout
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func atomicWrite(path string, content []byte) error {

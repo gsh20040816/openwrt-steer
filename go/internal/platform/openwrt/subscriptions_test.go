@@ -177,14 +177,100 @@ func TestUpdateSubscriptionWritesUCIAndDoesNotApply(t *testing.T) {
 	}
 }
 
-func TestUpdateSubscriptionValidatesCandidateBeforeCommit(t *testing.T) {
+func TestUpdateSubscriptionSkipsInvalidCandidateNodes(t *testing.T) {
 	vmess := `{"v":"2","ps":"invalid","add":"vmess.example.com","port":"443","id":"00000000-0000-4000-8000-000000000001","aid":"0","scy":"auto","net":"kcp","tls":"none"}`
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-		_, _ = response.Write([]byte(base64.StdEncoding.EncodeToString([]byte(vmess))))
+		_, _ = response.Write([]byte("vmess://" + base64.StdEncoding.EncodeToString([]byte(vmess)) + "\n" +
+			"socks5://user:password@example.com:1080\n"))
 	}))
 	defer server.Close()
 	configPath := filepath.Join(t.TempDir(), "steer")
 	if err := os.WriteFile(configPath, []byte(validSubscriptionConfig(server.URL)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var batch string
+	result, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, t.TempDir(), "public", func(_ context.Context, value string) error {
+		batch = value
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].Skipped != 1 || len(result[0].Nodes) != 1 || result[0].Nodes[0].Type != "socks" {
+		t.Fatalf("invalid node was not skipped independently: %#v", result)
+	}
+	if !strings.Contains(batch, ".type='socks'") {
+		t.Fatalf("valid node was not committed: %s", batch)
+	}
+}
+
+func TestUpdateSubscriptionAllInvalidClearsExistingNodes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("not-a-node\nstill-not-a-node\n"))
+	}))
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "steer")
+	config := strings.Replace(validSubscriptionConfig(server.URL), "config route 'block'", `config node 'public_old'
+	option enabled '1'
+	option type 'socks'
+	option server '192.0.2.10'
+	option server_port '1080'
+	option source_subscription 'public'
+	option source_fingerprint 'fixture'
+
+config route 'block'`, 1)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var batch string
+	result, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, t.TempDir(), "public", func(_ context.Context, value string) error {
+		batch = value
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].Skipped != 2 || len(result[0].Nodes) != 0 {
+		t.Fatalf("all-invalid subscription did not commit an empty replacement: %#v", result)
+	}
+	if !strings.Contains(batch, "delete steer.public_old\n") || strings.Contains(batch, "pinned_stale") {
+		t.Fatalf("old nodes were not cleared: %s", batch)
+	}
+}
+
+func TestUpdateSubscriptionSkipsControlCharactersBeforeUCI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("trojan://secret@example.com:443?sni=example.com#bad%0Aname\n" +
+			"socks://user:password@example.com:1080#safe\n"))
+	}))
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "steer")
+	if err := os.WriteFile(configPath, []byte(validSubscriptionConfig(server.URL)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var batch string
+	result, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, t.TempDir(), "public", func(_ context.Context, value string) error {
+		batch = value
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) != 1 || result[0].Skipped != 1 || strings.Contains(batch, "bad\nname") {
+		t.Fatalf("control-character node reached UCI: result=%#v batch=%q", result, batch)
+	}
+}
+
+func TestUpdateSubscriptionStillRejectsGlobalCandidateConflicts(t *testing.T) {
+	fresh := model.Node{Enabled: true, Type: "socks", Server: "example.com", ServerPort: 1080}
+	collisionID := subscription.Merge("public", nil, []model.Node{fresh})[0].ID
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("socks://example.com:1080\n"))
+	}))
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "steer")
+	config := strings.Replace(validSubscriptionConfig(server.URL), "config route 'block'", "config route '"+collisionID+"'\n\toption kind 'block'\n\nconfig route 'block'", 1)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	committed := false
@@ -193,7 +279,7 @@ func TestUpdateSubscriptionValidatesCandidateBeforeCommit(t *testing.T) {
 		return nil
 	})
 	if err == nil || committed || !strings.Contains(err.Error(), "invalid candidate") {
-		t.Fatalf("invalid subscription candidate reached UCI: committed=%v err=%v", committed, err)
+		t.Fatalf("global candidate conflict was not rejected atomically: committed=%v err=%v", committed, err)
 	}
 }
 

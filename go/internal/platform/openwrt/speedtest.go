@@ -131,6 +131,8 @@ func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath
 }
 
 func runTemporaryProbe(ctx context.Context, singBoxPath string, outbounds []any, finalTag, scope, objectID, kind, target string, download bool) (TestReport, error) {
+	ctx, cancel := withCommandTimeout(ctx, defaultCommandTimeout)
+	defer cancel()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return TestReport{}, fmt.Errorf("allocate test listener: %w", err)
@@ -157,7 +159,9 @@ func runTemporaryProbe(ctx context.Context, singBoxPath string, outbounds []any,
 	if err := os.WriteFile(configPath, append(encoded, '\n'), 0o600); err != nil {
 		return TestReport{}, fmt.Errorf("write test config: %w", err)
 	}
-	if output, err := exec.CommandContext(ctx, singBoxPath, "check", "-c", configPath).CombinedOutput(); err != nil {
+	check := exec.CommandContext(ctx, singBoxPath, "check", "-c", configPath)
+	check.WaitDelay = commandWaitDelay
+	if output, err := check.CombinedOutput(); err != nil {
 		return TestReport{}, fmt.Errorf("sing-box test config check failed: %w: %s", err, output)
 	}
 	process := exec.CommandContext(ctx, singBoxPath, "run", "-c", configPath)
