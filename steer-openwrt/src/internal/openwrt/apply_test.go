@@ -57,7 +57,7 @@ func TestApplyCommitsHealthyCandidateWithoutRunningConfiguredProbes(t *testing.T
 		response.WriteHeader(http.StatusBadGateway)
 	}))
 	defer server.Close()
-	config := strings.Replace(minimalConfig, "option log_level 'warn'", "option log_level 'warn'\n\tlist probe_direct '"+server.URL+"'", 1)
+	config := strings.Replace(minimalConfig, "option probe_direct 'https://www.baidu.com/'", "option probe_direct '"+server.URL+"'", 1)
 	configPath, runDirectory := writeApplyFixture(t, root, config, nil)
 	runner := &applyRunner{}
 	result, err := Apply(context.Background(), runner, ApplyOptions{
@@ -169,7 +169,7 @@ func TestProbeCurrentReportsFailuresWithoutApplying(t *testing.T) {
 	if err := os.MkdirAll(current, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	plan := fmt.Sprintf(`{"probe_direct":[%q],"probe_proxy":[%q]}`, server.URL, server.URL)
+	plan := fmt.Sprintf(`{"probe_direct":%q,"probe_proxy":%q}`, server.URL, server.URL)
 	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(plan), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestProbeCurrentRejectsEmptyDiagnosticPlan(t *testing.T) {
 	if err := os.MkdirAll(current, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(`{"probe_direct":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(current, "plan.json"), []byte(`{"probe_direct":""}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ProbeCurrent(context.Background(), runDirectory, "direct", nil); err == nil {

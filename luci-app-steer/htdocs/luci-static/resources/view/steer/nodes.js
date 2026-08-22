@@ -70,6 +70,21 @@ function nodeReferenceLabel(references, nodeId) {
 	return reference ? reference.label : _('Missing node');
 }
 
+function collectRouteReferences(routes) {
+	const references = routes.filter((route) => route.kind == 'single').map((route) => ({
+		id: route['.name'],
+		label: route.name || route['.name']
+	}));
+	const known = Object.fromEntries(references.map((reference) => [ reference.id, true ]));
+	routes.forEach((route) => {
+		if (route.detour && !known[route.detour]) {
+			known[route.detour] = true;
+			references.push({ id: route.detour, label: _('Missing: %s').format(route.detour) });
+		}
+	});
+	return references;
+}
+
 function protocolLabel(value) {
 	const labels = {
 		socks: 'SOCKS',
@@ -242,7 +257,7 @@ function setSpeedtestButton(button, state, label, detail) {
 
 function speedtestResult(report, download) {
 	const results = report?.results || [];
-	const successful = results.filter((result) => !result.error);
+	const successful = results.filter((result) => result.ok === true);
 	if (!successful.length)
 		return { ok: false, label: _('Failed'), detail: report?.error || results.map((result) => result.error).filter(Boolean).join('\n') || _('No speed-test result was returned.') };
 
@@ -255,26 +270,48 @@ function speedtestResult(report, download) {
 		return {
 			ok: true,
 			label: _('%s Mbps').format(measured[0].mbps.toFixed(1)),
-			detail: measured.map((item) => '%s: %s Mbps'.format(item.result.url, item.mbps.toFixed(1))).join('\n')
+			detail: measured.map((item) => '%s: %s Mbps · %s'.format(
+				item.result.url,
+				item.mbps.toFixed(1),
+				_('%s bytes in %s ms · HTTP %s').format(item.result.downloaded_bytes, item.result.download_milliseconds, item.result.status)
+			)).join('\n')
 		};
 	}
 
 	const measured = successful.map((result) => ({
 		result,
-		milliseconds: result.first_byte_milliseconds || result.tls_milliseconds || result.connect_milliseconds
-	})).filter((item) => item.milliseconds > 0).sort((left, right) => left.milliseconds - right.milliseconds);
+		milliseconds: result.first_byte_milliseconds ?? result.tls_milliseconds ?? result.connect_milliseconds ?? 0
+	})).sort((left, right) => left.milliseconds - right.milliseconds);
 	if (!measured.length)
 		return { ok: false, label: _('Failed'), detail: _('No connection latency was returned.') };
 	return {
 		ok: true,
 		label: _('%d ms').format(measured[0].milliseconds),
-		detail: measured.map((item) => '%s: %d ms'.format(item.result.url, item.milliseconds)).join('\n')
+		detail: measured.map((item) => '%s: %s'.format(item.result.url,
+			_('Connect %s ms · TLS %s ms · HTTP %s · %s attempt(s)').format(
+				item.result.connect_milliseconds || 0,
+				item.result.tls_milliseconds || 0,
+				item.result.status,
+				item.result.attempts
+			))).join('\n')
 	};
 }
 
 function runSpeedtest(sectionId, download, button) {
 	setSpeedtestButton(button, 'testing', _('Testing…'));
 	return steer.speedtest(sectionId, download).then((report) => {
+		const result = speedtestResult(report, download);
+		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.label, result.detail);
+		return result.ok;
+	}).catch((error) => {
+		setSpeedtestButton(button, 'error', _('Failed'), String(error));
+		return false;
+	});
+}
+
+function runRouteSpeedtest(sectionId, download, button) {
+	setSpeedtestButton(button, 'testing', _('Testing…'));
+	return steer.routeSpeedtest(sectionId, download).then((report) => {
 		const result = speedtestResult(report, download);
 		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.label, result.detail);
 		return result.ok;
@@ -421,6 +458,7 @@ return view.extend({
 		const activeNodeGroup = selectedNodeGroup(nodeGroups);
 		const activeGroup = nodeGroups.find((group) => group.id == activeNodeGroup);
 		const nodeReferences = collectNodeReferences(nodes, routes, nodeGroups);
+		const routeReferences = collectRouteReferences(routes);
 		const enabledNodeIds = nodes.filter((node) => nodeGroupID(node) == activeNodeGroup && node.enabled != '0')
 			.map((node) => node['.name']);
 		const summaryOnly = activeNodeGroup != manualNodeGroup;
@@ -464,6 +502,38 @@ return view.extend({
 				return nodeReferenceLabel(nodeReferences, uci.get('steer', sectionId, 'node'));
 			};
 		}
+
+		if (routeReferences.length) {
+			o = s.option(form.RichListValue, 'detour', _('Detour route'));
+			o.depends('kind', 'single');
+			o.rmempty = true;
+			routeReferences.forEach((reference) => o.value(reference.id, reference.label));
+			o.textvalue = function(sectionId) {
+				const detour = uci.get('steer', sectionId, 'detour');
+				if (!detour)
+					return _('Direct connection');
+				return routeReferences.find((reference) => reference.id == detour)?.label || _('Missing route');
+			};
+			o.description = _('The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours.');
+		}
+
+		o = s.option(form.Button, '_route_connect_test', _('Chain connection test'));
+		o.depends({ kind: 'single', enabled: '1' });
+		o.editable = true;
+		o.inputtitle = _('Test');
+		o.inputstyle = 'action';
+		o.write = function() {};
+		o.remove = function() {};
+		o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, false, ev.currentTarget); };
+
+		o = s.option(form.Button, '_route_download_test', _('Chain download test'));
+		o.depends({ kind: 'single', enabled: '1' });
+		o.editable = true;
+		o.inputtitle = _('Test');
+		o.inputstyle = 'action';
+		o.write = function() {};
+		o.remove = function() {};
+		o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget); };
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
 		s.anonymous = true;

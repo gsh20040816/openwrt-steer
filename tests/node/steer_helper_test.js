@@ -63,9 +63,9 @@ function loadHelper(runtime) {
 						{ sequence: '10', result: { ok: true } }
 				}));
 			}
-			if (method == 'rollback') {
-				runtime.rollbackCalls++;
-				return Promise.resolve(runtime.rollbackResult);
+			if (method == 'overview_probe' || method == 'route_speedtest' || method == 'node_speedtest') {
+				runtime.testCalls.push({ method, args });
+				return Promise.resolve({ ok: true });
 			}
 			if (method == 'apply')
 				throw new Error('LuCI must not start a second Apply after UCI commit triggered procd');
@@ -104,8 +104,7 @@ async function main() {
 		applyResult: { ok: true, output: 'applied' },
 		statusCalls: 0,
 		commitCalls: 0,
-		rollbackCalls: 0,
-		rollbackResult: { ok: true },
+		testCalls: [],
 		sequence: [],
 		notifications: [],
 		currentStatusNode: {
@@ -171,15 +170,16 @@ async function main() {
 		validation: { ok: true, errors: [], warnings: [] },
 		rollback_available: true
 	});
-	assert.ok(textContent(rendered).includes('Restore previous configuration'),
-		'Status exposes the single-use rollback action when a backup exists');
-	helper.confirmRollback();
-	const actions = runtime.modalContent.at(-1).children;
-	const confirm = actions.find((child) => child?.attributes?.class?.includes('negative'));
-	await confirm.attributes.click();
-	assert.equal(runtime.rollbackCalls, 1, 'LuCI rollback invokes the single backend rollback command once');
-	assert.equal(runtime.reloaded, true, 'Successful rollback reloads the form from restored UCI');
-	assert.equal(runtime.notifications.at(-1).level, 'info');
+	assert.ok(!textContent(rendered).includes('Restore previous configuration'),
+		'Overview status no longer exposes rollback even when a backend backup exists');
+	await helper.overviewProbe('direct');
+	await helper.routeSpeedtest('route_a', true);
+	await helper.speedtest('node_a', false);
+	assert.deepEqual(runtime.testCalls, [
+		{ method: 'overview_probe', args: [ 'direct' ] },
+		{ method: 'route_speedtest', args: [ 'route_a', true ] },
+		{ method: 'node_speedtest', args: [ 'node_a', false ] }
+	], 'LuCI helper forwards every diagnostic argument unchanged');
 
 	console.log('Steer LuCI helper regression tests passed.');
 }

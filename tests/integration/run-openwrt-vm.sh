@@ -55,7 +55,7 @@ for attempt in 1 2 3 4 5; do
 	sleep 1
 done
 ubus -v list luci.steer > "$TEST_DIR/rpc-methods.txt"
-for method in geodata_catalog plan rollback status validate; do grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"; done
+for method in geodata_catalog node_speedtest overview_probe plan rollback route_speedtest status validate; do grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"; done
 
 ubus call luci.steer geodata_catalog > "$TEST_DIR/geodata-catalog.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/geodata-catalog.json" -e '@.geosite.ok')" = 'true' ]
@@ -77,6 +77,20 @@ for value in '"type": "vless"' '"type": "hysteria2"' '"type": "trojan"' '"type":
 done
 if grep -Eq 'fakeip|udp.*443.*reject|smartdns' "$TEST_DIR/representative-sing-box.json"; then
 	echo 'Representative plan contains a forbidden hidden behavior.' >&2
+	exit 1
+fi
+
+# The isolated detour fixture proves that a two-hop route compiles to
+# route-private protocol outbounds accepted by the target sing-box. It never
+# replaces the production router's real routing relationships.
+/usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/schema7-detour-valid/steer" > "$TEST_DIR/detour-validation.json"
+/usr/sbin/steer compile-sing-box --config "$REPO_DIR/tests/fixtures/schema7-detour-valid/steer" > "$TEST_DIR/detour-sing-box.json"
+"$SING_BOX_BIN" check -c "$TEST_DIR/detour-sing-box.json"
+grep -q '"tag": "steer-route-front"' "$TEST_DIR/detour-sing-box.json"
+grep -q '"tag": "steer-route-exit"' "$TEST_DIR/detour-sing-box.json"
+grep -q '"detour": "steer-route-front"' "$TEST_DIR/detour-sing-box.json"
+if grep -q '"tag": "steer-node-' "$TEST_DIR/detour-sing-box.json"; then
+	echo 'Detour fixture retained a global node outbound.' >&2
 	exit 1
 fi
 
@@ -178,7 +192,7 @@ done
 /usr/sbin/steer status > "$TEST_DIR/pre-probe-status.json"
 digest_before="$(jsonfilter -q -i "$TEST_DIR/pre-probe-status.json" -e '@.intent_digest')"
 uci -q delete steer.main.probe_direct
-uci add_list steer.main.probe_direct='https://127.0.0.1:1/'
+uci set steer.main.probe_direct='https://127.0.0.1:1/'
 uci commit steer
 /usr/sbin/steer apply > "$TEST_DIR/probe-independent-apply.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/probe-independent-apply.json" -e '@.ok')" = 'true' ]

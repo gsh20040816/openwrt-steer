@@ -48,3 +48,14 @@ func TestSubscriptionSubcommandParsesTrailingFlags(t *testing.T) {
 		t.Fatalf("trailing flags were not parsed by the status subcommand: %v", err)
 	}
 }
+
+func TestProbeParsesRouteAndRejectsAmbiguousTargets(t *testing.T) {
+	err := runProbe([]string{"--kind", "speedtest", "--route", "route_a", "--config", "/definitely/missing/steer"})
+	if err == nil || !strings.Contains(err.Error(), "read UCI for route test") {
+		t.Fatalf("route test flags were not parsed: %v", err)
+	}
+	err = runProbe([]string{"--kind", "speedtest", "--node", "node_a", "--route", "route_a"})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("ambiguous node and route test was accepted: %v", err)
+	}
+}

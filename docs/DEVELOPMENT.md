@@ -1,78 +1,122 @@
-# 开发与验证环境
+# 开发与验证
 
-M1 重构边界见 [重构冻结基线](REFACTOR_BASELINE.md)，包所有权和更新规则见
-[打包与文件所有权](PACKAGING.md)。GeoSite/GeoIP 版本只通过 `steer-geodata` 包更新；集成测试
-不再启动联网 updater 或调度服务。
+Steer 主线面向 OpenWrt 25.12.5 x86/64 和 sing-box 1.13.18。修改必须先证明 Canonical Intent 与编译不变量，再验证 OpenWrt adapter 和 LuCI；不能用浏览器校验代替后端校验，也不能只靠 JSON 形状测试冒充 sing-box 原生可用。
 
-## 基线
+## 仓库结构
 
-日常集成验证使用 KVM 虚拟机，不在生产路由器上反复试错：
-
-- 官方 OpenWrt 25.12.5 x86/64 ext4 镜像；
-- Linux 6.12.94；
-- sing-box 1.13.18（`with_quic`、`with_utls`）；
-- 临时 qcow2 overlay，测试结束后可以直接丢弃。
-
-测试使用的 sing-box 二进制必须先核对来源、版本、build tags 与 SHA-256，不能运行复制不完整
-或能力不足的文件。
-
-## 集成测试
-
-将仓库复制到一次性 OpenWrt x86/64 VM 后运行：
-
-```sh
-SING_BOX_BIN=/usr/bin/sing-box \
-  tests/integration/run-openwrt-vm.sh
+```text
+steer-openwrt/src/internal/model       Canonical Intent 与语义校验
+steer-openwrt/src/internal/compiler    Execution Plan 与 sing-box 编译
+steer-openwrt/src/internal/openwrt     UCI、Apply、平台资源、订阅和测试
+steer-openwrt/src/cmd                  /usr/sbin/steer CLI
+luci-app-steer                         LuCI 页面、RPC、ACL、翻译
+steer-geodata                          固定 Geo 数据包
+geoview                                上游工具打包与补丁
+tests/node                             LuCI 与分享 URL 回归
+tests/integration                      一次性 OpenWrt VM 集成
 ```
 
-脚本会：
+## 本地测试
 
-1. 安装当前工作树的 `steer`、init 和 LuCI RPC 测试副本；
-2. 用完全虚构的 schema 6 fixture 编译多种 sing-box 1.13 节点、六种 DNS transport、Geo 与本地代理；
-3. 执行 sing-box 和 nftables 原生检查；
-4. 通过 procd 启动 sing-box，检查 TUN、NFQUEUE、双栈 DNS/MAC shim 和实际 DNS 查询；
-5. 用真实 authenticated UCI session 复现 LuCI 生命周期，确认首次 commit 恰好触发一次 Apply；
-6. 检查第二次 commit、`/etc/init.d/steer reload`、fw4 reload 和 procd respawn；
-7. 确认 HTTPS probe 只在 `steer probe` 手动执行，不阻断 Apply；
-8. 通过 `luci.steer rollback` 恢复并消费唯一健康 UCI 备份，防止 rpcd 自调用死锁；
-9. 确认非法 schema 在切换前失败，禁用后下一次 commit 仍能自动启用；
-10. 清理 nftables、策略路由、测试桥和临时文件，恢复测试前配置。
+Go 模块位于 `steer-openwrt/src`：
 
-该脚本会短暂写入 VM 的 `/usr/sbin/steer`、`/etc/init.d/steer`、rpcd ucode、
-`/run/steer` 和 `/var/lib/steer/rollback.uci`，并重载 firewall4，因此只能在一次性测试 VM 中
-运行，不能直接在生产路由器执行。
+```sh
+cd steer-openwrt/src
+gofmt -w <changed-go-files>
+go test ./...
+```
 
-当前集成测试验证的是控制面启动、规则装载、源 MAC 外部编译结果和切换前拒绝。当前 KVM
-镜像没有 veth 模块，尚不能在单 VM 内构造独立 LAN 客户端；真实客户端 TCP、普通 UDP、QUIC、
-源 MAC 的 IPv4/IPv6 数据包、IPv4/IPv6 GUA、flow offload 隔离和切换后故障恢复仍需在带独立
-LAN 网卡/客户端 VM 的拓扑中补齐。未完成前不得据此批准生产切换。
+仓库根目录的前端和边界检查：
 
-本机构建耗时只用于同一主机、同一 SDK 镜像下的优化前后 A/B，不能外推为 GitHub Actions
-耗时。CI 性能结论必须来自 GitHub 托管 runner 的实际工作流记录，并区分首次缓存未命中与后续
-缓存命中。
+```sh
+node tests/node/share_url_test.js
+node tests/node/luci_view_test.js
+node tests/node/steer_helper_test.js
+python3 tests/check-luci-i18n.py
+python3 tests/check-package-boundaries.py
+python3 tests/check-build-cache.py
+git diff --check
+```
 
-## LuCI 验证
+每次修改必须运行与改动直接相关的测试；准备提交和发布时运行以上全部检查。不得删除、跳过或弱化失败测试。
 
-LuCI 第一版在同一台 OpenWrt KVM 中安装测试副本，并实际验证：
+## 代理链回归要求
 
-- `luci.steer` 的 `status`、`validate`、`plan`、`rollback` RPC 注册和返回值；
-- 会话化 UCI commit 后 core、DNS、网络接管、last_apply 与 rollback 状态；
-- Overview、Rules、Local Proxies、DNS 与 Nodes & Routes 页面无新 JavaScript 运行错误；
-- 规则页只显示决策列，协议细节留在 modal；
-- 普通规则的域名和目的 IP 使用多行 IDE 式编辑器；光标所在行输入 `geosite:` 或 `geoip:` 后实时过滤当前数据中的合法名称，并支持键盘或鼠标补全；
-- 验证域名字段内各表达式和目的 IP 字段内各表达式为 OR，所有非空字段之间由 sing-box 显式 logical AND 连接；
-- Default 固定在普通规则末尾，没有编辑、删除、启停或拖动入口；
-- 390 px 窄屏下意图路径转为纵向，表格保持 LuCI 原生横向滚动。
+`route.detour` 修改至少覆盖：
 
-浏览器验证只在一次性 VM 上执行，没有通过界面改写生产路由器。`tests/node/luci_view_test.js`
-提供空候选项、悬空引用与可选面板的快速页面模块回归，但使用的是最小 LuCI 表单桩，不能替代
-上述 OpenWrt KVM 真实浏览器验证。
+- 单级和多级合法链；
+- 同一节点由多条路由以不同 detour 复用；
+- 自环、两节点环和更长间接环，错误包含完整路径；
+- 悬空、禁用、Direct、Block 目标；
+- 生成的每条单节点 Route 都是协议出站，不残留全局 node selector；
+- DNS transport 引用 Route tag 后包含同一代理链；
+- 完整生成配置通过目标 sing-box 1.13 的 `check`。
 
-## 目标设备边界
+在线 sing-box 文档可能已经描述 1.14 或更新行为，不能据此放宽 1.13 输出。测试二进制必须先核对版本和 build tags。
 
-目标路由器只用于：
+## 诊断回归要求
 
-- 读取不含配置秘密的二进制版本信息；
-- 第一版在 VM 完成接管、回滚和故障测试后，执行经用户确认的最终验收。
+测试功能至少覆盖：
 
-在此之前不得启用 Steer、改写生产 UCI、重载 firewall4，或启停生产代理与 DNS 服务。私人配置、流量记录与迁移对照不得写入公开仓库或测试 fixture。
+- 三个必填 URL 只能使用 UCI scalar option；
+- 连接成功、HTTP 失败、失败后第二次成功、完整下载和超时；
+- 概览从当前 Plan 选择正确 URL；
+- 节点连接使用 `probe_proxy`，节点下载使用 `speedtest_proxy`；
+- 路由测试的 final 为目标 Route tag，且包含全部 detour 出站；
+- 禁用节点/路由被拒绝；
+- 报告权限为 `0600`，目录按 overview/nodes/routes 隔离且覆盖最新同类报告；
+- RPC 参数声明、shell quoting、ACL 和 LuCI 非持久按钮；
+- 概览没有 rollback 操作。
+
+## schema 迁移
+
+公开 schema 变化必须同时修改 model 常量、UCI scalar/list 形态、默认配置、fixture、LuCI、包安装脚本、边界测试和文档。
+
+0.3.0 的唯一迁移窗口是 schema 6→7。发布验证必须从包含多条 probe list、旧节点测速日志和历史 LuCI 按钮字段的 schema 6 配置开始，确认：
+
+1. 每组只保留第一条 URL；
+2. 转换后 `uci show` 是 option 而不是 list；
+3. 二次安装保持相同配置；
+4. 旧日志移动到统一目录；
+5. Apply 使用迁移后 UCI 并保持运行健康。
+
+## OpenWrt VM
+
+`tests/integration/run-openwrt-vm.sh` 只允许在一次性测试 VM 运行。它会替换 `/etc/config/steer`、加载 nftables/策略路由、启动 procd、写入 `/run/steer` 和 `/var/lib/steer`，并执行显式 rollback 与清理。
+
+典型入口：
+
+```sh
+OPENWRT_HOST=<test-vm> \
+SING_BOX_BIN=/usr/bin/sing-box \
+tests/integration/run-openwrt-vm.sh
+```
+
+当前 VM 主要验证控制面、配置编译、原生检查、procd、TUN、DNS/MAC 辅助规则、RPC 注册和 Apply 事务。没有独立 veth LAN 客户端时，不能声称已经覆盖真实 LAN IPv4/IPv6 TCP、UDP、QUIC、GUA、flow offload 或跨接口二层行为。
+
+## 真机发布门
+
+预览版发布前至少确认：
+
+- 目标 OpenWrt、sing-box 版本和 build tags；
+- UCI 迁移前后内容与 `/etc/rc.d` 状态；
+- `steer validate`、`plan`、`apply`、`health`、`status`；
+- procd 进程、TUN、nftables、监听端口；
+- 概览 direct/proxy/speedtest；
+- 一个裸节点连接与下载测试；
+- 一条路由链连接与下载测试；
+- `/var/lib/steer/logs/tests` 的路径、内容与权限；
+- 重载 LuCI 后没有未知 UCI 字段。
+
+如果生产配置没有可用多级链，不得为了验收改变真实路由关系。多级 detour 应在隔离 fixture 或 VM 中验证，真机只测试已有合法路径。
+
+## 发布流程
+
+1. 完整测试通过并确认工作树只包含本次变更；
+2. 使用英文 `<type>: <message>` 提交到 `master`；
+3. 推送后等待 `Build OpenWrt packages` 对同一 commit 成功；
+4. 校验构建资产的 `SHA256SUMS` 和 `BUILD-METADATA.txt`；
+5. 在该 commit 创建版本 tag；
+6. `Publish tagged release` 只能复用同一 commit 的成功 master 构建，发布为 GitHub prerelease；
+7. 从 Release 资产安装真机，而不是使用本地未发布包；
+8. 记录实际版本和验收结果。

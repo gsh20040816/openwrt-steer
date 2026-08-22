@@ -3,16 +3,12 @@ package openwrt
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gsh20040816/openwrt-steer/steer-openwrt/internal/compiler"
@@ -33,14 +29,6 @@ type ApplyResult struct {
 	Generation   string            `json:"generation,omitempty"`
 	IntentDigest string            `json:"intent_digest,omitempty"`
 	Validation   *model.Validation `json:"validation,omitempty"`
-}
-
-type ProbeResult struct {
-	URL      string `json:"url"`
-	OK       bool   `json:"ok"`
-	Attempts int    `json:"attempts"`
-	Status   int    `json:"status,omitempty"`
-	Error    string `json:"error,omitempty"`
 }
 
 func Apply(ctx context.Context, runner Runner, options ApplyOptions) (ApplyResult, error) {
@@ -272,90 +260,6 @@ func checkHealthOnce(ctx context.Context, runner Runner, plan compiler.Plan, lis
 	return nil
 }
 
-type ProbeReport struct {
-	Kind    string        `json:"kind"`
-	OK      bool          `json:"ok"`
-	Results []ProbeResult `json:"results"`
-}
-
-func ProbeCurrent(ctx context.Context, runDirectory, kind string, client *http.Client) (ProbeReport, error) {
-	if runDirectory == "" {
-		runDirectory = "/run/steer"
-	}
-	plan, err := readCurrentPlan(runDirectory)
-	if err != nil {
-		return ProbeReport{}, err
-	}
-	var urls []string
-	switch kind {
-	case "direct":
-		urls = plan.ProbeDirect
-	case "proxy":
-		urls = plan.ProbeProxy
-	case "speedtest":
-		urls = plan.SpeedtestProxy
-	default:
-		return ProbeReport{}, fmt.Errorf("unsupported probe kind %q", kind)
-	}
-	if len(urls) == 0 {
-		return ProbeReport{Kind: kind, OK: false}, fmt.Errorf("current execution plan has no %s HTTPS probes", kind)
-	}
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
-	}
-	results := runProbes(ctx, client, urls)
-	report := ProbeReport{Kind: kind, OK: true, Results: results}
-	for _, result := range results {
-		if !result.OK {
-			report.OK = false
-			break
-		}
-	}
-	return report, nil
-}
-
-func runProbes(ctx context.Context, client *http.Client, urls []string) []ProbeResult {
-	results := make([]ProbeResult, len(urls))
-	var group sync.WaitGroup
-	for index, target := range urls {
-		group.Add(1)
-		go func() { defer group.Done(); results[index] = probe(ctx, client, target) }()
-	}
-	group.Wait()
-	return results
-}
-
-func probe(ctx context.Context, client *http.Client, target string) ProbeResult {
-	result := ProbeResult{URL: target}
-	for attempt := 1; attempt <= 2; attempt++ {
-		result.Attempts = attempt
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-		if err != nil {
-			result.Error = err.Error()
-			continue
-		}
-		response, err := client.Do(request)
-		if err != nil {
-			result.Error = err.Error()
-			continue
-		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
-		closeErr := response.Body.Close()
-		result.Status = response.StatusCode
-		if closeErr == nil && response.StatusCode >= 200 && response.StatusCode < 400 {
-			result.OK = true
-			result.Error = ""
-			return result
-		}
-		if closeErr != nil {
-			result.Error = closeErr.Error()
-		} else {
-			result.Error = fmt.Sprintf("unexpected HTTP status %d", response.StatusCode)
-		}
-	}
-	return result
-}
-
 func checkListenerPorts(ports []int) error {
 	found := map[int]bool{}
 	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6", "/proc/net/udp", "/proc/net/udp6"} {
@@ -393,7 +297,7 @@ func checkListenerPorts(ports []int) error {
 
 func atomicWrite(path string, content []byte) error {
 	if path == "" {
-		return fmt.Errorf("rollback configuration path is empty")
+		return fmt.Errorf("atomic write path is empty")
 	}
 	directory := filepath.Dir(path)
 	info, err := os.Stat(path)

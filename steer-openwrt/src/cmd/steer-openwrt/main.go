@@ -201,7 +201,8 @@ func runProbe(args []string) error {
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	kind := flags.String("kind", "direct", "probe kind: direct, proxy or speedtest")
-	nodeID := flags.String("node", "", "run a temporary speed test through this node")
+	nodeID := flags.String("node", "", "run a temporary test through this node")
+	routeID := flags.String("route", "", "run a temporary test through this route and its detour chain")
 	download := flags.Bool("download", false, "download the complete speed-test response")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -209,19 +210,41 @@ func runProbe(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("probe accepts flags only")
 	}
-	if *nodeID != "" {
+	if *nodeID != "" && *routeID != "" {
+		return errors.New("--node and --route are mutually exclusive")
+	}
+	if *nodeID != "" || *routeID != "" {
 		if *kind != "speedtest" {
-			return errors.New("--node requires --kind speedtest")
+			return errors.New("--node and --route require --kind speedtest")
 		}
-		report, err := openwrt.SpeedTestNode(context.Background(), *configPath, *stateDirectory, *singBoxPath, *nodeID, *download)
+		var report openwrt.TestReport
+		var err error
+		if *nodeID != "" {
+			report, err = openwrt.SpeedTestNode(context.Background(), *configPath, *stateDirectory, *singBoxPath, *nodeID, *download)
+		} else {
+			report, err = openwrt.SpeedTestRoute(context.Background(), *configPath, *stateDirectory, *singBoxPath, *routeID, *download)
+		}
 		if err != nil {
+			scope, objectID := "nodes", *nodeID
+			if *routeID != "" {
+				scope, objectID = "routes", *routeID
+			}
+			testKind := "connect"
+			if *download {
+				testKind = "download"
+			}
+			writeJSON(openwrt.TestReport{Scope: scope, ObjectID: objectID, Kind: testKind, Error: err.Error(), TestedAt: time.Now().UTC(), Results: []openwrt.TestResult{}})
 			return err
 		}
 		writeJSON(report)
+		if !report.OK {
+			return errors.New("HTTPS test failed")
+		}
 		return nil
 	}
-	report, err := openwrt.ProbeCurrent(context.Background(), *runDirectory, *kind, nil)
+	report, err := openwrt.ProbeCurrentWithState(context.Background(), *runDirectory, *stateDirectory, *kind, nil)
 	if err != nil {
+		writeJSON(openwrt.TestReport{Scope: "overview", Kind: *kind, Error: err.Error(), TestedAt: time.Now().UTC(), Results: []openwrt.TestResult{}})
 		return err
 	}
 	writeJSON(report)

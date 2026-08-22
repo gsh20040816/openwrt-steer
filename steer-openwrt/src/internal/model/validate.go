@@ -27,7 +27,7 @@ func Validate(intent Intent) Validation {
 	}
 
 	if intent.Main.SchemaVersion != SchemaVersion {
-		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 6 is supported")
+		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 7 is supported")
 	}
 	if !validID.MatchString(intent.Main.ID) {
 		err("INVALID_ID", "steer", intent.Main.ID, "id", "invalid section ID")
@@ -44,9 +44,9 @@ func Validate(intent Intent) Validation {
 	if intent.Main.DNSOptimisticCache {
 		err("REQUIRES_SING_BOX_1_14", "steer", intent.Main.ID, "dns_optimistic_cache", "optimistic DNS cache is unavailable on the supported sing-box 1.13 baseline")
 	}
-	validateProbeURLs(intent.Main.ProbeDirectURLs, intent.Main.ID, "probe_direct", err)
-	validateProbeURLs(intent.Main.ProbeProxyURLs, intent.Main.ID, "probe_proxy", err)
-	validateProbeURLs(intent.Main.SpeedtestProxyURLs, intent.Main.ID, "speedtest_proxy", err)
+	validateProbeURL(intent.Main.ProbeDirectURL, intent.Main.ID, "probe_direct", err)
+	validateProbeURL(intent.Main.ProbeProxyURL, intent.Main.ID, "probe_proxy", err)
+	validateProbeURL(intent.Main.SpeedtestProxyURL, intent.Main.ID, "speedtest_proxy", err)
 	validateBootstrap(intent.Bootstrap, err)
 
 	globalIDs := map[string]string{}
@@ -96,9 +96,11 @@ func Validate(intent Intent) Validation {
 		validateSubscription(subscription, err)
 	}
 	routes := make(map[string]Route, len(intent.Routes))
-	directRouteCount := 0
 	for _, route := range intent.Routes {
 		routes[route.ID] = route
+	}
+	directRouteCount := 0
+	for _, route := range intent.Routes {
 		if !route.Enabled {
 			continue
 		}
@@ -116,10 +118,24 @@ func Validate(intent Intent) Validation {
 			} else if !node.Enabled {
 				err("DISABLED_NODE", "route", route.ID, "node", "referenced node is disabled")
 			}
+			if route.Detour != "" {
+				detour, exists := routes[route.Detour]
+				switch {
+				case !exists:
+					err("DANGLING_DETOUR", "route", route.ID, "detour", "referenced detour route does not exist")
+				case !detour.Enabled:
+					err("DISABLED_DETOUR", "route", route.ID, "detour", "referenced detour route is disabled")
+				case detour.Kind != "single":
+					err("INVALID_DETOUR_KIND", "route", route.ID, "detour", "detour route must be a single-node route")
+				}
+			}
 		} else if route.Node != "" {
 			err("UNEXPECTED_NODE", "route", route.ID, "node", "only single routes accept a node")
+		} else if route.Detour != "" {
+			err("UNEXPECTED_DETOUR", "route", route.ID, "detour", "only single routes accept a detour")
 		}
 	}
+	validateRouteDetourCycles(routes, intent.Routes, err)
 	if directRouteCount != 1 {
 		err("DIRECT_ROUTE_COUNT", "route", "", "", "exactly one enabled direct Route is required for bootstrap and core loop prevention")
 	}
@@ -168,11 +184,47 @@ func Validate(intent Intent) Validation {
 	return validation
 }
 
-func validateProbeURLs(values []string, objectID, option string, err issueFn) {
-	for _, raw := range values {
-		parsed, parseErr := url.Parse(raw)
-		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
-			err("INVALID_PROBE_URL", "steer", objectID, option, "probe must be an HTTPS URL without credentials or fragment: "+raw)
+func validateProbeURL(raw, objectID, option string, err issueFn) {
+	if raw == "" {
+		err("REQUIRED_PROBE_URL", "steer", objectID, option, "probe URL is required")
+		return
+	}
+	parsed, parseErr := url.Parse(raw)
+	if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		err("INVALID_PROBE_URL", "steer", objectID, option, "probe must be an HTTPS URL without credentials or fragment: "+raw)
+	}
+}
+
+func validateRouteDetourCycles(routes map[string]Route, ordered []Route, err issueFn) {
+	state := map[string]uint8{}
+	stack := []string{}
+	positions := map[string]int{}
+	var visit func(string)
+	visit = func(id string) {
+		state[id] = 1
+		positions[id] = len(stack)
+		stack = append(stack, id)
+		route := routes[id]
+		if route.Enabled && route.Kind == "single" && route.Detour != "" {
+			detour, exists := routes[route.Detour]
+			if exists && detour.Enabled && detour.Kind == "single" {
+				switch state[detour.ID] {
+				case 0:
+					visit(detour.ID)
+				case 1:
+					start := positions[detour.ID]
+					cycle := append(append([]string{}, stack[start:]...), detour.ID)
+					err("ROUTE_DETOUR_CYCLE", "route", id, "detour", "route detour cycle: "+strings.Join(cycle, " -> "))
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		delete(positions, id)
+		state[id] = 2
+	}
+	for _, route := range ordered {
+		if route.Enabled && route.Kind == "single" && state[route.ID] == 0 {
+			visit(route.ID)
 		}
 	}
 }

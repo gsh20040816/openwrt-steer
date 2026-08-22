@@ -3,7 +3,7 @@
 // Package model defines Steer's platform-neutral canonical intent.
 package model
 
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 type Intent struct {
 	Main          Main           `json:"main"`
@@ -17,16 +17,16 @@ type Intent struct {
 }
 
 type Main struct {
-	ID                 string   `json:"id"`
-	SchemaVersion      int      `json:"schema_version"`
-	Enabled            bool     `json:"enabled"`
-	LogLevel           string   `json:"log_level"`
-	ProbeDirectURLs    []string `json:"probe_direct_urls"`
-	ProbeProxyURLs     []string `json:"probe_proxy_urls"`
-	SpeedtestProxyURLs []string `json:"speedtest_proxy_urls"`
-	DNSCacheCapacity   int      `json:"dns_cache_capacity,omitempty"`
-	DNSCachePersist    bool     `json:"dns_cache_persist,omitempty"`
-	DNSOptimisticCache bool     `json:"dns_optimistic_cache,omitempty"`
+	ID                 string `json:"id"`
+	SchemaVersion      int    `json:"schema_version"`
+	Enabled            bool   `json:"enabled"`
+	LogLevel           string `json:"log_level"`
+	ProbeDirectURL     string `json:"probe_direct"`
+	ProbeProxyURL      string `json:"probe_proxy"`
+	SpeedtestProxyURL  string `json:"speedtest_proxy"`
+	DNSCacheCapacity   int    `json:"dns_cache_capacity,omitempty"`
+	DNSCachePersist    bool   `json:"dns_cache_persist,omitempty"`
+	DNSOptimisticCache bool   `json:"dns_optimistic_cache,omitempty"`
 }
 
 type Bootstrap struct {
@@ -127,6 +127,7 @@ type Route struct {
 	Name    string `json:"name,omitempty"`
 	Kind    string `json:"kind"`
 	Node    string `json:"node,omitempty"`
+	Detour  string `json:"detour,omitempty"`
 }
 
 type DNSProfile struct {

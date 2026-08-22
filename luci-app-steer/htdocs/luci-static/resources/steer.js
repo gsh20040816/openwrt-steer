@@ -13,7 +13,8 @@ const callSubscriptions = rpc.declare({ object: 'luci.steer', method: 'subscript
 const callSubscriptionUpdate = rpc.declare({ object: 'luci.steer', method: 'subscription_update', params: [ 'id' ], expect: { '': {} } });
 const callSubscriptionClean = rpc.declare({ object: 'luci.steer', method: 'subscription_clean', params: [ 'id', 'node' ], expect: { '': {} } });
 const callNodeSpeedtest = rpc.declare({ object: 'luci.steer', method: 'node_speedtest', params: [ 'node', 'download' ], expect: { '': {} } });
-const callRollback = rpc.declare({ object: 'luci.steer', method: 'rollback', expect: { '': {} } });
+const callRouteSpeedtest = rpc.declare({ object: 'luci.steer', method: 'route_speedtest', params: [ 'route', 'download' ], expect: { '': {} } });
+const callOverviewProbe = rpc.declare({ object: 'luci.steer', method: 'overview_probe', params: [ 'kind' ], expect: { '': {} } });
 const callUCICommit = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ], expect: { '': 0 } });
 
 function issueText(issue) {
@@ -60,6 +61,8 @@ return baseclass.extend({
 	updateSubscription: function(id) { return callSubscriptionUpdate(id); },
 	cleanSubscription: function(id, node) { return callSubscriptionClean(id, node); },
 	speedtest: function(node, download) { return callNodeSpeedtest(node, download); },
+	routeSpeedtest: function(route, download) { return callRouteSpeedtest(route, download); },
+	overviewProbe: function(kind) { return callOverviewProbe(kind); },
 
 	apply: function(view, ev, mode) {
 		let previousSequence = '';
@@ -84,35 +87,6 @@ return baseclass.extend({
 				ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
 				return result;
 			});
-	},
-
-	confirmRollback: function() {
-		ui.showModal(_('Restore previous Steer configuration?'), [
-			E('p', {}, _('This restores the single saved configuration and applies it immediately. The backup is deleted after a successful restore.')),
-			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Cancel')),
-				' ',
-				E('button', {
-					'class': 'btn cbi-button-negative',
-					'click': ui.createHandlerFn(this, function() {
-						ui.showModal(_('Restoring Steer'), [ E('p', { 'class': 'spinning' }, _('Restoring and applying the previous configuration.')) ]);
-						return callRollback()
-							.then((result) => callStatus().then((status) => ({ result, status })))
-							.then(({ result, status }) => {
-								this.refreshStatus(status);
-								ui.hideModal();
-								if (!result?.ok) {
-									ui.addNotification(_('Steer restore failed'), resultMessage(result), 'danger');
-									return result;
-								}
-								ui.addNotification(null, E('p', {}, _('Previous Steer configuration restored.')), 'info');
-								window.location.reload();
-								return result;
-							});
-					})
-				}, _('Restore previous configuration'))
-			])
-		]);
 	},
 
 	refreshStatus: function(status) {
@@ -148,11 +122,7 @@ return baseclass.extend({
 		return E('div', { 'id': 'steer-runtime-status' }, E('div', { 'class': 'steer-status' + panelClass }, [
 			E('div', { 'class': 'steer-status__lead' }, [ E('span', { 'class': 'steer-status__eyebrow' }, _('Current state')), E('strong', { 'class': stateClass }, headline) ]),
 			E('dl', { 'class': 'steer-status__facts' }, facts.map((fact) => E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, fact[1]) ]))),
-			!valid && status?.validation?.errors?.length ? E('ul', {}, status.validation.errors.map((issue) => E('li', {}, issueText(issue)))) : '',
-			status?.rollback_available ? E('p', {}, E('button', {
-				'class': 'btn cbi-button cbi-button-negative',
-				'click': ui.createHandlerFn(this, this.confirmRollback)
-			}, _('Restore previous configuration'))) : ''
+			!valid && status?.validation?.errors?.length ? E('ul', {}, status.validation.errors.map((issue) => E('li', {}, issueText(issue)))) : ''
 		]));
 	}
 });

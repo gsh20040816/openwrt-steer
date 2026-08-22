@@ -10,12 +10,12 @@ import (
 
 const minimalConfig = `
 config steer 'main'
-	option schema_version '6'
+	option schema_version '7'
 	option enabled '1'
 	option log_level 'warn'
-	list probe_direct 'https://www.baidu.com/'
-	list probe_direct 'https://www.google.com/generate_204'
-	list probe_direct 'https://github.com/'
+	option probe_direct 'https://www.baidu.com/'
+	option probe_proxy 'https://www.google.com/generate_204'
+	option speedtest_proxy 'https://speed.cloudflare.com/__down?bytes=1000000'
 
 config bootstrap 'bootstrap'
 	option protocol 'udp'
@@ -43,7 +43,7 @@ func TestDecodeCanonicalIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if intent.Main.SchemaVersion != 6 || !intent.Main.Enabled || len(intent.Main.ProbeDirectURLs) != 3 {
+	if intent.Main.SchemaVersion != model.SchemaVersion || !intent.Main.Enabled || intent.Main.ProbeDirectURL != "https://www.baidu.com/" {
 		t.Fatalf("unexpected main: %#v", intent.Main)
 	}
 	if validation := model.Validate(intent); !validation.OK {
@@ -92,5 +92,42 @@ func TestDecodeRejectsWrongScalarShape(t *testing.T) {
 	config := strings.Replace(minimalConfig, "option log_level 'warn'", "option managed_zone 'lan'\n\toption log_level 'warn'", 1)
 	if _, err := Decode(strings.NewReader(config)); err == nil {
 		t.Fatal("removed managed_zone option must be rejected")
+	}
+}
+
+func TestDecodeRouteDetour(t *testing.T) {
+	config := strings.Replace(minimalConfig, "config route 'direct'", `config node 'front_node'
+	option type 'socks'
+	option server '192.0.2.10'
+	option server_port '1080'
+
+config node 'exit_node'
+	option type 'socks'
+	option server '192.0.2.11'
+	option server_port '1080'
+
+config route 'front'
+	option kind 'single'
+	option node 'front_node'
+
+config route 'exit'
+	option kind 'single'
+	option node 'exit_node'
+	option detour 'front'
+
+config route 'direct'`, 1)
+	intent, err := Decode(strings.NewReader(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(intent.Routes) != 3 || intent.Routes[1].ID != "exit" || intent.Routes[1].Detour != "front" {
+		t.Fatalf("route detour was not decoded: %#v", intent.Routes)
+	}
+}
+
+func TestDecodeRejectsProbeListsInSchemaSeven(t *testing.T) {
+	config := strings.Replace(minimalConfig, "option probe_direct 'https://www.baidu.com/'", "list probe_direct 'https://www.baidu.com/'", 1)
+	if _, err := Decode(strings.NewReader(config)); err == nil || !strings.Contains(err.Error(), "must use option") {
+		t.Fatalf("schema 7 probe list was accepted: %v", err)
 	}
 }

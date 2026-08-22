@@ -40,8 +40,8 @@ return view.extend({
 		o = s.taboption('tls', form.Flag, 'insecure', _('Skip certificate verification')); o.default = '0'; o.modalonly = true;
 		[ 'tls', 'https', 'quic', 'h3' ].forEach((protocol) => o.depends('protocol', protocol));
 
-		o = s.taboption('cache', form.Flag, 'cache_persist', _('Persistent cache')); o.default = '0'; o.modalonly = true; o.description = _('Reserved for sing-box 1.14; M1 rejects it.');
-		o = s.taboption('cache', form.Flag, 'optimistic_cache', _('Optimistic cache')); o.default = '0'; o.modalonly = true; o.description = _('Reserved for sing-box 1.14; M1 rejects it.');
+		o = s.taboption('cache', form.Flag, 'cache_persist', _('Persistent cache')); o.default = '0'; o.modalonly = true; o.description = _('Reserved for sing-box 1.14; the current 1.13 baseline rejects it.');
+		o = s.taboption('cache', form.Flag, 'optimistic_cache', _('Optimistic cache')); o.default = '0'; o.modalonly = true; o.description = _('Reserved for sing-box 1.14; the current 1.13 baseline rejects it.');
 		return m.render();
 	},
 

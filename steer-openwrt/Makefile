@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-openwrt
-PKG_VERSION:=0.2.0
-PKG_RELEASE:=11
+PKG_VERSION:=0.3.0
+PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_LICENSE_FILES:=LICENSE
@@ -48,22 +48,53 @@ define Package/steer-openwrt/postinst
 config=/etc/config/steer
 [ -f "$$config" ] || exit 0
 schema="$$(uci -q get steer.main.schema_version 2>/dev/null)"
-[ "$$schema" = 6 ] || {
-	echo "steer: schema 6 is required, found '$$schema'" >&2
-	exit 1
-}
+config_changed=0
+case "$$schema" in
+	6)
+		for option in probe_direct probe_proxy speedtest_proxy; do
+			first="$$(uci -q get steer.main.$$option 2>/dev/null | sed 's/ .*//')"
+			uci -q delete steer.main.$$option
+			[ -z "$$first" ] || uci set steer.main.$$option="$$first"
+		done
+		uci set steer.main.schema_version='7'
+		config_changed=1
+		;;
+	7) ;;
+	*)
+		echo "steer: schema 6 or 7 is required, found '$$schema'" >&2
+		exit 1
+		;;
+esac
 
 # One release transition only: remove LuCI speed-test button values written by
 # 0.2.0-r7 and older after all supported installations have upgraded.
-repaired_speedtest_buttons=0
 for section in $$(uci -q show steer | sed -n "s/^steer\.\([a-z][a-z0-9_]*\)=node/\1/p"); do
 	for option in _connect_speedtest _download_speedtest; do
 		uci -q get steer.$$section.$$option >/dev/null || continue
 		uci -q delete steer.$$section.$$option
-		repaired_speedtest_buttons=1
+		config_changed=1
 	done
 done
-[ "$$repaired_speedtest_buttons" = 0 ] || uci commit steer
+[ "$$config_changed" = 0 ] || uci commit steer
+
+old_test_logs=/var/lib/steer/logs/speedtests
+new_test_logs=/var/lib/steer/logs/tests/nodes
+if [ -d "$$old_test_logs" ]; then
+	mkdir -p "$$new_test_logs"
+	chmod 0700 "$$new_test_logs"
+	for old_node_directory in "$$old_test_logs"/*; do
+		[ -d "$$old_node_directory" ] || continue
+		node_id="$${old_node_directory##*/}"
+		mkdir -p "$$new_test_logs/$$node_id"
+		chmod 0700 "$$new_test_logs/$$node_id"
+		for report in connect.json download.json; do
+			[ -f "$$old_node_directory/$$report" ] || continue
+			mv -f "$$old_node_directory/$$report" "$$new_test_logs/$$node_id/$$report"
+		done
+		rmdir "$$old_node_directory" 2>/dev/null || true
+	done
+	rmdir "$$old_test_logs" 2>/dev/null || true
+fi
 
 cron_file=/etc/crontabs/root
 cron_line='*/15 * * * * /usr/sbin/steer subscription update 2>&1 | logger -t steer-subscription'

@@ -64,9 +64,9 @@ type Plan struct {
 	DNSPaths             []DNSPath    `json:"dns_paths"`
 	GeoRuleSets          []GeoRuleSet `json:"geo_rule_sets"`
 	Objects              []PlanObject `json:"objects"`
-	ProbeDirect          []string     `json:"probe_direct"`
-	ProbeProxy           []string     `json:"probe_proxy"`
-	SpeedtestProxy       []string     `json:"speedtest_proxy"`
+	ProbeDirect          string       `json:"probe_direct"`
+	ProbeProxy           string       `json:"probe_proxy"`
+	SpeedtestProxy       string       `json:"speedtest_proxy"`
 }
 
 type PlanObject struct {
@@ -153,9 +153,9 @@ func CompileWithOptions(intent model.Intent, options Options) Bundle {
 		DNSPaths:       dnsPaths,
 		GeoRuleSets:    geoSets,
 		Objects:        planObjects(intent),
-		ProbeDirect:    append([]string(nil), intent.Main.ProbeDirectURLs...),
-		ProbeProxy:     append([]string(nil), intent.Main.ProbeProxyURLs...),
-		SpeedtestProxy: append([]string(nil), intent.Main.SpeedtestProxyURLs...),
+		ProbeDirect:    intent.Main.ProbeDirectURL,
+		ProbeProxy:     intent.Main.ProbeProxyURL,
+		SpeedtestProxy: intent.Main.SpeedtestProxyURL,
 	}
 	return Bundle{IntentDigest: digest, Validation: validation, Plan: plan, SingBox: compileSingBox(intent, plan)}
 }
@@ -166,7 +166,7 @@ func Diff(current, candidate Plan) PlanDiff {
 		Removed:          []PlanObject{},
 		Modified:         []PlanObject{},
 		ResourcesChanged: !equalJSON(current.Resources, candidate.Resources),
-		ProbesChanged:    !equalJSON([][]string{current.ProbeDirect, current.ProbeProxy, current.SpeedtestProxy}, [][]string{candidate.ProbeDirect, candidate.ProbeProxy, candidate.SpeedtestProxy}),
+		ProbesChanged:    !equalJSON([]string{current.ProbeDirect, current.ProbeProxy, current.SpeedtestProxy}, []string{candidate.ProbeDirect, candidate.ProbeProxy, candidate.SpeedtestProxy}),
 	}
 	oldObjects, newObjects := map[string]PlanObject{}, map[string]PlanObject{}
 	for _, object := range current.Objects {
@@ -412,12 +412,8 @@ func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 		sniffInboundTags = append(sniffInboundTags, localProxyTag(proxy.ID))
 	}
 
-	outbounds := make([]any, 0, len(intent.Nodes)+len(intent.Routes))
-	for _, node := range intent.Nodes {
-		if node.Enabled {
-			outbounds = append(outbounds, compileNode(node))
-		}
-	}
+	nodes := indexNodes(intent.Nodes)
+	outbounds := make([]any, 0, len(intent.Routes))
 	for _, route := range intent.Routes {
 		if !route.Enabled {
 			continue
@@ -428,7 +424,7 @@ func compileSingBox(intent model.Intent, plan Plan) map[string]any {
 		case "block":
 			outbounds = append(outbounds, map[string]any{"type": "block", "tag": routeTag(route.ID)})
 		case "single":
-			outbounds = append(outbounds, map[string]any{"type": "selector", "tag": routeTag(route.ID), "outbounds": []string{nodeTag(route.Node)}, "default": nodeTag(route.Node), "interrupt_exist_connections": false})
+			outbounds = append(outbounds, compileRouteOutbound(route, nodes))
 		}
 	}
 
@@ -624,6 +620,40 @@ func compileNode(node model.Node) map[string]any {
 func CompileNodeOutbound(node model.Node) map[string]any { return compileNode(node) }
 
 func NodeOutboundTag(id string) string { return nodeTag(id) }
+
+func RouteOutboundTag(id string) string { return routeTag(id) }
+
+// CompileRouteChainOutbounds returns only the target single-node Route and its
+// detour ancestry. Callers must validate the Intent before using the result.
+func CompileRouteChainOutbounds(intent model.Intent, routeID string) []any {
+	routes := indexRoutes(intent.Routes)
+	included := map[string]bool{}
+	for current := routeID; current != "" && !included[current]; {
+		route, exists := routes[current]
+		if !exists || !route.Enabled || route.Kind != "single" {
+			return nil
+		}
+		included[current] = true
+		current = route.Detour
+	}
+	nodes := indexNodes(intent.Nodes)
+	outbounds := make([]any, 0, len(included))
+	for _, route := range intent.Routes {
+		if included[route.ID] {
+			outbounds = append(outbounds, compileRouteOutbound(route, nodes))
+		}
+	}
+	return outbounds
+}
+
+func compileRouteOutbound(route model.Route, nodes map[string]model.Node) map[string]any {
+	outbound := compileNode(nodes[route.Node])
+	outbound["tag"] = routeTag(route.ID)
+	if route.Detour != "" {
+		outbound["detour"] = routeTag(route.Detour)
+	}
+	return outbound
+}
 
 func compileTLSIfConfigured(node model.Node) map[string]any {
 	if node.TLSServerName == "" && node.RealityPublicKey == "" && !node.Insecure && node.UTLSFingerprint == "" {
@@ -825,6 +855,13 @@ func indexDNSProfiles(values []model.DNSProfile) map[string]model.DNSProfile {
 }
 func indexRoutes(values []model.Route) map[string]model.Route {
 	result := map[string]model.Route{}
+	for _, value := range values {
+		result[value.ID] = value
+	}
+	return result
+}
+func indexNodes(values []model.Node) map[string]model.Node {
+	result := map[string]model.Node{}
 	for _, value := range values {
 		result[value.ID] = value
 	}

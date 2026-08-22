@@ -30,7 +30,20 @@ function element(tag, attributes, children) {
 
 	const values = children == null ? [] : (Array.isArray(children) ? children : [ children ]);
 	assert.ok(!values.includes(null), 'LuCI element children must not contain null');
-	return { tag, attributes: attributes || {}, children: values };
+	return {
+		tag,
+		attributes: attributes || {},
+		children: values,
+		disabled: false,
+		replaceChildren: function(...replacement) { this.children = replacement; }
+	};
+}
+
+function findElements(root, predicate) {
+	if (root == null || typeof root != 'object')
+		return [];
+	const matches = predicate(root) ? [ root ] : [];
+	return matches.concat((root.children || []).flatMap((child) => findElements(child, predicate)));
 }
 
 function createEnvironment(sections) {
@@ -140,6 +153,8 @@ function createEnvironment(sections) {
 	};
 	const view = { extend: (value) => value };
 	const speedtestCalls = [];
+	const routeSpeedtestCalls = [];
+	const overviewProbeCalls = [];
 	const steer = {
 		loadStyle: () => {},
 		status: () => Promise.resolve({}),
@@ -150,12 +165,26 @@ function createEnvironment(sections) {
 		updateSubscription: () => Promise.resolve({ ok: true }),
 		speedtest: (node, download) => {
 			speedtestCalls.push({ node, download });
-			return Promise.resolve({ results: [ {
+			return Promise.resolve({ ok: true, results: [ {
 				url: 'https://speed.example/',
+				ok: true,
+				status: 204,
+				attempts: 1,
 				first_byte_milliseconds: 42,
 				downloaded_bytes: 1000000,
 				download_milliseconds: 1000
 			} ] });
+		},
+		routeSpeedtest: (route, download) => {
+			routeSpeedtestCalls.push({ route, download });
+			return Promise.resolve({ ok: true, results: [ {
+				url: 'https://speed.example/', ok: true, status: 204, attempts: 1, first_byte_milliseconds: 55,
+				downloaded_bytes: 1000000, download_milliseconds: 1000
+			} ] });
+		},
+		overviewProbe: (kind) => {
+			overviewProbeCalls.push(kind);
+			return Promise.resolve({ ok: true, results: [ { url: 'https://test.example/', ok: true, first_byte_milliseconds: 20 } ] });
 		},
 		apply: () => Promise.resolve()
 	};
@@ -164,7 +193,7 @@ function createEnvironment(sections) {
 	const window = { location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '' } };
 	const translate = (value) => String(value);
 
-	return { form, uci, view, steer, ui, shareUrl, window, maps, translate, speedtestCalls };
+	return { form, uci, view, steer, ui, shareUrl, window, maps, translate, speedtestCalls, routeSpeedtestCalls, overviewProbeCalls };
 }
 
 function loadView(file, dependencies) {
@@ -265,7 +294,7 @@ async function renderOverview(sections, planResult = {}) {
 			_: environment.translate
 		}
 	);
-	await view.render([ null, {}, planResult, { subscriptions: [] } ]);
+	environment.rendered = await view.render([ null, {}, planResult, { subscriptions: [] } ]);
 	return environment;
 }
 
@@ -432,6 +461,24 @@ async function main() {
 		'Node selectors expose the source subscription as a visual group');
 	assert.equal(groupedPicker.textvalue('route_proxy'), 'Subscribed',
 		'Route summaries show the node name instead of its internal UCI ID');
+	const routeSection = environment.maps[0].sections.find((section) => section.sectionType == 'route');
+	const detourPicker = routeSection.options.find((option) => option.name == 'detour');
+	assert.ok(detourPicker && detourPicker.values.some((value) => value[0] == 'route_proxy'),
+		'Detour picker shows every single-node route, including the current route for backend cycle diagnostics');
+	[ '_route_connect_test', '_route_download_test' ].forEach((name) => {
+		const option = routeSection.options.find((candidate) => candidate.name == name);
+		assert.ok(option && option.editable && option.default === undefined,
+			`Route test action ${name} is visible without a persistent value`);
+		assert.equal(option.write('route_proxy', '1'), undefined);
+		assert.equal(option.remove('route_proxy'), undefined);
+		assert.equal(environment.uci.get('steer', 'route_proxy', name), undefined,
+			`Route test action ${name} never enters UCI`);
+	});
+	const routeTestButton = { disabled: false, textContent: '', title: '', classList: { toggle: () => {} } };
+	await routeSection.options.find((option) => option.name == '_route_connect_test')
+		.onclick({ currentTarget: routeTestButton }, 'route_proxy');
+	assert.deepEqual(environment.routeSpeedtestCalls, [ { route: 'route_proxy', download: false } ],
+		'Route chain test passes the route ID to RPC');
 	environment = await renderNodes({
 		node: [
 			{ '.name': 'cfg_manual', name: 'Manual' },
@@ -470,14 +517,27 @@ async function main() {
 		'Row speed test passes the section ID instead of the click event to RPC');
 	assert.equal(speedtestButton.textContent, '42 ms',
 		'Connection result replaces the row test button label');
+	assert.ok(speedtestButton.title.includes('HTTP 204') && speedtestButton.title.includes('1 attempt'),
+		'Connection result exposes status and attempt diagnostics');
 	environment = await renderOverview({ subscription: [] });
+	const probeOptions = [ 'probe_direct', 'probe_proxy', 'speedtest_proxy' ].map((name) =>
+		allOptions(environment).find((option) => option.name == name));
+	assert.ok(probeOptions.every((option) => option?.type == 'Value' && option.rmempty === false),
+		'Schema 7 probe URLs are required scalar fields');
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
 		'Subscriptions require an explicit stable UCI section ID');
 	assert.equal(typeof subscriptionSection.handleAdd, 'function',
 		'Subscription creation validates the stricter Steer ID syntax');
+	const overviewTestButtons = findElements(environment.rendered,
+		(node) => node.tag == 'button' && typeof node.attributes?.click == 'function');
+	assert.equal(overviewTestButtons.length, 3,
+		'Overview renders direct, proxy and proxy speed-test actions without requiring a healthy status');
+	await overviewTestButtons[1].attributes.click({ preventDefault: () => {}, currentTarget: overviewTestButtons[1] });
+	assert.deepEqual(environment.overviewProbeCalls, [ 'proxy' ],
+		'Overview proxy test remains clickable when no healthy running status was returned');
 	await renderOverview({ subscription: [] }, {
-		plan: { schema_version: 6 },
+		plan: { schema_version: 7 },
 		diff: { changed: true, added: [ { id: 'new' } ], modified: null, removed: null }
 	});
 
@@ -503,12 +563,20 @@ async function main() {
 	const steerSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/steer.js'), 'utf8');
 	assert.ok(steerSource.includes("params: [ 'node', 'download' ]") &&
-		steerSource.includes('speedtest: function(node, download)'),
-		'Speed-test RPC accepts an explicit download mode');
+		steerSource.includes("params: [ 'route', 'download' ]") &&
+		steerSource.includes("params: [ 'kind' ]") &&
+		steerSource.includes('speedtest: function(node, download)') &&
+		steerSource.includes('routeSpeedtest: function(route, download)') &&
+		steerSource.includes('overviewProbe: function(kind)') &&
+		!steerSource.includes('confirmRollback'),
+		'LuCI helper exposes node, route and overview tests without the rollback UI');
 	const rpcSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/root/usr/share/rpcd/ucode/luci.steer'), 'utf8');
 	assert.ok(rpcSource.includes("args: { node: '', download: false }") &&
+		rpcSource.includes("args: { route: '', download: false }") &&
+		rpcSource.includes("args: { kind: '' }") &&
 		rpcSource.includes('request?.args?.node') &&
+		rpcSource.includes('request?.args?.route') &&
 		rpcSource.includes('request.args.download') &&
 		rpcSource.includes("command += ' --download'") &&
 		rpcSource.includes('shellquote(node)') &&

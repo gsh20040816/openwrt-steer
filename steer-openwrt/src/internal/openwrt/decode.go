@@ -18,14 +18,14 @@ var optionNames = map[string]map[string]bool{
 	"bootstrap":    set("protocol", "server", "server_port", "strategy"),
 	"node":         set("enabled", "name", "type", "server", "server_port", "uuid", "username", "flow", "packet_encoding", "password", "method", "plugin", "plugin_options", "security", "alter_id", "version", "network", "transport", "transport_path", "transport_host", "service_name", "congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat", "quic", "quic_congestion_control", "insecure_concurrency", "private_key", "host_key", "executable_path", "data_directory", "host_key_algorithms", "server_ports", "extra_args", "hop_interval", "obfs_type", "obfs_password", "up_mbps", "down_mbps", "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint", "source_subscription", "source_fingerprint", "pinned_stale"),
 	"subscription": set("enabled", "name", "url", "update_interval"),
-	"route":        set("enabled", "name", "kind", "node"),
+	"route":        set("enabled", "name", "kind", "node", "detour"),
 	"dns_profile":  set("enabled", "name", "protocol", "server", "server_port", "tls_server_name", "path", "insecure", "strategy", "cache_persist", "optimistic_cache"),
 	"local_proxy":  set("enabled", "name", "protocol", "listen", "listen_port", "username", "password"),
 	"rule":         set("enabled", "default", "name", "dns_profile", "route", "inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
 }
 
 var listNames = map[string]map[string]bool{
-	"steer": set("probe_direct", "probe_proxy", "speedtest_proxy"),
+	"steer": {},
 	"node":  set("server_ports", "host_key_algorithms", "extra_args"),
 	"rule":  set("inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
 }
@@ -133,13 +133,12 @@ func decodeMain(s uci.Section) (model.Main, error) {
 	if err != nil {
 		return model.Main{}, err
 	}
-	probeDirect := clone(s.Lists["probe_direct"])
-	probeProxy := clone(s.Lists["probe_proxy"])
-	speedtestProxy := clone(s.Lists["speedtest_proxy"])
 	return model.Main{ID: s.ID, SchemaVersion: schema, Enabled: enabled,
-		LogLevel:        value(s, "log_level", "warn"),
-		ProbeDirectURLs: probeDirect, ProbeProxyURLs: probeProxy, SpeedtestProxyURLs: speedtestProxy,
-		DNSCacheCapacity: capacity, DNSCachePersist: persist,
+		LogLevel:          value(s, "log_level", "warn"),
+		ProbeDirectURL:    s.Options["probe_direct"],
+		ProbeProxyURL:     s.Options["probe_proxy"],
+		SpeedtestProxyURL: s.Options["speedtest_proxy"],
+		DNSCacheCapacity:  capacity, DNSCachePersist: persist,
 		DNSOptimisticCache: optimistic}, nil
 }
 
@@ -221,7 +220,7 @@ func decodeRoute(s uci.Section) (model.Route, error) {
 	if err != nil {
 		return model.Route{}, err
 	}
-	return model.Route{ID: s.ID, Enabled: enabled, Name: s.Options["name"], Kind: s.Options["kind"], Node: s.Options["node"]}, nil
+	return model.Route{ID: s.ID, Enabled: enabled, Name: s.Options["name"], Kind: s.Options["kind"], Node: s.Options["node"], Detour: s.Options["detour"]}, nil
 }
 
 func decodeDNSProfile(s uci.Section) (model.DNSProfile, error) {

@@ -58,16 +58,32 @@ if "$(1)/usr/sbin/steer" not in makefile:
 if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc:
     fail("retired steer-openwrt CLI name is still user-visible")
 
-if '[ "$$schema" = 6 ]' not in makefile or "uci set steer.main.schema_version" in makefile:
-    fail("package must require schema 6 without retaining an older schema migration")
+for migration_fragment in (
+    'case "$$schema" in',
+    "for option in probe_direct probe_proxy speedtest_proxy",
+    "sed 's/ .*//'",
+    "uci set steer.main.schema_version='7'",
+    "schema 6 or 7 is required",
+):
+    if migration_fragment not in makefile:
+        fail(f"package is missing schema 6 to 7 migration step: {migration_fragment}")
+if "PKG_VERSION:=0.3.0" not in makefile or "PKG_RELEASE:=1" not in makefile:
+    fail("steer-openwrt package version must start the 0.3.0 release line")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
     if stale_repair in makefile:
         fail(f"package retained the expired subscription network repair: {stale_repair}")
-for fragment in ("repaired_speedtest_buttons", "_connect_speedtest _download_speedtest", "uci -q delete steer.$$section.$$option"):
+for fragment in ("config_changed=0", "_connect_speedtest _download_speedtest", "uci -q delete steer.$$section.$$option", '[ "$$config_changed" = 0 ] || uci commit steer'):
     if fragment not in makefile:
         fail(f"package is missing the one-release LuCI speed-test repair: {fragment}")
 if "One release transition only: remove LuCI speed-test button values" not in makefile:
     fail("package must mark the temporary LuCI speed-test repair for removal")
+for migration_fragment in (
+    "/var/lib/steer/logs/speedtests",
+    "/var/lib/steer/logs/tests/nodes",
+    "mv -f",
+):
+    if migration_fragment not in makefile:
+        fail(f"package is missing test log migration step: {migration_fragment}")
 if "*/15 * * * * /usr/sbin/steer subscription update" not in makefile:
     fail("subscription cron dispatcher is not package-managed")
 if "[ -x /etc/init.d/cron ]" not in makefile:

@@ -228,13 +228,13 @@ msgstr "常规"
 msgid "HTTP path"
 msgstr "HTTP 路径"
 
-msgid "Direct connectivity probe URLs"
-msgstr "直连连通性探测地址"
+msgid "Direct connectivity probe URL"
+msgstr "直连连通性测试地址"
 
-msgid "Proxy connectivity probe URLs"
-msgstr "代理连通性探测地址"
+msgid "Proxy connectivity probe URL"
+msgstr "代理连通性测试地址"
 
-msgid "Proxy speed-test URLs"
+msgid "Proxy speed-test URL"
 msgstr "代理测速地址"
 
 msgid "Ignored compatibility-only parameter: %s"
@@ -396,11 +396,8 @@ msgstr "REALITY 短 ID"
 msgid "Ready"
 msgstr "就绪"
 
-msgid "Reserved for sing-box 1.14; M1 rejects it."
-msgstr "为 sing-box 1.14 预留；M1 会拒绝启用。"
-
-msgid "Reserved for sing-box 1.14; enabling it on M1 is rejected."
-msgstr "为 sing-box 1.14 预留；在 M1 启用会被拒绝。"
+msgid "Reserved for sing-box 1.14; the current 1.13 baseline rejects it."
+msgstr "为 sing-box 1.14 预留；当前 1.13 基线会拒绝启用。"
 
 msgid "Review imported node"
 msgstr "审查导入节点"
@@ -606,27 +603,6 @@ msgstr "有效"
 msgid "Manual probes"
 msgstr "手动探测"
 
-msgid "Previous Steer configuration restored."
-msgstr "已恢复上一份 Steer 配置。"
-
-msgid "Restore previous Steer configuration?"
-msgstr "要恢复上一份 Steer 配置吗？"
-
-msgid "Restore previous configuration"
-msgstr "恢复上一份配置"
-
-msgid "Restoring Steer"
-msgstr "正在恢复 Steer"
-
-msgid "Restoring and applying the previous configuration."
-msgstr "正在恢复并应用上一份配置。"
-
-msgid "Steer restore failed"
-msgstr "Steer 恢复失败"
-
-msgid "This restores the single saved configuration and applies it immediately. The backup is deleted after a successful restore."
-msgstr "这会恢复唯一保存的上一份配置并立即应用；恢复成功后将删除该备份。"
-
 msgid "Timed out waiting for the committed Steer configuration to reload."
 msgstr "等待已提交的 Steer 配置重载超时。"
 
@@ -704,3 +680,57 @@ msgstr "未返回测速结果。"
 
 msgid "Test"
 msgstr "测试"
+
+msgid "%s bytes in %s ms · HTTP %s"
+msgstr "%s 字节，耗时 %s 毫秒 · HTTP %s"
+
+msgid "%s ms"
+msgstr "%s 毫秒"
+
+msgid "Chain connection test"
+msgstr "代理链连接测试"
+
+msgid "Chain download test"
+msgstr "代理链下载测速"
+
+msgid "Connect %s ms · TLS %s ms · HTTP %s · %s attempt(s)"
+msgstr "连接 %s 毫秒 · TLS %s 毫秒 · HTTP %s · 尝试 %s 次"
+
+msgid "Detour route"
+msgstr "前置路由"
+
+msgid "Direct connection"
+msgstr "直接连接"
+
+msgid "Direct test"
+msgstr "直连测试"
+
+msgid "Downloads the configured speed-test URL through the current running rules."
+msgstr "通过当前运行规则下载已配置的测速地址。"
+
+msgid "Missing route"
+msgstr "路由缺失"
+
+msgid "No test result was returned."
+msgstr "未返回测试结果。"
+
+msgid "Not tested"
+msgstr "尚未测试"
+
+msgid "Proxy speed test"
+msgstr "代理速度测试"
+
+msgid "Proxy test"
+msgstr "代理测试"
+
+msgid "Requests the configured direct URL through the current running rules."
+msgstr "通过当前运行规则访问已配置的直连测试地址。"
+
+msgid "Requests the configured proxy URL through the current running rules."
+msgstr "通过当前运行规则访问已配置的代理测试地址。"
+
+msgid "Run test"
+msgstr "开始测试"
+
+msgid "The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours."
+msgstr "将先通过所选单节点路由拨号。前置路由缺失、禁用、不是单节点或形成环时，Apply 会拒绝配置。"

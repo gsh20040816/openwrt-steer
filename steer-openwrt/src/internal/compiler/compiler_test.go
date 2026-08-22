@@ -12,7 +12,8 @@ import (
 
 func representativeIntent() model.Intent {
 	return model.Intent{
-		Main:         model.Main{ID: "main", SchemaVersion: 6, Enabled: true, LogLevel: "warn", ProbeDirectURLs: []string{"https://www.baidu.com/", "https://www.google.com/generate_204", "https://github.com/"}, ProbeProxyURLs: []string{"https://www.google.com/generate_204"}, SpeedtestProxyURLs: []string{"https://speed.cloudflare.com/__down?bytes=1000000"}, DNSCacheCapacity: 4096},
+		Main: model.Main{ID: "main", SchemaVersion: model.SchemaVersion, Enabled: true, LogLevel: "warn",
+			ProbeDirectURL: "https://www.baidu.com/", ProbeProxyURL: "https://www.google.com/generate_204", SpeedtestProxyURL: "https://speed.cloudflare.com/__down?bytes=1000000", DNSCacheCapacity: 4096},
 		Bootstrap:    model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeTransport: model.NodeTransport{Flow: "xtls-rprx-vision", PacketEncoding: "xudp"}, NodeTLS: model.NodeTLS{TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}}},
 		Routes:       []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy", Enabled: true, Kind: "single", Node: "node"}, {ID: "block", Enabled: true, Kind: "block"}},
@@ -101,6 +102,47 @@ func TestCompileIsDeterministic(t *testing.T) {
 	second := Compile(representativeIntent())
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("same intent produced different bundle")
+	}
+}
+
+func TestCompileRoutePrivateOutboundsAndDetour(t *testing.T) {
+	intent := representativeIntent()
+	intent.Routes = append(intent.Routes, model.Route{ID: "chained", Enabled: true, Kind: "single", Node: "node", Detour: "proxy"})
+	bundle := Compile(intent)
+	if !bundle.Validation.OK {
+		t.Fatalf("compile failed: %#v", bundle.Validation.Errors)
+	}
+	outbounds := bundle.SingBox["outbounds"].([]any)
+	var proxy, chained map[string]any
+	for _, raw := range outbounds {
+		outbound := raw.(map[string]any)
+		switch outbound["tag"] {
+		case "steer-route-proxy":
+			proxy = outbound
+		case "steer-route-chained":
+			chained = outbound
+		}
+	}
+	if proxy == nil || chained == nil {
+		t.Fatalf("route-private outbounds are missing: %#v", outbounds)
+	}
+	if proxy["type"] != "vless" || proxy["detour"] != nil {
+		t.Fatalf("base route outbound is wrong: %#v", proxy)
+	}
+	if chained["type"] != "vless" || chained["detour"] != "steer-route-proxy" {
+		t.Fatalf("chained route outbound lost detour: %#v", chained)
+	}
+	encoded, _ := json.Marshal(outbounds)
+	if strings.Contains(string(encoded), "steer-node-node") || strings.Contains(string(encoded), `"type":"selector"`) {
+		t.Fatalf("legacy global node selector leaked into route-private compilation: %s", encoded)
+	}
+	chain := CompileRouteChainOutbounds(intent, "chained")
+	chainJSON, _ := json.Marshal(chain)
+	if len(chain) != 2 || !strings.Contains(string(chainJSON), `"tag":"steer-route-proxy"`) || !strings.Contains(string(chainJSON), `"tag":"steer-route-chained"`) {
+		t.Fatalf("route test did not retain the complete target chain: %s", chainJSON)
+	}
+	if strings.Contains(string(chainJSON), `"tag":"steer-route-direct"`) || strings.Contains(string(chainJSON), `"tag":"steer-route-block"`) {
+		t.Fatalf("route test included unrelated outbounds: %s", chainJSON)
 	}
 }
 

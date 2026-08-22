@@ -99,6 +99,27 @@ const methods = {
 				command += ' --download';
 			return command_json(command);
 		}
+	},
+	route_speedtest: {
+		args: { route: '', download: false },
+		call: function(request) {
+			const route = request?.args?.route;
+			if (!route)
+				return { ok: false, error: '缺少路由 ID' };
+			let command = '/usr/sbin/steer probe --kind speedtest --route ' + shellquote(route);
+			if (request.args.download)
+				command += ' --download';
+			return command_json(command);
+		}
+	},
+	overview_probe: {
+		args: { kind: '' },
+		call: function(request) {
+			const kind = request?.args?.kind;
+			if (kind != 'direct' && kind != 'proxy' && kind != 'speedtest')
+				return { ok: false, error: '测试类型必须是 direct、proxy 或 speedtest' };
+			return command_json('/usr/sbin/steer probe --kind ' + kind);
+		}
 	}
 };
 

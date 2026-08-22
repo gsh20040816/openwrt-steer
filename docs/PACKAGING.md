@@ -1,88 +1,100 @@
-# 打包与文件所有权
+# 打包与发布
 
-## 原则
+Steer 0.3.0 使用 OpenWrt 官方 25.12.5 x86/64 SDK构建。仓库中的包定义、固定上游版本和 GitHub Actions 共同构成发布输入；Release 只复用同一提交已经成功生成的 master 构建，不重新编译。
 
-- 软件、第三方二进制和规则数据必须由系统包管理器安装、升级和删除。
-- Steer 不在运行时下载文件并覆盖 `/usr`，不从网络替换包管理器拥有的文件。
-- 第三方依赖独立成包；Steer 主包只声明依赖，不复制 sing-box、SmartDNS 或 geoview 二进制。
-- `/usr` 是只读发布输入，`/etc` 是用户配置，`/var/lib/steer` 保存可重建 Geo 派生物、测速日志和
-  唯一的 `rollback.uci`，`/run/steer` 是临时运行状态。每个节点最近一次连接和下载测速报告保存到
-  `/var/lib/steer/logs/speedtests/<node-id>/{connect,download}.json`，测速数据不得进入 UCI 意图模型。
-- 生成物不作为包更新输入；删除生成物后必须能从包和配置重新构建。
+## 包与所有权
 
-## 当前 OpenWrt 包
+| 包 | 当前版本 | 职责 |
+| --- | --- | --- |
+| `steer-openwrt` | `0.3.0-r1` | `/usr/sbin/steer`、默认 UCI、init/procd、升级迁移 |
+| `luci-app-steer` | `0.3.0-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.3.0-r1` | 简体中文翻译，由 LuCI 构建系统生成 |
+| `steer-geodata` | `202608162214-r1` | 固定版本 GeoSite/GeoIP seed |
+| `geoview` | `0.2.6-r2` | 提取 Geo 分类的上游工具 |
 
-| 包 | 拥有内容 | 不得拥有 |
-|---|---|---|
-| `steer-openwrt` | Go 控制程序、OpenWrt adapter、UCI、procd/firewall4 挂接 | 第三方二进制、远端规则数据 |
-| `luci-app-steer` | LuCI 页面、RPC 和 ACL | 核心运行时、规则数据 |
-| `steer-geodata` | 固定版本、固定哈希的 GeoSite/GeoIP 源数据 | updater、调度器、运行状态 |
-| `geoview` | 固定上游源码构建的独立转换工具 | Steer 配置与状态 |
-| 发行版 `sing-box` | sing-box 二进制 | Steer 配置与状态 |
-| 发行版其他依赖 | firewall4、ucode 等各自文件 | Steer 配置与状态 |
+`steer-openwrt` 依赖发行版的 sing-box，不复制、替换或监督另一个代理核心。其显式平台依赖包括 firewall4、ip、TUN、nft queue/TProxy、CA 证书、`geoview` 和 `steer-geodata`。
 
-`steer-geodata` 安装到 `/usr/share/steer/geodata-seed`。Steer 可以把其中的数据转换为
-`/var/lib/steer/geodata` 下的 sing-box `.srs`，但 GeoSite/GeoIP 版本升级只能通过安装新版
-`steer-geodata` 包完成。包升级后，下一次 Apply 根据 package release 重新生成派生规则；如果
-新数据缺少被引用分类，Apply 必须失败并保留当前运行代。
+## 固定输入
 
-## M1 包布局
+构建必须固定所有远程输入：
 
-- `steer-openwrt`：按需运行的静态 Go 控制程序 `/usr/sbin/steer` 及 OpenWrt 生命周期适配；
-- `luci-app-steer`：只依赖 `steer-openwrt`；
-- `steer-geodata`：独立版本化数据包；
-- `geoview`：独立转换工具。
+- OpenWrt SDK 镜像使用 digest `sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a`；
+- OpenWrt base、packages 和 LuCI feeds 使用工作流中记录的 commit；
+- `geoview` 使用 commit `3c91926d360b8f49d47520639e574608318baf12` 和 `PKG_MIRROR_HASH`；
+- GeoSite、GeoIP 使用版本 `202608162214`，两个下载分别由各自 SHA-256 校验。
 
-不创建独立 `steer-core` APK。平台中立的 Go 包与 OpenWrt adapter 编译进同一个
-`steer-openwrt` 二进制；这不妨碍后续其他平台复用源码，也不制造没有独立生命周期价值的包。
+更新任一输入时，必须同时更新边界检查和发布元数据，不得把浮动分支或未校验下载引入发布构建。
 
-`steer-openwrt` 必须声明替换并冲突旧 `steer`，保留 `/etc/config/steer`，且只在 schema 6
-preflight 通过时启用服务。schema 5→6 的迁移窗口已经关闭，当前包要求 schema 6，未知 schema
-直接失败。上一版 VMess 订阅冗余 `network` 字段的迁移窗口已经关闭。本次 release 仅删除
-`luci-app-steer` 0.2.0-r7 及更早版本错误写入的测速按钮字段；下一包必须删除这段精确修复，
-不保留通用兼容层，也不自动降级 APK。
-包升级期间允许旧 init 脚本按 OpenWrt 约定停止；新包必须先完成唯一一次 UCI 迁移，再显式启动
-新 generation。不能让 `default_postinst` 在迁移前启动服务，否则旧 schema 会导致配置解码失败，
-并留下“包已升级、数据面未启动”的半完成状态。启动失败必须让包事务失败并暴露错误。
+## 配置与持久状态
 
-## 发布约束
+`/etc/config/steer` 是 conffile，包升级保留用户内容。新装默认配置提供 schema 7 和三个测试 URL；程序不会在现有配置缺项时补默认值。
 
-- OpenWrt Makefile 中可安全选择的运行依赖使用 `DEPENDS`。OpenWrt 25.12 的 `curl/libcurl` 与
-  `sing-box/sing-box-tiny` 存在上游 Kconfig 递归选择，暂以标准 `EXTRA_DEPENDS` 写入 APK 依赖
-  元数据，但不把其运行变体变成 Steer 的构建选项；不得借此隐藏其他可正常解析的依赖。
-- 下载发生在包构建阶段，必须固定版本、源码提交和哈希。
-- Release 只发布 CI 从锁定 SDK 构建的独立 APK、SHA-256、元数据和日志。
-- 不允许通过安装脚本、LuCI RPC 或后台调度器实现自更新。
+包拥有或创建的持久路径：
 
-## CI 依赖缓存
+```text
+/etc/config/steer
+/usr/share/steer/geodata-seed
+/var/lib/steer/geodata
+/var/lib/steer/subscriptions
+/var/lib/steer/logs/tests
+/var/lib/steer/rollback.uci
+```
 
-Release 工作流直接使用固定 digest 的官方 OpenWrt 25.12.5 SDK 镜像。`base` feed 保留
-官方 SDK 的 `--root=package` 布局，`packages`、`luci` 和本地 Steer feed 均固定来源。
-不再维护完整 OpenWrt 源码、外部 toolchain 或外部 Go bootstrap 的自制 builder。
+`/run/steer` 只存运行代、当前 Plan 和最近 Apply 状态，重启后可以重建。卸载包不会把 `/var/lib/steer` 当作普通包文件强行删除。
 
-第一次 `make defconfig` 前必须关闭 `CONFIG_ALL_KMODS` 与
-`CONFIG_ALL_NONSHARED`；安装 Steer feed 并选择 `luci-app-steer` 后再执行最终
-`defconfig`。最终配置必须再次确认这两个开关关闭，并拒绝 r8169、video 等不属于
-Steer 依赖闭包的模块。构建只提交一个 `package/luci-app-steer/compile` 顶层目标，
-由 OpenWrt 解析并构建 `geoview`、`steer-geodata`、`steer-openwrt`、LuCI 应用和中文
-i18n 包。feeds 更新与每个 package download 保持串行，只有 compile 使用并行 make。
+## 0.3.0 升级迁移
 
-GitHub Actions 只持久化两个可重建缓存：SDK 原生 `/builder/.ccache` 和
-OpenWrt Go package 使用的 GOCACHE。`dl` 每次由 GitHub runner 重新下载；`build_dir`、
-`staging_dir`、hostpkg stamp、包安装状态和其他 target state 一律不缓存。
-入口脚本使用 `make val.CCACHE_DIR` 核对 OpenWrt 实际解析到
-`/builder/.ccache`，路径不一致立即失败；ccache 的 compiler check 同时绑定 SDK
-版本与镜像 digest。
+post-install 只接受 schema 6 或 7。schema 6 升级事务按以下顺序执行：
 
-GOCACHE 只复用 Go 编译对象，不能提供 GOROOT，也不能替代 OpenWrt
-`golang/host` 的安装。官方 SDK 在全新工作区中仍会依次构建 Go 1.24.13 bootstrap
-和 Go 1.26.4 host toolchain；缓存命中只能缩短其中可缓存的编译，不能把这条工具链
-依赖伪装成已经消失。
+1. 对 `probe_direct`、`probe_proxy`、`speedtest_proxy` 各读取原 list 第一项；
+2. 删除原 list，再以 UCI option 写回非空第一项；
+3. 把 `schema_version` 改为 7；
+4. 清理 0.2.x LuCI 错写在 node section 的 `_connect_speedtest` 和 `_download_speedtest`；
+5. 提交 UCI；
+6. 把 `/var/lib/steer/logs/speedtests/<node>` 中的最新报告移动到 `/var/lib/steer/logs/tests/nodes/<node>`；
+7. 安装订阅 cron 后执行正常、带原生检查的 `steer apply`。
 
-Steer 的策略路由只使用 `ip rule` 与 `ip route` 的 IPv4/IPv6 基础操作，因此依赖 OpenWrt
-的虚拟 `ip` provider。全新安装由 OpenWrt 的默认 variant 选择 `ip-tiny`，从而保持最小安装
-闭包；已经因 PassWall2、SQM 或其他软件安装 `ip-full` 的设备则直接复用现有 provider，不能
-强制换成与它冲突的 `ip-tiny`。OpenWrt 当前仍按 `iproute2` 源包级依赖调度构建，因此即使
-最终配置未选择 `ip-full`、`libbpf` 和 `libelf`，构建日志中仍会出现 libbpf、elfutils 和
-gettext；这些包不得仅由 Steer 引入为 APK 运行依赖。该边界由 OpenWrt VM 集成测试中的双栈
-fwmark rule、local route、清理与实际透明代理流量验证。
+迁移不为缺失 URL 注入默认值。转换后的配置不合法，或 Apply 失败时，包安装明确失败；不能把错误配置伪装成升级成功。schema 7 重装不重复改写字段，schema 5 及更早版本没有自动迁移窗口。
+
+这次清理旧按钮字段和旧测速目录是一个发布窗口内的迁移代码。所有受支持安装完成升级后，后续版本应删除这段历史兼容逻辑，而不是继续扩展它。
+
+## 官方 SDK 构建
+
+`Build OpenWrt packages` 在 master push 或手动触发时执行：
+
+1. 运行 i18n、包边界、构建缓存、LuCI 和 URI parser 检查；
+2. 在固定官方 SDK 容器中安装本地 feed；
+3. 只选择 `luci-app-steer` 及其依赖闭包，拒绝无关设备 profile kmod；
+4. 串行下载，按 CPU 并行编译；
+5. 收集五个且每类恰好一个 APK；
+6. 生成 `BUILD-METADATA.txt` 和 `SHA256SUMS`；
+7. 上传 `openwrt-25.12.5-x86_64-packages` 构建证据。
+
+本地 Go/Node/Python 测试不能替代 SDK 构建；SDK 编译成功也不能替代真机 Apply 和 sing-box 原生检查。完整门槛见[开发与验证](DEVELOPMENT.md)。
+
+## Tag 与 Release
+
+0.3.0 的首个预发布 tag 为 `v0.3.0-alpha.1`。推送 tag 前必须确认同一 commit 的 master 构建成功。
+
+`Publish tagged release` 会：
+
+1. 查找 tag commit 对应的成功 master push 构建；
+2. 下载该构建的精确 artifact；
+3. 执行 `sha256sum -c SHA256SUMS`；
+4. 核对 `BUILD-METADATA.txt` 的 source revision；
+5. 再次要求五类 APK 各且仅各一个；
+6. 创建 GitHub prerelease。
+
+最终 Release 资产包含五个 APK、`BUILD-METADATA.txt` 和 `SHA256SUMS`。SHA-256 只能发现下载损坏或资产被替换，当前流程没有单独的包签名信任链；安装者仍需信任 GitHub 仓库和 Actions 发布权限。
+
+## 真机安装
+
+发布验收必须从 Release 下载资产并先校验：
+
+```sh
+sha256sum -c SHA256SUMS
+scp ./*.apk root@<router>:/tmp/steer-release/
+ssh root@<router> 'apk add --allow-untrusted /tmp/steer-release/*.apk'
+```
+
+当前 APK 没有加入路由器信任的仓库签名，所以示例明确使用 `--allow-untrusted`；这不是对校验的替代。安装前备份 `/etc/config/steer`，安装后核对 UCI schema、包版本、服务状态并执行[开发与验证](DEVELOPMENT.md)中的真机发布门。

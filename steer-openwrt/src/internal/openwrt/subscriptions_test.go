@@ -130,8 +130,12 @@ func TestUpdateSubscriptionValidatesCandidateBeforeCommit(t *testing.T) {
 
 func validSubscriptionConfig(subscriptionURL string) string {
 	return `config steer 'main'
-	option schema_version '6'
+	option schema_version '7'
 	option enabled '1'
+	option log_level 'warn'
+	option probe_direct 'https://www.baidu.com/'
+	option probe_proxy 'https://www.google.com/generate_204'
+	option speedtest_proxy 'https://speed.cloudflare.com/__down?bytes=1000000'
 
 config bootstrap 'bootstrap'
 	option protocol 'udp'
