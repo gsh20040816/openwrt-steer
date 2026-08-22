@@ -69,53 +69,6 @@ type Plan struct {
 	SpeedtestProxy       string       `json:"speedtest_proxy"`
 }
 
-// UnmarshalJSON accepts schema 6 probe arrays only so a schema 7 binary can
-// stop and clean the generation left by 0.2.x during package upgrade. New
-// generations always marshal the scalar schema 7 representation.
-func (plan *Plan) UnmarshalJSON(data []byte) error {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return err
-	}
-	if fields == nil {
-		return fmt.Errorf("decode execution plan: expected JSON object")
-	}
-	for _, field := range []string{"probe_direct", "probe_proxy", "speedtest_proxy"} {
-		probe, err := decodePlanProbe(fields[field], field)
-		if err != nil {
-			return err
-		}
-		fields[field], err = json.Marshal(probe)
-		if err != nil {
-			return err
-		}
-	}
-	normalized, err := json.Marshal(fields)
-	if err != nil {
-		return err
-	}
-	type plainPlan Plan
-	return json.Unmarshal(normalized, (*plainPlan)(plan))
-}
-
-func decodePlanProbe(raw json.RawMessage, field string) (string, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return "", nil
-	}
-	var scalar string
-	if err := json.Unmarshal(raw, &scalar); err == nil {
-		return scalar, nil
-	}
-	var legacy []string
-	if err := json.Unmarshal(raw, &legacy); err == nil {
-		if len(legacy) == 0 {
-			return "", nil
-		}
-		return legacy[0], nil
-	}
-	return "", fmt.Errorf("decode execution plan %s: expected string or legacy string array", field)
-}
-
 type PlanObject struct {
 	Type   string `json:"type"`
 	ID     string `json:"id"`

@@ -14,6 +14,7 @@ def fail(message: str) -> None:
 
 
 makefile = (ROOT / "steer-openwrt/Makefile").read_text()
+luci_makefile = (ROOT / "luci-app-steer/Makefile").read_text()
 geodata_makefile = (ROOT / "steer-geodata/Makefile").read_text()
 rpc = (ROOT / "luci-app-steer/root/usr/share/rpcd/ucode/luci.steer").read_text()
 acl = (ROOT / "luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json").read_text()
@@ -58,38 +59,29 @@ if "$(1)/usr/sbin/steer" not in makefile:
 if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc:
     fail("retired steer-openwrt CLI name is still user-visible")
 
-for migration_fragment in (
-    'case "$$schema" in',
+if '[ "$$schema" = 7 ]' not in makefile or "schema 7 is required" not in makefile:
+    fail("steer-openwrt package must reject configurations outside schema 7")
+for retired_migration in (
     "for option in probe_direct probe_proxy speedtest_proxy",
-    "sed 's/ .*//'",
     "uci set steer.main.schema_version='7'",
-    "schema 6 or 7 is required",
+    "_connect_speedtest _download_speedtest",
+    "/var/lib/steer/logs/speedtests",
 ):
-    if migration_fragment not in makefile:
-        fail(f"package is missing schema 6 to 7 migration step: {migration_fragment}")
-if "PKG_VERSION:=0.3.0" not in makefile or "PKG_RELEASE:=2" not in makefile:
-    fail("steer-openwrt package version must be the corrected 0.3.0-r2 release")
+    if retired_migration in makefile:
+        fail(f"package retained expired alpha migration: {retired_migration}")
+if "PKG_VERSION:=0.3.0" not in makefile or "PKG_RELEASE:=3" not in makefile:
+    fail("steer-openwrt package version must be the 0.3.0-r3 release")
+if "PKG_VERSION:=0.3.0" not in luci_makefile or "PKG_RELEASE:=3" not in luci_makefile:
+    fail("LuCI packages must use the 0.3.0-r3 release")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
     if stale_repair in makefile:
         fail(f"package retained the expired subscription network repair: {stale_repair}")
-for fragment in ("config_changed=0", "_connect_speedtest _download_speedtest", "uci -q delete steer.$$section.$$option", '[ "$$config_changed" = 0 ] || uci commit steer'):
-    if fragment not in makefile:
-        fail(f"package is missing the one-release LuCI speed-test repair: {fragment}")
-if "One release transition only: remove LuCI speed-test button values" not in makefile:
-    fail("package must mark the temporary LuCI speed-test repair for removal")
-for migration_fragment in (
-    "/var/lib/steer/logs/speedtests",
-    "/var/lib/steer/logs/tests/nodes",
-    "mv -f",
-):
-    if migration_fragment not in makefile:
-        fail(f"package is missing test log migration step: {migration_fragment}")
 if "*/15 * * * * /usr/sbin/steer subscription update" not in makefile:
     fail("subscription cron dispatcher is not package-managed")
 if "[ -x /etc/init.d/cron ]" not in makefile:
     fail("subscription dispatcher must fail fast when BusyBox crond is unavailable")
 if "PKG_UPGRADE=0 /usr/sbin/steer apply" not in makefile:
-    fail("post-upgrade must switch the migrated intent through verified Apply")
+    fail("post-upgrade must switch the schema 7 intent through verified Apply")
 if "PKG_UPGRADE=0 /etc/init.d/steer start" in makefile:
     fail("post-upgrade must not leave an already-running sing-box instance unchanged")
 if "subscription_update" not in rpc or "subscription_update" not in acl:

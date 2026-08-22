@@ -6,9 +6,9 @@ Steer 0.3.0 使用 OpenWrt 官方 25.12.5 x86/64 SDK构建。仓库中的包定�
 
 | 包 | 当前版本 | 职责 |
 | --- | --- | --- |
-| `steer-openwrt` | `0.3.0-r2` | `/usr/sbin/steer`、默认 UCI、init/procd、升级迁移 |
-| `luci-app-steer` | `0.3.0-r2` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.3.0-r2` | 简体中文翻译，由 LuCI 构建系统生成 |
+| `steer-openwrt` | `0.3.0-r3` | `/usr/sbin/steer`、默认 UCI、init/procd、Apply 事务 |
+| `luci-app-steer` | `0.3.0-r3` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.3.0-r3` | 简体中文翻译，由 LuCI 构建系统生成 |
 | `steer-geodata` | `202608162214-r1` | 固定版本 GeoSite/GeoIP seed |
 | `geoview` | `0.2.6-r2` | 提取 Geo 分类的上游工具 |
 
@@ -42,21 +42,11 @@ Steer 0.3.0 使用 OpenWrt 官方 25.12.5 x86/64 SDK构建。仓库中的包定�
 
 `/run/steer` 只存运行代、当前 Plan 和最近 Apply 状态，重启后可以重建。卸载包不会把 `/var/lib/steer` 当作普通包文件强行删除。
 
-## 0.3.0 升级迁移
+## 配置版本边界
 
-post-install 只接受 schema 6 或 7。schema 6 升级事务按以下顺序执行：
+正式版只接受 schema 7。post-install 不转换旧 schema、不清理历史字段，也不搬迁旧日志；版本不匹配时会明确失败且不改写 UCI。新安装使用包内 schema 7 默认配置，已有安装必须在升级前自行完成配置迁移。
 
-1. 对 `probe_direct`、`probe_proxy`、`speedtest_proxy` 各读取原 list 第一项；
-2. 删除原 list，再以 UCI option 写回非空第一项；
-3. 把 `schema_version` 改为 7；
-4. 清理 0.2.x LuCI 错写在 node section 的 `_connect_speedtest` 和 `_download_speedtest`；
-5. 提交 UCI；
-6. 把 `/var/lib/steer/logs/speedtests/<node>` 中的最新报告移动到 `/var/lib/steer/logs/tests/nodes/<node>`；
-7. 安装订阅 cron 后执行正常、带原生检查的 `steer apply`。
-
-迁移不为缺失 URL 注入默认值。转换后的配置不合法，或 Apply 失败时，包安装明确失败；不能把错误配置伪装成升级成功。schema 7 重装不重复改写字段，schema 5 及更早版本没有自动迁移窗口。
-
-这次清理旧按钮字段和旧测速目录是一个发布窗口内的迁移代码。所有受支持安装完成升级后，后续版本应删除这段历史兼容逻辑，而不是继续扩展它。
+通过版本检查后，post-install 安装订阅 cron，并执行带原生 sing-box 检查的正常 `steer apply`。配置非法或 Apply 失败时，包安装明确失败，不能把错误配置伪装成升级成功。
 
 ## 官方 SDK 构建
 
@@ -74,7 +64,7 @@ post-install 只接受 schema 6 或 7。schema 6 升级事务按以下顺序执�
 
 ## Tag 与 Release
 
-0.3.0-r2 的预发布 tag 为 `v0.3.0-alpha.2`。推送 tag 前必须确认同一 commit 的 master 构建成功。
+首个正式版 tag 为 `v0.3.0`。推送 tag 前必须确认同一 commit 的 master 构建成功；带预发布后缀的 tag（例如 `v0.3.1-alpha.1`）发布为 prerelease，不带后缀的稳定语义版本 tag 发布为正式 Release。
 
 `Publish tagged release` 会：
 
@@ -83,7 +73,7 @@ post-install 只接受 schema 6 或 7。schema 6 升级事务按以下顺序执�
 3. 执行 `sha256sum -c SHA256SUMS`；
 4. 核对 `BUILD-METADATA.txt` 的 source revision；
 5. 再次要求五类 APK 各且仅各一个；
-6. 创建 GitHub prerelease。
+6. 根据 tag 是否带预发布后缀，创建 GitHub 正式 Release 或 prerelease。
 
 最终 Release 资产包含五个 APK、`BUILD-METADATA.txt` 和 `SHA256SUMS`。SHA-256 只能发现下载损坏或资产被替换，当前流程没有单独的包签名信任链；安装者仍需信任 GitHub 仓库和 Actions 发布权限。
 

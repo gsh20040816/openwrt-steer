@@ -44,7 +44,7 @@ python3 tests/check-build-cache.py
 ```
 
 - i18n 检查要求所有 LuCI 消息有简体中文翻译；
-- package boundaries 检查版本、依赖、conffile、schema 6→7 迁移、旧字段/日志迁移和 RPC 注册；
+- package boundaries 检查版本、依赖、conffile、schema 7 边界、过期迁移清理和 RPC 注册；
 - build cache 检查官方 SDK digest、固定 feeds、缓存和最小包依赖闭包。
 
 ## Fixture
@@ -86,6 +86,6 @@ python3 tests/check-build-cache.py
 git diff --check
 ```
 
-推送后等待固定 SDK 构建成功；tag 后等待 prerelease 发布；最后从 Release 资产安装真机。真机至少验证版本、schema 迁移、Apply/health、概览三项测试、一个裸节点和一条已有单节点 Route 的连接/下载测试。
+推送后等待固定 SDK 构建成功；tag 后等待正式 Release 发布；最后从 Release 资产安装真机。真机至少验证版本、schema 7、Apply/health、概览三项测试、一个裸节点和一条已有单节点 Route 的连接/下载测试。
 
 生产配置没有多级 detour 时，不得为了测试改真实路由。把 `schema7-detour-valid` 复制到临时路径，运行 `steer prepare --config <fixture> --run-dir <temporary> --state-dir <temporary>`，由目标 sing-box 原生检查隔离候选即可。

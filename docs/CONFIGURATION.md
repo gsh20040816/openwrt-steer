@@ -207,14 +207,6 @@ steer cleanup
 
 `steer rollback` 仍可一次性恢复 Apply 前保存的上一份本地健康 UCI，并复用正常 Apply。LuCI 概览不提供此按钮；它不是配置历史、自动回退或开机恢复机制。
 
-## 从 schema 6 升级
+## 配置版本要求
 
-0.3.0 包安装脚本只接受 schema 6 或 7。升级 schema 6 时：
-
-1. `probe_direct`、`probe_proxy`、`speedtest_proxy` 各保留原列表第一项并转换为单值 option；
-2. schema 改为 7；
-3. 清理旧 LuCI 曾误写入节点的测速按钮字段；
-4. 把旧节点测速报告迁移到统一日志树；
-5. 通过正常 `steer apply` 校验并切换。
-
-缺少任一测试 URL 时不会使用包内默认值补齐，升级会明确失败，用户需先修正 UCI。schema 5 及更早版本不自动迁移。
+0.3.0 正式版只接受 schema 7，不自动转换旧配置。新安装直接使用包内默认配置；旧版本升级前必须先把 UCI 转换为 schema 7，并确保三个测试 URL 都是非空的 HTTPS scalar option。版本不匹配或配置非法时，安装会明确失败，不会注入默认值或静默修改用户配置。

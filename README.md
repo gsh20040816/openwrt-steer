@@ -27,10 +27,10 @@ Steer 是面向 OpenWrt 的透明代理意图编译器和控制平面。用户�
 
 ## 文档
 
-- [配置与使用](docs/CONFIGURATION.md)：安装、schema 7、LuCI、CLI、代理链和升级。
+- [配置与使用](docs/CONFIGURATION.md)：安装、schema 7、LuCI、CLI、代理链和诊断。
 - [架构](docs/ARCHITECTURE.md)：数据流、编译不变量、OpenWrt 接管和状态目录。
 - [开发与验证](docs/DEVELOPMENT.md)：本地测试、OpenWrt VM、原生校验和发布门。
-- [打包与发布](docs/PACKAGING.md)：包所有权、版本、迁移、构建产物和持久状态。
+- [打包与发布](docs/PACKAGING.md)：包所有权、版本、配置边界、构建产物和持久状态。
 - [测试说明](tests/README.md)：各测试层具体覆盖范围。
 
 ## 快速检查

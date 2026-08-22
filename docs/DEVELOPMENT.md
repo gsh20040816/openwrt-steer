@@ -68,18 +68,11 @@ git diff --check
 - RPC 参数声明、shell quoting、ACL 和 LuCI 非持久按钮；
 - 概览没有 rollback 操作。
 
-## schema 迁移
+## schema 版本管理
 
 公开 schema 变化必须同时修改 model 常量、UCI scalar/list 形态、默认配置、fixture、LuCI、包安装脚本、边界测试和文档。
 
-0.3.0 的唯一迁移窗口是 schema 6→7。发布验证必须从包含多条 probe list、旧节点测速日志和历史 LuCI 按钮字段的 schema 6 配置开始，确认：
-
-1. 每组只保留第一条 URL；
-2. 转换后 `uci show` 是 option 而不是 list；
-3. 二次安装保持相同配置；
-4. 旧日志移动到统一目录；
-5. 新二进制能解码旧 generation 的 probe 数组并完成清理；
-6. Apply 使用迁移后 UCI 并保持运行健康。
+0.3.0 正式版只接受 schema 7，不携带 alpha 阶段的 schema 6 转换和旧运行计划兼容代码。发布验证必须确认新装默认配置和待升级设备均已是 schema 7；版本不匹配时必须明确失败且不能改写 UCI。
 
 ## OpenWrt VM
 
@@ -97,10 +90,10 @@ tests/integration/run-openwrt-vm.sh
 
 ## 真机发布门
 
-预览版发布前至少确认：
+正式版发布前至少确认：
 
 - 目标 OpenWrt、sing-box 版本和 build tags；
-- UCI 迁移前后内容与 `/etc/rc.d` 状态；
+- UCI schema 7 内容与 `/etc/rc.d` 状态；
 - `steer validate`、`plan`、`apply`、`health`、`status`；
 - procd 进程、TUN、nftables、监听端口；
 - 概览 direct/proxy/speedtest；
