@@ -463,7 +463,9 @@ async function main() {
 		'Route summaries show the node name instead of its internal UCI ID');
 	const routeSection = environment.maps[0].sections.find((section) => section.sectionType == 'route');
 	const detourPicker = routeSection.options.find((option) => option.name == 'detour');
-	assert.ok(detourPicker && detourPicker.values.some((value) => value[0] == 'route_proxy'),
+	assert.deepEqual(detourPicker.values[0], [ '', 'Direct connection' ],
+		'Detour picker can clear an existing detour and dial the node directly');
+	assert.ok(detourPicker.values.some((value) => value[0] == 'route_proxy'),
 		'Detour picker shows every single-node route, including the current route for backend cycle diagnostics');
 	[ '_route_connect_test', '_route_download_test' ].forEach((name) => {
 		const option = routeSection.options.find((candidate) => candidate.name == name);

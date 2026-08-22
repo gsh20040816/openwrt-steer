@@ -507,6 +507,7 @@ return view.extend({
 			o = s.option(form.RichListValue, 'detour', _('Detour route'));
 			o.depends('kind', 'single');
 			o.rmempty = true;
+			o.value('', _('Direct connection'));
 			routeReferences.forEach((reference) => o.value(reference.id, reference.label));
 			o.textvalue = function(sectionId) {
 				const detour = uci.get('steer', sectionId, 'detour');
