@@ -36,12 +36,16 @@ func GeoCatalog(ctx context.Context, runner Runner, kind, seedDirectory, geoView
 	if err != nil {
 		return nil, err
 	}
-	values := []string{}
+	unique := make(map[string]struct{})
 	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && line != "Available codes:" {
-			values = append(values, line)
+		line = strings.ToLower(strings.TrimSpace(line))
+		if line != "" && line != "available codes:" {
+			unique[line] = struct{}{}
 		}
+	}
+	values := make([]string, 0, len(unique))
+	for line := range unique {
+		values = append(values, line)
 	}
 	sort.Strings(values)
 	return values, nil

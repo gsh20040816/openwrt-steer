@@ -12,7 +12,7 @@ go/cmd/steer-openwrt                            OpenWrt CLI
 luci-app-steer                                  LuCI、RPC、ACL、翻译
 steer-openwrt                                   OpenWrt 控制器包
 steer-geodata                                   固定 Geo 数据包
-geoview                                         上游工具打包与补丁
+geoview                                         上游工具原样打包
 tests/node                                      LuCI/分享 URL 回归
 tests/integration                               一次性 OpenWrt VM 正常路径
 ```

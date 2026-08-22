@@ -17,6 +17,14 @@ type geoRunner struct {
 	failConvert bool
 }
 
+type catalogRunner struct {
+	output []byte
+}
+
+func (runner catalogRunner) Output(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	return runner.output, nil
+}
+
 func (runner *geoRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
 	runner.calls = append(runner.calls, name+" "+strings.Join(args, " "))
 	if runner.failConvert && strings.HasSuffix(name, "geoview") {
@@ -30,6 +38,40 @@ func (runner *geoRunner) Output(_ context.Context, name string, args ...string) 
 		}
 	}
 	return nil, nil
+}
+
+func TestGeoCatalogNormalizesUpstreamOutput(t *testing.T) {
+	output := []byte("Available codes:\nCN\n category-games \nGoogle\ncn\n\n")
+	names, err := GeoCatalog(context.Background(), catalogRunner{output: output}, "geosite", t.TempDir(), "/test/geoview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"category-games", "cn", "google"}
+	if strings.Join(names, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("Geo catalog = %#v, want %#v", names, want)
+	}
+}
+
+func TestEnsureGeoRulesPassesGeoSiteAttributesToGeoView(t *testing.T) {
+	root := t.TempDir()
+	seed := filepath.Join(root, "seed")
+	if err := os.Mkdir(seed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"release": "fixture-r1\n", "geosite.dat": "site", "geoip.dat": "ip"} {
+		if err := os.WriteFile(filepath.Join(seed, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &geoRunner{}
+	rules := []compiler.GeoRuleSet{{Kind: "geosite", Category: "category-example@test", Path: filepath.Join(root, "state", "geodata", "current", "rules", "geosite-category-example@test.srs")}}
+	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), SeedDirectory: seed, GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
+	if err := EnsureGeoRules(context.Background(), runner, rules, options); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) < 2 || !strings.Contains(runner.calls[0], "-list category-example@test ") {
+		t.Fatalf("geoview was not given the attribute selector: %#v", runner.calls)
+	}
 }
 
 func TestEnsureGeoRulesBuildsAndReusesExactGeneration(t *testing.T) {

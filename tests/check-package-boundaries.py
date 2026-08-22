@@ -16,6 +16,7 @@ def fail(message: str) -> None:
 makefile = (ROOT / "steer-openwrt/Makefile").read_text()
 luci_makefile = (ROOT / "luci-app-steer/Makefile").read_text()
 geodata_makefile = (ROOT / "steer-geodata/Makefile").read_text()
+geoview_makefile = (ROOT / "geoview/Makefile").read_text()
 rpc = (ROOT / "luci-app-steer/root/usr/share/rpcd/ucode/luci.steer").read_text()
 acl = (ROOT / "luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json").read_text()
 
@@ -69,10 +70,15 @@ for retired_migration in (
 ):
     if retired_migration in makefile:
         fail(f"package retained expired alpha migration: {retired_migration}")
-if "PKG_VERSION:=0.4.2" not in makefile or "PKG_RELEASE:=1" not in makefile:
-    fail("steer-openwrt package version must be the 0.4.2-r1 release")
-if "PKG_VERSION:=0.4.2" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
-    fail("LuCI packages must use the 0.4.2-r1 release")
+if "PKG_VERSION:=0.4.3" not in makefile or "PKG_RELEASE:=1" not in makefile:
+    fail("steer-openwrt package version must be the 0.4.3-r1 release")
+if "PKG_VERSION:=0.4.3" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
+    fail("LuCI packages must use the 0.4.3-r1 release")
+if "PKG_RELEASE:=3" not in geoview_makefile:
+    fail("geoview package release must increase when removing its downstream patch")
+patches = ROOT / "geoview/patches"
+if patches.exists() and any(path.is_file() for path in patches.rglob("*")):
+    fail("geoview must be built from upstream without downstream patches")
 if "github.com/gsh20040816/openwrt-steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
     fail("steer-openwrt must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
