@@ -1,14 +1,14 @@
 # 打包与发布
 
-Steer 0.3.0 使用 OpenWrt 官方 25.12.5 x86/64 SDK构建。仓库中的包定义、固定上游版本和 GitHub Actions 共同构成发布输入；Release 只复用同一提交已经成功生成的 master 构建，不重新编译。
+Steer 0.3.1 使用 OpenWrt 官方 25.12.5 x86/64 SDK构建。仓库中的包定义、固定上游版本和 GitHub Actions 共同构成发布输入；Release 只复用同一提交已经成功生成的 master 构建，不重新编译。
 
 ## 包与所有权
 
 | 包 | 当前版本 | 职责 |
 | --- | --- | --- |
-| `steer-openwrt` | `0.3.0-r3` | `/usr/sbin/steer`、默认 UCI、init/procd、Apply 事务 |
-| `luci-app-steer` | `0.3.0-r3` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.3.0-r3` | 简体中文翻译，由 LuCI 构建系统生成 |
+| `steer-openwrt` | `0.3.1-r1` | `/usr/sbin/steer`、默认 UCI、init/procd、Apply 事务 |
+| `luci-app-steer` | `0.3.1-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.3.1-r1` | 简体中文翻译，由 LuCI 构建系统生成 |
 | `steer-geodata` | `202608162214-r1` | 固定版本 GeoSite/GeoIP seed |
 | `geoview` | `0.2.6-r2` | 提取 Geo 分类的上游工具 |
 
@@ -64,7 +64,7 @@ Steer 0.3.0 使用 OpenWrt 官方 25.12.5 x86/64 SDK构建。仓库中的包定�
 
 ## Tag 与 Release
 
-首个正式版 tag 为 `v0.3.0`。推送 tag 前必须确认同一 commit 的 master 构建成功；带预发布后缀的 tag（例如 `v0.3.1-alpha.1`）发布为 prerelease，不带后缀的稳定语义版本 tag 发布为正式 Release。
+当前正式版 tag 为 `v0.3.1`。推送 tag 前必须确认同一 commit 的 master 构建成功；带预发布后缀的 tag（例如 `v0.3.2-alpha.1`）发布为 prerelease，不带后缀的稳定语义版本 tag 发布为正式 Release。
 
 `Publish tagged release` 会：
 

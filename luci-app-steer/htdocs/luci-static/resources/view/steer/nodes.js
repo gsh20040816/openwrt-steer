@@ -506,6 +506,7 @@ return view.extend({
 		if (routeReferences.length) {
 			o = s.option(form.RichListValue, 'detour', _('Detour route'));
 			o.depends('kind', 'single');
+			o.optional = true;
 			o.rmempty = true;
 			o.value('', _('Direct connection'));
 			routeReferences.forEach((reference) => o.value(reference.id, reference.label));

@@ -69,10 +69,10 @@ for retired_migration in (
 ):
     if retired_migration in makefile:
         fail(f"package retained expired alpha migration: {retired_migration}")
-if "PKG_VERSION:=0.3.0" not in makefile or "PKG_RELEASE:=3" not in makefile:
-    fail("steer-openwrt package version must be the 0.3.0-r3 release")
-if "PKG_VERSION:=0.3.0" not in luci_makefile or "PKG_RELEASE:=3" not in luci_makefile:
-    fail("LuCI packages must use the 0.3.0-r3 release")
+if "PKG_VERSION:=0.3.1" not in makefile or "PKG_RELEASE:=1" not in makefile:
+    fail("steer-openwrt package version must be the 0.3.1-r1 release")
+if "PKG_VERSION:=0.3.1" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
+    fail("LuCI packages must use the 0.3.1-r1 release")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
     if stale_repair in makefile:
         fail(f"package retained the expired subscription network repair: {stale_repair}")

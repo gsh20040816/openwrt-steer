@@ -78,6 +78,28 @@ function createEnvironment(sections) {
 		}
 
 		depends() {}
+
+		submit(sectionId, value) {
+			/* RichListValue passes only `optional` to LuCI's Dropdown widget. */
+			if (this.type == 'RichListValue' && (value == null || value === '') && this.optional !== true)
+				return Promise.reject(new TypeError(`${this.name} must not be empty`));
+
+			if (value == null || value === '') {
+				if (this.rmempty || this.optional)
+					return Promise.resolve(this.remove(sectionId));
+				return Promise.reject(new TypeError(`${this.name} must not be empty`));
+			}
+
+			return Promise.resolve(this.write(sectionId, value));
+		}
+
+		write(sectionId, value) {
+			uci.set('steer', sectionId, this.name, value);
+		}
+
+		remove(sectionId) {
+			uci.unset('steer', sectionId, this.name);
+		}
 	}
 
 	class Section {
@@ -449,7 +471,10 @@ async function main() {
 			{ '.name': 'cfg_manual', name: 'Manual' },
 			{ '.name': 'jdub_0123456789ab', name: 'Subscribed', source_subscription: 'jdub' }
 		],
-		route: [ { '.name': 'route_proxy', kind: 'single', node: 'jdub_0123456789ab' } ],
+		route: [
+			{ '.name': 'route_proxy', kind: 'single', node: 'jdub_0123456789ab', detour: 'route_jp' },
+			{ '.name': 'route_jp', kind: 'single', node: 'cfg_manual' }
+		],
 		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
 	});
 	const groupedNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
@@ -467,6 +492,12 @@ async function main() {
 		'Detour picker can clear an existing detour and dial the node directly');
 	assert.ok(detourPicker.values.some((value) => value[0] == 'route_proxy'),
 		'Detour picker shows every single-node route, including the current route for backend cycle diagnostics');
+	await detourPicker.submit('route_proxy', '');
+	assert.equal(environment.uci.get('steer', 'route_proxy', 'detour'), undefined,
+		'An empty RichListValue is valid and removes the detour UCI option on save');
+	await detourPicker.submit('route_proxy', 'route_jp');
+	assert.equal(environment.uci.get('steer', 'route_proxy', 'detour'), 'route_jp',
+		'A non-empty detour remains writable');
 	[ '_route_connect_test', '_route_download_test' ].forEach((name) => {
 		const option = routeSection.options.find((candidate) => candidate.name == name);
 		assert.ok(option && option.editable && option.default === undefined,
