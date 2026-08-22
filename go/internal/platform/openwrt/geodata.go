@@ -134,13 +134,9 @@ func EnsureGeoRules(ctx context.Context, runner Runner, ruleSets []compiler.GeoR
 }
 
 func pruneGeoGenerations(root, keep string) error {
-	resolvedKeep, err := filepath.EvalSymlinks(keep)
+	keepInfo, err := os.Stat(keep)
 	if err != nil {
-		return fmt.Errorf("resolve current Geo generation: %w", err)
-	}
-	resolvedKeep, err = filepath.Abs(resolvedKeep)
-	if err != nil {
-		return fmt.Errorf("resolve current Geo generation path: %w", err)
+		return fmt.Errorf("stat current Geo generation: %w", err)
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -150,11 +146,12 @@ func pruneGeoGenerations(root, keep string) error {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "generation.") {
 			continue
 		}
-		candidate, err := filepath.Abs(filepath.Join(root, entry.Name()))
+		candidate := filepath.Join(root, entry.Name())
+		candidateInfo, err := os.Stat(candidate)
 		if err != nil {
-			return fmt.Errorf("resolve Geo generation %q: %w", entry.Name(), err)
+			return fmt.Errorf("stat Geo generation %q: %w", entry.Name(), err)
 		}
-		if filepath.Clean(candidate) == filepath.Clean(resolvedKeep) {
+		if os.SameFile(candidateInfo, keepInfo) {
 			continue
 		}
 		if err := os.RemoveAll(candidate); err != nil {

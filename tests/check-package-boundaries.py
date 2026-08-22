@@ -69,10 +69,10 @@ for retired_migration in (
 ):
     if retired_migration in makefile:
         fail(f"package retained expired alpha migration: {retired_migration}")
-if "PKG_VERSION:=0.4.0" not in makefile or "PKG_RELEASE:=1" not in makefile:
-    fail("steer-openwrt package version must be the 0.4.0-r1 release")
-if "PKG_VERSION:=0.4.0" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
-    fail("LuCI packages must use the 0.4.0-r1 release")
+if "PKG_VERSION:=0.4.1" not in makefile or "PKG_RELEASE:=1" not in makefile:
+    fail("steer-openwrt package version must be the 0.4.1-r1 release")
+if "PKG_VERSION:=0.4.1" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
+    fail("LuCI packages must use the 0.4.1-r1 release")
 if "github.com/gsh20040816/openwrt-steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
     fail("steer-openwrt must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):

@@ -136,3 +136,36 @@ func TestEnsureGeoRulesPreservesCurrentOnConversionFailure(t *testing.T) {
 		t.Fatalf("failed generation replaced current: before=%q after=%q err=%v", before, after, err)
 	}
 }
+
+func TestEnsureGeoRulesKeepsCurrentThroughAliasedStatePath(t *testing.T) {
+	root := t.TempDir()
+	actualState := filepath.Join(root, "actual-state")
+	if err := os.Mkdir(actualState, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliasedState := filepath.Join(root, "state-alias")
+	if err := os.Symlink(actualState, aliasedState); err != nil {
+		t.Fatal(err)
+	}
+	seed := filepath.Join(root, "seed")
+	if err := os.Mkdir(seed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"release": "fixture-r1\n", "geosite.dat": "site", "geoip.dat": "ip"} {
+		if err := os.WriteFile(filepath.Join(seed, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rulePath := filepath.Join(aliasedState, "geodata", "current", "rules", "geoip-cn.srs")
+	rules := []compiler.GeoRuleSet{{Kind: "geoip", Category: "cn", Path: rulePath}}
+	options := GeoOptions{StateDirectory: aliasedState, SeedDirectory: seed, GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
+	if err := EnsureGeoRules(context.Background(), &geoRunner{}, rules, options); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(rulePath); err != nil || info.Size() == 0 {
+		t.Fatalf("current Geo generation was removed through aliased state path: info=%v err=%v", info, err)
+	}
+	if err := EnsureGeoRules(context.Background(), &geoRunner{}, rules, options); err != nil {
+		t.Fatalf("ready aliased Geo generation could not be reused: %v", err)
+	}
+}
