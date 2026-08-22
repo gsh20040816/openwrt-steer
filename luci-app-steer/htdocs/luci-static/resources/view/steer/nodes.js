@@ -147,7 +147,19 @@ function renderSubscriptionStatus(result) {
 						});
 					}
 				}, _('Update now')) ];
-				stale.forEach((node) => actions.push(' ', E('button', { 'class': 'btn cbi-button-negative', 'click': function() { return steer.cleanSubscription(subscription.id, node).then(() => window.location.reload()); } }, _('Remove %s').format(node))));
+				stale.forEach((node) => actions.push(' ', E('button', {
+					'class': 'btn cbi-button-negative',
+					'click': function() {
+						return steer.cleanSubscription(subscription.id, node).then((clean) => {
+							if (!clean?.ok) {
+								ui.addNotification(_('Subscription node removal failed'), E('p', {}, clean?.error || _('Unknown error')), 'danger');
+								return clean;
+							}
+							window.location.reload();
+							return clean;
+						});
+					}
+				}, _('Remove %s').format(node))));
 				return E('div', { 'class': 'tr' }, [
 					E('div', { 'class': 'td' }, subscription.name || subscription.id),
 					E('div', { 'class': 'td' }, last),

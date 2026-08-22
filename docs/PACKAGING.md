@@ -12,7 +12,7 @@
 | `steer-geodata` | 独立时间版本 | 固定 GeoSite/GeoIP seed |
 | `geoview` | 固定上游 commit | Geo 分类读取工具 |
 
-`sing-box` 由 OpenWrt package manager 提供，Steer 不安装或替换它。控制器依赖 `sing-box >= 1.13.18`、`firewall4`、`ip`、`kmod-tun`、`kmod-nft-queue`、`kmod-nft-tproxy`、`geoview` 和 `steer-geodata`。
+`sing-box` 由 OpenWrt package manager 提供，Steer 不安装或替换它。控制器只支持 `sing-box >= 1.13.18 且 < 1.14.0`，并依赖 `firewall4`、`ip`、`kmod-tun`、`kmod-nft-queue`、`kmod-nft-tproxy`、`geoview` 和 `steer-geodata`。APK 依赖与运行时 capability 检查使用同一版本边界，包管理器会在安装阶段拒绝 1.14 及更高版本。
 
 Go 源码位于仓库根的 `go/`，包定义从同一 feed 的兄弟目录复制构建输入。旧 `steer-openwrt/src` 不存在，也没有兼容副本。
 

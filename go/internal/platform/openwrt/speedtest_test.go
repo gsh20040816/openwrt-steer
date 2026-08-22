@@ -77,3 +77,24 @@ config route 'disabled_route'
 		t.Fatal("disabled route test was accepted")
 	}
 }
+
+func TestTemporaryProbeConfigMarksEveryDialSocketForSteerBypass(t *testing.T) {
+	original := map[string]any{"type": "socks", "tag": "route-proxy", "server": "192.0.2.1", "server_port": 1080}
+	config, err := temporaryProbeConfig([]any{original}, "route-proxy", 12345)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := original["routing_mark"]; exists {
+		t.Fatal("temporary probe mutated compiler output")
+	}
+	dns := config["dns"].(map[string]any)["servers"].([]any)[0].(map[string]any)
+	if dns["routing_mark"] != AutoRedirectOutputMark {
+		t.Fatalf("temporary DNS routing mark = %#v, want %#x", dns["routing_mark"], AutoRedirectOutputMark)
+	}
+	for _, value := range config["outbounds"].([]any) {
+		outbound := value.(map[string]any)
+		if outbound["routing_mark"] != AutoRedirectOutputMark {
+			t.Fatalf("temporary outbound routing mark = %#v, want %#x", outbound["routing_mark"], AutoRedirectOutputMark)
+		}
+	}
+}

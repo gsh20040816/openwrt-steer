@@ -3,6 +3,7 @@
 package subscription
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -34,5 +35,16 @@ func TestMergePreservesUserStateAndPinsStaleNodes(t *testing.T) {
 	merged := Merge("feed", []model.Node{old, stale}, []model.Node{fresh})
 	if len(merged) != 2 || merged[0].ID != "feed_existing" || merged[0].Enabled || !merged[1].PinnedStale {
 		t.Fatalf("unexpected merge: %#v", merged)
+	}
+}
+
+func TestFetchRejectsSubscriptionLargerThanLimit(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write(bytes.Repeat([]byte{'x'}, maxSubscriptionBytes+1))
+	}))
+	defer server.Close()
+	_, err := Fetch(context.Background(), server.Client(), model.Subscription{ID: "oversized", Enabled: true, URL: server.URL})
+	if err == nil || err.Error() != "subscription exceeds the 16 MiB size limit" {
+		t.Fatalf("oversized subscription was not rejected explicitly: %v", err)
 	}
 }

@@ -58,11 +58,49 @@ func TestEnsureGeoRulesBuildsAndReusesExactGeneration(t *testing.T) {
 		}
 	}
 	firstCallCount := len(runner.calls)
+	obsolete := filepath.Join(root, "state", "geodata", "generation.obsolete")
+	if err := os.Mkdir(obsolete, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := EnsureGeoRules(context.Background(), runner, ruleSets, options); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.calls) != firstCallCount {
 		t.Fatalf("unchanged Geo generation was rebuilt: %v", runner.calls)
+	}
+	if _, err := os.Stat(obsolete); !os.IsNotExist(err) {
+		t.Fatalf("obsolete Geo generation was not pruned: %v", err)
+	}
+	current := filepath.Join(root, "state", "geodata", "current")
+	firstGeneration, err := filepath.EvalSymlinks(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seed, "release"), []byte("fixture-r2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureGeoRules(context.Background(), runner, ruleSets, options); err != nil {
+		t.Fatal(err)
+	}
+	secondGeneration, err := filepath.EvalSymlinks(current)
+	if err != nil || secondGeneration == firstGeneration {
+		t.Fatalf("Geo release change did not publish a new generation: first=%q second=%q err=%v", firstGeneration, secondGeneration, err)
+	}
+	if _, err := os.Stat(firstGeneration); !os.IsNotExist(err) {
+		t.Fatalf("previous current Geo generation was not pruned: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "state", "geodata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generationCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "generation.") {
+			generationCount++
+		}
+	}
+	if generationCount != 1 {
+		t.Fatalf("Geo generation count = %d, want 1", generationCount)
 	}
 }
 
@@ -79,10 +117,22 @@ func TestEnsureGeoRulesPreservesCurrentOnConversionFailure(t *testing.T) {
 	}
 	rules := []compiler.GeoRuleSet{{Kind: "geosite", Category: "missing"}}
 	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), SeedDirectory: seed, GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
+	if err := EnsureGeoRules(context.Background(), &geoRunner{}, rules, options); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(root, "state", "geodata", "current")
+	before, err := filepath.EvalSymlinks(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seed, "release"), []byte("fixture-r2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := EnsureGeoRules(context.Background(), &geoRunner{failConvert: true}, rules, options); err == nil {
 		t.Fatal("missing Geo category was accepted")
 	}
-	if _, err := os.Lstat(filepath.Join(root, "state", "geodata", "current")); !os.IsNotExist(err) {
-		t.Fatalf("failed generation became current: %v", err)
+	after, err := filepath.EvalSymlinks(current)
+	if err != nil || after != before {
+		t.Fatalf("failed generation replaced current: before=%q after=%q err=%v", before, after, err)
 	}
 }

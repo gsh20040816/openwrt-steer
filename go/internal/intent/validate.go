@@ -275,6 +275,9 @@ func validateNode(value Node, err, warn issueFn) {
 			err("INVALID_NODE_NETWORK", "node", value.ID, "network", "VMess network must be tcp or udp")
 		}
 	}
+	if value.Security != "" && value.Type != "vmess" {
+		err("UNSUPPORTED_NODE_OPTION", "node", value.ID, "security", "security is only supported by VMess outbounds")
+	}
 	switch value.Type {
 	case "socks":
 		if value.TLSServerName != "" || value.Insecure {

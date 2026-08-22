@@ -633,6 +633,9 @@ msgstr "订阅更新失败"
 msgid "Subscription updated."
 msgstr "订阅已更新。"
 
+msgid "Subscription node removal failed"
+msgstr "删除订阅节点失败"
+
 msgid "Update now"
 msgstr "立即更新"
 

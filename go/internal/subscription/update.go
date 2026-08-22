@@ -43,6 +43,8 @@ type Snapshot struct {
 	Nodes          []model.Node `json:"nodes"`
 }
 
+const maxSubscriptionBytes = 16 << 20
+
 func Fetch(ctx context.Context, client *http.Client, configured model.Subscription) ([]model.Node, error) {
 	parsedURL, parseErr := url.Parse(configured.URL)
 	if parseErr != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.Fragment != "" {
@@ -63,9 +65,12 @@ func Fetch(ctx context.Context, client *http.Client, configured model.Subscripti
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("subscription returned HTTP %d", response.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 16<<20))
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxSubscriptionBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read subscription: %w", err)
+	}
+	if len(body) > maxSubscriptionBytes {
+		return nil, fmt.Errorf("subscription exceeds the 16 MiB size limit")
 	}
 	return ParseList(string(body))
 }

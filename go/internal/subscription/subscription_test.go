@@ -70,3 +70,55 @@ func TestParsePassWallCompatibleAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestParseVLESSLowersSecurityIntoCanonicalTLSFields(t *testing.T) {
+	tlsNode, err := ParseURI("vless://00000000-0000-4000-8000-000000000001@example.com:443?encryption=none&security=tls&sni=edge.example.com&fp=chrome")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tlsNode.Security != "" || tlsNode.TLSServerName != "edge.example.com" || tlsNode.UTLSFingerprint != "chrome" {
+		t.Fatalf("VLESS TLS was not lowered into canonical fields: %#v", tlsNode)
+	}
+	realityNode, err := ParseURI("vless://00000000-0000-4000-8000-000000000001@example.com:443?security=reality&sni=edge.example.com&fp=chrome&pbk=public-key&sid=0123456789abcdef&flow=xtls-rprx-vision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realityNode.Security != "" || realityNode.RealityPublicKey != "public-key" || realityNode.RealityShortID != "0123456789abcdef" {
+		t.Fatalf("VLESS Reality was not lowered into canonical fields: %#v", realityNode)
+	}
+}
+
+func TestParseVLESSRejectsSecurityContradictions(t *testing.T) {
+	for _, raw := range []string{
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls",
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=none&sni=edge.example.com",
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=none&flow=xtls-rprx-vision",
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com&pbk=public-key",
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=unsupported",
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?encryption=aes-128-gcm",
+	} {
+		if _, err := ParseURI(raw); err == nil {
+			t.Fatalf("contradictory VLESS URI was accepted: %s", raw)
+		}
+	}
+}
+
+func TestParseHysteriaMPortPreservesSingleAndMultipleRanges(t *testing.T) {
+	for raw, expected := range map[string][]string{
+		"hy2://secret@example.com:443?mport=20000:30000":       {"20000:30000"},
+		"hy2://secret@example.com:443?mport=12000-12010,13000": {"12000:12010", "13000"},
+	} {
+		node, err := ParseURI(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if node.ServerPort != 443 || len(node.ServerPorts) != len(expected) {
+			t.Fatalf("unexpected Hysteria2 ports for %s: %#v", raw, node)
+		}
+		for index := range expected {
+			if node.ServerPorts[index] != expected[index] {
+				t.Fatalf("Hysteria2 ports for %s = %#v, want %#v", raw, node.ServerPorts, expected)
+			}
+		}
+	}
+}

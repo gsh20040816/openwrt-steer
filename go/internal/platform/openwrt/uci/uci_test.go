@@ -29,11 +29,13 @@ config steer 'main'
 
 func TestParseRejectsAmbiguousInput(t *testing.T) {
 	for name, input := range map[string]string{
-		"anonymous": "config steer\n",
-		"duplicate": "config steer 'main'\noption enabled '1'\noption enabled '0'\n",
-		"mixed":     "config steer 'main'\noption zone 'lan'\nlist zone 'guest'\n",
-		"unknown":   "config steer 'main'\ndelete enabled\n",
-		"quote":     "config steer 'main\n",
+		"anonymous":  "config steer\n",
+		"hyphenated": "config route 'route-a'\n",
+		"uppercase":  "config route 'RouteA'\n",
+		"duplicate":  "config steer 'main'\noption enabled '1'\noption enabled '0'\n",
+		"mixed":      "config steer 'main'\noption zone 'lan'\nlist zone 'guest'\n",
+		"unknown":    "config steer 'main'\ndelete enabled\n",
+		"quote":      "config steer 'main\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Parse(strings.NewReader(input)); err == nil {

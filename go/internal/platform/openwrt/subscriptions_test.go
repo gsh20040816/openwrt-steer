@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+	"github.com/gsh20040816/openwrt-steer/go/internal/platform/openwrt/uci"
 	"github.com/gsh20040816/openwrt-steer/go/internal/subscription"
 )
 
@@ -62,9 +63,95 @@ func TestSubscriptionDuplicateFingerprintsAreCollapsed(t *testing.T) {
 func TestSubscriptionNodeIDIsAddressableByUCI(t *testing.T) {
 	node := model.Node{Type: "socks", Server: "proxy.example", ServerPort: 1080}
 	id := subscription.Merge("public", nil, []model.Node{node})[0].ID
-	if !strings.HasPrefix(id, "public_") || !uciIdentifier.MatchString(id) || strings.Contains(id, "-") {
+	if !strings.HasPrefix(id, "public_") || !uci.IsIdentifier(id) || strings.Contains(id, "-") {
 		t.Fatalf("subscription node ID is not a strict UCI identifier: %q", id)
 	}
+}
+
+func TestCleanSubscriptionNodeRefusesCurrentNodeBeforeUCICommit(t *testing.T) {
+	configPath, stateDirectory := writeCleanupFixture(t, false, false)
+	committed := false
+	_, err := CleanSubscriptionNodeWithWriter(configPath, stateDirectory, "public", "public_stale", func(context.Context, string) error {
+		committed = true
+		return nil
+	})
+	if err == nil || committed || !strings.Contains(err.Error(), "is current") {
+		t.Fatalf("current subscription node cleanup: committed=%v err=%v", committed, err)
+	}
+}
+
+func TestCleanSubscriptionNodeRefusesReferencedStaleNodeBeforeUCICommit(t *testing.T) {
+	configPath, stateDirectory := writeCleanupFixture(t, true, true)
+	committed := false
+	_, err := CleanSubscriptionNodeWithWriter(configPath, stateDirectory, "public", "public_stale", func(context.Context, string) error {
+		committed = true
+		return nil
+	})
+	if err == nil || committed || !strings.Contains(err.Error(), "NODE_STILL_REFERENCED") || !strings.Contains(err.Error(), "proxy") {
+		t.Fatalf("referenced stale node cleanup: committed=%v err=%v", committed, err)
+	}
+	snapshot, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, "public"))
+	if readErr != nil || len(snapshot.Nodes) != 1 {
+		t.Fatalf("failed cleanup changed snapshot: snapshot=%#v err=%v", snapshot, readErr)
+	}
+}
+
+func TestCleanSubscriptionNodeCommitsUnreferencedStaleNode(t *testing.T) {
+	configPath, stateDirectory := writeCleanupFixture(t, true, false)
+	var batch string
+	snapshot, err := CleanSubscriptionNodeWithWriter(configPath, stateDirectory, "public", "public_stale", func(_ context.Context, value string) error {
+		batch = value
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Nodes) != 0 || batch != "delete steer.public_stale\ncommit steer\n" {
+		t.Fatalf("unexpected successful cleanup: snapshot=%#v batch=%q", snapshot, batch)
+	}
+	saved, err := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, "public"))
+	if err != nil || len(saved.Nodes) != 0 {
+		t.Fatalf("successful cleanup did not update snapshot: snapshot=%#v err=%v", saved, err)
+	}
+}
+
+func writeCleanupFixture(t *testing.T, stale, referenced bool) (string, string) {
+	t.Helper()
+	nodeOptions := ""
+	if stale {
+		nodeOptions = "\toption pinned_stale '1'\n"
+	}
+	route := ""
+	if referenced {
+		route = `
+config route 'proxy'
+	option kind 'single'
+	option node 'public_stale'
+`
+	}
+	config := strings.Replace(validSubscriptionConfig("https://example.com/subscription"), "config route 'block'", `config node 'public_stale'
+	option enabled '1'
+	option type 'socks'
+	option server '192.0.2.10'
+	option server_port '1080'
+	option source_subscription 'public'
+	option source_fingerprint 'fixture'
+`+nodeOptions+route+`
+config route 'block'`, 1)
+	directory := t.TempDir()
+	configPath := filepath.Join(directory, "steer")
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateDirectory := filepath.Join(directory, "state")
+	snapshot := SubscriptionSnapshot{SubscriptionID: "public", URL: "https://example.com/subscription", Nodes: []model.Node{{
+		ID: "public_stale", Enabled: true, Type: "socks", Server: "192.0.2.10", ServerPort: 1080,
+		NodeSource: model.NodeSource{SourceSubscription: "public", SourceFingerprint: "fixture", PinnedStale: stale},
+	}}}
+	if err := saveSubscriptionSnapshot(stateDirectory, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	return configPath, stateDirectory
 }
 
 func TestUpdateSubscriptionWritesUCIAndDoesNotApply(t *testing.T) {

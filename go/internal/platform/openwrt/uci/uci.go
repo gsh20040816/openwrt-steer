@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -25,6 +26,12 @@ type Section struct {
 type Document struct {
 	Sections []Section
 }
+
+var identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
+// IsIdentifier reports whether a section ID can be addressed safely through
+// the OpenWrt uci command without changing Steer's canonical JSON ID grammar.
+func IsIdentifier(value string) bool { return identifierPattern.MatchString(value) }
 
 func Parse(r io.Reader) (Document, error) {
 	return parse(r, true)
@@ -57,6 +64,9 @@ func parse(r io.Reader, requireSectionID bool) (Document, error) {
 			}
 			if requireSectionID && (len(tokens) != 3 || tokens[2] == "") {
 				return Document{}, fmt.Errorf("UCI line %d: config requires a type and an explicit section ID", lineNumber)
+			}
+			if requireSectionID && !IsIdentifier(tokens[2]) {
+				return Document{}, fmt.Errorf("UCI line %d: invalid Steer section ID %q", lineNumber, tokens[2])
 			}
 			id := ""
 			if len(tokens) == 3 {

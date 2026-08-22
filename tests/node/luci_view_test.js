@@ -177,6 +177,8 @@ function createEnvironment(sections) {
 	const speedtestCalls = [];
 	const routeSpeedtestCalls = [];
 	const overviewProbeCalls = [];
+	const cleanSubscriptionCalls = [];
+	const notifications = [];
 	const steer = {
 		loadStyle: () => {},
 		status: () => Promise.resolve({}),
@@ -185,6 +187,10 @@ function createEnvironment(sections) {
 		subscriptions: () => Promise.resolve({ subscriptions: [] }),
 		renderStatus: () => element('div'),
 		updateSubscription: () => Promise.resolve({ ok: true }),
+		cleanSubscription: (id, node) => {
+			cleanSubscriptionCalls.push({ id, node });
+			return Promise.resolve(environment.cleanSubscriptionResult);
+		},
 		speedtest: (node, download) => {
 			speedtestCalls.push({ node, download });
 			return Promise.resolve({ ok: true, results: [ {
@@ -210,12 +216,22 @@ function createEnvironment(sections) {
 		},
 		apply: () => Promise.resolve()
 	};
-	const ui = {};
+	const ui = {
+		addNotification: (title, body, level) => notifications.push({ title, body, level })
+	};
 	const shareUrl = {};
-	const window = { location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '' } };
+	const window = { location: {
+		pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '', reloadCount: 0,
+		reload: function() { this.reloadCount++; }
+	} };
 	const translate = (value) => String(value);
 
-	return { form, uci, view, steer, ui, shareUrl, window, maps, translate, speedtestCalls, routeSpeedtestCalls, overviewProbeCalls };
+	const environment = {
+		form, uci, view, steer, ui, shareUrl, window, maps, translate,
+		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, cleanSubscriptionCalls, notifications,
+		cleanSubscriptionResult: { ok: true }
+	};
+	return environment;
 }
 
 function loadView(file, dependencies) {
@@ -247,7 +263,7 @@ async function renderRules(sections, catalog = {}) {
 	return environment;
 }
 
-async function renderNodes(sections, search = '') {
+async function renderNodes(sections, search = '', subscriptionStatus) {
 	const environment = createEnvironment(sections);
 	environment.window.location.search = search;
 	const view = loadView(
@@ -264,7 +280,7 @@ async function renderNodes(sections, search = '') {
 			_: environment.translate
 		}
 	);
-	await view.render();
+	environment.rendered = await view.render([ null, subscriptionStatus ]);
 	return environment;
 }
 
@@ -552,6 +568,27 @@ async function main() {
 		'Connection result replaces the row test button label');
 	assert.ok(speedtestButton.title.includes('HTTP 204') && speedtestButton.title.includes('1 attempt'),
 		'Connection result exposes status and attempt diagnostics');
+	environment = await renderNodes({
+		node: [ { '.name': 'jdub_stale', name: 'Stale', source_subscription: 'jdub' } ],
+		route: [],
+		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
+	}, '', { subscriptions: [ { id: 'jdub', name: 'Jdub', node_count: 1, stale_node_ids: [ 'jdub_stale' ] } ] });
+	const removeStale = findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Remove jdub_stale')[0];
+	assert.ok(removeStale, 'Subscription status exposes cleanup only for stale nodes');
+	environment.cleanSubscriptionResult = { ok: false, error: 'NODE_STILL_REFERENCED' };
+	await removeStale.attributes.click();
+	assert.deepEqual(environment.cleanSubscriptionCalls, [ { id: 'jdub', node: 'jdub_stale' } ],
+		'Stale cleanup passes subscription and node IDs to RPC');
+	assert.equal(environment.window.location.reloadCount, 0,
+		'Failed stale cleanup does not reload and hide the backend error');
+	assert.equal(environment.notifications[0]?.level, 'danger');
+	assert.equal(environment.notifications[0]?.body.children[0], 'NODE_STILL_REFERENCED',
+		'Failed stale cleanup shows the backend diagnostic');
+	environment.cleanSubscriptionResult = { ok: true };
+	await removeStale.attributes.click();
+	assert.equal(environment.window.location.reloadCount, 1,
+		'Successful stale cleanup reloads the current subscription view');
 	environment = await renderOverview({ subscription: [] });
 	const probeOptions = [ 'probe_direct', 'probe_proxy', 'speedtest_proxy' ].map((name) =>
 		allOptions(environment).find((option) => option.name == name));

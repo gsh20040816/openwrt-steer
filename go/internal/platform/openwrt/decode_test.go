@@ -131,3 +131,10 @@ func TestDecodeRejectsProbeListsInSchemaSeven(t *testing.T) {
 		t.Fatalf("schema 7 probe list was accepted: %v", err)
 	}
 }
+
+func TestDecodeRejectsCanonicalIDThatOpenWrtUCICannotAddress(t *testing.T) {
+	config := strings.Replace(minimalConfig, "config route 'direct'", "config route 'direct-route'", 1)
+	if _, err := Decode(strings.NewReader(config)); err == nil || !strings.Contains(err.Error(), "invalid Steer section ID") {
+		t.Fatalf("hyphenated OpenWrt UCI ID was accepted: %v", err)
+	}
+}

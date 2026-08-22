@@ -170,6 +170,18 @@ func TestRejectVMessTransportInOutboundNetwork(t *testing.T) {
 	}
 }
 
+func TestRejectVLESSURISecurityLeakingIntoCanonicalModel(t *testing.T) {
+	intent := validIntent()
+	intent.Nodes[0] = Node{ID: "proxy", Enabled: true, Type: "vless", Server: "proxy.example", ServerPort: 443,
+		NodeCredentials: NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeProtocol:    NodeProtocol{Security: "tls"},
+		NodeTLS:         NodeTLS{TLSServerName: "proxy.example"}}
+	validation := Validate(intent)
+	if validation.OK || !hasIssue(validation, "UNSUPPORTED_NODE_OPTION") {
+		t.Fatalf("VLESS URI security leaked into canonical model: %#v", validation.Errors)
+	}
+}
+
 func TestPinnedStaleSubscriptionNodeWarns(t *testing.T) {
 	intent := validIntent()
 	intent.Nodes[0].PinnedStale = true

@@ -74,7 +74,7 @@ func EnsureGeoRules(ctx context.Context, runner Runner, ruleSets []compiler.GeoR
 	root := filepath.Join(options.StateDirectory, "geodata")
 	current := filepath.Join(root, "current")
 	if geoGenerationReady(current, release, manifest, ruleSets) {
-		return nil
+		return pruneGeoGenerations(root, current)
 	}
 	for _, kind := range []string{"geosite", "geoip"} {
 		if _, err := readRequiredFile(filepath.Join(options.SeedDirectory, kind+".dat")); err != nil {
@@ -88,8 +88,9 @@ func EnsureGeoRules(ctx context.Context, runner Runner, ruleSets []compiler.GeoR
 	if err != nil {
 		return fmt.Errorf("create Geo generation: %w", err)
 	}
+	published := false
 	defer func() {
-		if returnErr != nil {
+		if returnErr != nil && !published {
 			_ = os.RemoveAll(generation)
 		}
 	}()
@@ -127,6 +128,38 @@ func EnsureGeoRules(ctx context.Context, runner Runner, ruleSets []compiler.GeoR
 	if err := os.Rename(temporary, current); err != nil {
 		_ = os.Remove(temporary)
 		return fmt.Errorf("publish Geo generation: %w", err)
+	}
+	published = true
+	return pruneGeoGenerations(root, generation)
+}
+
+func pruneGeoGenerations(root, keep string) error {
+	resolvedKeep, err := filepath.EvalSymlinks(keep)
+	if err != nil {
+		return fmt.Errorf("resolve current Geo generation: %w", err)
+	}
+	resolvedKeep, err = filepath.Abs(resolvedKeep)
+	if err != nil {
+		return fmt.Errorf("resolve current Geo generation path: %w", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read Geo generations: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "generation.") {
+			continue
+		}
+		candidate, err := filepath.Abs(filepath.Join(root, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("resolve Geo generation %q: %w", entry.Name(), err)
+		}
+		if filepath.Clean(candidate) == filepath.Clean(resolvedKeep) {
+			continue
+		}
+		if err := os.RemoveAll(candidate); err != nil {
+			return fmt.Errorf("remove obsolete Geo generation %q: %w", entry.Name(), err)
+		}
 	}
 	return nil
 }

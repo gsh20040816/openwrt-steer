@@ -157,15 +157,44 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 		if node.UUID == "" {
 			return model.Node{}, fmt.Errorf("vless URI requires UUID")
 		}
-		node.Flow, node.PacketEncoding = query.Get("flow"), first(query.Get("packetEncoding"), query.Get("packet_encoding"))
-		security := first(query.Get("security"), query.Get("encryption"), "none")
-		node.Security = security
-		node.TLSServerName = first(query.Get("sni"), query.Get("serverName"))
-		// uTLS fingerprint is carried by the shared TLS group.
-		if security == "reality" {
-			node.RealityPublicKey, node.RealityShortID = first(query.Get("pbk"), query.Get("publicKey")), first(query.Get("sid"), query.Get("shortId"))
+		if encryption := query.Get("encryption"); encryption != "" && encryption != "none" {
+			return model.Node{}, fmt.Errorf("unsupported VLESS encryption %q", encryption)
 		}
-		node.Insecure = boolValue(first(query.Get("allowInsecure"), query.Get("insecure")))
+		node.Flow, node.PacketEncoding = query.Get("flow"), first(query.Get("packetEncoding"), query.Get("packet_encoding"))
+		if node.Flow != "" && node.Flow != "xtls-rprx-vision" {
+			return model.Node{}, fmt.Errorf("unsupported VLESS flow %q", node.Flow)
+		}
+		if node.PacketEncoding != "" && node.PacketEncoding != "xudp" && node.PacketEncoding != "packetaddr" {
+			return model.Node{}, fmt.Errorf("unsupported VLESS packet encoding %q", node.PacketEncoding)
+		}
+		security := first(query.Get("security"), "none")
+		if security != "none" && security != "tls" && security != "reality" {
+			return model.Node{}, fmt.Errorf("unsupported VLESS security %q", security)
+		}
+		sni := first(query.Get("sni"), query.Get("serverName"))
+		publicKey := first(query.Get("pbk"), query.Get("publicKey"))
+		shortID := first(query.Get("sid"), query.Get("shortId"))
+		fingerprint := first(query.Get("fp"), query.Get("fingerprint"))
+		insecure := boolValue(first(query.Get("allowInsecure"), query.Get("insecure")))
+		if security != "reality" && (publicKey != "" || shortID != "") {
+			return model.Node{}, fmt.Errorf("VLESS Reality parameters require security=reality")
+		}
+		if security == "none" && (sni != "" || fingerprint != "" || insecure || node.Flow != "") {
+			return model.Node{}, fmt.Errorf("VLESS TLS parameters require security=tls or security=reality")
+		}
+		switch security {
+		case "tls":
+			if sni == "" {
+				return model.Node{}, fmt.Errorf("VLESS TLS requires sni")
+			}
+			node.TLSServerName, node.UTLSFingerprint = sni, fingerprint
+		case "reality":
+			if sni == "" || publicKey == "" || shortID == "" || fingerprint == "" {
+				return model.Node{}, fmt.Errorf("VLESS Reality requires sni, public key, short ID and fingerprint")
+			}
+			node.TLSServerName, node.RealityPublicKey, node.RealityShortID, node.UTLSFingerprint = sni, publicKey, shortID, fingerprint
+		}
+		node.Insecure = insecure
 		setTransport(&node, query)
 	case "trojan":
 		node.Type, node.Password = "trojan", username
@@ -182,7 +211,7 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 		node.Insecure = boolValue(first(query.Get("insecure"), query.Get("allowInsecure")))
 		node.HopInterval = first(query.Get("hop-interval"), query.Get("hopInterval"))
 		node.ObfsType, node.ObfsPassword = query.Get("obfs"), query.Get("obfs-password")
-		node.ServerPorts = splitPorts(first(query.Get("mport"), u.Port()))
+		node.ServerPorts = splitPorts(query.Get("mport"))
 		node.UpMbps = intValue(first(query.Get("upmbps"), query.Get("upMbps")))
 		node.DownMbps = intValue(first(query.Get("downmbps"), query.Get("downMbps")))
 	case "shadowtls":
@@ -408,8 +437,10 @@ func splitPorts(value string) []string {
 		return nil
 	}
 	items := strings.Split(value, ",")
-	if len(items) == 1 {
-		return nil
+	for index, item := range items {
+		if strings.Count(item, "-") == 1 {
+			items[index] = strings.Replace(item, "-", ":", 1)
+		}
 	}
 	return items
 }

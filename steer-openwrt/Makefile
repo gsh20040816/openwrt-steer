@@ -26,7 +26,7 @@ define Package/steer-openwrt
   URL:=https://github.com/gsh20040816/openwrt-steer
 	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +geoview +ip \
 	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun +steer-geodata
-  EXTRA_DEPENDS:=sing-box (>=1.13.18)
+  EXTRA_DEPENDS:=sing-box (>=1.13.18), sing-box (<1.14.0)
   PROVIDES:=steer
   CONFLICTS:=steer
   REPLACES:=steer

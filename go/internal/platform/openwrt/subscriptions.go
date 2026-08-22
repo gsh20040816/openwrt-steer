@@ -9,11 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+	"github.com/gsh20040816/openwrt-steer/go/internal/platform/openwrt/uci"
 	"github.com/gsh20040816/openwrt-steer/go/internal/subscription"
 )
 
@@ -31,8 +31,6 @@ type SubscriptionStatus struct {
 	Error          string    `json:"error,omitempty"`
 }
 
-var uciIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
-
 func ReadSubscriptionStatus(configPath, stateDirectory string) ([]SubscriptionStatus, error) {
 	config, err := os.ReadFile(configPath)
 	if err != nil {
@@ -45,7 +43,7 @@ func ReadSubscriptionStatus(configPath, stateDirectory string) ([]SubscriptionSt
 	statuses := make([]SubscriptionStatus, 0, len(intent.Subscriptions))
 	for _, configured := range intent.Subscriptions {
 		status := SubscriptionStatus{ID: configured.ID, Name: configured.Name, URL: configured.URL, Enabled: configured.Enabled, UpdateInterval: configured.UpdateInterval}
-		if !uciIdentifier.MatchString(configured.ID) {
+		if !uci.IsIdentifier(configured.ID) {
 			status.Error = "unsafe UCI section ID"
 			statuses = append(statuses, status)
 			continue
@@ -138,7 +136,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		if !configured.Enabled || (id != "" && configured.ID != id) {
 			continue
 		}
-		if !uciIdentifier.MatchString(configured.ID) {
+		if !uci.IsIdentifier(configured.ID) {
 			return nil, fmt.Errorf("subscription %q has an unsafe UCI section ID", configured.ID)
 		}
 		if id == "" && configured.UpdateInterval != "" {
@@ -154,7 +152,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		}
 		old := make([]model.Node, 0)
 		for _, node := range intent.Nodes {
-			if !uciIdentifier.MatchString(node.ID) {
+			if !uci.IsIdentifier(node.ID) {
 				return nil, fmt.Errorf("node %q has an unsafe UCI section ID", node.ID)
 			}
 			if node.SourceSubscription == configured.ID {
@@ -163,7 +161,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		}
 		merged := subscription.Merge(configured.ID, old, fresh)
 		for _, node := range merged {
-			if !uciIdentifier.MatchString(node.ID) {
+			if !uci.IsIdentifier(node.ID) {
 				return nil, fmt.Errorf("subscription node %q has an unsafe UCI section ID", node.ID)
 			}
 		}
@@ -205,7 +203,7 @@ func CleanSubscriptionNodeWithWriter(configPath, stateDirectory, id, nodeID stri
 	if writeUCI == nil {
 		return SubscriptionSnapshot{}, fmt.Errorf("subscription cleanup requires a UCI writer")
 	}
-	if !uciIdentifier.MatchString(id) || !uciIdentifier.MatchString(nodeID) {
+	if !uci.IsIdentifier(id) || !uci.IsIdentifier(nodeID) {
 		return SubscriptionSnapshot{}, fmt.Errorf("subscription and node IDs must be safe UCI identifiers")
 	}
 	path := SubscriptionSnapshotPath(stateDirectory, id)
@@ -213,17 +211,21 @@ func CleanSubscriptionNodeWithWriter(configPath, stateDirectory, id, nodeID stri
 	if err != nil {
 		return SubscriptionSnapshot{}, fmt.Errorf("read subscription snapshot: %w", err)
 	}
-	filtered := snapshot.Nodes[:0]
-	removed := false
+	filtered := make([]model.Node, 0, len(snapshot.Nodes))
+	var snapshotNode *model.Node
 	for _, node := range snapshot.Nodes {
-		if node.ID == nodeID {
-			removed = true
+		if node.ID == nodeID && node.SourceSubscription == id {
+			candidate := node
+			snapshotNode = &candidate
 			continue
 		}
 		filtered = append(filtered, node)
 	}
-	if !removed {
+	if snapshotNode == nil {
 		return SubscriptionSnapshot{}, fmt.Errorf("subscription node %q was not found", nodeID)
+	}
+	if !snapshotNode.PinnedStale {
+		return SubscriptionSnapshot{}, fmt.Errorf("subscription node %q is current and cannot be removed by cleanup", nodeID)
 	}
 	config, err := os.ReadFile(configPath)
 	if err != nil {
@@ -233,16 +235,35 @@ func CleanSubscriptionNodeWithWriter(configPath, stateDirectory, id, nodeID stri
 	if err != nil {
 		return SubscriptionSnapshot{}, err
 	}
-	store := &UCIStore{write: writeUCI}
+	candidate := intent
+	candidate.Nodes = make([]model.Node, 0, len(intent.Nodes))
+	found := false
 	for _, node := range intent.Nodes {
 		if node.ID == nodeID && node.SourceSubscription == id {
-			if err := store.RemoveNode(context.Background(), id, node.ID); err != nil {
-				return SubscriptionSnapshot{}, err
+			if !node.PinnedStale {
+				return SubscriptionSnapshot{}, fmt.Errorf("subscription node %q is current in UCI and cannot be removed by cleanup", nodeID)
+			}
+			found = true
+			continue
+		}
+		candidate.Nodes = append(candidate.Nodes, node)
+	}
+	if !found {
+		return SubscriptionSnapshot{}, fmt.Errorf("subscription node %q is not present in UCI", nodeID)
+	}
+	validation := model.Validate(candidate)
+	if !validation.OK {
+		for _, issue := range validation.Errors {
+			if issue.Code == "DANGLING_NODE" && issue.ObjectType == "route" && issue.Option == "node" {
+				return SubscriptionSnapshot{}, fmt.Errorf("NODE_STILL_REFERENCED: route %q still references subscription node %q", issue.ObjectID, nodeID)
 			}
 		}
+		issue := validation.Errors[0]
+		return SubscriptionSnapshot{}, fmt.Errorf("subscription cleanup produced invalid candidate: %s %q option %q: %s", issue.ObjectType, issue.ObjectID, issue.Option, issue.Message)
 	}
-	if store.batch.Len() == 0 {
-		return SubscriptionSnapshot{}, fmt.Errorf("subscription node %q is not present in UCI", nodeID)
+	store := &UCIStore{write: writeUCI}
+	if err := store.RemoveNode(context.Background(), id, nodeID); err != nil {
+		return SubscriptionSnapshot{}, err
 	}
 	if err := store.Commit(context.Background()); err != nil {
 		return SubscriptionSnapshot{}, err

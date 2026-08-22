@@ -6,9 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/gsh20040816/openwrt-steer/go/internal/compiler"
 	"github.com/gsh20040816/openwrt-steer/go/internal/generation"
@@ -81,7 +86,7 @@ func SpeedTestNode(ctx context.Context, configPath, stateDirectory, singBoxPath,
 	if download {
 		target, kind = value.Main.SpeedtestProxyURL, "download"
 	}
-	report, err := probe.RunTemporary(ctx, singBoxPath, []any{compiler.CompileNodeOutbound(node)}, compiler.NodeOutboundTag(node.ID), "nodes", node.ID, kind, target, download)
+	report, err := runTemporaryProbe(ctx, singBoxPath, []any{compiler.CompileNodeOutbound(node)}, compiler.NodeOutboundTag(node.ID), "nodes", node.ID, kind, target, download)
 	if err != nil {
 		return TestReport{}, err
 	}
@@ -115,7 +120,7 @@ func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath
 	if download {
 		target, kind = value.Main.SpeedtestProxyURL, "download"
 	}
-	report, err := probe.RunTemporary(ctx, singBoxPath, outbounds, compiler.RouteOutboundTag(route.ID), "routes", route.ID, kind, target, download)
+	report, err := runTemporaryProbe(ctx, singBoxPath, outbounds, compiler.RouteOutboundTag(route.ID), "routes", route.ID, kind, target, download)
 	if err != nil {
 		return TestReport{}, err
 	}
@@ -123,6 +128,96 @@ func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath
 		return report, err
 	}
 	return report, nil
+}
+
+func runTemporaryProbe(ctx context.Context, singBoxPath string, outbounds []any, finalTag, scope, objectID, kind, target string, download bool) (TestReport, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return TestReport{}, fmt.Errorf("allocate test listener: %w", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	if singBoxPath == "" {
+		singBoxPath = "/usr/bin/sing-box"
+	}
+	temporary, err := os.MkdirTemp("", "steer-test.")
+	if err != nil {
+		return TestReport{}, fmt.Errorf("create test directory: %w", err)
+	}
+	defer os.RemoveAll(temporary)
+	config, err := temporaryProbeConfig(outbounds, finalTag, port)
+	if err != nil {
+		return TestReport{}, err
+	}
+	configPath := filepath.Join(temporary, "sing-box.json")
+	encoded, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return TestReport{}, fmt.Errorf("encode test config: %w", err)
+	}
+	if err := os.WriteFile(configPath, append(encoded, '\n'), 0o600); err != nil {
+		return TestReport{}, fmt.Errorf("write test config: %w", err)
+	}
+	if output, err := exec.CommandContext(ctx, singBoxPath, "check", "-c", configPath).CombinedOutput(); err != nil {
+		return TestReport{}, fmt.Errorf("sing-box test config check failed: %w: %s", err, output)
+	}
+	process := exec.CommandContext(ctx, singBoxPath, "run", "-c", configPath)
+	process.Stdout, process.Stderr = io.Discard, io.Discard
+	if err := process.Start(); err != nil {
+		return TestReport{}, fmt.Errorf("start temporary sing-box: %w", err)
+	}
+	defer func() {
+		_ = process.Process.Kill()
+		_ = process.Wait()
+	}()
+	if err := waitTemporaryProbeReady(ctx, port); err != nil {
+		return TestReport{}, err
+	}
+	proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+	return probe.Run(ctx, probe.HTTPClient(proxyURL, download), scope, objectID, kind, target, download), nil
+}
+
+func temporaryProbeConfig(outbounds []any, finalTag string, port int) (map[string]any, error) {
+	marked := make([]any, 0, len(outbounds))
+	for _, value := range outbounds {
+		outbound, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("temporary probe outbound has unexpected type %T", value)
+		}
+		copy := make(map[string]any, len(outbound)+1)
+		for key, field := range outbound {
+			copy[key] = field
+		}
+		copy["routing_mark"] = AutoRedirectOutputMark
+		marked = append(marked, copy)
+	}
+	return map[string]any{
+		"log": map[string]any{"level": "error"},
+		"dns": map[string]any{"servers": []any{map[string]any{
+			"type": "local", "tag": "local", "routing_mark": AutoRedirectOutputMark,
+		}}},
+		"inbounds":  []any{map[string]any{"type": "mixed", "tag": "test-in", "listen": "127.0.0.1", "listen_port": port}},
+		"outbounds": marked,
+		"route":     map[string]any{"final": finalTag, "auto_detect_interface": true, "default_domain_resolver": map[string]any{"server": "local"}},
+	}, nil
+}
+
+func waitTemporaryProbeReady(ctx context.Context, port int) error {
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		connection, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 100*time.Millisecond)
+		if err == nil {
+			_ = connection.Close()
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("temporary sing-box did not become ready: %w", ctx.Err())
+		case <-deadline.C:
+			return fmt.Errorf("temporary sing-box did not become ready: %w", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 func readTestIntent(configPath, operation string) (model.Intent, error) {

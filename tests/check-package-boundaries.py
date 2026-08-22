@@ -43,7 +43,7 @@ extra_depends = [
     for line in makefile.splitlines()
     if line.strip().startswith("EXTRA_DEPENDS:=")
 ]
-if extra_depends != ["EXTRA_DEPENDS:=sing-box (>=1.13.18)"]:
+if extra_depends != ["EXTRA_DEPENDS:=sing-box (>=1.13.18), sing-box (<1.14.0)"]:
     fail("only sing-box may bypass Kconfig through EXTRA_DEPENDS")
 
 for metadata in ("PROVIDES:=steer", "CONFLICTS:=steer", "REPLACES:=steer"):
