@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本线为 **0.4.3**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 是目前唯一可运行的平台；Linux 和 macOS 尚未提供适配器。公共功能和共享接口已经冻结，桌面端适配器尚未进入当前发行包。
+当前稳定版本线为 **0.4.3**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 是稳定发行平台；Linux systemd 工作站适配器已实现源码基线，暂不随 OpenWrt 发布包打包；macOS 尚未提供适配器。
 
 ## 已实现能力
 
@@ -13,6 +13,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - HTTP(S) 节点订阅、稳定节点 ID、过期节点显式清理。
 - 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
 - OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、最小 DNS/MAC nftables 辅助层。
+- Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、本机 DNS OUTPUT shim、systemd 服务和 loopback Web API/UI。
 
 ## 明确边界
 
@@ -31,6 +32,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - [开发与验证](docs/DEVELOPMENT.md)
 - [打包与发布](docs/PACKAGING.md)
 - [测试说明](tests/README.md)
+- [Linux 适配器](docs/LINUX.md)
 
 ## 公共 CLI
 
@@ -47,6 +49,16 @@ steer cleanup
 ```
 
 公共命令固定为 `version validate apply health status probe subscription geo-catalog cleanup`。编译器中间结果和平台计划属于内部接口，不通过 CLI 或 RPC 暴露。
+
+Linux 源码命令为 `steer-linux`，另外提供 loopback Web 控制面：
+
+```sh
+steer-linux web-token
+steer-linux web
+steer-linux subscription status
+```
+
+Linux 目前不维护 GitHub Actions 打包或发行版打包脚本；可直接用 `go build ./cmd/steer-linux` 生成本地二进制，并手工安装 `linux/systemd/` 中的 unit。
 
 ## 许可证
 

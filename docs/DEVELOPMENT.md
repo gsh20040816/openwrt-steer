@@ -8,7 +8,10 @@
 go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
 go/internal/{subscription,probe,capability}     共享服务
 go/internal/platform/openwrt                    OpenWrt 适配器
+go/internal/platform/linux                      Linux systemd 工作站适配器
 go/cmd/steer-openwrt                            OpenWrt CLI
+go/cmd/steer-linux                              Linux CLI/Web
+linux/systemd                                   Linux unit 文件（手工安装参考）
 luci-app-steer                                  LuCI、RPC、ACL、翻译
 steer-openwrt                                   OpenWrt 控制器包
 steer-geodata                                   固定 Geo 数据包
@@ -46,7 +49,7 @@ git diff --check
 - `generation` 只拥有 `intent.json` 和 `sing-box.json`；平台文件由平台适配器添加。
 - `subscription.Store` 必须保持窄接口，不能让共享逻辑依赖 UCI 命令。
 - `probe` 只测量和报告；目标选择、临时核心进程与日志路径由平台适配器处理。
-- `platform/openwrt` 是 UCI、nftables、策略路由、procd、Geo 和 OpenWrt 目录的唯一所有者。
+- `platform/openwrt` 是 UCI、nftables、策略路由、procd 和 OpenWrt 目录的唯一所有者；Geo seed 到 SRS generation 由 `internal/geodata` 共享。
 
 ## 公共契约
 
@@ -62,12 +65,13 @@ version validate apply health status probe subscription geo-catalog cleanup
 
 稳定版晋级后，Linux 适配器按以下顺序开始：
 
-1. 只实现 schema 7 严格 Canonical JSON 文件读写；
+1. 实现 schema 7 严格 Canonical JSON 文件读写和 revision/ETag；
 2. 实现平台目录、权限和 systemd 生命周期；
 3. 选择并验证 Linux 网络接管方式，生成平台内部计划；
 4. 接入共享 Backend 五方法；
 5. 复用 subscription/probe，并实现 JSON Store 和平台日志路径；
-6. 先提供 CLI/包，再决定是否需要图形界面。
+6. 提供 loopback Web API/UI，与 CLI 共享同一套 Apply；
+7. 暂不维护 GitHub Actions Linux 打包或发行版打包脚本。
 
 macOS 在 Linux 接口稳定后开始，允许使用 launchd、utun/pf 和不同权限模型，但不得改变共享规则、路由、DNS 或订阅语义。
 

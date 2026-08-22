@@ -18,7 +18,7 @@
 
 共享核心不认识 UCI、procd、launchd、systemd、nftables、pf、路由表号或平台目录。`status` 的公共语义只有 `healthy` 和 `last_apply`；配置合法性由独立 `validate` 返回。
 
-## 第二层：当前 OpenWrt 实现
+## 第二层：平台实现
 
 OpenWrt 适配器当前拥有：
 
@@ -31,11 +31,11 @@ OpenWrt 适配器当前拥有：
 - `/run/steer` generation、`/var/lib/steer` 日志和订阅状态；
 - LuCI、ucode RPC、ACL、OpenWrt 包和 cron 订阅调度。
 
-这些是 OpenWrt 实现，不得反向污染共享 Intent。未来 Linux 可以使用 JSON 配置与 systemd，macOS 可以使用 JSON 配置与 launchd/pf；只要共享语义和 Apply 生命周期一致，平台目录、网络接管方式、权限模型和服务管理器可以不同。
+这些是 OpenWrt 实现，不得反向污染共享 Intent。Linux 当前使用 JSON 配置与 systemd；macOS 仍可使用 JSON 配置与 launchd/pf。只要共享语义和 Apply 生命周期一致，平台目录、网络接管方式、权限模型和服务管理器可以不同。
 
 ## 当前不做
 
-- Linux 或 macOS 的实际网络接管、安装包和 UI；
+- macOS 的实际网络接管、安装包和 UI；Linux 的发行版安装包仍不在范围内，但 systemd/loopback Web 源码适配器已实现；
 - 自动/人工回滚、配置历史、启动时选择旧 generation；
 - 节点故障转移、健康调度、隐藏 fallback；
 - 资源所有权协商或与第三方代理栈共存；

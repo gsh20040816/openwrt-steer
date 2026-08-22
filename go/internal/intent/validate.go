@@ -455,7 +455,13 @@ func validateNodeText(value Node, err issueFn) {
 		fields = append(fields, field{"extra_args", item})
 	}
 	for _, item := range fields {
-		if strings.IndexFunc(item.value, unicode.IsControl) >= 0 {
+		invalidControl := func(character rune) bool {
+			if item.option == "private_key" && (character == '\r' || character == '\n') {
+				return false
+			}
+			return unicode.IsControl(character)
+		}
+		if strings.IndexFunc(item.value, invalidControl) >= 0 {
 			err("CONTROL_CHARACTER", "node", value.ID, item.option, "node text fields cannot contain control characters")
 		}
 	}

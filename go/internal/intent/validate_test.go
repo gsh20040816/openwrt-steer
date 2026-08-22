@@ -42,6 +42,25 @@ func TestValidateNodeRejectsControlCharacters(t *testing.T) {
 	}
 }
 
+func TestValidateNodeAllowsMultilinePrivateKey(t *testing.T) {
+	node := validIntent().Nodes[0]
+	node.Type = "ssh"
+	node.Server = "ssh.example"
+	node.ServerPort = 22
+	node.Username = "root"
+	node.Password = ""
+	node.PrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nkey-material\n-----END OPENSSH PRIVATE KEY-----\n"
+	validation := ValidateNode(node)
+	if !validation.OK {
+		t.Fatalf("multiline private key was rejected: %#v", validation.Errors)
+	}
+	node.PrivateKey = "key\tmaterial"
+	validation = ValidateNode(node)
+	if validation.OK || !hasIssue(validation, "CONTROL_CHARACTER") {
+		t.Fatalf("tab in private key was accepted: %#v", validation.Errors)
+	}
+}
+
 func TestValidateRequiresEveryHTTPSProbe(t *testing.T) {
 	intent := validIntent()
 	intent.Main.ProbeDirectURL = ""

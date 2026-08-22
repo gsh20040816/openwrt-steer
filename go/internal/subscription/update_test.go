@@ -81,3 +81,14 @@ func TestFetchRejectsSubscriptionLargerThanLimit(t *testing.T) {
 		t.Fatalf("oversized subscription was not rejected explicitly: %v", err)
 	}
 }
+
+func TestFetchRejectsHTTP200WithNoValidNodes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("not-a-node\nstill-not-a-node\n"))
+	}))
+	defer server.Close()
+	_, err := Fetch(context.Background(), server.Client(), model.Subscription{ID: "empty", Enabled: true, URL: server.URL})
+	if err == nil || !strings.Contains(err.Error(), "no valid nodes") {
+		t.Fatalf("invalid HTTP 200 body was accepted: %v", err)
+	}
+}

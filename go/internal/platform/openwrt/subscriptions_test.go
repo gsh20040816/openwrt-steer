@@ -204,7 +204,7 @@ func TestUpdateSubscriptionSkipsInvalidCandidateNodes(t *testing.T) {
 	}
 }
 
-func TestUpdateSubscriptionAllInvalidClearsExistingNodes(t *testing.T) {
+func TestUpdateSubscriptionAllInvalidPreservesExistingNodes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = response.Write([]byte("not-a-node\nstill-not-a-node\n"))
 	}))
@@ -223,18 +223,15 @@ config route 'block'`, 1)
 		t.Fatal(err)
 	}
 	var batch string
-	result, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, t.TempDir(), "public", func(_ context.Context, value string) error {
+	_, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, t.TempDir(), "public", func(_ context.Context, value string) error {
 		batch = value
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "no valid nodes") {
+		t.Fatalf("all-invalid subscription was not rejected: %v", err)
 	}
-	if len(result) != 1 || result[0].Skipped != 2 || len(result[0].Nodes) != 0 {
-		t.Fatalf("all-invalid subscription did not commit an empty replacement: %#v", result)
-	}
-	if !strings.Contains(batch, "delete steer.public_old\n") || strings.Contains(batch, "pinned_stale") {
-		t.Fatalf("old nodes were not cleared: %s", batch)
+	if batch != "" {
+		t.Fatalf("all-invalid subscription emitted a configuration mutation: %s", batch)
 	}
 }
 

@@ -1,6 +1,6 @@
 # 配置与使用
 
-当前公开配置是 schema 7。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；未来平台将使用严格 Canonical JSON，不读取或迁移 UCI。
+当前公开配置是 schema 7。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 是严格 Canonical JSON 真相，不读取或迁移 UCI。
 
 ## 基本配置
 

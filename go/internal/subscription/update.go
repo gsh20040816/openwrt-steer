@@ -74,7 +74,14 @@ func Fetch(ctx context.Context, client *http.Client, configured model.Subscripti
 	if len(body) > maxSubscriptionBytes {
 		return ParseResult{}, fmt.Errorf("subscription exceeds the 16 MiB size limit")
 	}
-	return ParseList(string(body))
+	parsed, err := ParseList(string(body))
+	if err != nil {
+		return ParseResult{}, err
+	}
+	if len(parsed.Nodes) == 0 && parsed.Skipped > 0 {
+		return ParseResult{}, fmt.Errorf("subscription contains no valid nodes")
+	}
+	return parsed, nil
 }
 
 func Merge(subscriptionID string, old, fresh []model.Node) []model.Node {

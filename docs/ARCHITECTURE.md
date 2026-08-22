@@ -13,17 +13,20 @@ go/internal/subscription           抓取、解析、合并与窄 Store 接口
 go/internal/probe                  HTTP/TLS 测量和报告
 go/internal/capability             sing-box 版本/build-tag 能力检查
 go/internal/platform/openwrt       OpenWrt 网络、服务、UCI、Geo 和日志适配
+go/internal/platform/linux         systemd、TUN、DNS nft shim、JSON 和 Linux 状态适配
 go/internal/platform/openwrt/uci   严格 UCI 语法解析
 go/cmd/steer-openwrt               OpenWrt CLI
+go/cmd/steer-linux                 Linux CLI 和 loopback Web 控制面
+go/internal/geodata                 跨平台 Geo seed 到 SRS generation
 ```
 
-共享包只能依赖共享包；`platform/openwrt` 可以依赖共享包，反向依赖禁止。
+共享包只能依赖共享包；`platform/openwrt` 和 `platform/linux` 可以依赖共享包，反向依赖禁止。
 
 ## 数据流
 
 ```text
 OpenWrt UCI ──严格解码──┐
-未来 JSON ──严格解码───┼→ Canonical Intent → Validate → Compiler
+Linux JSON ──严格解码───┼→ Canonical Intent → Validate → Compiler
                        │                         │
                        └─────────────────────────┘
                                                    ↓
@@ -57,6 +60,12 @@ OpenWrt UCI ──严格解码──┐
 
 TUN 名称、地址、table、priority、mark、NFQUEUE 和平台端口都属于 `platform/openwrt`，不出现在 Canonical Intent。特殊非全球地址在进入用户规则前排除，路由器本机 UDP/123 明确直连。
 
+## Linux 数据面
+
+Linux 第一版只承诺 systemd 本机工作站，不承担 LAN 网关、源 MAC 或容器流量策略。平台使用与 OpenWrt 相同的 sing-box TUN 主路径，但只增加本机 `OUTPUT` DNS shim：传统 TCP/UDP 53 请求进入专用 DNS inbound，TUN 自身、标记为 Steer 内部出口的连接和本机目的地址直接放行。Linux 不改 NetworkManager、`/etc/resolv.conf` 或 systemd-resolved 配置，也不生成 MAC 策略路由。
+
+`platform/linux` 固定自己的 TUN、DNS、table、priority、mark 和 NFQUEUE 资源；这些只保存在 generation 的 `platform.json`，不进入 Canonical Intent。共享 Geo generation 已迁入 `internal/geodata`，OpenWrt 和 Linux 使用同一份 package-owned seed 语义。
+
 ## Apply
 
 公共 Apply 是单锁、同步流程：
@@ -65,24 +74,26 @@ TUN 名称、地址、table、priority、mark、NFQUEUE 和平台端口都属于
 2. 共享校验器拒绝非法 Intent；
 3. 共享编译器生成最终 sing-box 配置；
 4. `Prepare` 检查 sing-box 能力、准备 Geo、生成候选并执行 `sing-box check` 与 `nft -c`；
-5. `Activate` 停止旧 procd 实例、应用平台资源、发布 `current`，再启动候选；
+5. `Activate` 由平台停止旧服务、应用平台资源、发布 `current`，再启动候选；
 6. `Healthy` 检查 procd、TUN、nftables 和必要监听端口；
 7. `Finalize` 删除其他运行 generation。
 
 候选预检查失败发生在运行态变更前。`current` 在候选进程启动前发布，供 procd 读取。切换后的失败返回错误并保留现场；没有自动恢复、旧配置备份或 rollback 接口。禁用走单独的 `Disable`，停止服务并删除运行资源。
 
-开机时 procd 通过非公开 `_start` 钩子执行校验、编译、Prepare 和平台激活，然后由同一个 init 脚本创建 sing-box 实例。该钩子不是公共 CLI，也不构成第二套配置语义。
+开机时 OpenWrt 由 procd 通过非公开 `_start` 钩子执行校验、编译、Prepare 和平台激活；Linux 由 systemd 执行非公开 `_run`，必要时准备冷启动 generation，然后直接 `exec` sing-box。两个钩子都不是公共 CLI，也不构成第二套配置语义。
 
 ## Generation 与状态
 
 ```text
 /run/steer/generations/<id>/intent.json      Canonical Intent
 /run/steer/generations/<id>/sing-box.json    最终核心配置
-/run/steer/generations/<id>/platform.json    OpenWrt 内部资源计划
-/run/steer/generations/<id>/firewall.nft     OpenWrt nftables 辅助层
+/run/steer/generations/<id>/platform.json    当前平台内部资源计划
+/run/steer/generations/<id>/firewall.nft     当前平台 nftables 辅助层
 /run/steer/current                            当前 generation 链接
 /run/steer/last-apply.json                    最近一次公共 Apply 结果
 ```
+
+Linux 的持久化真相是 `/etc/steer/config.json`，订阅 snapshot 和 Web token 位于 `/var/lib/steer`；运行时仍只写 `/run/steer` 和 `/var/lib/steer`，不会修改系统 resolver 配置。
 
 公共 `status` 只返回：
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=Steer Linux web control plane
+After=steer.service
+Wants=steer.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/steer-linux web
+Restart=on-failure
+RestartSec=2s
+StateDirectory=steer
+StateDirectoryMode=0700
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Steer subscriptions
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/steer-linux subscription update
+UMask=0077

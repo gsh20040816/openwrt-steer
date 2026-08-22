@@ -1,0 +1,32 @@
+{
+  "main": {
+    "id": "main",
+    "schema_version": 7,
+    "enabled": false,
+    "log_level": "warn",
+    "probe_direct": "https://www.baidu.com/",
+    "probe_proxy": "https://www.google.com/generate_204",
+    "speedtest_proxy": "https://speed.cloudflare.com/__down?bytes=1000000",
+    "dns_cache_capacity": 32768
+  },
+  "bootstrap": {
+    "id": "bootstrap",
+    "protocol": "udp",
+    "server": "1.1.1.1",
+    "server_port": 53,
+    "strategy": "prefer_ipv4"
+  },
+  "nodes": [],
+  "subscriptions": [],
+  "routes": [
+    {"id": "direct", "enabled": true, "kind": "direct"},
+    {"id": "block", "enabled": true, "kind": "block"}
+  ],
+  "dns_profiles": [
+    {"id": "public", "enabled": true, "protocol": "udp", "server": "1.1.1.1", "server_port": 53, "strategy": "prefer_ipv4"}
+  ],
+  "local_proxies": [],
+  "rules": [
+    {"id": "default", "enabled": true, "default": true, "dns_profile": "public", "route": "direct"}
+  ]
+}

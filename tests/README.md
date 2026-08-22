@@ -1,6 +1,6 @@
 # 测试说明
 
-测试按共享核心、OpenWrt 适配器、LuCI 和目标系统正常路径分层。当前范围不包含故障注入矩阵。
+测试按共享核心、OpenWrt/Linux 适配器、LuCI 和目标系统正常路径分层。当前范围不包含故障注入矩阵。
 
 ## Go
 
@@ -10,6 +10,8 @@ go test ./...
 ```
 
 覆盖 schema 7、严格 JSON/UCI 解码、引用和前置链校验、确定性编译、Route 私有出站、DNS 路径、共享 Apply 生命周期、generation、订阅合并/Store、probe 测量，以及 OpenWrt 计划、nftables、激活、健康、Geo、日志和 UCI batch。
+
+Linux 适配器测试覆盖固定 workstation plan、只捕获本机 DNS 的 OUTPUT shim、JSON 原子写入与 ETag 冲突、Linux source-MAC 拒绝、systemd/backend generation、Web bearer token、临时 probe 的 bypass mark 和静态 Linux 构建。
 
 ## LuCI 与静态边界
 

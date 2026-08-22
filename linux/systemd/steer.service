@@ -1,0 +1,22 @@
+[Unit]
+Description=Steer transparent proxy
+After=network-online.target nftables.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/steer-linux _run
+ExecStopPost=/usr/bin/steer-linux cleanup
+Restart=on-failure
+RestartSec=2s
+RuntimeDirectory=steer
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+StateDirectory=steer
+StateDirectoryMode=0700
+ConfigurationDirectory=steer
+ConfigurationDirectoryMode=0700
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

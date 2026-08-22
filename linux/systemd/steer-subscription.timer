@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic Steer subscription update
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=15m
+Persistent=true
+Unit=steer-subscription.service
+
+[Install]
+WantedBy=timers.target
