@@ -90,6 +90,7 @@
 
   const api = {
     async overview() { return (await request('/api/v1/overview')).data; },
+    async runtime() { return (await request('/api/v1/runtime')).data; },
     config,
     putConfig,
     async validate(intent) {

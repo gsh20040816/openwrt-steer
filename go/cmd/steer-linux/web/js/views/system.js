@@ -33,6 +33,7 @@
     async render(root) {
       const isCurrent = ui.beginRender(root);
       const [geosite, geoip] = await Promise.all([S.api.geodata('geosite'), S.api.geodata('geoip')]);
+      const runtime = S.store.runtime || {};
 
       const geoCard = h('section', { class: 'card' }, [
         h('div', { class: 'card__head' }, [
@@ -57,8 +58,12 @@
       const factsCard = h('section', { class: 'card' }, [
         h('span', { class: 'eyebrow' }, '版本'),
         h('div', { class: 'facts u-mt-10' }, [
-          fact('steer', '0.5.0'), fact('sing-box', '1.13.18（<1.14.0）'), fact('geoview', '0.9.0'),
-          fact('canonical schema', '7'), fact('platform schema', '1'), fact('build tags', 'QUIC / uTLS ✓')
+          fact('steer', runtimeValue(runtime.steer)),
+          fact('sing-box', runtimeValue(runtime.sing_box, '（<1.14.0）')),
+          fact('geoview', runtimeValue(runtime.geoview)),
+          fact('canonical schema', runtimeValue(runtime.canonical_schema)),
+          fact('platform schema', runtimeValue(runtime.platform_schema)),
+          fact('build tags', runtimeTags(runtime.sing_box))
         ])
       ]);
 
@@ -69,6 +74,17 @@
       ]);
 
       function fact(label, value) { return h('div', { class: 'fact' }, h('dt', {}, label), h('dd', {}, value)); }
+      function runtimeValue(value, suffix = '') {
+        if (value && typeof value === 'object') {
+          if (value.version) return `${value.version}${suffix}`;
+          return value.error ? '不可用' : '—';
+        }
+        return value == null || value === '' ? '—' : `${value}${suffix}`;
+      }
+      function runtimeTags(tool) {
+        const tags = Array.isArray(tool?.tags) ? tool.tags : [];
+        return tags.length ? tags.join(' / ') : (tool?.error ? '不可用' : '—');
+      }
 
       if (!isCurrent()) return;
       root.append(

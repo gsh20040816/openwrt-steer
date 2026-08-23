@@ -22,7 +22,7 @@
         const listen = ui.input({ value: draft.listen || '', placeholder: '127.0.0.1' });
         const port = ui.input({ type: 'number', value: draft.listen_port || '', placeholder: '1080' });
         const username = ui.input({ value: draft.username || '', placeholder: '（可选）' });
-        const password = ui.input({ type: 'password', value: '', placeholder: '••••••••' });
+        const password = ui.input({ type: 'password', value: draft.password || '' });
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '端点'), [

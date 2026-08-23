@@ -10,6 +10,7 @@
   let platform = null;
   let platformRevision = '';
   let overview = null;
+  let runtime = null;
 
   const listeners = new Set();
   const emit = () => { for (const fn of listeners) fn(); };
@@ -27,18 +28,20 @@
     get platform() { return platform; },
     get platformRevision() { return platformRevision; },
     get overview() { return overview; },
+    get runtime() { return runtime; },
 
     normalizeIntent,
 
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
     async init() {
-      const [config, plat, ov] = await Promise.all([S.api.config(), S.api.platform(), S.api.overview()]);
+      const [config, plat, ov, runtimeInfo] = await Promise.all([S.api.config(), S.api.platform(), S.api.overview(), S.api.runtime()]);
       intent = normalizeIntent(config.intent);
       revision = config.revision;
       platform = plat.settings;
       platformRevision = plat.revision;
       overview = ov;
+      runtime = runtimeInfo;
       emit();
     },
 

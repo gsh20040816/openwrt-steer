@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,19 @@ type webGeoRunner struct{ output []byte }
 
 func (runner webGeoRunner) Output(_ context.Context, _ string, _ ...string) ([]byte, error) {
 	return runner.output, nil
+}
+
+type webRuntimeRunner struct{}
+
+func (webRuntimeRunner) Output(_ context.Context, name string, _ ...string) ([]byte, error) {
+	switch name {
+	case "/usr/bin/sing-box":
+		return []byte("sing-box version 1.13.19\nTags: with_quic,with_utls\n"), nil
+	case "/usr/bin/geoview":
+		return []byte("Geoview 0.2.6\n"), nil
+	default:
+		return nil, fmt.Errorf("unexpected runtime command %s", name)
+	}
 }
 
 func webTestIntent() model.Intent {
@@ -138,6 +152,30 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	handler.ServeHTTP(apiScript, httptest.NewRequest(http.MethodGet, "/js/api.js", nil))
 	if !strings.Contains(apiScript.Body.String(), "/api/v1/platform") || !strings.Contains(apiScript.Body.String(), "validateGeoCategories") || !strings.Contains(apiScript.Body.String(), "category.split('@', 1)[0]") || strings.Contains(apiScript.Body.String(), "sha256") {
 		t.Fatalf("API adapter is missing system settings or exposes internal hashes: %s", apiScript.Body.String())
+	}
+	systemScript := httptest.NewRecorder()
+	handler.ServeHTTP(systemScript, httptest.NewRequest(http.MethodGet, "/js/views/system.js", nil))
+	if strings.Contains(systemScript.Body.String(), "0.5.0") || strings.Contains(systemScript.Body.String(), "0.9.0") || !strings.Contains(systemScript.Body.String(), "runtime") {
+		t.Fatalf("system view still contains stale version facts: %s", systemScript.Body.String())
+	}
+}
+
+func TestWebRuntimeReportsInstalledToolVersions(t *testing.T) {
+	app := webApplication{GeoRunner: webRuntimeRunner{}}
+	response := httptest.NewRecorder()
+	app.handleRuntime(response, httptest.NewRequest(http.MethodGet, "/api/v1/runtime", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("runtime endpoint returned %d: %s", response.Code, response.Body.String())
+	}
+	var value runtimeInfo
+	if err := json.Unmarshal(response.Body.Bytes(), &value); err != nil {
+		t.Fatalf("runtime response is not JSON: %v", err)
+	}
+	if value.Steer != version || value.SingBox.Version != "1.13.19" || value.GeoView.Version != "0.2.6" || value.CanonicalSchema != model.SchemaVersion || value.PlatformSchema != linuxplatform.PlatformSchemaVersion {
+		t.Fatalf("runtime response = %#v", value)
+	}
+	if value.SingBox.Error != "" || value.GeoView.Error != "" || strings.Join(value.SingBox.Tags, ",") != "with_quic,with_utls" {
+		t.Fatalf("runtime dependency details = %#v", value)
 	}
 }
 

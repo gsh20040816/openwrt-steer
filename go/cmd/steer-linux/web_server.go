@@ -41,6 +41,7 @@ func webHandler(app webApplication) http.Handler {
 	mux.HandleFunc("/js/", app.handleAsset)
 	mux.HandleFunc("/api/v1/config", app.auth(app.handleConfig))
 	mux.HandleFunc("/api/v1/platform", app.auth(app.handlePlatform))
+	mux.HandleFunc("/api/v1/runtime", app.auth(app.handleRuntime))
 	mux.HandleFunc("/api/v1/overview", app.auth(app.handleOverview))
 	mux.HandleFunc("/api/v1/validate", app.auth(app.handleValidate))
 	mux.HandleFunc("/api/v1/apply", app.auth(app.handleApply))

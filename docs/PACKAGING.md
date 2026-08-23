@@ -12,17 +12,17 @@ Steer 固定采用三层交付模型：主仓库发布 source tag、通用 Linux
 6. OpenWrt 通过 `steer-geodata` 提供固定 Geo 输入；Linux 只消费用户配置路径指向的兼容 `.dat`，不依赖任何特定 Geo 包。
 7. tag 发布不重新编译，只复用该 tag 所指 master commit 已成功生成的完整 release bundle。
 
-版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.1`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
+版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.2`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
 
 ## OpenWrt
 
-0.6.1 面向 OpenWrt 25.12.5 x86/64：
+0.6.2 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.6.1-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
-| `luci-app-steer` | `0.6.1-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.6.1-r1` | 简体中文翻译 |
+| `steer` | `0.6.2-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
+| `luci-app-steer` | `0.6.2-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.6.2-r1` | 简体中文翻译 |
 | `steer-geodata` | 独立时间版本，`r2` | 固定 GeoSite/GeoIP 输入文件 |
 | `geoview` | `0.2.6-r3` | 固定上游 commit、无下游补丁的 Geo 分类读取工具 |
 
@@ -134,7 +134,7 @@ node tests/node/steer_helper_test.js
 
 1. 在 master 提交并推送完整原子变更；
 2. 等待该 commit 的 `Build release artifacts` 成功，确认 OpenWrt、Linux 和 bundle 三个产物齐全；
-3. 给同一 commit 打 `v0.6.1` tag 并推送；
+3. 给同一 commit 打 `v0.6.2` tag 并推送；
 4. `Publish tagged release` 查找该 commit 的成功 master run，下载 `release-bundle`，再次验证 SHA256、commit 和精确资产集合；
 5. 发布 GitHub Release；
 6. 从 Release 重新下载 APK 安装到目标 OpenWrt，并执行配置哈希、Apply、健康与 DNS 验证。
