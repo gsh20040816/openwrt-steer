@@ -52,6 +52,8 @@ steer health
 
 Web 默认只监听 `127.0.0.1:9080`，远程访问使用 SSH 端口转发；不支持把 Web 绑定到公网地址。
 
+Web 顶部状态条提供 Steer 启用/禁用开关。切换开关会立即保存 `/etc/steer/config.json` 并执行 Apply；Apply 失败会明确提示并保留已保存配置，禁用会清理运行态资源。
+
 Web Bearer token 的唯一配置源是严格 schema 1 的 `/etc/steer/web.json`。用户直接设置 `token`（32–256 个无空格可见 ASCII 字符）；`steer web-token` 只读取并输出当前配置，不生成、不迁移、不维护第二份 token 文件。
 
 `apply`、`_run`、`web` 和 `geo-catalog` 统一接受 `--platform`，默认读取 `/etc/steer/platform.json`。Web 的 `/api/v1/platform` 使用独立 ETag；“系统设置”保存两个路径后立即 Apply。路径或 category 不可用时，新设置仍被保存并返回结构化 Geo 错误，当前运行 generation 不切换。配置编辑器从当前数据库加载 Geo category 动态补全；catalog 可用时拒绝未知名称，catalog 不可用时由 Apply 做最终判定。

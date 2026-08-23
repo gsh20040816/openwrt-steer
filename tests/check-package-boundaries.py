@@ -78,10 +78,10 @@ for retired_migration in (
         fail(f"package retained expired alpha migration: {retired_migration}")
 if "PKG_NAME:=steer" not in makefile or "define Package/steer" not in makefile:
     fail("the OpenWrt controller package must be named steer")
-if "PKG_VERSION:=0.6.3\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
-    fail("steer package version must be the 0.6.3-r1 stable release")
-if "PKG_VERSION:=0.6.3\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
-    fail("LuCI packages must use the 0.6.3-r1 stable release")
+if "PKG_VERSION:=0.6.4\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
+    fail("steer package version must be the 0.6.4-r1 stable release")
+if "PKG_VERSION:=0.6.4\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
+    fail("LuCI packages must use the 0.6.4-r1 stable release")
 if "PKG_RELEASE:=3" not in geoview_makefile:
     fail("geoview package release must increase when removing its downstream patch")
 patches = ROOT / "geoview/patches"

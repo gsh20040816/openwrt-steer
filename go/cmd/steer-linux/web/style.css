@@ -151,9 +151,12 @@ body {
 .strip__fact { display: flex; flex-direction: column; gap: 1px; }
 .strip__fact-label { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
 .strip__fact-value { font: 11.5px var(--mono); }
+.strip__toggle { display: flex; align-items: center; gap: 8px; }
+.strip__toggle > div { display: flex; flex-direction: column; gap: 1px; }
 .strip__actions { display: flex; gap: 8px; margin-left: auto; }
 .health-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--err); flex: 0 0 auto; }
 .health-dot.is-ok { background: var(--ok); animation: ping 2.4s infinite; }
+.health-dot.is-disabled { background: var(--warn); }
 
 .view { flex: 1; width: 100%; max-width: 1180px; margin: 0 auto; padding: 22px 20px 64px; }
 

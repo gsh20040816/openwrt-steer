@@ -8,6 +8,7 @@
   const renderTokens = new WeakMap();
   const routeTokens = new WeakMap();
   let routeSequence = 0;
+  let enabledToggleBusy = false;
 
   function beginRender(root) {
     const token = {};
@@ -119,6 +120,33 @@
     }
   }
 
+  async function onToggleEnabled(next) {
+    const main = S.store.intent?.main;
+    if (!main || enabledToggleBusy || Boolean(main.enabled) === Boolean(next)) return;
+
+    main.enabled = Boolean(next);
+    S.store.touch();
+    enabledToggleBusy = true;
+    renderStatusStrip();
+    try {
+      const res = await S.store.save(true);
+      if (res.ok) {
+        if (!res.res.applied) {
+          toast(`已保存为${next ? '启用' : '禁用'}，但 Apply 失败：${res.res.apply_result?.error || res.res.error?.message || '运行态未切换'}`, 'err');
+        } else {
+          toast(next ? 'Steer 已启用并 Apply。' : 'Steer 已禁用并清理运行资源。', 'ok');
+        }
+      } else if (res.conflict) {
+        conflictDialog(res.conflict);
+      }
+    } catch (error) {
+      toast(`切换 Steer 状态失败：${error.message}`, 'err');
+    } finally {
+      enabledToggleBusy = false;
+      renderStatusStrip();
+    }
+  }
+
   async function forceSave() {
     try {
       const res = await S.store.save(false, true);
@@ -135,14 +163,19 @@
     const status = ov.status || {};
     const lastApply = status.last_apply || null;
     const lastResult = lastApply?.result || lastApply;
+    const desiredEnabled = S.store.intent?.main?.enabled === true;
     const healthy = !!status.healthy;
     const dirty = S.store.dirty;
 
     strip.append(
       h('div', { class: 'strip__group' }, [
-        h('span', { class: `health-dot ${healthy ? 'is-ok' : 'is-err'}`, title: healthy ? '运行健康' : '不健康' }),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, healthy ? 'healthy' : 'unhealthy')),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'systemd'), h('span', { class: 'strip__fact-value' }, healthy ? 'active' : 'inactive')),
+        h('span', { class: `health-dot ${!desiredEnabled ? 'is-disabled' : (healthy ? 'is-ok' : 'is-err')}`, title: !desiredEnabled ? 'Steer 已禁用' : (healthy ? '运行健康' : '不健康') }),
+        h('div', { class: 'strip__toggle' }, [
+          toggle(desiredEnabled, (next) => onToggleEnabled(next), '启用或禁用 Steer'),
+          h('div', {}, h('span', { class: 'strip__fact-label' }, 'Steer'), h('span', { class: 'strip__fact-value' }, desiredEnabled ? '已启用' : '已禁用'))
+        ]),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, !desiredEnabled ? 'disabled' : (healthy ? 'healthy' : 'unhealthy'))),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'systemd'), h('span', { class: 'strip__fact-value' }, !desiredEnabled ? 'stopped' : (healthy ? 'active' : 'inactive'))),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'generation'), h('span', { class: 'strip__fact-value' }, status.generation || lastResult?.generation || '—')),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '修订'), h('span', { class: 'strip__fact-value', title: S.store.revision }, S.fmtRevision(S.store.revision))),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次 Apply'), h('span', { class: 'strip__fact-value' }, lastApply ? `#${lastApply.sequence} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
@@ -154,6 +187,7 @@
         h('button', { class: 'btn btn--primary', onclick: () => onSave(true), disabled: !dirty }, '保存并 Apply')
       ])
     );
+    strip.querySelector('.strip__toggle .switch').disabled = enabledToggleBusy;
   }
 
   /* ---------- 通知 ---------- */
