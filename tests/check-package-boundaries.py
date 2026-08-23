@@ -61,6 +61,8 @@ for forbidden_path in ("usr/bin/sing-box", "usr/bin/geoview"):
 
 if "$(1)/usr/sbin/steer" not in makefile:
     fail("steer must install the public CLI as /usr/sbin/steer")
+if "$(PKG_INSTALL_DIR)/usr/bin/steer-openwrt $(1)/usr/sbin/steer" not in makefile:
+    fail("OpenWrt source target must be renamed to the public steer executable during packaging")
 if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc:
     fail("retired steer-openwrt CLI name is still user-visible")
 
