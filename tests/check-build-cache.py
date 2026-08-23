@@ -63,8 +63,29 @@ for forbidden in (
     if forbidden in WORKFLOW:
         fail(f"release workflow must not contain custom cache or downloader: {forbidden}")
 
-if "paths-ignore:" in WORKFLOW:
-    fail("workflow changes must trigger a release build")
+trigger = WORKFLOW.split("concurrency:", 1)[0]
+ignored_paths = set()
+reading_ignored_paths = False
+for line in trigger.splitlines():
+    if line.strip() == "paths-ignore:":
+        reading_ignored_paths = True
+        continue
+    if reading_ignored_paths and line.startswith("      - "):
+        ignored_paths.add(line.split("- ", 1)[1].strip().strip("'\""))
+        continue
+    if reading_ignored_paths and line.strip():
+        reading_ignored_paths = False
+
+expected_ignored_paths = {
+    "packaging/**",
+    "docs/**",
+    "README.md",
+    "tests/README.md",
+    ".gitignore",
+    ".github/workflows/publish.yml",
+}
+if ignored_paths != expected_ignored_paths:
+    fail(f"unexpected release-build ignored paths: {sorted(ignored_paths)}")
 
 if WORKFLOW.count("actions/cache/restore@") != 2:
     fail("release workflow must restore exactly ccache and GOCACHE")

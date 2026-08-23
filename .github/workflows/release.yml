@@ -5,6 +5,14 @@ on:
   push:
     branches:
       - master
+    # These paths do not change APKs, Linux archives, or the release bundle.
+    paths-ignore:
+      - 'packaging/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'tests/README.md'
+      - '.gitignore'
+      - '.github/workflows/publish.yml'
 
 concurrency:
   group: release-artifact-build
