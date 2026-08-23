@@ -45,14 +45,27 @@ macOS 的 DNS Proxy 必须同时覆盖 UDP 和 TCP，并在 Swift 层处理 TCP 
 
 ## 当前代码骨架
 
-`go/internal/platform/macos` 目前只包含纯 Go 的 `Plan` 和编译目标：
+`go/internal/platform/macos` 目前包含纯 Go 的 `Plan`、JSON bridge、App Group store、generation prepare/publish 和 DNS framing：
 
 - TUN inbound 不声明 `auto_route`/`auto_redirect`，由 NetworkExtension 负责系统路由；
 - DNS inbound 绑定 `127.0.0.1:1053` 与 `[::1]:1054`；
 - target 明确使用 `DNSCaptureInboundHijack`；
-- `go test` 可在 Linux 上验证配置中存在专用 DNS `hijack-dns`，且不存在 `auto_redirect`。
+- `go/pkg/steercore` 提供版本化 `{abi_version, ok, value/error}` JSON envelope；
+- `go test` 可在 Linux 上验证配置中存在专用 DNS `hijack-dns`，且不存在 `auto_redirect`；
+- `macos/SteerApp` 提供 SwiftUI 页面、菜单栏入口、draft/Validate/Apply 状态和 provider manager 控制骨架；
+- `macos/SteerNetwork` 提供 Packet Tunnel/DNS Proxy target 输入、entitlements 和 Info.plist 模板；
+- `macos/bridge/go.mod` 将 sing-box 固定在 `v1.13.19`，不污染根 Go module。
 
 这不是 macOS 系统扩展的完成声明。没有真实 Mac、Apple Developer 签名、App Group 和 NetworkExtension 授权时，不能声称 Packet Tunnel/DNS Proxy 已启动或端到端可用。
+
+## 尚未完成但已留好接口的部分
+
+- DNSProxyProvider 的 `NEAppProxyUDPFlow`/`NEAppProxyTCPFlow` 实际读写循环；
+- Packet Tunnel 中 Libbox command server、utun fd handoff 和物理接口绑定；
+- Swift 字段级 schema 7 编辑器、订阅/Geo/Probe/Agent；
+- XCFramework 产物、Developer ID 签名、notarization 和真实 provider 健康检查。
+
+这些部分需要 macOS SDK、Apple entitlement、签名身份或真实流量，当前环境无法诚实完成验证，因此代码中保持 fail-fast 占位，不把失败伪装成可用。
 
 ## 后续顺序
 
