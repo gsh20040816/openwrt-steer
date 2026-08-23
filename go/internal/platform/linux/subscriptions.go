@@ -38,7 +38,7 @@ func SubscriptionSnapshotPath(stateDirectory, id string) string {
 }
 
 func ReadSubscriptionStatus(configPath, stateDirectory string) ([]SubscriptionStatus, error) {
-	intent, _, err := (JSONStore{Path: configPath}).Load()
+	intent, _, err := (IntentStore{Path: configPath}).Load()
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func ReadSubscriptionStatus(configPath, stateDirectory string) ([]SubscriptionSt
 }
 
 func UpdateConfiguredSubscriptions(ctx context.Context, client *http.Client, configPath, stateDirectory, id string) ([]SubscriptionSnapshot, error) {
-	store := JSONStore{Path: configPath}
+	store := IntentStore{Path: configPath}
 	value, revision, err := store.Load()
 	if err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func CleanSubscriptionNode(configPath, stateDirectory, id, nodeID string) (Subsc
 	if snapshotNode == nil || !snapshotNode.PinnedStale {
 		return SubscriptionSnapshot{}, fmt.Errorf("stale subscription node %q was not found", nodeID)
 	}
-	store := JSONStore{Path: configPath}
+	store := IntentStore{Path: configPath}
 	value, revision, err := store.Load()
 	if err != nil {
 		return SubscriptionSnapshot{}, err

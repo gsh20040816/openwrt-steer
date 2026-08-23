@@ -13,17 +13,17 @@ import (
 
 const PlatformSchemaVersion = 1
 
-type PlatformSettings struct {
+type Settings struct {
 	SchemaVersion int    `json:"schema_version"`
 	GeoSitePath   string `json:"geosite_path,omitempty"`
 	GeoIPPath     string `json:"geoip_path,omitempty"`
 }
 
-func DefaultPlatformSettings() PlatformSettings {
-	return PlatformSettings{SchemaVersion: PlatformSchemaVersion}
+func DefaultSettings() Settings {
+	return Settings{SchemaVersion: PlatformSchemaVersion}
 }
 
-func ValidatePlatformSettings(value PlatformSettings) error {
+func ValidateSettings(value Settings) error {
 	if value.SchemaVersion != PlatformSchemaVersion {
 		return fmt.Errorf("platform settings require schema %d, found %d", PlatformSchemaVersion, value.SchemaVersion)
 	}
@@ -35,36 +35,36 @@ func ValidatePlatformSettings(value PlatformSettings) error {
 	return nil
 }
 
-type PlatformStore struct {
+type SettingsStore struct {
 	Path string
 }
 
-func (store PlatformStore) normalizedPath() string {
+func (store SettingsStore) normalizedPath() string {
 	if store.Path == "" {
 		return "/etc/steer/platform.json"
 	}
 	return store.Path
 }
 
-func (store PlatformStore) Load() (PlatformSettings, string, error) {
+func (store SettingsStore) Load() (Settings, string, error) {
 	content, err := os.ReadFile(store.normalizedPath())
 	if os.IsNotExist(err) {
-		value := DefaultPlatformSettings()
-		encoded, _ := encodePlatformSettings(value)
+		value := DefaultSettings()
+		encoded, _ := encodeSettings(value)
 		return value, revision(encoded), nil
 	}
 	if err != nil {
-		return PlatformSettings{}, "", fmt.Errorf("read platform settings: %w", err)
+		return Settings{}, "", fmt.Errorf("read platform settings: %w", err)
 	}
-	value, err := decodePlatformSettings(content)
+	value, err := decodeSettings(content)
 	if err != nil {
-		return PlatformSettings{}, "", err
+		return Settings{}, "", err
 	}
 	return value, revision(content), nil
 }
 
-func (store PlatformStore) Save(value PlatformSettings, expectedRevision string) (string, error) {
-	if err := ValidatePlatformSettings(value); err != nil {
+func (store SettingsStore) Save(value Settings, expectedRevision string) (string, error) {
+	if err := ValidateSettings(value); err != nil {
 		return "", err
 	}
 	if expectedRevision != "" {
@@ -76,7 +76,7 @@ func (store PlatformStore) Save(value PlatformSettings, expectedRevision string)
 			return "", ErrRevisionConflict
 		}
 	}
-	content, err := encodePlatformSettings(value)
+	content, err := encodeSettings(value)
 	if err != nil {
 		return "", err
 	}
@@ -86,26 +86,26 @@ func (store PlatformStore) Save(value PlatformSettings, expectedRevision string)
 	return revision(content), nil
 }
 
-func decodePlatformSettings(content []byte) (PlatformSettings, error) {
+func decodeSettings(content []byte) (Settings, error) {
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
-	var value PlatformSettings
+	var value Settings
 	if err := decoder.Decode(&value); err != nil {
-		return PlatformSettings{}, fmt.Errorf("decode platform settings: %w", err)
+		return Settings{}, fmt.Errorf("decode platform settings: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		if err == nil {
 			err = fmt.Errorf("multiple JSON values")
 		}
-		return PlatformSettings{}, fmt.Errorf("decode platform settings: %w", err)
+		return Settings{}, fmt.Errorf("decode platform settings: %w", err)
 	}
-	if err := ValidatePlatformSettings(value); err != nil {
-		return PlatformSettings{}, err
+	if err := ValidateSettings(value); err != nil {
+		return Settings{}, err
 	}
 	return value, nil
 }
 
-func encodePlatformSettings(value PlatformSettings) ([]byte, error) {
+func encodeSettings(value Settings) ([]byte, error) {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode platform settings: %w", err)

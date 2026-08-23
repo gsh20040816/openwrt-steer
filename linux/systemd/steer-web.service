@@ -4,7 +4,7 @@ After=steer.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/steer-linux web
+ExecStart=/usr/bin/steer web
 Restart=on-failure
 RestartSec=2s
 StateDirectory=steer

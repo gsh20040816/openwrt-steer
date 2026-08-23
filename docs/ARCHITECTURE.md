@@ -15,7 +15,7 @@ go/internal/capability             sing-box 版本/build-tag 能力检查
 go/internal/platform/openwrt       OpenWrt 网络、服务、UCI、Geo 和日志适配
 go/internal/platform/linux         systemd、TUN、DNS nft shim、JSON 和 Linux 状态适配
 go/internal/platform/openwrt/uci   严格 UCI 语法解析
-go/cmd/steer                       OpenWrt CLI
+go/cmd/steer-openwrt               OpenWrt CLI 源码 target
 go/cmd/steer-linux                 Linux CLI 和 loopback Web 控制面
 go/internal/geodata                 显式 Geo 数据文件到内容寻址 SRS generation
 ```

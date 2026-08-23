@@ -40,7 +40,7 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 	if err := os.WriteFile(tokenPath, []byte("token-value\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store := linuxplatform.JSONStore{Path: configPath}
+	store := linuxplatform.IntentStore{Path: configPath}
 	if _, err := store.Save(webTestIntent(), ""); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestWebPlatformPersistsSettingsWhenImmediateApplyFails(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result["saved"] != true || result["applied"] != false {
 		t.Fatalf("unexpected failed Apply response: err=%v payload=%#v", err, result)
 	}
-	saved, savedRevision, err := (linuxplatform.PlatformStore{Path: platformPath}).Load()
+	saved, savedRevision, err := (linuxplatform.SettingsStore{Path: platformPath}).Load()
 	if err != nil || saved.GeoSitePath != "/data/geosite.dat" || savedRevision == initialRevision {
 		t.Fatalf("failed Apply did not preserve settings: settings=%#v revision=%q err=%v", saved, savedRevision, err)
 	}
@@ -181,7 +181,7 @@ func TestWebGeoDataReturnsStatusResource(t *testing.T) {
 	platformPath := filepath.Join(root, "platform.json")
 	value := webTestIntent()
 	value.Rules = append([]model.Rule{{ID: "geo", Enabled: true, DomainMatch: []string{"geosite:cn"}, DNSProfile: "public", Route: "direct"}}, value.Rules...)
-	if _, err := (linuxplatform.JSONStore{Path: configPath}).Save(value, ""); err != nil {
+	if _, err := (linuxplatform.IntentStore{Path: configPath}).Save(value, ""); err != nil {
 		t.Fatal(err)
 	}
 	app := webApplication{ConfigPath: configPath, PlatformPath: platformPath, GeoRunner: webGeoRunner{output: []byte("Available codes:\nCN\nGoogle\n")}, GeoViewBinary: "/test/geoview"}
@@ -200,9 +200,9 @@ func TestWebGeoDataReturnsStatusResource(t *testing.T) {
 	if err := os.WriteFile(path, []byte("site"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	settings := linuxplatform.DefaultPlatformSettings()
+	settings := linuxplatform.DefaultSettings()
 	settings.GeoSitePath = path
-	if _, err := (linuxplatform.PlatformStore{Path: platformPath}).Save(settings, ""); err != nil {
+	if _, err := (linuxplatform.SettingsStore{Path: platformPath}).Save(settings, ""); err != nil {
 		t.Fatal(err)
 	}
 	response = httptest.NewRecorder()

@@ -1,6 +1,6 @@
 # 开发与验证
 
-0.5 alpha 的任务是验证统一项目命名和跨平台边界，同时保持 OpenWrt 正常使用可靠。功能边界已经冻结；修改应落在正确包中，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构。
+0.5 的任务是固定统一项目命名、跨平台边界和发布契约，同时保持 OpenWrt 正常使用可靠。功能边界已经冻结；修改应落在正确包中，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构。
 
 ## 仓库结构
 
@@ -9,9 +9,9 @@ go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
 go/internal/{subscription,probe,capability}     共享服务
 go/internal/platform/openwrt                    OpenWrt 适配器
 go/internal/platform/linux                      Linux systemd 主机/转发流量适配器
-go/cmd/steer                                    OpenWrt CLI
+go/cmd/steer-openwrt                            OpenWrt CLI 源码 target
 go/cmd/steer-linux                              Linux CLI/Web
-linux/systemd                                   Linux unit 文件（手工安装参考）
+linux                                           Linux 通用发行资产与 systemd unit
 luci-app-steer                                  LuCI、RPC、ACL、翻译
 steer                                           OpenWrt 控制器包
 steer-geodata                                   固定 Geo 数据包
@@ -36,6 +36,7 @@ node tests/node/steer_helper_test.js
 python3 tests/check-luci-i18n.py
 python3 tests/check-package-boundaries.py
 python3 tests/check-build-cache.py
+python3 tests/check-linux-packaging.py
 git diff --check
 ```
 
@@ -61,17 +62,15 @@ version validate apply health status probe subscription geo-catalog cleanup
 
 `_start` 仅供 init 脚本使用，不属于公共接口。不得重新公开 compile、plan、prepare、capabilities 或 rollback。RPC 只包装用户/界面需要的公共操作；状态对象固定为 `healthy + last_apply`，合法性由 validate 单独返回。
 
-## 新平台开发顺序
+## Linux 交付边界
 
-稳定版晋级后，Linux 适配器按以下顺序开始：
+Linux 适配器与上游发行资产已经建立，后续修改必须保持：
 
-1. 实现 schema 7 严格 Canonical JSON 文件读写和 revision/ETag；
-2. 实现平台目录、权限和 systemd 生命周期；
-3. 选择并验证 Linux 网络接管方式，生成平台内部计划；
-4. 接入共享 Backend 五方法；
-5. 复用 subscription/probe，并实现 JSON Store 和平台日志路径；
-6. 提供 loopback Web API/UI，与 CLI 共享同一套 Apply；
-7. 暂不维护 GitHub Actions Linux 打包或发行版打包脚本。
+1. 源码 target 继续叫 `cmd/steer-linux`，安装名固定为 `/usr/bin/steer`；
+2. 主 CI 只构建 x86_64/aarch64 通用 tar.zst，不构建 deb、rpm、pkg.tar 等发行版包；
+3. Linux 包不依赖特定 Geo 数据包，只消费用户在 `platform.json` 中选择的 `.dat`；
+4. sing-box、geoview、nftables、iproute2 和 ca-certificates 始终由系统包管理器提供；
+5. tag 发布只复用同一 master commit 已验证的 OpenWrt 与 Linux 产物，不重新编译。
 
 macOS 在 Linux 接口稳定后开始，允许使用 launchd、utun/pf 和不同权限模型，但不得改变共享规则、路由、DNS 或订阅语义。
 
@@ -82,7 +81,7 @@ macOS 在 Linux 接口稳定后开始，允许使用 launchd、utun/pf 和不同
 发布门：
 
 1. 全部本地检查通过；
-2. 官方 OpenWrt SDK 完整构建并产出五个 APK；
-3. 构建产物来自拟发布 commit；
+2. 官方 OpenWrt SDK 完整构建五个 APK，Linux 并行构建两个通用 tar.zst；
+3. release bundle 中全部产物来自拟发布 commit；
 4. 安装后运行 `validate`、`health`、`status` 和显式测试；
-5. alpha 在真实路由器正常使用至少一周后再晋级稳定版。
+5. 预发布版本在真实目标上满足稳定门槛后再晋级稳定版。

@@ -37,21 +37,28 @@ jobs:
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "Using master build run $run_id for $SOURCE_REVISION"
 
-      - name: Download exact build artifact
+      - name: Download exact release bundle
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
           gh run download "${{ steps.build.outputs.run_id }}" \
             --repo "$REPOSITORY" \
-            --name openwrt-25.12.5-x86_64-packages \
+            --name release-bundle \
             --dir release-artifact
 
       - name: Verify release artifact
+        id: release
         env:
           SOURCE_REVISION: ${{ github.sha }}
         run: |
-          cd release-artifact/dist
+          set -- $(find release-artifact -type f -name SHA256SUMS)
+          [ "$#" -eq 1 ] || {
+            echo "Expected one release SHA256SUMS, found $#" >&2
+            exit 1
+          }
+          release_dir="$(dirname "$1")"
+          cd "$release_dir"
           sha256sum -c SHA256SUMS
           grep -Fqx "Source revision: $SOURCE_REVISION" BUILD-METADATA.txt
           for pattern in \
@@ -59,13 +66,16 @@ jobs:
             'steer-geodata-*.apk' \
             'steer-[0-9]*.apk' \
             'luci-app-steer-*.apk' \
-            'luci-i18n-steer-zh-cn-*.apk'; do
+            'luci-i18n-steer-zh-cn-*.apk' \
+            'steer-linux-x86_64.tar.zst' \
+            'steer-linux-aarch64.tar.zst'; do
             set -- $pattern
-            [ "$#" -eq 1 ] || {
+            [ "$#" -eq 1 ] && [ -f "$1" ] || {
               echo "Expected exactly one asset matching $pattern, found $#" >&2
               exit 1
             }
           done
+          echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
 
       - name: Publish release
         env:
@@ -73,11 +83,12 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          release_dir="${{ steps.release.outputs.release_dir }}"
           release_flags=""
           case "$RELEASE_TAG" in
             *-*) release_flags="--prerelease" ;;
           esac
-          gh release create "$RELEASE_TAG" release-artifact/dist/* \
+          gh release create "$RELEASE_TAG" "$release_dir"/* \
             --repo "$REPOSITORY" \
             --verify-tag \
             --generate-notes \

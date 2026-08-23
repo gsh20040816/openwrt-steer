@@ -15,18 +15,18 @@ import (
 
 var ErrRevisionConflict = errors.New("configuration revision conflict")
 
-type JSONStore struct {
+type IntentStore struct {
 	Path string
 }
 
-func (store JSONStore) normalizedPath() string {
+func (store IntentStore) normalizedPath() string {
 	if store.Path == "" {
 		return "/etc/steer/config.json"
 	}
 	return store.Path
 }
 
-func (store JSONStore) Load() (model.Intent, string, error) {
+func (store IntentStore) Load() (model.Intent, string, error) {
 	content, err := os.ReadFile(store.normalizedPath())
 	if err != nil {
 		return model.Intent{}, "", fmt.Errorf("read canonical intent: %w", err)
@@ -38,7 +38,7 @@ func (store JSONStore) Load() (model.Intent, string, error) {
 	return value, revision(content), nil
 }
 
-func (store JSONStore) Save(value model.Intent, expectedRevision string) (string, error) {
+func (store IntentStore) Save(value model.Intent, expectedRevision string) (string, error) {
 	validation := Validate(value)
 	if !validation.OK {
 		return "", ValidationError{Validation: validation}

@@ -21,6 +21,7 @@ def fail(message: str) -> None:
 ENTRYPOINT = (ROOT / ".github/actions/openwrt-sdk/entrypoint.sh").read_text()
 
 required_fragments = (
+    "name: Build release artifacts",
     "ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a",
     "--volume \"$source_dir:/feed:ro\"",
     "--volume \"$RUNNER_TEMP/steer-sdk-artifacts:/artifacts\"",
@@ -32,6 +33,11 @@ required_fragments = (
     "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "--env PACKAGES=\"geoview steer-geodata steer luci-app-steer\"",
     "cp -R \"$RUNNER_TEMP/steer-sdk-artifacts/bin\" \"$GITHUB_WORKSPACE/bin\"",
+    "./scripts/collect-openwrt-artifacts.sh",
+    "CGO_ENABLED=0 GOOS=linux GOARCH=\"$goarch\" go build",
+    "./scripts/collect-linux-artifacts.sh",
+    "name: linux-generic",
+    "name: release-bundle",
 )
 for fragment in required_fragments:
     if fragment not in WORKFLOW:
@@ -50,6 +56,9 @@ for forbidden in (
     "build_dir",
     "staging_dir",
     "hostpkg",
+    "makepkg",
+    "dpkg-buildpackage",
+    "rpmbuild",
 ):
     if forbidden in WORKFLOW:
         fail(f"release workflow must not contain custom cache or downloader: {forbidden}")

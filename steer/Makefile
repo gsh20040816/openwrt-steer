@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
-PKG_VERSION:=0.5.0_alpha3
+PKG_VERSION:=0.5.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -13,7 +13,7 @@ PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
 
 GO_PKG:=github.com/gsh20040816/steer/go
-GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/steer
+GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/steer-openwrt
 GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)-r$(PKG_RELEASE)
 
 include $(INCLUDE_DIR)/package.mk

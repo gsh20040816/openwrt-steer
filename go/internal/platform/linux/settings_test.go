@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-func TestPlatformStoreTreatsMissingFileAsEmptySettings(t *testing.T) {
-	store := PlatformStore{Path: filepath.Join(t.TempDir(), "platform.json")}
+func TestSettingsStoreTreatsMissingFileAsEmptySettings(t *testing.T) {
+	store := SettingsStore{Path: filepath.Join(t.TempDir(), "platform.json")}
 	value, revision, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value != DefaultPlatformSettings() || revision == "" {
+	if value != DefaultSettings() || revision == "" {
 		t.Fatalf("missing platform settings = %#v revision %q", value, revision)
 	}
 	value.GeoSitePath = "/usr/share/v2ray/geosite.dat"
@@ -29,7 +29,7 @@ func TestPlatformStoreTreatsMissingFileAsEmptySettings(t *testing.T) {
 	}
 }
 
-func TestPlatformStoreRejectsUnknownFieldsAndRelativePaths(t *testing.T) {
+func TestSettingsStoreRejectsUnknownFieldsAndRelativePaths(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "platform.json")
 	for name, content := range map[string]string{
@@ -41,20 +41,20 @@ func TestPlatformStoreRejectsUnknownFieldsAndRelativePaths(t *testing.T) {
 			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := (PlatformStore{Path: path}).Load(); err == nil {
+			if _, _, err := (SettingsStore{Path: path}).Load(); err == nil {
 				t.Fatalf("invalid platform settings were accepted: %s", content)
 			}
 		})
 	}
 }
 
-func TestPlatformStoreRejectsStaleRevision(t *testing.T) {
-	store := PlatformStore{Path: filepath.Join(t.TempDir(), "platform.json")}
+func TestSettingsStoreRejectsStaleRevision(t *testing.T) {
+	store := SettingsStore{Path: filepath.Join(t.TempDir(), "platform.json")}
 	_, revision, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	value := DefaultPlatformSettings()
+	value := DefaultSettings()
 	value.GeoIPPath = "/usr/share/v2ray/geoip.dat"
 	if _, err := store.Save(value, revision); err != nil {
 		t.Fatal(err)

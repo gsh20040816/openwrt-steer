@@ -1,0 +1,338 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/geodata"
+	model "github.com/gsh20040816/steer/go/internal/intent"
+	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
+	"github.com/gsh20040816/steer/go/internal/subscription"
+)
+
+func (app webApplication) handleOverview(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	store := linuxplatform.IntentStore{Path: app.ConfigPath}
+	value, revision, loadErr := store.Load()
+	validation := model.Validation{OK: false}
+	if loadErr == nil {
+		validation = linuxplatform.Validate(value)
+	}
+	status := linuxplatform.ReadStatus(request.Context(), linuxplatform.ExecRunner{}, linuxplatform.BackendOptions{RunDirectory: app.RunDirectory})
+	writeWebJSON(writer, map[string]any{"saved_revision": revision, "saved_valid": loadErr == nil && validation.OK, "validation": validation, "status": status, "error": errorString(loadErr)})
+}
+
+func (app webApplication) handleValidate(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(request.Body, 2<<20))
+	if err != nil {
+		writeWebError(writer, err, http.StatusBadRequest)
+		return
+	}
+	value, _, err := decodeIntentPayload(body)
+	if err != nil {
+		writeWebError(writer, err, http.StatusBadRequest)
+		return
+	}
+	validation := linuxplatform.Validate(value)
+	writeWebJSON(writer, validation)
+}
+
+func (app webApplication) handleApply(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	result, err := app.applySaved()
+	if err != nil {
+		writeWebJSONStatus(writer, result, http.StatusUnprocessableEntity)
+		return
+	}
+	writeWebJSON(writer, result)
+}
+
+func (app webApplication) handleNodeImport(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		URI string `json:"uri"`
+	}
+	if err := json.NewDecoder(io.LimitReader(request.Body, 256<<10)).Decode(&payload); err != nil || payload.URI == "" {
+		writeWebError(writer, errors.New("request requires a uri"), http.StatusBadRequest)
+		return
+	}
+	node, err := subscription.ParseURI(payload.URI)
+	if err == nil {
+		validation := model.ValidateNode(node)
+		if !validation.OK {
+			err = errors.New("imported node failed validation")
+		}
+	}
+	if err != nil {
+		writeWebError(writer, err, http.StatusUnprocessableEntity)
+		return
+	}
+	writeWebJSON(writer, map[string]any{"node": node})
+}
+
+func (app webApplication) handleProbes(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := strings.TrimPrefix(request.URL.Path, "/api/v1/probes/")
+	body, _ := io.ReadAll(io.LimitReader(request.Body, 64<<10))
+	var payload struct {
+		Kind     string `json:"kind"`
+		Download bool   `json:"download"`
+	}
+	if len(bytes.TrimSpace(body)) > 0 {
+		if err := json.Unmarshal(body, &payload); err != nil {
+			writeWebError(writer, err, http.StatusBadRequest)
+			return
+		}
+	}
+	if path == "overview" {
+		kind := payload.Kind
+		if kind == "" {
+			kind = "direct"
+		}
+		report, err := linuxplatform.ProbeCurrentWithState(request.Context(), app.RunDirectory, app.StateDirectory, kind, nil)
+		if err != nil {
+			writeWebError(writer, err, http.StatusUnprocessableEntity)
+			return
+		}
+		writeWebJSON(writer, report)
+		return
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 2 && (parts[0] == "nodes" || parts[0] == "routes") {
+		var report linuxplatform.TestReport
+		var err error
+		if parts[0] == "nodes" {
+			report, err = linuxplatform.SpeedTestNode(request.Context(), app.ConfigPath, app.StateDirectory, "/usr/bin/sing-box", parts[1], payload.Download)
+		} else {
+			report, err = linuxplatform.SpeedTestRoute(request.Context(), app.ConfigPath, app.StateDirectory, "/usr/bin/sing-box", parts[1], payload.Download)
+		}
+		if err != nil {
+			writeWebError(writer, err, http.StatusUnprocessableEntity)
+			return
+		}
+		writeWebJSON(writer, report)
+		return
+	}
+	http.NotFound(writer, request)
+}
+
+func (app webApplication) handleSubscriptions(writer http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodGet && request.URL.Path == "/api/v1/subscriptions" {
+		statuses, err := linuxplatform.ReadSubscriptionStatus(app.ConfigPath, app.StateDirectory)
+		if err != nil {
+			writeWebError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writeWebJSON(writer, map[string]any{"subscriptions": statuses})
+		return
+	}
+	prefix := "/api/v1/subscriptions/"
+	if !strings.HasPrefix(request.URL.Path, prefix) {
+		http.NotFound(writer, request)
+		return
+	}
+	remainder := strings.TrimPrefix(request.URL.Path, prefix)
+	parts := strings.Split(strings.TrimSuffix(remainder, "/"), "/")
+	if len(parts) == 2 && parts[1] == "update" && request.Method == http.MethodPost {
+		var snapshots []linuxplatform.SubscriptionSnapshot
+		err := withOperationLock(app.RunDirectory, func() error {
+			var err error
+			snapshots, err = linuxplatform.UpdateConfiguredSubscriptions(request.Context(), &http.Client{Timeout: 30 * time.Second}, app.ConfigPath, app.StateDirectory, parts[0])
+			return err
+		})
+		if err != nil {
+			writeWebError(writer, err, http.StatusUnprocessableEntity)
+			return
+		}
+		writeWebJSON(writer, map[string]any{"snapshots": snapshots})
+		return
+	}
+	if len(parts) == 3 && parts[1] == "nodes" && request.Method == http.MethodDelete {
+		var snapshot linuxplatform.SubscriptionSnapshot
+		err := withOperationLock(app.RunDirectory, func() error {
+			var err error
+			snapshot, err = linuxplatform.CleanSubscriptionNode(app.ConfigPath, app.StateDirectory, parts[0], parts[2])
+			return err
+		})
+		if err != nil {
+			writeWebError(writer, err, http.StatusUnprocessableEntity)
+			return
+		}
+		writeWebJSON(writer, map[string]any{"snapshot": snapshot})
+		return
+	}
+	http.NotFound(writer, request)
+}
+
+func (app webApplication) handleGeoData(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	kind := strings.TrimPrefix(request.URL.Path, "/api/v1/geodata/")
+	if kind != "geosite" && kind != "geoip" {
+		writeWebError(writer, errors.New("Geo kind must be geosite or geoip"), http.StatusBadRequest)
+		return
+	}
+	writeWebJSON(writer, app.geoDataStatus(request.Context(), kind))
+}
+
+type geoDataStatus struct {
+	Kind       string           `json:"kind"`
+	Configured bool             `json:"configured"`
+	Required   bool             `json:"required"`
+	Readable   bool             `json:"readable"`
+	Path       string           `json:"path,omitempty"`
+	Count      int              `json:"count"`
+	Names      []string         `json:"names"`
+	Error      *webErrorDetails `json:"error,omitempty"`
+}
+
+func (app webApplication) geoDataStatus(ctx context.Context, kind string) geoDataStatus {
+	status := geoDataStatus{Kind: kind, Names: []string{}}
+	if value, _, err := (linuxplatform.IntentStore{Path: app.ConfigPath}).Load(); err == nil {
+		status.Required = intentRequiresGeoKind(value, kind)
+	}
+	settings, _, err := (linuxplatform.SettingsStore{Path: app.platformPath()}).Load()
+	if err != nil {
+		status.Error = &webErrorDetails{Code: "PLATFORM_SETTINGS_INVALID", Message: err.Error()}
+		return status
+	}
+	status.Path = settings.GeoIPPath
+	if kind == "geosite" {
+		status.Path = settings.GeoSitePath
+	}
+	status.Configured = status.Path != ""
+	runner := app.GeoRunner
+	if runner == nil {
+		runner = linuxplatform.ExecRunner{}
+	}
+	geoViewBinary := app.GeoViewBinary
+	if geoViewBinary == "" {
+		geoViewBinary = "/usr/bin/geoview"
+	}
+	names, err := geodata.Catalog(ctx, runner, kind, status.Path, geoViewBinary)
+	if err != nil {
+		status.Error = errorDetails(err)
+		return status
+	}
+	status.Readable = true
+	status.Names = names
+	status.Count = len(names)
+	return status
+}
+
+func intentRequiresGeoKind(value model.Intent, kind string) bool {
+	for _, rule := range value.Rules {
+		if !rule.Enabled {
+			continue
+		}
+		expressions := rule.IPMatch
+		prefix := "geoip:"
+		if kind == "geosite" {
+			expressions = rule.DomainMatch
+			prefix = "geosite:"
+		}
+		for _, expression := range expressions {
+			if strings.HasPrefix(expression, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (app webApplication) applySaved() (coreapply.Result, error) {
+	return runLockedApplyResult(app.RunDirectory, func() (coreapply.Result, error) {
+		value, validation, err := loadIntent(app.ConfigPath)
+		if err != nil {
+			return coreapply.Result{Validation: &validation}, err
+		}
+		if !validation.OK {
+			return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
+		}
+		return app.applyValue(value)
+	})
+}
+
+func (app webApplication) applyValue(value model.Intent) (coreapply.Result, error) {
+	settings, _, err := (linuxplatform.SettingsStore{Path: app.platformPath()}).Load()
+	if err != nil {
+		return coreapply.Result{}, err
+	}
+	return app.applyValueWithPlatform(value, settings)
+}
+
+func (app webApplication) applyValueWithPlatform(value model.Intent, settings linuxplatform.Settings) (coreapply.Result, error) {
+	validation := linuxplatform.Validate(value)
+	if !validation.OK {
+		return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
+	}
+	backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{
+		RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory,
+		GeoSitePath: settings.GeoSitePath, GeoIPPath: settings.GeoIPPath,
+	})
+	return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
+}
+
+func decodeIntentPayload(body []byte) (model.Intent, bool, error) {
+	var wrapper struct {
+		Intent json.RawMessage `json:"intent"`
+		Apply  bool            `json:"apply"`
+	}
+	if err := json.Unmarshal(body, &wrapper); err == nil && len(wrapper.Intent) > 0 {
+		value, err := model.DecodeJSON(bytes.NewReader(wrapper.Intent))
+		return value, wrapper.Apply, err
+	}
+	value, err := model.DecodeJSON(bytes.NewReader(body))
+	return value, false, err
+}
+
+func writeWebJSON(writer http.ResponseWriter, value any) {
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(value)
+}
+
+func writeWebJSONStatus(writer http.ResponseWriter, value any, status int) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(value)
+}
+
+func writeWebError(writer http.ResponseWriter, err error, status int) {
+	writeWebJSONStatus(writer, map[string]any{"error": err.Error()}, status)
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}

@@ -1,4 +1,4 @@
-name: Build OpenWrt packages
+name: Build release artifacts
 
 on:
   workflow_dispatch:
@@ -7,24 +7,27 @@ on:
       - master
 
 concurrency:
-  group: openwrt-package-build
+  group: release-artifact-build
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
 
+env:
+  STEER_VERSION: 0.5.0
+  OPENWRT_RELEASE: 25.12.5
+  OPENWRT_TARGET: x86/64
+  GEOVIEW_REF: 3c91926d360b8f49d47520639e574608318baf12
+
 jobs:
-  x86_64:
-    name: OpenWrt 25.12.5 x86_64
+  verify:
+    name: Verify source
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
 
       - name: Check Simplified Chinese coverage
         run: python3 tests/check-luci-i18n.py
@@ -32,8 +35,11 @@ jobs:
       - name: Check package ownership boundaries
         run: python3 tests/check-package-boundaries.py
 
-      - name: Check official SDK workflow invariants
+      - name: Check release workflow invariants
         run: python3 tests/check-build-cache.py
+
+      - name: Check generic Linux packaging contract
+        run: python3 tests/check-linux-packaging.py
 
       - name: Check share URL parser
         run: node tests/node/share_url_test.js
@@ -44,9 +50,22 @@ jobs:
       - name: Check LuCI apply and status interactions
         run: node tests/node/steer_helper_test.js
 
-      - name: Check shared Go core and OpenWrt adapter
+      - name: Check shared Go core and platform adapters
         working-directory: go
-        run: go test ./...
+        run: |
+          go test -race ./...
+          go vet ./...
+
+  openwrt:
+    name: OpenWrt 25.12.5 x86_64
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
 
       - name: Prepare official SDK artifacts directory
         run: |
@@ -111,13 +130,10 @@ jobs:
             cp -R "$RUNNER_TEMP/steer-sdk-artifacts/logs" "$GITHUB_WORKSPACE/logs"
           fi
 
-      - name: Collect exact release assets
+      - name: Collect exact OpenWrt release assets
         env:
-          GEOVIEW_REF: 3c91926d360b8f49d47520639e574608318baf12
-          OPENWRT_RELEASE: 25.12.5
-          OPENWRT_TARGET: x86/64
           SOURCE_REVISION: ${{ github.sha }}
-        run: ./scripts/collect-release-artifacts.sh
+        run: ./scripts/collect-openwrt-artifacts.sh
 
       - name: Save OpenWrt SDK ccache
         if: success() && steps.sdk-ccache.outputs.cache-hit != 'true'
@@ -133,12 +149,156 @@ jobs:
           path: ${{ runner.temp }}/steer-sdk-go-cache
           key: ${{ steps.sdk-go-cache.outputs.cache-primary-key }}
 
-      - name: Upload build evidence
+      - name: Upload OpenWrt build evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: openwrt-25.12.5-x86_64-packages
           path: |
             dist/
             logs/
+          if-no-files-found: error
+          retention-days: 30
+
+  linux:
+    name: Generic Linux x86_64 and aarch64
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Build static Linux binaries
+        working-directory: go
+        run: |
+          mkdir -p "$RUNNER_TEMP/steer-linux-binaries"
+          for target in amd64:x86_64 arm64:aarch64; do
+            goarch="${target%%:*}"
+            release_arch="${target#*:}"
+            CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build \
+              -trimpath \
+              -ldflags "-s -w -X main.version=$STEER_VERSION" \
+              -o "$RUNNER_TEMP/steer-linux-binaries/steer-linux-$release_arch" \
+              ./cmd/steer-linux
+          done
+
+      - name: Collect generic Linux release assets
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          export SOURCE_DATE_EPOCH
+          ./scripts/collect-linux-artifacts.sh "$RUNNER_TEMP/steer-linux-binaries" dist-linux
+
+      - name: Verify generic Linux archives
+        run: |
+          cd dist-linux
+          sha256sum -c SHA256SUMS
+          grep -Fqx "Source revision: $GITHUB_SHA" BUILD-METADATA.txt
+          for target in x86_64 aarch64; do
+            archive="steer-linux-$target.tar.zst"
+            listing="$RUNNER_TEMP/$target.list"
+            tar --zstd -tf "$archive" > "$listing"
+            for required in \
+              "steer-linux-$target/steer" \
+              "steer-linux-$target/config.example.json" \
+              "steer-linux-$target/platform.example.json" \
+              "steer-linux-$target/LICENSE" \
+              "steer-linux-$target/systemd/steer.service" \
+              "steer-linux-$target/systemd/steer-web.service" \
+              "steer-linux-$target/systemd/steer-subscription.service" \
+              "steer-linux-$target/systemd/steer-subscription.timer"; do
+              grep -Fqx "$required" "$listing"
+            done
+            if grep -Eq '(sing-box|geoview|geo(ip|site)\.dat)$' "$listing"; then
+              echo "Linux archive bundles an external dependency or Geo database" >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload generic Linux artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: linux-generic
+          path: dist-linux/
+          if-no-files-found: error
+          retention-days: 30
+
+  bundle:
+    name: Assemble verified release bundle
+    needs:
+      - openwrt
+      - linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download platform artifacts from this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p input/openwrt input/linux
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name openwrt-25.12.5-x86_64-packages \
+            --dir input/openwrt
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name linux-generic \
+            --dir input/linux
+
+      - name: Verify and assemble exact release assets
+        run: |
+          set -- $(find input/openwrt -type f -name SHA256SUMS)
+          [ "$#" -eq 1 ]
+          openwrt_dist="$(dirname "$1")"
+          set -- $(find input/linux -type f -name SHA256SUMS)
+          [ "$#" -eq 1 ]
+          linux_dist="$(dirname "$1")"
+          (cd "$openwrt_dist" && sha256sum -c SHA256SUMS)
+          (cd "$linux_dist" && sha256sum -c SHA256SUMS)
+          grep -Fqx "Source revision: $GITHUB_SHA" "$openwrt_dist/BUILD-METADATA.txt"
+          grep -Fqx "Source revision: $GITHUB_SHA" "$linux_dist/BUILD-METADATA.txt"
+
+          release_dir=release-artifact/dist
+          mkdir -p "$release_dir"
+          cp "$openwrt_dist"/*.apk "$release_dir/"
+          cp "$linux_dist"/*.tar.zst "$release_dir/"
+          {
+            echo "Steer version: $STEER_VERSION"
+            echo "Source revision: $GITHUB_SHA"
+            echo "OpenWrt release: $OPENWRT_RELEASE"
+            echo "OpenWrt target: $OPENWRT_TARGET"
+            echo "geoview ref: $GEOVIEW_REF"
+            echo "Linux targets: x86_64 aarch64"
+            echo "Linux build mode: CGO_ENABLED=0"
+          } > "$release_dir/BUILD-METADATA.txt"
+
+          for pattern in \
+            'geoview-*.apk' \
+            'steer-geodata-*.apk' \
+            'steer-[0-9]*.apk' \
+            'luci-app-steer-*.apk' \
+            'luci-i18n-steer-zh-cn-*.apk' \
+            'steer-linux-x86_64.tar.zst' \
+            'steer-linux-aarch64.tar.zst'; do
+            set -- "$release_dir"/$pattern
+            [ "$#" -eq 1 ] && [ -f "$1" ] || {
+              echo "Expected exactly one release asset matching $pattern, found $#" >&2
+              exit 1
+            }
+          done
+          (
+            cd "$release_dir"
+            sha256sum ./*.apk ./*.tar.zst BUILD-METADATA.txt > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload exact release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-bundle
+          path: release-artifact/dist/
           if-no-files-found: error
           retention-days: 30

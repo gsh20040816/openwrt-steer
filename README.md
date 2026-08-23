@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本为 **0.4.3**，当前预发布版本为 **0.5.0-alpha.3**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 是稳定发行平台；Linux systemd 适配器已实现源码基线，覆盖主机及 VM/Docker 公网转发流量，暂不打包；macOS 尚未提供适配器。
+当前稳定版本为 **0.5.0**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
 
 ## 已实现能力
 
@@ -50,15 +50,15 @@ steer cleanup
 
 公共命令固定为 `version validate apply health status probe subscription geo-catalog cleanup`。编译器中间结果和平台计划属于内部接口，不通过 CLI 或 RPC 暴露。
 
-Linux 源码命令为 `steer-linux`，另外提供 loopback Web 控制面：
+Linux 源码 target 是 `cmd/steer-linux`，安装后的产品命令统一为 `steer`，并提供 loopback Web 控制面：
 
 ```sh
-steer-linux web-token
-steer-linux web
-steer-linux subscription status
+steer web-token
+steer web
+steer subscription status
 ```
 
-Linux 目前不维护 GitHub Actions 打包或发行版打包脚本；可直接用 `go build ./cmd/steer-linux` 生成本地二进制，并手工安装 `linux/systemd/` 中的 unit。
+GitHub Release 提供 `steer-linux-x86_64.tar.zst` 和 `steer-linux-aarch64.tar.zst`，不捆绑 sing-box、geoview 或 Geo 数据库。主仓库不构建 deb、rpm、Arch 等发行版包；发行版维护者应从 source tag 构建并安装为 `/usr/bin/steer`。
 
 ## 许可证
 

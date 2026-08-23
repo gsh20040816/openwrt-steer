@@ -5,5 +5,5 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/steer-linux subscription update
+ExecStart=/usr/bin/steer subscription update
 UMask=0077

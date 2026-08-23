@@ -5,7 +5,7 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 REPO_DIR="$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)"
-CONTROL_SOURCE="${STEER_BIN:-$REPO_DIR/bin/steer-linux-amd64}"
+CONTROL_SOURCE="${STEER_BIN:-$REPO_DIR/bin/steer-openwrt-amd64}"
 SING_BOX_BIN="${SING_BOX_BIN:-/usr/bin/sing-box}"
 TEST_DIR="$(mktemp -d /tmp/steer-m1-integration.XXXXXX)"
 ORIGINAL_CONFIG="$TEST_DIR/original-steer"

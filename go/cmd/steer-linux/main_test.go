@@ -5,15 +5,26 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
 
+func TestUsageUsesInstalledProductName(t *testing.T) {
+	message := usage().Error()
+	if !strings.HasPrefix(message, "usage: steer ") || strings.Contains(message, "steer-linux") {
+		t.Fatalf("Linux usage exposes the source target name: %s", message)
+	}
+	if err := runSubscription(nil); err == nil || !strings.HasPrefix(err.Error(), "usage: steer subscription ") {
+		t.Fatalf("subscription usage does not use installed product name: %v", err)
+	}
+}
+
 func TestRunServiceDisabledConfigurationExitsCleanly(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
-	if _, err := (linuxplatform.JSONStore{Path: configPath}).Save(webTestIntent(), ""); err != nil {
+	if _, err := (linuxplatform.IntentStore{Path: configPath}).Save(webTestIntent(), ""); err != nil {
 		t.Fatal(err)
 	}
 	nftPath := filepath.Join(root, "nft")
@@ -37,9 +48,9 @@ func TestGeoCatalogLoadsConfiguredPlatformPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	platformPath := filepath.Join(root, "platform.json")
-	settings := linuxplatform.DefaultPlatformSettings()
+	settings := linuxplatform.DefaultSettings()
 	settings.GeoSitePath = geoSitePath
-	if _, err := (linuxplatform.PlatformStore{Path: platformPath}).Save(settings, ""); err != nil {
+	if _, err := (linuxplatform.SettingsStore{Path: platformPath}).Save(settings, ""); err != nil {
 		t.Fatal(err)
 	}
 	geoViewPath := filepath.Join(root, "geoview")

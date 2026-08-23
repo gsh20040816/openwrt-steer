@@ -240,7 +240,7 @@ func waitTemporaryProbeReady(ctx context.Context, port int) error {
 }
 
 func readProbeIntent(path string) (model.Intent, error) {
-	value, _, err := (JSONStore{Path: path}).Load()
+	value, _, err := (IntentStore{Path: path}).Load()
 	if err != nil {
 		return model.Intent{}, err
 	}

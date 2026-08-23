@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/steer-linux _run
-ExecStopPost=/usr/bin/steer-linux cleanup
+ExecStart=/usr/bin/steer _run
+ExecStopPost=/usr/bin/steer cleanup
 Restart=on-failure
 RestartSec=2s
 RuntimeDirectory=steer

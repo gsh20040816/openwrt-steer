@@ -21,9 +21,9 @@ func validIntent() model.Intent {
 	}
 }
 
-func TestJSONStoreRoundTripAndRevisionConflict(t *testing.T) {
+func TestIntentStoreRoundTripAndRevisionConflict(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	store := JSONStore{Path: path}
+	store := IntentStore{Path: path}
 	value := validIntent()
 	rev, err := store.Save(value, "")
 	if err != nil {
