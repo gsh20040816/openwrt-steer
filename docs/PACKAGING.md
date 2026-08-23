@@ -4,7 +4,7 @@ Steer 固定采用三层交付模型：主仓库发布 source tag、通用 Linux
 
 ## 共同规则
 
-1. 主仓库只构建平台中立的 Linux tar.zst，不构建 deb、rpm、pkg.tar、Nix 等发行版包。
+1. 主仓库的自动构建只产出平台中立的 Linux tar.zst，不构建 deb、rpm、pkg.tar、Nix 等发行版包；Arch AUR 的源码配方作为人工维护的下游元数据提交在本仓库。
 2. OpenWrt 作为一级 appliance 目标，继续由主仓库使用固定官方 SDK 构建 APK。
 3. Linux 和 OpenWrt 的安装命令都叫 `steer`；`steer-linux`、`steer-openwrt` 只用于区分源码 target。
 4. sing-box 始终是外部依赖，不进入任何 Steer 产物。
@@ -68,6 +68,35 @@ steer-linux-<arch>/
 归档不包含 sing-box、geoview、geosite.dat 或 geoip.dat。目标系统必须提供 systemd、sing-box、geoview、nftables、iproute2 和 ca-certificates；Geo 文件只有在 Intent 实际引用对应 kind 时才需要。`platform.example.json` 只让用户配置 GeoSite/GeoIP 文件路径，不公开或要求配置内容哈希。
 
 发行版维护者应从固定 source tag 构建 `./go/cmd/steer-linux`，安装为 `/usr/bin/steer`，安装 `linux/systemd/` 和示例配置，并声明上述外部依赖。Arch 应由独立 AUR `steer` 源码包维护；若发行版没有 geoview，应由独立的无 Steer 前缀的 geoview 包提供。
+
+## Arch Linux AUR
+
+主仓库只维护两个 AUR 源码配方：
+
+```text
+packaging/archlinux/
+├── steer/
+│   ├── PKGBUILD
+│   ├── .SRCINFO
+│   ├── LICENSE
+│   ├── LICENSES/0BSD.txt -> ../LICENSE
+│   └── REUSE.toml
+└── geoview/
+    ├── PKGBUILD
+    ├── .SRCINFO
+    ├── LICENSE
+    ├── LICENSES/0BSD.txt -> ../LICENSE
+    └── REUSE.toml
+```
+
+`steer` 从对应的 Steer source tag 构建，依赖发行版提供的 `sing-box >=1.13.18,<1.14.0`、`geoview`、systemd、nftables、iproute2 和 ca-certificates。`geoview` 直接从其独立的上游 release 构建；0.2.6 源码没有声明许可证，因此配方按 Arch 规范标记为 `unknown`，不从其他发行版的打包元数据推测上游授权。两者都不捆绑 sing-box 或 Geo 数据，也不在安装过程中启用服务、Apply 配置或生成 Web token。Linux Geo 数据保持 provider-neutral，不声明特定 Geo 包为依赖。
+
+这里的 `PKGBUILD` 是唯一手工维护的配方，`.SRCINFO` 只是由它生成并随包目录提交的元数据；独立的 AUR Git 仓库只是人工发布镜像。当前不在 CI 中保存 AUR 凭据或推送 AUR，也不提供同步/推送脚本。更新时按以下顺序执行：
+
+1. 上游 release 完成后更新对应的 `pkgver` 和源码 SHA-256；纯打包修订只增加 `pkgrel`。
+2. 在对应目录用 `makepkg --printsrcinfo` 重新生成 `.SRCINFO`，不得手工维护其字段，并确认生成结果与提交内容完全一致。
+3. 在干净 Arch 环境先构建 geoview，再构建 steer；分别执行 `makepkg --cleanbuild --syncdeps`，检查生成包的文件、权限、版本与依赖。
+4. 提交主仓库后，再由维护者把该包目录的完整内容人工复制、审查并提交到对应 AUR Git 仓库；其中 `LICENSE` 和 `REUSE.toml` 描述 AUR recipe 自身的 0BSD 授权，不代表上游软件许可证。
 
 ## 主线构建
 

@@ -1,0 +1,13 @@
+pkgbase = geoview
+	pkgdesc = Tool to extract and convert GeoSite and GeoIP data
+	pkgver = 0.2.6
+	pkgrel = 1
+	url = https://github.com/snowie2000/geoview
+	arch = x86_64
+	arch = aarch64
+	license = unknown
+	makedepends = go
+	source = geoview-0.2.6.tar.gz::https://codeload.github.com/snowie2000/geoview/tar.gz/refs/tags/0.2.6
+	sha256sums = 1b46d4255ab22ec433a14f804e9487885cc2693323579c1385d51919838db132
+
+pkgname = geoview

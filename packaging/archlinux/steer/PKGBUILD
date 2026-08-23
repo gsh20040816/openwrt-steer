@@ -1,0 +1,52 @@
+# Maintainer: Shenghan Gao <gsh20040816 at gmail dot com>
+
+pkgname=steer
+pkgver=0.5.0
+pkgrel=1
+pkgdesc='Transparent proxy policy compiler and Linux systemd adapter'
+arch=('x86_64' 'aarch64')
+url='https://github.com/gsh20040816/steer'
+license=('GPL-3.0-or-later')
+depends=(
+  'ca-certificates'
+  'geoview'
+  'iproute2'
+  'nftables'
+  'sing-box>=1.13.18'
+  'sing-box<1.14.0'
+  'systemd'
+)
+makedepends=('go')
+backup=(
+  'etc/steer/config.json'
+  'etc/steer/platform.json'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('883de91d8325b8ffa4f79caf1e90162e2a183115a854555a000a75a4f4ca2bef')
+
+build() {
+  cd "$pkgname-$pkgver/go"
+  CGO_ENABLED=0 go build \
+    -trimpath \
+    -ldflags="-s -w -X main.version=$pkgver" \
+    -o steer \
+    ./cmd/steer-linux
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  install -Dm755 go/steer "$pkgdir/usr/bin/steer"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -dm700 "$pkgdir/etc/steer"
+  install -m600 linux/config.example.json "$pkgdir/etc/steer/config.json"
+  install -m600 linux/platform.example.json "$pkgdir/etc/steer/platform.json"
+  install -Dm644 linux/systemd/steer.service \
+    "$pkgdir/usr/lib/systemd/system/steer.service"
+  install -Dm644 linux/systemd/steer-web.service \
+    "$pkgdir/usr/lib/systemd/system/steer-web.service"
+  install -Dm644 linux/systemd/steer-subscription.service \
+    "$pkgdir/usr/lib/systemd/system/steer-subscription.service"
+  install -Dm644 linux/systemd/steer-subscription.timer \
+    "$pkgdir/usr/lib/systemd/system/steer-subscription.timer"
+}
