@@ -38,6 +38,8 @@ required_fragments = (
     "./scripts/collect-linux-artifacts.sh",
     "name: linux-generic",
     "name: release-bundle",
+    "name: Linux system integration",
+    "/workspace/tests/integration/run-linux-system.sh",
 )
 for fragment in required_fragments:
     if fragment not in WORKFLOW:

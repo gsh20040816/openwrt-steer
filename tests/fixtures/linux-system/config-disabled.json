@@ -1,0 +1,32 @@
+{
+  "main": {
+    "id": "main",
+    "schema_version": 7,
+    "enabled": false,
+    "log_level": "debug",
+    "probe_direct": "https://direct.example/",
+    "probe_proxy": "https://proxy.example/",
+    "speedtest_proxy": "https://speed.example/",
+    "dns_cache_capacity": 1024
+  },
+  "bootstrap": {
+    "id": "bootstrap",
+    "protocol": "udp",
+    "server": "11.77.0.2",
+    "server_port": 53,
+    "strategy": "prefer_ipv4"
+  },
+  "nodes": [],
+  "subscriptions": [],
+  "routes": [
+    {"id": "direct", "enabled": true, "kind": "direct"},
+    {"id": "block", "enabled": true, "kind": "block"}
+  ],
+  "dns_profiles": [
+    {"id": "test", "enabled": true, "protocol": "udp", "server": "11.77.0.2", "server_port": 53, "strategy": "prefer_ipv4"}
+  ],
+  "local_proxies": [],
+  "rules": [
+    {"id": "default", "enabled": true, "default": true, "dns_profile": "test", "route": "direct"}
+  ]
+}

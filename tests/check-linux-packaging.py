@@ -2,6 +2,7 @@
 """Keep generic Linux delivery platform-neutral and install-name consistent."""
 
 from pathlib import Path
+import re
 import sys
 
 
@@ -18,6 +19,8 @@ for path in (
     ROOT / "linux/platform.example.json",
     ROOT / "linux/web.example.json",
     ROOT / "scripts/collect-linux-artifacts.sh",
+    ROOT / "tests/integration/linux-system.Dockerfile",
+    ROOT / "tests/integration/run-linux-system.sh",
     ROOT / "go/cmd/steer-openwrt/main.go",
     ROOT / "go/cmd/steer-linux/commands.go",
     ROOT / "go/cmd/steer-linux/command_apply.go",
@@ -58,6 +61,8 @@ for command in (
 ):
     if command not in units:
         fail(f"systemd is missing public executable command: {command}")
+if "PartOf=nftables.service" not in units:
+    fail("steer.service must restart with nftables.service")
 
 collector = (ROOT / "scripts/collect-linux-artifacts.sh").read_text()
 for required in (
@@ -86,6 +91,8 @@ for required in (
     "./scripts/collect-linux-artifacts.sh",
     "name: linux-generic",
     "name: release-bundle",
+    "name: Linux system integration",
+    "/workspace/tests/integration/run-linux-system.sh",
 ):
     if required not in workflow:
         fail(f"release workflow is missing: {required}")
@@ -95,5 +102,21 @@ for archive in ("steer-linux-x86_64.tar.zst", "steer-linux-aarch64.tar.zst"):
 for distro_tool in ("makepkg", "dpkg-buildpackage", "rpmbuild"):
     if distro_tool in workflow:
         fail(f"upstream CI must not build distribution package with {distro_tool}")
+
+arch_pkgbuild = (ROOT / "packaging/archlinux/steer/PKGBUILD").read_text()
+arch_srcinfo = (ROOT / "packaging/archlinux/steer/.SRCINFO").read_text()
+version_match = re.search(r"^pkgver=(\S+)$", arch_pkgbuild, re.MULTILINE)
+if version_match is None:
+    fail("Arch steer PKGBUILD has no scalar pkgver")
+arch_version = version_match.group(1)
+for required in (
+    "  'git'\n",
+    f"pkgver = {arch_version}\n",
+    "\tmakedepends = git\n",
+    f"\tsource = steer::git+https://github.com/gsh20040816/steer.git#tag=v{arch_version}\n",
+):
+    source = arch_pkgbuild if required == "  'git'\n" else arch_srcinfo
+    if required not in source:
+        fail(f"Arch steer metadata is missing or stale: {required.strip()}")
 
 print("generic Linux packaging checks passed")

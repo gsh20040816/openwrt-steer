@@ -1,11 +1,12 @@
 pkgbase = steer
 	pkgdesc = Transparent proxy policy compiler and Linux systemd adapter
-	pkgver = 0.6.3
+	pkgver = 0.6.5
 	pkgrel = 1
 	url = https://github.com/gsh20040816/steer
 	arch = x86_64
 	arch = aarch64
 	license = GPL-3.0-or-later
+	makedepends = git
 	makedepends = go
 	depends = ca-certificates
 	depends = geoview
@@ -17,7 +18,7 @@ pkgbase = steer
 	backup = etc/steer/config.json
 	backup = etc/steer/platform.json
 	backup = etc/steer/web.json
-	source = steer::git+https://github.com/gsh20040816/steer.git#tag=v0.6.3
+	source = steer::git+https://github.com/gsh20040816/steer.git#tag=v0.6.5
 	sha256sums = SKIP
 
 pkgname = steer

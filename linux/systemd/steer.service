@@ -2,6 +2,7 @@
 Description=Steer transparent proxy
 After=network-online.target nftables.service
 Wants=network-online.target
+PartOf=nftables.service
 
 [Service]
 Type=simple

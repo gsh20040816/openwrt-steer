@@ -1,6 +1,6 @@
 # 开发与验证
 
-0.5 的任务是固定统一项目命名、跨平台边界和发布契约，同时保持 OpenWrt 正常使用可靠。功能边界已经冻结；修改应落在正确包中，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构。
+当前任务是保持共享语义冻结，同时分别收敛 OpenWrt 与 Linux 平台实现及其发布门。修改必须落在正确责任层，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构，也不得把 systemd、nftables 等平台概念放入共享核心。
 
 ## 仓库结构
 
@@ -17,7 +17,7 @@ steer                                           OpenWrt 控制器包
 steer-geodata                                   固定 Geo 数据包
 geoview                                         上游工具原样打包
 tests/node                                      LuCI/分享 URL 回归
-tests/integration                               一次性 OpenWrt VM 正常路径
+tests/integration                               一次性 OpenWrt VM 与 Linux systemd 容器正常路径
 ```
 
 共享模块路径为 `github.com/gsh20040816/steer/go`，OpenWrt 控制器包和命令源码均使用统一名称 `steer`。
@@ -27,12 +27,14 @@ tests/integration                               一次性 OpenWrt VM 正常路�
 ```sh
 cd go
 gofmt -w <changed-go-files>
-go test ./...
+go test -race ./...
+go vet ./...
 
 cd ..
 node tests/node/share_url_test.js
 node tests/node/luci_view_test.js
 node tests/node/steer_helper_test.js
+node tests/node/linux_web_test.js
 python3 tests/check-luci-i18n.py
 python3 tests/check-package-boundaries.py
 python3 tests/check-build-cache.py
@@ -74,14 +76,17 @@ Linux 适配器与上游发行资产已经建立，后续修改必须保持：
 
 macOS 在 Linux 接口稳定后开始，允许使用 launchd、utun/pf 和不同权限模型，但不得改变共享规则、路由、DNS 或订阅语义。
 
-## OpenWrt VM 与发布门
+## 目标系统验收与发布门
 
 `tests/integration/run-openwrt-vm.sh` 只能运行在一次性 OpenWrt 25.12.5 x86/64 VM。它会替换 UCI、运行目录、nftables、策略路由和 procd，并覆盖公开 RPC、正常 Apply/reload/restart、DNS/MAC 辅助层、禁用/重新启用及非法配置 fail-fast。
+
+`tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器。CI 使用固定 Debian 基础镜像和校验过 SHA-256 的 sing-box 1.13.19 musl 产物，在独立 netns 中覆盖主机与转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP DNS、listener 访问限制、禁用/启用、服务重启和 nftables 重启恢复。Linux 的 systemd、nftables、端口与 netns 断言只属于平台验收，不进入共享核心测试。
 
 发布门：
 
 1. 全部本地检查通过；
 2. 官方 OpenWrt SDK 完整构建五个 APK，Linux 并行构建两个通用 tar.zst；
 3. release bundle 中全部产物来自拟发布 commit；
-4. 安装后运行 `validate`、`health`、`status` 和显式测试；
-5. 预发布版本在真实目标上满足稳定门槛后再晋级稳定版。
+4. Linux systemd 容器验收通过；
+5. 安装后运行 `validate`、`health`、`status` 和显式测试；
+6. 预发布版本在真实目标上满足稳定门槛后再晋级稳定版。

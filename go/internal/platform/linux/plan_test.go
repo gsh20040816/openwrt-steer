@@ -11,7 +11,7 @@ import (
 
 func TestLinuxPlanCapturesHostAndForwardedTraffic(t *testing.T) {
 	plan := NewPlan(model.Intent{})
-	if plan.Resources.TunInterface != "steer0" || plan.Resources.DNSPort != 1053 {
+	if plan.Resources.TunInterface != "steer0" || plan.Resources.DNSPort != 1053 || plan.Resources.DNSPort6 != 1054 {
 		t.Fatalf("unexpected Linux resources: %#v", plan.Resources)
 	}
 	target := plan.CompilerTarget()
@@ -20,8 +20,8 @@ func TestLinuxPlanCapturesHostAndForwardedTraffic(t *testing.T) {
 	}
 	dns4 := target.Inbounds[1].(map[string]any)
 	dns6 := target.Inbounds[2].(map[string]any)
-	if dns4["listen"] != "127.0.0.1" || dns6["listen"] != "::1" {
-		t.Fatalf("Linux DNS listeners are not explicit loopback sockets: %#v %#v", dns4, dns6)
+	if dns4["listen"] != "0.0.0.0" || dns4["listen_port"] != 1053 || dns6["listen"] != "::" || dns6["listen_port"] != 1054 {
+		t.Fatalf("Linux DNS listeners do not cover redirected IPv4 and IPv6 traffic: %#v %#v", dns4, dns6)
 	}
 	tun := target.Inbounds[0].(map[string]any)
 	if _, restricted := tun["include_interface"]; restricted {
@@ -37,7 +37,16 @@ func TestLinuxFirewallCapturesHostAndForwardedDNS(t *testing.T) {
 	if !strings.Contains(text, "hook output") || !strings.Contains(text, "hook prerouting") {
 		t.Fatalf("Linux firewall does not cover host and forwarded DNS:\n%s", text)
 	}
-	if !strings.Contains(text, "redirect to :1053") || !strings.Contains(text, "iifname \"steer0\" return") || !strings.Contains(text, "meta mark 0x2024 counter return") || !strings.Contains(text, "th dport 53") {
-		t.Fatalf("Linux DNS loop guards are missing:\n%s", text)
+	for _, required := range []string{
+		"meta nfproto ipv4 meta l4proto { tcp, udp } th dport 53 counter redirect to :1053",
+		"meta nfproto ipv6 meta l4proto { tcp, udp } th dport 53 counter redirect to :1054",
+		"iifname \"steer0\" return",
+		"meta mark 0x2024 counter return",
+		"th dport { 1053, 1054 } ct status dnat counter accept",
+		"th dport { 1053, 1054 } counter reject",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Linux DNS firewall is missing %q:\n%s", required, text)
+		}
 	}
 }

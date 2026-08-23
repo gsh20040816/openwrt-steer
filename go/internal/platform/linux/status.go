@@ -75,7 +75,7 @@ func checkHealthOnce(ctx context.Context, runner Runner, plan Plan, options Back
 	if _, err := runner.Output(ctx, options.NFTBinary, "-j", "list", "table", "inet", "steer"); err != nil {
 		return fmt.Errorf("Steer nftables DNS shim is not ready: %w", err)
 	}
-	if err := options.CheckListeners([]int{plan.Resources.DNSPort}); err != nil {
+	if err := options.CheckListeners([]int{plan.Resources.DNSPort, plan.Resources.DNSPort6}); err != nil {
 		return err
 	}
 	if expectedDirectory != "" {

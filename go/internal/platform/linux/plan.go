@@ -10,6 +10,7 @@ import (
 const (
 	TunInterface           = "steer0"
 	DNSPort                = 1053
+	DNSPort6               = 1054
 	TunTable               = 2022
 	TunPriority            = 9000
 	TunFallbackPriority    = 32768
@@ -39,6 +40,7 @@ type Resources struct {
 	TunInterface           string   `json:"tun_interface"`
 	TunAddresses           []string `json:"tun_addresses"`
 	DNSPort                int      `json:"dns_port"`
+	DNSPort6               int      `json:"dns_port6"`
 	TunTable               int      `json:"tun_table"`
 	TunPriority            int      `json:"tun_priority"`
 	TunFallbackPriority    int      `json:"tun_fallback_priority"`
@@ -52,7 +54,7 @@ func NewPlan(_ model.Intent) Plan {
 	return Plan{SchemaVersion: 1, Resources: Resources{
 		TunInterface: TunInterface,
 		TunAddresses: []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"},
-		DNSPort:      DNSPort, TunTable: TunTable, TunPriority: TunPriority,
+		DNSPort:      DNSPort, DNSPort6: DNSPort6, TunTable: TunTable, TunPriority: TunPriority,
 		TunFallbackPriority: TunFallbackPriority, AutoRedirectInputMark: AutoRedirectInputMark,
 		AutoRedirectOutputMark: AutoRedirectOutputMark, AutoRedirectResetMark: AutoRedirectResetMark,
 		AutoRedirectNFQueue: AutoRedirectNFQueue,
@@ -74,11 +76,11 @@ func (plan Plan) CompilerTarget() compiler.Target {
 			"route_exclude_address":                      append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...),
 		},
 		map[string]any{
-			"type": "direct", "tag": "steer-dns4", "listen": "127.0.0.1", "listen_port": plan.Resources.DNSPort,
+			"type": "direct", "tag": "steer-dns4", "listen": "0.0.0.0", "listen_port": plan.Resources.DNSPort,
 			"network": []string{"tcp", "udp"},
 		},
 		map[string]any{
-			"type": "direct", "tag": "steer-dns6", "listen": "::1", "listen_port": plan.Resources.DNSPort,
+			"type": "direct", "tag": "steer-dns6", "listen": "::", "listen_port": plan.Resources.DNSPort6,
 			"network": []string{"tcp", "udp"},
 		},
 	}

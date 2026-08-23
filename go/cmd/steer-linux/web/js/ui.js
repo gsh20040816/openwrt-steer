@@ -124,8 +124,8 @@
     const main = S.store.intent?.main;
     if (!main || enabledToggleBusy || Boolean(main.enabled) === Boolean(next)) return;
 
+    const previous = Boolean(main.enabled);
     main.enabled = Boolean(next);
-    S.store.touch();
     enabledToggleBusy = true;
     renderStatusStrip();
     try {
@@ -137,9 +137,14 @@
           toast(next ? 'Steer 已启用并 Apply。' : 'Steer 已禁用并清理运行资源。', 'ok');
         }
       } else if (res.conflict) {
-        conflictDialog(res.conflict);
+        main.enabled = previous;
+        conflictDialog(res.conflict, () => {
+          main.enabled = Boolean(next);
+          S.store.touch();
+        });
       }
     } catch (error) {
+      main.enabled = previous;
       toast(`切换 Steer 状态失败：${error.message}`, 'err');
     } finally {
       enabledToggleBusy = false;
@@ -221,7 +226,7 @@
     return { close };
   }
 
-  function conflictDialog(conflict) {
+  function conflictDialog(conflict, beforeForceSave) {
     const external = conflict.external || {};
     dialog({
       title: '修订冲突 · 配置已被其他会话修改',
@@ -244,7 +249,7 @@
       ]),
       actions: [
         ['以服务器为准（丢弃本地修改）', async (close) => { await S.store.reload(); toast(`已重载服务器配置 · ${S.store.revision}`, 'info'); close(); }, 'btn--danger'],
-        ['覆盖保存（保留本地修改）', (close) => { close(); forceSave(); }],
+        ['覆盖保存（保留本地修改）', (close) => { close(); beforeForceSave?.(); forceSave(); }],
         ['取消', null]
       ]
     });
@@ -481,5 +486,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, onValidate, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, onValidate, onToggleEnabled, jumpToObject } });
 })();

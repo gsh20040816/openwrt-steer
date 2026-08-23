@@ -1,13 +1,13 @@
 # Linux 适配器
 
-Linux 第一版面向 systemd 发行版，覆盖 Linux 主机以及由该主机转发的 VM/Docker 公网流量。主仓库发布平台中立的 x86_64/aarch64 tar.zst，不维护 deb、rpm、Arch 等发行版特定包。
+Linux 第一版面向 systemd 发行版，覆盖 Linux 主机以及由该主机转发的 VM/Docker 公网流量。主仓库发布平台中立的 x86_64/aarch64 tar.zst，并维护 Arch AUR 源码配方；CI 不构建或发布 deb、rpm、`.pkg.tar.zst` 等发行版二进制包。
 
 ## 范围
 
 - 配置：严格 Canonical JSON schema 7 的用户 Intent 位于 `/etc/steer/config.json`；严格 schema 1 的 Linux 平台设置位于 `/etc/steer/platform.json`。
 - 数据面：sing-box `>=1.13.18,<1.14.0`、TUN `auto_route + strict_route + auto_redirect`。
-- DNS：sing-box 双栈 loopback DNS inbound，加 nftables `OUTPUT`/`PREROUTING` TCP/UDP 53 shim；VM/Docker 的传统 DNS 请求也进入 Steer。
-- 生命周期：systemd `steer.service`，`_run` 完成准备后直接 exec sing-box；`cleanup` 由 `ExecStopPost` 调用。
+- DNS：sing-box IPv4/IPv6 wildcard DNS inbound 分别监听 1053/1054，加 nftables `OUTPUT`/`PREROUTING` TCP/UDP 53 shim；`input` 链只允许 DNAT/REDIRECT 后的请求进入 listener，直接访问主机 1053/1054 会被拒绝。VM/Docker 的传统 DNS 请求也进入 Steer。
+- 生命周期：systemd `steer.service`，`_run` 完成准备后直接 exec sing-box；`cleanup` 由 `ExecStopPost` 调用。`steer.service` 是 `nftables.service` 的 `PartOf`，正常重启 nftables 时会在其后重启并重建 Steer 数据面。
 - 管理：统一 CLI `steer` 和只监听 loopback 的 `steer web`。
 - 订阅：systemd timer 更新 JSON 配置，不自动 Apply；更新失败或 HTTP 200 但没有有效节点时保留旧配置。
 - Geo：用户只在平台设置中选择 GeoSite/GeoIP 数据库绝对路径；仅当 Intent 引用对应 kind 时才要求文件存在。Steer 内部按文件内容 SHA-256 派生并复用 SRS，不要求特定 provider 或 release marker。
@@ -73,3 +73,5 @@ Web Bearer token 的唯一配置源是严格 schema 1 的 `/etc/steer/web.json`�
 ```
 
 Linux 适配器不更改 `/etc/resolv.conf`、NetworkManager connection 或 systemd-resolved drop-in。应用若使用 DoT/DoH 上游，传统 53 端口 shim 无法捕获，这属于第一版明确边界。
+
+发布门会在一次性 privileged systemd 容器中运行 `tests/integration/run-linux-system.sh`。测试使用两个独立 netns，覆盖主机与转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP53、listener 访问限制、禁用/启用、`steer.service` 重启和 `nftables.service` 重启恢复；不会修改开发机或 CI runner 本身的网络规则。

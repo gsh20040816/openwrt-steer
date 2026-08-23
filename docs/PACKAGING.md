@@ -12,17 +12,17 @@ Steer 固定采用三层交付模型：主仓库发布 source tag、通用 Linux
 6. OpenWrt 通过 `steer-geodata` 提供固定 Geo 输入；Linux 只消费用户配置路径指向的兼容 `.dat`，不依赖任何特定 Geo 包。
 7. tag 发布不重新编译，只复用该 tag 所指 master commit 已成功生成的完整 release bundle。
 
-版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.4`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
+版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.5`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
 
 ## OpenWrt
 
-0.6.4 面向 OpenWrt 25.12.5 x86/64：
+0.6.5 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.6.4-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
-| `luci-app-steer` | `0.6.4-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.6.4-r1` | 简体中文翻译 |
+| `steer` | `0.6.5-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
+| `luci-app-steer` | `0.6.5-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.6.5-r1` | 简体中文翻译 |
 | `steer-geodata` | 独立时间版本，`r2` | 固定 GeoSite/GeoIP 输入文件 |
 | `geoview` | `0.2.6-r3` | 固定上游 commit、无下游补丁的 Geo 分类读取工具 |
 
@@ -86,7 +86,7 @@ packaging/archlinux/
     └── .gitignore
 ```
 
-`steer` 从对应的 Steer source tag 构建，依赖发行版提供的 `sing-box >=1.13.18,<1.14.0`、`geoview`、systemd、nftables、iproute2 和 ca-certificates。`geoview` 直接从其独立的上游 release 构建；0.2.6 源码没有声明许可证，因此配方按 Arch 规范标记为 `unknown`，不从其他发行版的打包元数据推测上游授权。两者都不捆绑 sing-box 或 Geo 数据，也不在安装过程中启用服务、Apply 配置或生成 Web token。Linux Geo 数据保持 provider-neutral，不声明特定 Geo 包为依赖。
+`steer` 从对应的 Steer source tag 构建，因此构建依赖同时声明 `git` 和 `go`；运行时依赖发行版提供的 `sing-box >=1.13.18,<1.14.0`、`geoview`、systemd、nftables、iproute2 和 ca-certificates。`geoview` 直接从其独立的上游 release 构建；0.2.6 源码没有声明许可证，因此配方按 Arch 规范标记为 `unknown`，不从其他发行版的打包元数据推测上游授权。两者都不捆绑 sing-box 或 Geo 数据，也不在安装过程中启用服务、Apply 配置或生成 Web token。Linux Geo 数据保持 provider-neutral，不声明特定 Geo 包为依赖。
 
 这里的 `PKGBUILD` 是唯一手工维护的配方，`.SRCINFO` 只是由它生成并随包目录提交的元数据；独立的 AUR Git 仓库只是人工发布镜像。当前不在 CI 中保存 AUR 凭据或推送 AUR，也不提供同步/推送脚本。更新时按以下顺序执行：
 
@@ -126,6 +126,9 @@ python3 tests/check-linux-packaging.py
 node tests/node/share_url_test.js
 node tests/node/luci_view_test.js
 node tests/node/steer_helper_test.js
+node tests/node/linux_web_test.js
+sh -n tests/integration/run-openwrt-vm.sh
+sh -n tests/integration/run-linux-system.sh
 ```
 
 ## Tag 发布
@@ -133,8 +136,8 @@ node tests/node/steer_helper_test.js
 稳定版流程为：
 
 1. 在 master 提交并推送完整原子变更；
-2. 等待该 commit 的 `Build release artifacts` 成功，确认 OpenWrt、Linux 和 bundle 三个产物齐全；
-3. 给同一 commit 打 `v0.6.4` tag 并推送；
+2. 等待该 commit 的 `Build release artifacts` 成功，确认 OpenWrt SDK、Linux 通用归档、Linux systemd 容器验收和 release bundle 全部通过；
+3. 给同一 commit 打 `v0.6.5` tag 并推送；
 4. `Publish tagged release` 查找该 commit 的成功 master run，下载 `release-bundle`，再次验证 SHA256、commit 和精确资产集合；
 5. 发布 GitHub Release；
 6. 从 Release 重新下载 APK 安装到目标 OpenWrt，并执行配置哈希、Apply、健康与 DNS 验证。
