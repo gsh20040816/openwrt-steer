@@ -23,6 +23,10 @@ Steer.app
 `SteerApp` 会在 bundle 中找到 `steer-macos` 时通过临时 canonical JSON 文件调用
 `validate`；未嵌入 helper 时按钮保持明确的“未配置”错误，不会静默伪造校验通过。
 
+在 macOS 上可运行 `scripts/build-steercore-xcframework.sh` 生成 arm64/x86_64
+`SteerCore.xcframework`、构建元数据和逐文件 SHA-256。脚本在非 Darwin 主机上
+会立即报错，当前 Linux 开发环境未执行该构建。
+
 实现约束：
 
 - Packet Tunnel 不设置 `NEDNSSettings`；
