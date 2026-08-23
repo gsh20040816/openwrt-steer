@@ -2,7 +2,11 @@
 
 package macos
 
-import model "github.com/gsh20040816/steer/go/internal/intent"
+import (
+	"strings"
+
+	model "github.com/gsh20040816/steer/go/internal/intent"
+)
 
 // Validate combines the canonical contract with macOS platform limits.
 // Source-MAC policy describes gateway traffic and has no reliable meaning for
@@ -10,13 +14,24 @@ import model "github.com/gsh20040816/steer/go/internal/intent"
 func Validate(value model.Intent) model.Validation {
 	validation := model.Validate(value)
 	for _, rule := range value.Rules {
-		if !rule.Enabled || len(rule.SourceMACAddress) == 0 {
+		if !rule.Enabled {
 			continue
 		}
-		validation.Errors = append(validation.Errors, model.Issue{
-			Code: "PLATFORM_UNSUPPORTED_SOURCE_MAC", ObjectType: "rule", ObjectID: rule.ID,
-			Option: "source_mac_address", Message: "macOS does not support source MAC rules",
-		})
+		if len(rule.SourceMACAddress) > 0 {
+			validation.Errors = append(validation.Errors, model.Issue{
+				Code: "PLATFORM_UNSUPPORTED_SOURCE_MAC", ObjectType: "rule", ObjectID: rule.ID,
+				Option: "source_mac_address", Message: "macOS does not support source MAC rules",
+			})
+		}
+		for _, expression := range append(append([]string{}, rule.DomainMatch...), rule.IPMatch...) {
+			if strings.HasPrefix(expression, "geosite:") || strings.HasPrefix(expression, "geoip:") {
+				validation.Errors = append(validation.Errors, model.Issue{
+					Code: "PLATFORM_UNSUPPORTED_GEO_TOOLCHAIN", ObjectType: "rule", ObjectID: rule.ID,
+					Option: "geo", Message: "macOS Geo toolchain is not available in the current runtime",
+				})
+				break
+			}
+		}
 	}
 	validation.OK = len(validation.Errors) == 0
 	return validation
