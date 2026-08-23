@@ -59,7 +59,7 @@ func runValidate(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	validation := model.Validate(value)
+	validation := macos.Validate(value)
 	if err := writeJSON(stdout, validation); err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func runCompile(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	validation := model.Validate(value)
+	validation := macos.Validate(value)
 	if !validation.OK {
 		return errors.New("configuration validation failed")
 	}
