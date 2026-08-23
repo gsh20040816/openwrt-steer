@@ -62,7 +62,7 @@ macOS 的 DNS Proxy 必须同时覆盖 UDP 和 TCP，并在 Swift 层处理 TCP 
 
 - DNSProxyProvider 的 `NEAppProxyUDPFlow`/`NEAppProxyTCPFlow` 实际读写循环；
 - Packet Tunnel 中 Libbox command server、utun fd handoff 和物理接口绑定；
-- Swift 字段级 schema 7 编辑器、订阅/Geo/Probe/Agent；
+- Swift 逐字段 schema 7 编辑器、订阅刷新/Geo/Probe/Agent；当前原生页面已支持 draft collection 的新增、删除、排序和 canonical JSON 保存。
 - XCFramework 产物、Developer ID 签名、notarization 和真实 provider 健康检查。
 
 这些部分需要 macOS SDK、Apple entitlement、签名身份或真实流量，当前环境无法诚实完成验证，因此代码中保持 fail-fast 占位，不把失败伪装成可用。

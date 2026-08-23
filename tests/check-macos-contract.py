@@ -20,6 +20,9 @@ def main() -> None:
     root_mod = read("go/go.mod")
     packet_info = read("macos/SteerNetwork/PacketTunnel-Info.plist")
     dns_info = read("macos/SteerNetwork/DNSProxy-Info.plist")
+    app = read("macos/SteerApp/SteerApp.swift")
+    state = read("macos/SteerApp/AppState.swift")
+    content = read("macos/SteerApp/ContentView.swift")
 
     assert 'Mode:        compiler.DNSCaptureInboundHijack' in plan
     assert '"auto_route"' not in plan
@@ -31,6 +34,10 @@ def main() -> None:
     assert 'github.com/sagernet/sing-box' not in root_mod
     assert 'com.apple.networkextension.packet-tunnel' in packet_info
     assert 'com.apple.networkextension.dns-proxy' in dns_info
+    assert 'NavigationSplitView' in content
+    for page in ("Overview", "Configuration", "Nodes", "Routes", "DNS", "Rules", "Subscriptions", "Diagnostics", "Settings"):
+        assert page in app or page in state or page in content
+    assert "Local Proxies" in state
     print("macOS source contracts passed")
 
 

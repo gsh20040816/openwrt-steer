@@ -19,6 +19,9 @@ Steer.app
 - `SteerNetwork/`：Packet Tunnel 与 DNS Proxy provider 的职责边界、Info.plist 和 entitlements；
 - `bridge/`：固定 sing-box `v1.13.19` 的独立 Go module 边界。
 
+`SteerApp` 会在 bundle 中找到 `steer-macos` 时通过临时 canonical JSON 文件调用
+`validate`；未嵌入 helper 时按钮保持明确的“未配置”错误，不会静默伪造校验通过。
+
 实现约束：
 
 - Packet Tunnel 不设置 `NEDNSSettings`；

@@ -4,6 +4,7 @@ import AppKit
 import SwiftUI
 
 @main
+@MainActor
 struct SteerApp: App {
     @StateObject private var model = AppModel()
 

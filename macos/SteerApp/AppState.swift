@@ -33,6 +33,23 @@ enum AppPage: String, CaseIterable, Identifiable {
     }
 }
 
+extension JSONValue {
+    var objectValue: [String: JSONValue]? {
+        guard case let .object(value) = self else { return nil }
+        return value
+    }
+
+    var stringValue: String? {
+        guard case let .string(value) = self else { return nil }
+        return value
+    }
+
+    var boolValue: Bool? {
+        guard case let .bool(value) = self else { return nil }
+        return value
+    }
+}
+
 struct RuntimeStatus: Codable {
     var healthy = false
     var generationID = ""
@@ -140,6 +157,34 @@ struct UnconfiguredCoreBridge: CoreBridge {
     }
 }
 
+struct ProcessCoreBridge: CoreBridge {
+    let executableURL: URL
+
+    func validate(document: String) async throws -> ValidationResult {
+        let executableURL = executableURL
+        return try await Task.detached {
+            let temporaryURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("steer-draft-(UUID().uuidString).json")
+            try Data(document.utf8).write(to: temporaryURL, options: .atomic)
+            defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+            let process = Process()
+            let output = Pipe()
+            process.executableURL = executableURL
+            process.arguments = ["validate", "--config", temporaryURL.path]
+            process.standardOutput = output
+            process.standardError = Pipe()
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard let result = try? JSONDecoder().decode(ValidationResult.self, from: data) else {
+                throw CoreBridgeError.invalidResponse
+            }
+            return result
+        }.value
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var selectedPage: AppPage = .overview
@@ -151,9 +196,17 @@ final class AppModel: ObservableObject {
     @Published var message = ""
 
     private let bridge: CoreBridge
+    private let appGroupIdentifier: String
 
-    init(bridge: CoreBridge = UnconfiguredCoreBridge()) {
-        self.bridge = bridge
+    init(bridge: CoreBridge? = nil) {
+        if let bridge {
+            self.bridge = bridge
+        } else if let helper = Bundle.main.url(forResource: "steer-macos", withExtension: nil) {
+            self.bridge = ProcessCoreBridge(executableURL: helper)
+        } else {
+            self.bridge = UnconfiguredCoreBridge()
+        }
+        self.appGroupIdentifier = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String ?? ""
     }
 
     func markDirty() {
@@ -184,8 +237,134 @@ final class AppModel: ObservableObject {
         message = "Apply coordinator 尚未连接 NetworkExtension。"
     }
 
+    func saveDraft() {
+        guard let container = appGroupContainer else {
+            message = "App Group 尚未配置，不能保存 draft。"
+            return
+        }
+        do {
+            let directory = container.appendingPathComponent("config", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(rawJSON.utf8).write(to: directory.appendingPathComponent("config.json"), options: .atomic)
+            isDirty = false
+            message = "draft 已写入 App Group config。"
+        } catch {
+            message = "保存 draft 失败：(error.localizedDescription)"
+        }
+    }
+
+    func loadDraft() {
+        guard let container = appGroupContainer else {
+            message = "App Group 尚未配置，不能读取 draft。"
+            return
+        }
+        do {
+            let url = container.appendingPathComponent("config/config.json")
+            rawJSON = try String(contentsOf: url, encoding: .utf8)
+            isDirty = false
+            message = "已读取 App Group config。"
+        } catch {
+            message = "读取 draft 失败：(error.localizedDescription)"
+        }
+    }
+
     func toggleEnabled() {
         markDirty()
         message = "启用状态将在 Apply 时交给 NetworkExtension coordinator。"
     }
+
+    private var appGroupContainer: URL? {
+        guard !appGroupIdentifier.isEmpty else { return nil }
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+    }
+
+    func draftItems(for key: String) -> [DraftItem] {
+        guard let root = parseDraft()?.objectValue,
+              case let .array(values)? = root[key] else { return [] }
+        return values.enumerated().map { index, value in
+            let object = value.objectValue ?? [:]
+            let identifier = object["id"]?.stringValue ?? "item-\(index + 1)"
+            let name = object["name"]?.stringValue
+            let enabled = object["enabled"]?.boolValue.map { $0 ? "enabled" : "disabled" } ?? ""
+            let summary = [name, enabled].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            return DraftItem(id: "\(key)-\(index)", index: index, identifier: identifier, summary: summary)
+        }
+    }
+
+    func appendDraftItem(to key: String) {
+        mutateCollection(key) { values in
+            values.append(defaultItem(for: key, index: values.count + 1))
+        }
+    }
+
+    func removeDraftItem(from key: String, at index: Int) {
+        mutateCollection(key) { values in
+            guard values.indices.contains(index) else { return }
+            values.remove(at: index)
+        }
+    }
+
+    func moveDraftItem(in key: String, from source: IndexSet, to destination: Int) {
+        mutateCollection(key) { values in
+            values.move(fromOffsets: source, toOffset: destination)
+        }
+    }
+
+    private func parseDraft() -> JSONValue? {
+        guard let data = rawJSON.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(JSONValue.self, from: data)
+    }
+
+    private func mutateCollection(_ key: String, _ mutate: (inout [JSONValue]) -> Void) {
+        guard var root = parseDraft()?.objectValue else {
+            message = "当前 draft 不是 JSON object，无法修改 (key)"
+            return
+        }
+        var values: [JSONValue]
+        if case let .array(existing)? = root[key] { values = existing } else { values = [] }
+        mutate(&values)
+        root[key] = .array(values)
+        do {
+            let data = try JSONEncoder.pretty.encode(JSONValue.object(root))
+            rawJSON = String(decoding: data, as: UTF8.self)
+            markDirty()
+        } catch {
+            message = "写回 (key) 失败：(error.localizedDescription)"
+        }
+    }
+
+    private func defaultItem(for key: String, index: Int) -> JSONValue {
+        let id = "new-\(key)-\(index)"
+        switch key {
+        case "nodes":
+            return .object(["id": .string(id), "enabled": .bool(false), "type": .string("socks"), "server": .string("127.0.0.1"), "server_port": .number(1080)])
+        case "routes":
+            return .object(["id": .string(id), "enabled": .bool(false), "kind": .string("direct")])
+        case "dns_profiles":
+            return .object(["id": .string(id), "enabled": .bool(false), "protocol": .string("udp"), "server": .string("1.1.1.1"), "server_port": .number(53), "strategy": .string("prefer_ipv4")])
+        case "subscriptions":
+            return .object(["id": .string(id), "enabled": .bool(false), "url": .string("https://example.invalid/subscription")])
+        case "local_proxies":
+            return .object(["id": .string(id), "enabled": .bool(false), "protocol": .string("mixed"), "listen": .string("127.0.0.1"), "listen_port": .number(1090 + Double(index))])
+        case "rules":
+            return .object(["id": .string(id), "enabled": .bool(false), "default": .bool(false), "dns_profile": .string(""), "route": .string("")])
+        default:
+            return .object(["id": .string(id), "enabled": .bool(false)])
+        }
+    }
+}
+
+struct DraftItem: Identifiable {
+    let id: String
+    let index: Int
+    let identifier: String
+    let summary: String
+}
+
+private extension JSONEncoder {
+    static let pretty: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }()
 }

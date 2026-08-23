@@ -29,12 +29,12 @@ struct PageView: View {
             switch model.selectedPage {
             case .overview: OverviewView(model: model)
             case .configuration: ConfigurationView(model: model)
-            case .nodes: CollectionView(title: "Nodes", symbol: "point.3.connected.trianglepath.dotted", hint: "节点编辑器将直接映射 schema 7 的全部协议字段。")
-            case .routes: CollectionView(title: "Routes", symbol: "arrow.triangle.branch", hint: "Route、detour chain 和 Direct/Block 目标。")
-            case .dns: CollectionView(title: "DNS", symbol: "network", hint: "Bootstrap、DNS Profile、缓存和上游协议。")
-            case .rules: CollectionView(title: "Rules", symbol: "list.number", hint: "first-match 顺序；Default 固定在末尾。")
-            case .subscriptions: CollectionView(title: "Subscriptions", symbol: "arrow.down.circle", hint: "订阅刷新、stable ID 和 stale cleanup。")
-            case .proxies: CollectionView(title: "Local Proxies", symbol: "rectangle.connected.to.line.below", hint: "本地 SOCKS/HTTP/Mixed listeners。")
+            case .nodes: DraftCollectionView(model: model, title: "Nodes", key: "nodes", symbol: "point.3.connected.trianglepath.dotted", hint: "节点协议字段先以 canonical JSON 保存，新增/删除和顺序已接通。")
+            case .routes: DraftCollectionView(model: model, title: "Routes", key: "routes", symbol: "arrow.triangle.branch", hint: "Route、detour chain 和 Direct/Block 目标。")
+            case .dns: DraftCollectionView(model: model, title: "DNS Profiles", key: "dns_profiles", symbol: "network", hint: "Bootstrap、DNS Profile、缓存和上游协议。")
+            case .rules: DraftCollectionView(model: model, title: "Rules", key: "rules", symbol: "list.number", hint: "first-match 顺序；Default 仍由 Go Validate 固定约束。")
+            case .subscriptions: DraftCollectionView(model: model, title: "Subscriptions", key: "subscriptions", symbol: "arrow.down.circle", hint: "订阅刷新、stable ID 和 stale cleanup。")
+            case .proxies: DraftCollectionView(model: model, title: "Local Proxies", key: "local_proxies", symbol: "rectangle.connected.to.line.below", hint: "本地 SOCKS/HTTP/Mixed listeners。")
             case .diagnostics: DiagnosticsView(model: model)
             case .settings: SettingsView(model: model)
             }
@@ -86,7 +86,8 @@ struct ConfigurationView: View {
                 Text("Canonical JSON draft")
                     .font(.headline)
                 Spacer()
-                Button("Save draft") { model.markDirty() }
+                Button("Load draft") { model.loadDraft() }
+                Button("Save draft") { model.saveDraft() }
                 Button("Validate") { model.validate() }
             }
             TextEditor(text: Binding(get: { model.rawJSON }, set: { model.rawJSON = $0; model.markDirty() }))
@@ -99,22 +100,55 @@ struct ConfigurationView: View {
     }
 }
 
-struct CollectionView: View {
+struct DraftCollectionView: View {
+    @ObservedObject var model: AppModel
     let title: String
+    let key: String
     let symbol: String
     let hint: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: 32))
-                .foregroundStyle(.tint)
-            Text(title)
-                .font(.title2.weight(.semibold))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(title, systemImage: symbol)
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                Button("Add") { model.appendDraftItem(to: key) }
+                    .buttonStyle(.borderedProminent)
+            }
             Text(hint)
                 .foregroundStyle(.secondary)
-            ContentUnavailableView("Draft editor pending", systemImage: "square.and.pencil", description: Text("本页面的 schema 7 字段表单将在真实 Mac 构建验证后接入。当前请使用 Configuration 的 canonical JSON draft。"))
-            Spacer()
+            List {
+                ForEach(model.draftItems(for: key)) { item in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.identifier)
+                                .font(.headline)
+                            if !item.summary.isEmpty {
+                                Text(item.summary)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            model.removeDraftItem(from: key, at: item.index)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                .onMove { source, destination in
+                    model.moveDraftItem(in: key, from: source, to: destination)
+                }
+            }
+            .overlay {
+                if model.draftItems(for: key).isEmpty {
+                    Text("当前 draft 没有 (title)")
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
