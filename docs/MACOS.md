@@ -2,6 +2,8 @@
 
 本文记录 macOS 开发的当前边界。macOS 目标使用原生 SwiftUI/AppKit 界面和 Apple NetworkExtension；共享 Canonical Intent、校验和 sing-box 配置编译仍由 Go 核心负责。
 
+DNS 方案的正式决策记录在 [ADR 0001](adr/0001-macos-dns-capture.md)。
+
 ## 运行时边界
 
 ```text

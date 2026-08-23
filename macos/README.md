@@ -17,6 +17,7 @@ Steer.app
 
 - `SteerApp/`：SwiftUI NavigationSplitView、菜单栏入口、draft/Validate/Apply 状态骨架；
 - `SteerNetwork/`：Packet Tunnel 与 DNS Proxy provider 的职责边界、Info.plist 和 entitlements；
+- `SteerAgent/`：`SMAppService` 用户级 LaunchAgent 注册/注销骨架和 plist 模板；
 - `bridge/`：固定 sing-box `v1.13.19` 的独立 Go module 边界。
 
 `SteerApp` 会在 bundle 中找到 `steer-macos` 时通过临时 canonical JSON 文件调用

@@ -20,6 +20,7 @@ def main() -> None:
     root_mod = read("go/go.mod")
     packet_info = read("macos/SteerNetwork/PacketTunnel-Info.plist")
     dns_info = read("macos/SteerNetwork/DNSProxy-Info.plist")
+    agent = read("macos/SteerAgent/AgentController.swift")
     app = read("macos/SteerApp/SteerApp.swift")
     state = read("macos/SteerApp/AppState.swift")
     content = read("macos/SteerApp/ContentView.swift")
@@ -34,6 +35,7 @@ def main() -> None:
     assert 'github.com/sagernet/sing-box' not in root_mod
     assert 'com.apple.networkextension.packet-tunnel' in packet_info
     assert 'com.apple.networkextension.dns-proxy' in dns_info
+    assert 'SMAppService.agent' in agent
     assert 'NavigationSplitView' in content
     for page in ("Overview", "Configuration", "Nodes", "Routes", "DNS", "Rules", "Subscriptions", "Diagnostics", "Settings"):
         assert page in app or page in state or page in content
