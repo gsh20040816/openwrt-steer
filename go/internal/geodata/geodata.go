@@ -156,7 +156,8 @@ func EnsureRules(ctx context.Context, runner Runner, ruleSets []compiler.GeoRule
 			if rule.Kind != kind {
 				continue
 			}
-			if _, exists := known[rule.Category]; !exists {
+			catalogName := strings.SplitN(rule.Category, "@", 2)[0]
+			if _, exists := known[catalogName]; !exists {
 				return &Error{Code: ErrorCategoryNotFound, Kind: kind, Category: rule.Category, Path: path}
 			}
 		}

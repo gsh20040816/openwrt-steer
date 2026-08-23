@@ -61,7 +61,8 @@ const validateGeoCategories = (intent, catalogs) => {
       const known = new Set(catalogs[kind].names || []);
       asList(values).filter(value => String(value).startsWith(`${kind}:`)).forEach(value => {
         const category = String(value).slice(kind.length + 1);
-        if (!known.has(category)) errors.push(`${rule.id || 'rule'}: ${value} is not available in the current ${kind} database`);
+        const catalogName = category.split('@', 1)[0];
+        if (!known.has(catalogName)) errors.push(`${rule.id || 'rule'}: ${value} is not available in the current ${kind} database`);
       });
     });
   });

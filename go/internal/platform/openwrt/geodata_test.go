@@ -30,7 +30,7 @@ func (runner catalogRunner) Output(_ context.Context, _ string, _ ...string) ([]
 func (runner *geoRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
 	runner.calls = append(runner.calls, name+" "+strings.Join(args, " "))
 	if len(args) > 1 && args[0] == "-action" && args[1] == "extract" {
-		return []byte("Available codes:\ncategory-example@test\ncategory-example\nprivate\nmissing\ncn\n"), nil
+		return []byte("Available codes:\ncategory-example\nprivate\nmissing\ncn\n"), nil
 	}
 	if runner.failConvert && strings.HasSuffix(name, "geoview") {
 		return nil, fmt.Errorf("category is missing")

@@ -129,7 +129,7 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	}
 	script := httptest.NewRecorder()
 	handler.ServeHTTP(script, httptest.NewRequest(http.MethodGet, "/app.js", nil))
-	if !strings.Contains(script.Body.String(), "/api/v1/platform") || !strings.Contains(script.Body.String(), "validateGeoCategories") || strings.Contains(script.Body.String(), "sha256") {
+	if !strings.Contains(script.Body.String(), "/api/v1/platform") || !strings.Contains(script.Body.String(), "validateGeoCategories") || !strings.Contains(script.Body.String(), "category.split('@', 1)[0]") || strings.Contains(script.Body.String(), "sha256") {
 		t.Fatalf("system settings UI is missing or exposes internal hashes: %s", script.Body.String())
 	}
 }

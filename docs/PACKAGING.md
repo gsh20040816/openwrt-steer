@@ -1,14 +1,14 @@
 # 打包与发布
 
-0.5.0-alpha.2 面向 OpenWrt 25.12.5 x86/64。GitHub Actions 使用固定官方 SDK 镜像构建；tag 发布只复用同一 commit 已成功生成的 master 构建，不重新编译。
+0.5.0-alpha.3 面向 OpenWrt 25.12.5 x86/64。GitHub Actions 使用固定官方 SDK 镜像构建；tag 发布只复用同一 commit 已成功生成的 master 构建，不重新编译。
 
 ## 包与所有权
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.5.0_alpha2-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
-| `luci-app-steer` | `0.5.0_alpha2-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.5.0_alpha2-r1` | 简体中文翻译 |
+| `steer` | `0.5.0_alpha3-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
+| `luci-app-steer` | `0.5.0_alpha3-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.5.0_alpha3-r1` | 简体中文翻译 |
 | `steer-geodata` | 独立时间版本，`r2` | 固定 GeoSite/GeoIP 输入文件；不提供缓存 release marker |
 | `geoview` | `0.2.6-r3`，固定上游 commit、无下游补丁 | Geo 分类读取工具 |
 
@@ -50,12 +50,12 @@ node tests/node/steer_helper_test.js
 
 ## 发布
 
-APK 版本为 `0.5.0_alpha2-r1`，Git tag 为 `v0.5.0-alpha.2`。发布流程为：
+APK 版本为 `0.5.0_alpha3-r1`，Git tag 为 `v0.5.0-alpha.3`。发布流程为：
 
 1. 在 master 提交并推送完整原子变更；
 2. 等待该 commit 的 `Build OpenWrt packages` 成功；
-3. 给同一 commit 打 `v0.5.0-alpha.2` tag 并推送；
+3. 给同一 commit 打 `v0.5.0-alpha.3` tag 并推送；
 4. `Publish tagged release` 下载 master 构建、校验 SHA256/commit，再创建预发布 Release；
 5. 从 Release 下载 APK 安装到目标路由器，执行正常配置校验和健康检查。
 
-不得从本地未留证据的二进制发版，也不得给 tag 重新构建一套可能不同的产物。`v0.5.0-alpha.2` 复用同一提交已经成功生成并留存证据的 master 构建。
+不得从本地未留证据的二进制发版，也不得给 tag 重新构建一套可能不同的产物。`v0.5.0-alpha.3` 复用同一提交已经成功生成并留存证据的 master 构建。
