@@ -1,6 +1,6 @@
 pkgbase = steer
 	pkgdesc = Transparent proxy policy compiler and Linux systemd adapter
-	pkgver = 0.6.0
+	pkgver = 0.6.1
 	pkgrel = 1
 	url = https://github.com/gsh20040816/steer
 	arch = x86_64
@@ -17,7 +17,7 @@ pkgbase = steer
 	backup = etc/steer/config.json
 	backup = etc/steer/platform.json
 	backup = etc/steer/web.json
-	source = steer-0.6.0.tar.gz::https://github.com/gsh20040816/steer/archive/refs/tags/v0.6.0.tar.gz
-	sha256sums = 8dc7f77e2e175663724836ee69d5022613a881bf81b5436ac67ebaa0418372f8
+	source = steer::git+https://github.com/gsh20040816/steer.git#tag=v0.6.1
+	sha256sums = SKIP
 
 pkgname = steer

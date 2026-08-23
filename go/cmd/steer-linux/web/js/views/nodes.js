@@ -186,8 +186,8 @@
           if (kind === 'select') return ui.select(spec[3].map((v) => [v, v || '（默认）']), draft[key] ?? '', (v) => { draft[key] = v; });
           if (kind === 'number') return ui.input({ type: 'number', value: draft[key] ?? '', oninput: (e) => { draft[key] = e.target.value === '' ? undefined : Number(e.target.value); } });
           return ui.input({
-            type: kind === 'password' ? 'password' : 'text', value: kind === 'password' ? '' : (draft[key] ?? ''),
-            placeholder: kind === 'password' ? '••••••••' : '', oninput: (e) => { draft[key] = e.target.value; }
+            type: kind === 'password' ? 'password' : 'text', value: draft[key] ?? '',
+            placeholder: '', oninput: (e) => { draft[key] = e.target.value; }
           });
         }
 
@@ -245,6 +245,7 @@
   const view = {
     name: 'nodes',
     render(root) {
+      ui.beginRender(root);
       const intent = S.store.intent;
       rowButtons.clear();
       const groupList = groups(intent);

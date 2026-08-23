@@ -7,9 +7,10 @@
   function render(name) {
     const view = S.views[name] || S.views.overview;
     const root = document.querySelector('#view');
-    root.replaceChildren();
+    const routeToken = S.ui.beginRoute(root);
     document.querySelectorAll('.nav-item').forEach((el) => el.classList.toggle('is-active', el.dataset.view === name));
     Promise.resolve(view.render(root)).catch((e) => {
+      if (!S.ui.isCurrentRoute(root, routeToken)) return;
       root.append(S.h('div', { class: 'card card--edge edge--err' }, [
         S.h('strong', {}, '渲染失败'),
         S.h('pre', { class: 'mono' }, e.stack || e.message)

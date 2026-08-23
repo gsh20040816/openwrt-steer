@@ -13,6 +13,12 @@
 
   const listeners = new Set();
   const emit = () => { for (const fn of listeners) fn(); };
+  const LIST_FIELDS = ['nodes', 'subscriptions', 'routes', 'dns_profiles', 'local_proxies', 'rules'];
+  const normalizeIntent = (value) => {
+    if (!value || typeof value !== 'object') return value;
+    LIST_FIELDS.forEach((field) => { if (!Array.isArray(value[field])) value[field] = []; });
+    return value;
+  };
 
   const store = {
     get intent() { return intent; },
@@ -22,11 +28,13 @@
     get platformRevision() { return platformRevision; },
     get overview() { return overview; },
 
+    normalizeIntent,
+
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
     async init() {
       const [config, plat, ov] = await Promise.all([S.api.config(), S.api.platform(), S.api.overview()]);
-      intent = config.intent;
+      intent = normalizeIntent(config.intent);
       revision = config.revision;
       platform = plat.settings;
       platformRevision = plat.revision;
@@ -55,7 +63,7 @@
     /* 以服务器为准：丢弃本地修改。 */
     async reload() {
       const config = await S.api.config();
-      intent = config.intent;
+      intent = normalizeIntent(config.intent);
       revision = config.revision;
       dirty = false;
       emit();

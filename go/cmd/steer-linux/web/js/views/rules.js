@@ -178,6 +178,7 @@
   const view = {
     name: 'rules',
     render(root) {
+      ui.beginRender(root);
       const intent = S.store.intent;
       const ordered = intent.rules.filter((r) => !r.default);
       const defaultRule = intent.rules.find((r) => r.default);

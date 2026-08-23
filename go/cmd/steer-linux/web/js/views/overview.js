@@ -40,6 +40,7 @@
   const view = {
     name: 'overview',
     async render(root) {
+      const isCurrent = ui.beginRender(root);
       const intent = S.store.intent;
       const ov = S.store.overview || {};
       const status = ov.status || {};
@@ -101,6 +102,7 @@
         return h('div', { class: 'fact' }, h('dt', {}, label), h('dd', {}, value));
       }
 
+      if (!isCurrent()) return;
       root.append(
         ui.viewHead('总览', 'systemd Linux 透明代理控制面 · 主机及 VM/Docker 公网流量统一进入 Steer'),
         pipeline, tests, summary

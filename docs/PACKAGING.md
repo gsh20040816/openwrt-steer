@@ -12,17 +12,17 @@ Steer 固定采用三层交付模型：主仓库发布 source tag、通用 Linux
 6. OpenWrt 通过 `steer-geodata` 提供固定 Geo 输入；Linux 只消费用户配置路径指向的兼容 `.dat`，不依赖任何特定 Geo 包。
 7. tag 发布不重新编译，只复用该 tag 所指 master commit 已成功生成的完整 release bundle。
 
-版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.0`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
+版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.1`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
 
 ## OpenWrt
 
-0.6.0 面向 OpenWrt 25.12.5 x86/64：
+0.6.1 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.6.0-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
-| `luci-app-steer` | `0.6.0-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.6.0-r1` | 简体中文翻译 |
+| `steer` | `0.6.1-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
+| `luci-app-steer` | `0.6.1-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.6.1-r1` | 简体中文翻译 |
 | `steer-geodata` | 独立时间版本，`r2` | 固定 GeoSite/GeoIP 输入文件 |
 | `geoview` | `0.2.6-r3` | 固定上游 commit、无下游补丁的 Geo 分类读取工具 |
 
@@ -90,7 +90,7 @@ packaging/archlinux/
 
 这里的 `PKGBUILD` 是唯一手工维护的配方，`.SRCINFO` 只是由它生成并随包目录提交的元数据；独立的 AUR Git 仓库只是人工发布镜像。当前不在 CI 中保存 AUR 凭据或推送 AUR，也不提供同步/推送脚本。更新时按以下顺序执行：
 
-1. 上游 release 完成后更新对应的 `pkgver` 和源码 SHA-256；纯打包修订只增加 `pkgrel`。
+1. 上游 release 完成后只更新对应的 `pkgver`；配方通过 `git+https://...#tag=v$pkgver` 克隆精确 source tag，因此不再维护源码归档 SHA-256。纯打包修订只增加 `pkgrel`。Git source 配方使用 `sha256sums=('SKIP')`，依赖 HTTPS 与约定不改写的版本 tag；若需要强制供应链校验，应改用固定 commit 并配套签名/哈希校验。
 2. 在对应目录用 `makepkg --printsrcinfo` 重新生成 `.SRCINFO`，不得手工维护其字段，并确认生成结果与提交内容完全一致。
 3. 在干净 Arch 环境先构建 geoview，再构建 steer；分别执行 `makepkg --cleanbuild --syncdeps`，检查生成包的文件、权限、版本与依赖。
 4. 提交主仓库后，再由维护者把该包目录中的 `PKGBUILD`、`.SRCINFO` 和 `.gitignore` 人工复制、审查并提交到对应 AUR Git 仓库。
@@ -134,7 +134,7 @@ node tests/node/steer_helper_test.js
 
 1. 在 master 提交并推送完整原子变更；
 2. 等待该 commit 的 `Build release artifacts` 成功，确认 OpenWrt、Linux 和 bundle 三个产物齐全；
-3. 给同一 commit 打 `v0.6.0` tag 并推送；
+3. 给同一 commit 打 `v0.6.1` tag 并推送；
 4. `Publish tagged release` 查找该 commit 的成功 master run，下载 `release-bundle`，再次验证 SHA256、commit 和精确资产集合；
 5. 发布 GitHub Release；
 6. 从 Release 重新下载 APK 安装到目标 OpenWrt，并执行配置哈希、Apply、健康与 DNS 验证。

@@ -15,6 +15,7 @@
   const view = {
     name: 'config',
     async render(root) {
+      const isCurrent = ui.beginRender(root);
       const [geosite, geoip] = await Promise.all([S.api.geodata('geosite'), S.api.geodata('geoip')]);
       const catalogs = { geosite, geoip };
 
@@ -75,8 +76,9 @@
           const parsed = JSON.parse(editor.value);
           const geoErrors = S.validateGeoCategories(parsed, catalogs);
           if (geoErrors.length) throw new Error(geoErrors.join('\n'));
+          const normalized = S.store.normalizeIntent(parsed);
           Object.keys(S.store.intent).forEach((k) => delete S.store.intent[k]);
-          Object.assign(S.store.intent, parsed);
+          Object.assign(S.store.intent, normalized);
           S.store.touch();
           const res = await S.store.save(apply);
           if (res.ok) {
@@ -96,6 +98,7 @@
         }
       }
 
+      if (!isCurrent()) return;
       root.append(
         ui.viewHead('配置 · 高级', 'Canonical JSON 原文（schema 7）。结构化视图与本视图共享同一工作副本', [revBadge, dirtyBadge]),
         h('section', { class: 'card' }, [

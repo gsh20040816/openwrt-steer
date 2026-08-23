@@ -5,6 +5,28 @@
   const S = window.S;
   const { h, icon, asList } = S;
 
+  const renderTokens = new WeakMap();
+  const routeTokens = new WeakMap();
+  let routeSequence = 0;
+
+  function beginRender(root) {
+    const token = {};
+    renderTokens.set(root, token);
+    root.replaceChildren();
+    return () => renderTokens.get(root) === token;
+  }
+
+  function beginRoute(root) {
+    const token = ++routeSequence;
+    routeTokens.set(root, token);
+    root.replaceChildren();
+    return token;
+  }
+
+  function isCurrentRoute(root, token) {
+    return routeTokens.get(root) === token;
+  }
+
   const NAV = [
     { label: '总览', items: [['overview', 'gauge', '总览']] },
     {
@@ -233,7 +255,8 @@
     const el = h('div', { class: 'field' });
     if (label) {
       el.append(h('label', { for: id }, label));
-      if (control.setAttribute) control.setAttribute('id', id);
+      if (control.inputControl) control.inputControl.setAttribute('id', id);
+      else if (control.setAttribute) control.setAttribute('id', id);
     }
     el.append(control);
     if (hint) el.append(h('div', { class: 'field__hint' }, hint));
@@ -241,7 +264,27 @@
   }
 
   function input({ value = '', placeholder = '', type = 'text', disabled = false, oninput }) {
-    return h('input', { class: 'input', type, value, placeholder, disabled, oninput });
+    const control = h('input', { class: 'input', type, value, placeholder, disabled, oninput });
+    if (type !== 'password') return control;
+
+    const button = h('button', {
+      class: 'input-reveal__button', type: 'button', 'aria-pressed': 'false',
+      onclick: () => {
+        const visible = control.type === 'text';
+        control.type = visible ? 'password' : 'text';
+        button.setAttribute('aria-pressed', String(!visible));
+        button.textContent = visible ? '显示' : '隐藏';
+      }
+    }, '显示');
+    const wrapper = h('div', { class: 'input-reveal' }, control, button);
+    Object.defineProperty(wrapper, 'value', {
+      configurable: false,
+      enumerable: true,
+      get: () => control.value,
+      set: (next) => { control.value = next; }
+    });
+    wrapper.inputControl = control;
+    return wrapper;
   }
 
   function select(options, value, onchange) {
@@ -404,5 +447,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, onValidate, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, onValidate, jumpToObject } });
 })();

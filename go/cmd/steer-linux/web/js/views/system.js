@@ -31,6 +31,7 @@
   const view = {
     name: 'system',
     async render(root) {
+      const isCurrent = ui.beginRender(root);
       const [geosite, geoip] = await Promise.all([S.api.geodata('geosite'), S.api.geodata('geoip')]);
 
       const geoCard = h('section', { class: 'card' }, [
@@ -69,6 +70,7 @@
 
       function fact(label, value) { return h('div', { class: 'fact' }, h('dt', {}, label), h('dd', {}, value)); }
 
+      if (!isCurrent()) return;
       root.append(
         ui.viewHead('系统', 'Linux 平台设置与版本信息；配置语义仍在 Canonical Intent 中'),
         geoCard, factsCard, accessCard

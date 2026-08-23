@@ -135,6 +135,7 @@
   const view = {
     name: 'routes',
     render(root) {
+      ui.beginRender(root);
       const intent = S.store.intent;
       const direct = intent.routes.find((r) => r.kind === 'direct');
       const block = intent.routes.find((r) => r.kind === 'block');

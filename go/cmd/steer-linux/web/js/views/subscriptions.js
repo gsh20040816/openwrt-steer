@@ -97,6 +97,7 @@
   const view = {
     name: 'subscriptions',
     async render(root) {
+      const isCurrent = ui.beginRender(root);
       const intent = S.store.intent;
       statuses = (await S.api.subscriptions()).subscriptions;
 
@@ -144,6 +145,7 @@
         }))
       ]);
 
+      if (!isCurrent()) return;
       root.append(
         ui.viewHead('订阅', 'systemd timer 只更新配置，不自动 Apply；更新失败保留旧配置', [
           h('button', { class: 'btn btn--primary', onclick: () => openEditor(null) }, '添加订阅')

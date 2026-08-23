@@ -65,6 +65,7 @@
   const view = {
     name: 'proxies',
     render(root) {
+      ui.beginRender(root);
       const intent = S.store.intent;
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '监听', '规则引用', '操作'].map((t) => h('th', {}, t)))),

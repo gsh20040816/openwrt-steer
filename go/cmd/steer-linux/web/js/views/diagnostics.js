@@ -45,6 +45,7 @@
   const view = {
     name: 'diagnostics',
     render(root) {
+      ui.beginRender(root);
       root.append(
         ui.viewHead('诊断', '探测经当前运行规则执行；裸节点/路由测速在“节点”与“路由”页内进行'),
         h('div', { class: 'grid-3' }, [

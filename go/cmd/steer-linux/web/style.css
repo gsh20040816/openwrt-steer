@@ -254,6 +254,15 @@ body {
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px;
   color: var(--text); padding: 7px 10px; font-size: 12.5px; font-family: var(--mono);
 }
+.input-reveal { position: relative; display: flex; align-items: center; min-width: 0; }
+.input-reveal > .input { flex: 1 1 auto; min-width: 0; padding-right: 54px; }
+.input-reveal__button {
+  position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
+  border: 0; background: none; color: var(--faint); cursor: pointer;
+  font: 11px var(--sans); padding: 3px 5px; border-radius: 4px;
+}
+.input-reveal__button:hover { color: var(--route); background: var(--route-bg); }
+.input-reveal__button[aria-pressed="true"] { color: var(--route); }
 .input:focus, .select:focus, .textarea:focus {
   outline: none; border-color: var(--route); box-shadow: 0 0 0 3px var(--route-bg);
 }

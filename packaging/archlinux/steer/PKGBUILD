@@ -1,7 +1,7 @@
 # Maintainer: Shenghan Gao <gsh20040816 at gmail dot com>
 
 pkgname=steer
-pkgver=0.6.0
+pkgver=0.6.1
 pkgrel=1
 pkgdesc='Transparent proxy policy compiler and Linux systemd adapter'
 arch=('x86_64' 'aarch64')
@@ -22,11 +22,11 @@ backup=(
   'etc/steer/platform.json'
   'etc/steer/web.json'
 )
-source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('8dc7f77e2e175663724836ee69d5022613a881bf81b5436ac67ebaa0418372f8')
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')
 
 build() {
-  cd "$pkgname-$pkgver/go"
+  cd "$pkgname/go"
   CGO_ENABLED=0 go build \
     -trimpath \
     -ldflags="-s -w -X main.version=$pkgver" \
@@ -35,7 +35,7 @@ build() {
 }
 
 package() {
-  cd "$pkgname-$pkgver"
+  cd "$pkgname"
 
   install -Dm755 go/steer "$pkgdir/usr/bin/steer"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
