@@ -101,7 +101,9 @@ func (plan Plan) CompilerTarget() compiler.Target {
 		},
 	}
 	target := compiler.Target{
-		Inbounds: inbounds, DNSInboundTags: []string{"steer-dns"}, SniffInboundTags: []string{"steer-tun"},
+		Inbounds:             inbounds,
+		DNSCapture:           compiler.DNSCapture{Mode: compiler.DNSCaptureInboundHijack, InboundTags: []string{"steer-dns"}},
+		SniffInboundTags:     []string{"steer-tun"},
 		RequiredCapabilities: []string{"tun", "auto_route", "auto_redirect"},
 	}
 	for _, binding := range plan.Resources.MACBindings {
@@ -109,7 +111,7 @@ func (plan Plan) CompilerTarget() compiler.Target {
 			map[string]any{"type": "tproxy", "tag": binding.TProxyTag, "listen": "::", "listen_port": binding.TProxyPort, "network": []string{"tcp", "udp"}},
 			map[string]any{"type": "direct", "tag": binding.DNSInboundTag, "listen": "::", "listen_port": binding.DNSPort, "network": []string{"tcp", "udp"}},
 		)
-		target.DNSInboundTags = append(target.DNSInboundTags, binding.DNSInboundTag)
+		target.DNSCapture.InboundTags = append(target.DNSCapture.InboundTags, binding.DNSInboundTag)
 		target.SniffInboundTags = append(target.SniffInboundTags, binding.TProxyTag)
 		target.MACBindings = append(target.MACBindings, compiler.MACBinding{
 			Address: binding.Address, TProxyTag: binding.TProxyTag, DNSInboundTag: binding.DNSInboundTag,

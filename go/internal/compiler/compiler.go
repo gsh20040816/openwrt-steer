@@ -32,10 +32,30 @@ type Options struct {
 // It deliberately contains no nftables, routing-table or service-manager plan.
 type Target struct {
 	Inbounds             []any        `json:"inbounds"`
-	DNSInboundTags       []string     `json:"dns_inbound_tags"`
+	DNSCapture           DNSCapture   `json:"dns_capture"`
 	SniffInboundTags     []string     `json:"sniff_inbound_tags"`
 	MACBindings          []MACBinding `json:"mac_bindings"`
 	RequiredCapabilities []string     `json:"required_capabilities"`
+}
+
+// DNSCaptureMode describes which component has already identified DNS
+// traffic before the sing-box route rules see it. Keeping this explicit
+// prevents a packet-oriented runtime from treating arbitrary UDP sessions as
+// DNS.
+type DNSCaptureMode string
+
+const (
+	DNSCaptureNone          DNSCaptureMode = "none"
+	DNSCaptureInboundHijack DNSCaptureMode = "inbound_hijack"
+)
+
+// DNSCapture contains only sing-box-facing DNS inbound tags. Platform code
+// remains responsible for the first capture layer. The inbound_hijack mode is
+// safe only when those tags refer to dedicated DNS flows, never to a packet
+// runtime's general UDP sessions.
+type DNSCapture struct {
+	Mode        DNSCaptureMode `json:"mode"`
+	InboundTags []string       `json:"inbound_tags"`
 }
 
 type MACBinding struct {
@@ -164,7 +184,7 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 	}
 
 	inbounds := append([]any{}, target.Inbounds...)
-	dnsInboundTags := append([]string{}, target.DNSInboundTags...)
+	dnsInboundTags := append([]string{}, target.DNSCapture.InboundTags...)
 	sniffInboundTags := append([]string{}, target.SniffInboundTags...)
 	for _, proxy := range intent.LocalProxies {
 		if !proxy.Enabled {
@@ -202,10 +222,11 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path))
 	}
 
-	routeRules := []any{
-		map[string]any{"inbound": dnsInboundTags, "action": "hijack-dns"},
-		map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"},
+	routeRules := make([]any, 0, 2+len(intent.Rules))
+	if target.DNSCapture.Mode == DNSCaptureInboundHijack && len(dnsInboundTags) > 0 {
+		routeRules = append(routeRules, map[string]any{"inbound": dnsInboundTags, "action": "hijack-dns"})
 	}
+	routeRules = append(routeRules, map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"})
 	dnsRules := []any{}
 	var defaultRule model.Rule
 	for _, rule := range intent.Rules {

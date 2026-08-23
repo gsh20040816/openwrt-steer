@@ -36,7 +36,7 @@ func testOptions() Options {
 			map[string]any{"type": "tproxy", "tag": "steer-mac-tproxy-0", "listen_port": 20000},
 			map[string]any{"type": "direct", "tag": "steer-mac-dns-0", "listen_port": 20001},
 		},
-		DNSInboundTags:       []string{"steer-dns", "steer-mac-dns-0"},
+		DNSCapture:           DNSCapture{Mode: DNSCaptureInboundHijack, InboundTags: []string{"steer-dns", "steer-mac-dns-0"}},
 		SniffInboundTags:     []string{"steer-tun", "steer-mac-tproxy-0"},
 		MACBindings:          []MACBinding{{Address: "02:00:00:00:00:10", TProxyTag: "steer-mac-tproxy-0", DNSInboundTag: "steer-mac-dns-0"}},
 		RequiredCapabilities: []string{"tun", "auto_route", "auto_redirect", "tproxy"},
@@ -78,6 +78,17 @@ func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
 	}
 	if !strings.Contains(text, `"address":["198.18.0.1/30","fdfe:dcba:9876::1/126"]`) {
 		t.Fatalf("unexpected TUN addresses: %s", text)
+	}
+}
+
+func TestCompileDNSCaptureModeDoesNotInventHijack(t *testing.T) {
+	options := testOptions()
+	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureNone, InboundTags: []string{"steer-dns"}}
+	bundle := Compile(representativeIntent(), options)
+	routeRules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	encoded, _ := json.Marshal(routeRules)
+	if strings.Contains(string(encoded), `"action":"hijack-dns"`) {
+		t.Fatalf("DNS hijack rule was emitted for DNS capture mode none: %s", encoded)
 	}
 }
 
