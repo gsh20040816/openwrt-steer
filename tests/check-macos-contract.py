@@ -17,6 +17,7 @@ def main() -> None:
     packet = read("macos/SteerNetwork/PacketTunnelProvider.swift")
     dns = read("macos/SteerNetwork/DNSProxyProvider.swift")
     bridge = read("macos/bridge/go.mod")
+    root_mod = read("go/go.mod")
     packet_info = read("macos/SteerNetwork/PacketTunnel-Info.plist")
     dns_info = read("macos/SteerNetwork/DNSProxy-Info.plist")
 
@@ -27,6 +28,7 @@ def main() -> None:
     assert 'settings.dnsSettings = nil' in packet
     assert 'handleNewFlow(_ flow: NEAppProxyFlow)' in dns
     assert 'github.com/sagernet/sing-box v1.13.19' in bridge
+    assert 'github.com/sagernet/sing-box' not in root_mod
     assert 'com.apple.networkextension.packet-tunnel' in packet_info
     assert 'com.apple.networkextension.dns-proxy' in dns_info
     print("macOS source contracts passed")
