@@ -78,17 +78,11 @@ packaging/archlinux/
 ├── steer/
 │   ├── PKGBUILD
 │   ├── .SRCINFO
-│   ├── .gitignore
-│   ├── LICENSE
-│   ├── LICENSES/0BSD.txt -> ../LICENSE
-│   └── REUSE.toml
+│   └── .gitignore
 └── geoview/
     ├── PKGBUILD
     ├── .SRCINFO
-    ├── .gitignore
-    ├── LICENSE
-    ├── LICENSES/0BSD.txt -> ../LICENSE
-    └── REUSE.toml
+    └── .gitignore
 ```
 
 `steer` 从对应的 Steer source tag 构建，依赖发行版提供的 `sing-box >=1.13.18,<1.14.0`、`geoview`、systemd、nftables、iproute2 和 ca-certificates。`geoview` 直接从其独立的上游 release 构建；0.2.6 源码没有声明许可证，因此配方按 Arch 规范标记为 `unknown`，不从其他发行版的打包元数据推测上游授权。两者都不捆绑 sing-box 或 Geo 数据，也不在安装过程中启用服务、Apply 配置或生成 Web token。Linux Geo 数据保持 provider-neutral，不声明特定 Geo 包为依赖。
@@ -98,7 +92,7 @@ packaging/archlinux/
 1. 上游 release 完成后更新对应的 `pkgver` 和源码 SHA-256；纯打包修订只增加 `pkgrel`。
 2. 在对应目录用 `makepkg --printsrcinfo` 重新生成 `.SRCINFO`，不得手工维护其字段，并确认生成结果与提交内容完全一致。
 3. 在干净 Arch 环境先构建 geoview，再构建 steer；分别执行 `makepkg --cleanbuild --syncdeps`，检查生成包的文件、权限、版本与依赖。
-4. 提交主仓库后，再由维护者把该包目录的完整内容人工复制、审查并提交到对应 AUR Git 仓库；其中 `LICENSE` 和 `REUSE.toml` 描述 AUR recipe 自身的 0BSD 授权，不代表上游软件许可证。
+4. 提交主仓库后，再由维护者把该包目录中的 `PKGBUILD`、`.SRCINFO` 和 `.gitignore` 人工复制、审查并提交到对应 AUR Git 仓库。
 
 ## 主线构建
 
