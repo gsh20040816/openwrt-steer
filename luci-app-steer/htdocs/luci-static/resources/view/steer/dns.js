@@ -14,7 +14,7 @@ return view.extend({
 		steer.loadStyle();
 		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
-		s.anonymous = true;
+		steer.configureNamedSection(s);
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add DNS profile');

@@ -16,6 +16,7 @@ const callNodeSpeedtest = rpc.declare({ object: 'luci.steer', method: 'node_spee
 const callRouteSpeedtest = rpc.declare({ object: 'luci.steer', method: 'route_speedtest', params: [ 'route', 'download' ], expect: { '': {} } });
 const callOverviewProbe = rpc.declare({ object: 'luci.steer', method: 'overview_probe', params: [ 'kind' ], expect: { '': {} } });
 const callUCICommit = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ], expect: { '': 0 } });
+const sectionIDPattern = /^[a-z][a-z0-9_]{0,31}$/;
 
 function issueText(issue) {
 	let target = issue.object_type || _('Configuration');
@@ -59,6 +60,19 @@ return baseclass.extend({
 	speedtest: function(node, download) { return callNodeSpeedtest(node, download); },
 	routeSpeedtest: function(route, download) { return callRouteSpeedtest(route, download); },
 	overviewProbe: function(kind) { return callOverviewProbe(kind); },
+
+	configureNamedSection: function(section) {
+		section.anonymous = false;
+		section.handleAdd = function(ev, sectionId) {
+			if (!sectionIDPattern.test(sectionId)) {
+				ui.addNotification(_('Invalid section ID'), E('p', {}, _('Use 1–32 lowercase characters beginning with a letter.')), 'danger');
+				return;
+			}
+			this.map.data.add(this.uciconfig || this.map.config, this.sectiontype, sectionId);
+			return this.map.save(null, true);
+		};
+		return section;
+	},
 
 	apply: function(view, ev, mode) {
 		let previousSequence = '';

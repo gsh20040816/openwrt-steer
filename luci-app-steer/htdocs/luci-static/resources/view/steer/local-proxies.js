@@ -20,7 +20,7 @@ return view.extend({
 		m = new form.Map('steer', _('Local proxies'));
 
 		s = m.section(form.GridSection, 'local_proxy', _('Named proxy entry points'));
-		s.anonymous = true;
+		steer.configureNamedSection(s);
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add local proxy');

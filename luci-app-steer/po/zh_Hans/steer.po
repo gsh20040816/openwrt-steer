@@ -627,6 +627,9 @@ msgstr "正在下载并验证全部节点。"
 msgid "Invalid subscription ID"
 msgstr "订阅 ID 无效"
 
+msgid "Invalid section ID"
+msgstr "配置项 ID 无效"
+
 msgid "Subscription update failed"
 msgstr "订阅更新失败"
 

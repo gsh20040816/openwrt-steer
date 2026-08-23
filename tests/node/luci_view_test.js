@@ -181,6 +181,11 @@ function createEnvironment(sections) {
 	const notifications = [];
 	const steer = {
 		loadStyle: () => {},
+		configureNamedSection: (section) => {
+			section.anonymous = false;
+			section.handleAdd = function() {};
+			return section;
+		},
 		status: () => Promise.resolve({}),
 		validate: () => Promise.resolve({ ok: true, errors: [], warnings: [] }),
 		geodataCatalog: () => Promise.resolve({}),
@@ -336,12 +341,12 @@ async function renderOverview(sections) {
 	return environment;
 }
 
-function assertGeneratedIds(environment, message) {
+function assertNamedIds(environment, message) {
 	const addable = environment.maps.flatMap((map) => map.sections)
 		.filter((section) => section.addremove);
 	assert.ok(addable.length > 0, message + ': expected at least one addable section');
-	assert.ok(addable.every((section) => section.anonymous === true),
-		message + ': addable entities must use UCI-generated IDs');
+	assert.ok(addable.every((section) => section.anonymous === false && typeof section.handleAdd == 'function'),
+		message + ': addable entities must require validated explicit UCI IDs');
 	assert.ok(addable.every((section) => section.options.some((option) =>
 		option.name == 'name' && option.rmempty === false)),
 		message + ': every addable entity must require a user-facing name');
@@ -361,7 +366,7 @@ async function main() {
 		local_proxy: [],
 	});
 	let options = allOptions(environment);
-	assertGeneratedIds(environment, 'Rules');
+	assertNamedIds(environment, 'Rules');
 	assert.equal(options.some((option) => option.name == 'inbound'), false,
 		'Rules must not create a choice-only MultiValue without candidates');
 	const summary = options.find((option) => option.name == '_match');
@@ -460,7 +465,7 @@ async function main() {
 		]
 	});
 	options = allOptions(environment);
-	assertGeneratedIds(environment, 'Nodes and routes');
+	assertNamedIds(environment, 'Nodes and routes');
 	const emptyKind = options.find((option) => option.name == 'kind');
 	assert.deepEqual(emptyKind.values.map((value) => value[0]), [ 'direct', 'block' ]);
 	assert.equal(options.some((option) => option.name == 'node'), false,
@@ -476,12 +481,12 @@ async function main() {
 	assert.deepEqual(missingNode.values, [ [ 'missing_node', 'Missing: missing_node', 'Group: Missing references' ] ]);
 
 	environment = await renderDns({ dns_profile: [] });
-	assertGeneratedIds(environment, 'DNS profiles');
+	assertNamedIds(environment, 'DNS profiles');
 	const dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
 	assert.deepEqual(dnsProtocol.values.map((value) => value[0]), [ 'udp', 'tcp', 'tls', 'https', 'quic', 'h3' ],
 		'DNS profiles expose exactly the six M1 transports');
 	environment = await renderLocalProxies({ local_proxy: [] });
-	assertGeneratedIds(environment, 'Local proxies');
+	assertNamedIds(environment, 'Local proxies');
 	environment = await renderNodes({
 		node: [
 			{ '.name': 'cfg_manual', name: 'Manual' },
@@ -608,9 +613,9 @@ async function main() {
 		'Overview proxy test remains clickable when no healthy running status was returned');
 	const nodeSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
-	assert.ok(nodeSource.includes("const id = uci.add('steer', 'node');") &&
-		!nodeSource.includes("uci.add('steer', 'node', id)"),
-		'Share URL import uses an internal UCI-generated node ID');
+	assert.ok(nodeSource.includes('const id = nextManualNodeID();') &&
+		nodeSource.includes("uci.add('steer', 'node', id)"),
+		'Share URL import persists an explicit stable node ID');
 	const overviewSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js'), 'utf8');
 	assert.ok(!overviewSource.includes('renderPlan') && !overviewSource.includes('renderSubscriptions'),

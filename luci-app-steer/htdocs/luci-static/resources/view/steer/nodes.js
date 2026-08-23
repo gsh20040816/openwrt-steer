@@ -110,6 +110,13 @@ function selectedNodeGroup(groups) {
 	return groups.some((group) => group.id == requested) ? requested : manualNodeGroup;
 }
 
+function nextManualNodeID() {
+	let index = 1;
+	while (uci.get('steer', 'manual_node_' + index))
+		index++;
+	return 'manual_node_' + index;
+}
+
 function renderNodeGroupNavigation(groups, activeGroup) {
 	return E('nav', { 'class': 'steer-node-groups', 'aria-label': _('Node groups') }, groups.map((group) => {
 		const query = new URLSearchParams(window.location.search || '');
@@ -415,7 +422,8 @@ function showImportDialog() {
 		const save = function(saveEvent) {
 			saveEvent.preventDefault();
 			node.name = nameInput.value.trim() || node.name;
-			const id = uci.add('steer', 'node');
+			const id = nextManualNodeID();
+			uci.add('steer', 'node', id);
 			Object.keys(node).forEach((option) => uci.set('steer', id, option, node[option]));
 			saveEvent.currentTarget.disabled = true;
 			return uci.save().then(() => {
@@ -483,7 +491,7 @@ return view.extend({
 		m = new form.Map('steer', _('Nodes & Routes'));
 
 		s = m.section(form.GridSection, 'route', _('Routes'));
-		s.anonymous = true;
+		steer.configureNamedSection(s);
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add route');
@@ -554,7 +562,7 @@ return view.extend({
 		o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget); };
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
-		s.anonymous = true;
+		steer.configureNamedSection(s);
 		s.addremove = activeNodeGroup == manualNodeGroup;
 		/* Subscription nodes are generated data; avoid building editable widgets for every row. */
 		s.readonly = summaryOnly;

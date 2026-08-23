@@ -268,7 +268,7 @@ return view.extend({
 		m = new form.Map('steer', _('Rules'));
 
 		s = m.section(form.GridSection, 'rule', _('Ordered steering rules'));
-		s.anonymous = true;
+		steer.configureNamedSection(s);
 		s.addremove = true;
 		s.sortable = true;
 		s.nodescriptions = true;

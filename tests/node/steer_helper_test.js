@@ -122,6 +122,23 @@ async function main() {
 		}
 	};
 	const helper = loadHelper(runtime);
+	const addedSections = [];
+	const namedSection = {
+		sectiontype: 'rule',
+		map: {
+			config: 'steer',
+			data: { add: (...args) => addedSections.push(args) },
+			save: () => Promise.resolve('saved')
+		}
+	};
+	helper.configureNamedSection(namedSection);
+	assert.equal(namedSection.anonymous, false, 'Steer-owned sections require explicit IDs');
+	assert.equal(namedSection.handleAdd(null, 'Rule-A'), undefined,
+		'Invalid UCI section IDs fail before saving');
+	assert.equal(runtime.notifications.at(-1).level, 'danger');
+	await namedSection.handleAdd(null, 'laptop_direct');
+	assert.deepEqual(addedSections, [ [ 'steer', 'rule', 'laptop_direct' ] ],
+		'Valid section IDs are persisted as named UCI sections');
 
 	let rendered = helper.renderStatus({ healthy: false }, runtime.validation, false);
 	assert.ok(textContent(rendered).includes('Steer is disabled'),
