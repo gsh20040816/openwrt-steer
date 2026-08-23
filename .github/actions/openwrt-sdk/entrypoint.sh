@@ -18,6 +18,25 @@ phase() {
   printf '[sdk-phase] %s %s\n' "$(date -u +%FT%TZ)" "$1"
 }
 
+[ -n "${OPENWRT_APK_PRIVATE_KEY:-}" ] || {
+  echo 'OPENWRT_APK_PRIVATE_KEY is required to sign the OpenWrt repository.' >&2
+  exit 1
+}
+
+old_umask="$(umask)"
+umask 077
+printf '%s\n' "$OPENWRT_APK_PRIVATE_KEY" > private-key.pem
+umask "$old_umask"
+staging_dir/host/bin/openssl ec \
+  -in private-key.pem \
+  -pubout \
+  -out generated-public-key.pem 2>/dev/null
+cmp generated-public-key.pem /feed/keys/steer-apk.pem || {
+  echo 'OPENWRT_APK_PRIVATE_KEY does not match keys/steer-apk.pem.' >&2
+  exit 1
+}
+rm -f generated-public-key.pem
+
 phase feeds-update
 cat > feeds.conf <<EOF
 src-git --root=package base https://git.openwrt.org/openwrt/openwrt.git^f0a60eee2fe051741c643ea6118718aae1ef17fb
@@ -140,6 +159,34 @@ make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)" CONFIG_AUTOREMOVE=
 
 phase package-index
 make package/index
+
+package_arch="$(make --no-print-directory val.ARCH_PACKAGES)"
+repository_dir="bin/packages/$package_arch/$FEEDNAME"
+[ -f "$repository_dir/packages.adb" ] || {
+  echo "Signed package index was not produced: $repository_dir/packages.adb" >&2
+  exit 1
+}
+staging_dir/host/bin/apk \
+  --keys-dir /feed/keys \
+  verify "$repository_dir/packages.adb"
+
+actual_packages="$(mktemp)"
+expected_packages="$(mktemp)"
+staging_dir/host/bin/apk adbdump "$repository_dir/packages.adb" \
+  | sed -n 's/^  - name: //p' \
+  | sort > "$actual_packages"
+printf '%s\n' \
+  geoview \
+  luci-app-steer \
+  luci-i18n-steer-zh-cn \
+  steer \
+  steer-geodata \
+  | sort > "$expected_packages"
+cmp "$expected_packages" "$actual_packages" || {
+  echo 'OpenWrt repository index does not contain the exact Steer package set.' >&2
+  exit 1
+}
+rm -f "$actual_packages" "$expected_packages"
 
 for package_pattern in \
   'geoview-*.apk' \

@@ -12,17 +12,17 @@ Steer 固定采用三层交付模型：主仓库发布 source tag、通用 Linux
 6. OpenWrt 通过 `steer-geodata` 提供固定 Geo 输入；Linux 只消费用户配置路径指向的兼容 `.dat`，不依赖任何特定 Geo 包。
 7. tag 发布不重新编译，只复用该 tag 所指 master commit 已成功生成的完整 release bundle。
 
-版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.5`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
+版本所有权彼此独立：Steer、LuCI 和 OpenWrt `steer` APK 跟随 `v0.6.6`；`steer-geodata` 使用独立数据版本；geoview 和 sing-box 跟随各自上游或发行版。
 
 ## OpenWrt
 
-0.6.5 面向 OpenWrt 25.12.5 x86/64：
+0.6.6 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.6.5-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
-| `luci-app-steer` | `0.6.5-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.6.5-r1` | 简体中文翻译 |
+| `steer` | `0.6.6-r1` | `/usr/sbin/steer`、默认 UCI、procd init、Apply/OpenWrt 适配器 |
+| `luci-app-steer` | `0.6.6-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.6.6-r1` | 简体中文翻译 |
 | `steer-geodata` | 独立时间版本，`r2` | 固定 GeoSite/GeoIP 输入文件 |
 | `geoview` | `0.2.6-r3` | 固定上游 commit、无下游补丁的 Geo 分类读取工具 |
 
@@ -40,6 +40,30 @@ Steer 固定采用三层交付模型：主仓库发布 source tag、通用 Linux
 ```
 
 安装后脚本只接受 schema 7，维护订阅 cron，并执行一次正常 `steer apply`；它不迁移旧 schema、不改节点/路由。OpenWrt 包仍通过 `PROVIDES`、`CONFLICTS` 和 `REPLACES` 原子替换历史 `steer-openwrt` 包名，但源码中不保留兼容目录。
+
+### 稳定软件源
+
+四个源码包 `steer`、`luci-app-steer`、`steer-geodata` 和 `geoview` 由同一次固定 SDK 构建；LuCI 同时产生 `luci-i18n-steer-zh-cn`，所以稳定源中共有五个 APK。`make package/index` 使用 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY` 中的 P-256 私钥签名 `packages.adb`，并在构建时验证该私钥与仓库中的 `keys/steer-apk.pem` 完全匹配。私钥不得写入 Git、构件、Release 或 Pages。
+
+稳定 tag 发布成功后，`publish.yml` 才把同一 master 构建产生的签名索引、五个 APK、公钥和校验元数据部署到 GitHub Pages。预发布 tag 不得替换稳定源：
+
+```text
+https://gsh20040816.github.io/steer/openwrt/25.12.5/x86_64/packages.adb
+https://gsh20040816.github.io/steer/openwrt/25.12.5/x86_64/steer-apk.pem
+```
+
+OpenWrt 端先安装公钥，再把索引 URL 写入持久的 `customfeeds.list`：
+
+```sh
+wget -O /etc/apk/keys/steer-apk.pem \
+  https://gsh20040816.github.io/steer/openwrt/25.12.5/x86_64/steer-apk.pem
+echo 'https://gsh20040816.github.io/steer/openwrt/25.12.5/x86_64/packages.adb' \
+  >> /etc/apk/repositories.d/customfeeds.list
+apk update
+apk add steer luci-app-steer luci-i18n-steer-zh-cn
+```
+
+不得以 `--allow-untrusted` 代替密钥安装。轮换私钥时必须发布新的公钥文件名，并先完成目标设备信任迁移，不能静默覆盖现有信任根。
 
 ## 通用 Linux
 
@@ -104,13 +128,13 @@ verify
   ├── Go race tests + vet
   ├── Node/LuCI tests
   └── i18n、包边界、工作流与 Linux 打包契约检查
-        ├── openwrt：固定官方 SDK → 五个 APK
+        ├── openwrt：固定官方 SDK → 五个 APK + 签名 packages.adb
         └── linux：CGO_ENABLED=0 → x86_64/aarch64 tar.zst
                          ↓
                 verified release bundle
 ```
 
-OpenWrt 与 Linux 在同一 verify 之后并行构建。`scripts/collect-openwrt-artifacts.sh` 只收集 APK；`scripts/collect-linux-artifacts.sh` 只组装通用 Linux 归档。bundle job 分别验证平台 SHA256 和源码提交，再生成统一的 `BUILD-METADATA.txt` 与 `SHA256SUMS`。
+OpenWrt 与 Linux 在同一 verify 之后并行构建。`scripts/collect-openwrt-artifacts.sh` 只收集 Release APK；`scripts/collect-openwrt-repository.sh` 收集签名索引、对应 APK 和公钥；`scripts/collect-linux-artifacts.sh` 只组装通用 Linux 归档。bundle job 分别验证平台 SHA256 和源码提交，再生成统一的 `BUILD-METADATA.txt` 与 `SHA256SUMS`。
 
 本地完整验证至少包括：
 
@@ -137,9 +161,9 @@ sh -n tests/integration/run-linux-system.sh
 
 1. 在 master 提交并推送完整原子变更；
 2. 等待该 commit 的 `Build release artifacts` 成功，确认 OpenWrt SDK、Linux 通用归档、Linux systemd 容器验收和 release bundle 全部通过；
-3. 给同一 commit 打 `v0.6.5` tag 并推送；
+3. 给同一 commit 打 `v0.6.6` tag 并推送；
 4. `Publish tagged release` 查找该 commit 的成功 master run，下载 `release-bundle`，再次验证 SHA256、commit 和精确资产集合；
-5. 发布 GitHub Release；
-6. 从 Release 重新下载 APK 安装到目标 OpenWrt，并执行配置哈希、Apply、健康与 DNS 验证。
+5. 发布 GitHub Release，并把同次构建的签名 OpenWrt 源部署到 GitHub Pages；
+6. 从 Pages 源更新目标 OpenWrt，并执行配置哈希、Apply、健康与 DNS 验证。
 
 最终 Release 包含五个 APK、两个 Linux tar.zst、`BUILD-METADATA.txt` 和 `SHA256SUMS`。任何 tag 都不得重新构建或混用其他提交的产物。

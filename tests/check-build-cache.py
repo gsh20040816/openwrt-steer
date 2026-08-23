@@ -11,6 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github/workflows/release.yml").read_text()
+PUBLISH_WORKFLOW = (ROOT / ".github/workflows/publish.yml").read_text()
 
 
 def fail(message: str) -> None:
@@ -19,6 +20,7 @@ def fail(message: str) -> None:
 
 
 ENTRYPOINT = (ROOT / ".github/actions/openwrt-sdk/entrypoint.sh").read_text()
+REPOSITORY_COLLECTOR = (ROOT / "scripts/collect-openwrt-repository.sh").read_text()
 
 required_fragments = (
     "name: Build release artifacts",
@@ -32,12 +34,15 @@ required_fragments = (
     "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "--env PACKAGES=\"geoview steer-geodata steer luci-app-steer\"",
+    "--env OPENWRT_APK_PRIVATE_KEY",
     "cp -R \"$RUNNER_TEMP/steer-sdk-artifacts/bin\" \"$GITHUB_WORKSPACE/bin\"",
     "./scripts/collect-openwrt-artifacts.sh",
+    "./scripts/collect-openwrt-repository.sh",
     "CGO_ENABLED=0 GOOS=linux GOARCH=\"$goarch\" go build",
     "./scripts/collect-linux-artifacts.sh",
     "name: linux-generic",
     "name: release-bundle",
+    "name: openwrt-repository",
     "name: Linux system integration",
     "/workspace/tests/integration/run-linux-system.sh",
 )
@@ -127,6 +132,10 @@ required_entrypoint_fragments = (
     'make "package/$package/download" V=s',
     'make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)"',
     "make package/index",
+    "OPENWRT_APK_PRIVATE_KEY is required",
+    "cmp generated-public-key.pem /feed/keys/steer-apk.pem",
+    "verify \"$repository_dir/packages.adb\"",
+    "OpenWrt repository index does not contain the exact Steer package set",
     "'steer-[0-9]*.apk'",
     "'luci-i18n-steer-zh-cn-*.apk'",
     "staging_dir/host/bin/ccache -vv --show-stats",
@@ -145,5 +154,27 @@ if ENTRYPOINT.count("make package/luci-app-steer/compile") != 1:
 
 if ENTRYPOINT.count('-j "$(nproc)"') != 1:
     fail("only the compile target may use parallel make jobs")
+
+for fragment in (
+    "--name openwrt-repository",
+    "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9",
+    "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
+    "pages: write",
+    "id-token: write",
+    "!contains(github.ref_name, '-')",
+    "site/openwrt/25.12.5/x86_64",
+):
+    if fragment not in PUBLISH_WORKFLOW:
+        fail(f"tag publishing workflow is missing: {fragment}")
+
+for fragment in (
+    "packages.adb",
+    "steer-apk.pem",
+    "BUILD-METADATA.txt",
+    "SHA256SUMS",
+    "Expected exactly one repository APK matching",
+):
+    if fragment not in REPOSITORY_COLLECTOR:
+        fail(f"OpenWrt repository collector is missing: {fragment}")
 
 print("OpenWrt official SDK workflow checks passed")

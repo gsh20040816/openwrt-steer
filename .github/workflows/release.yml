@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  STEER_VERSION: 0.6.5
+  STEER_VERSION: 0.6.6
   OPENWRT_RELEASE: 25.12.5
   OPENWRT_TARGET: x86/64
   GEOVIEW_REF: 3c91926d360b8f49d47520639e574608318baf12
@@ -115,6 +115,8 @@ jobs:
             "$RUNNER_TEMP/steer-sdk-go-cache"
 
       - name: Build packages with official OpenWrt SDK
+        env:
+          OPENWRT_APK_PRIVATE_KEY: ${{ secrets.OPENWRT_APK_PRIVATE_KEY }}
         run: |
           source_dir="$RUNNER_TEMP/steer-source"
           mkdir -p "$source_dir"
@@ -129,6 +131,7 @@ jobs:
             --env FEEDNAME=steer \
             --env ARTIFACTS_DIR=/artifacts \
             --env PACKAGES="geoview steer-geodata steer luci-app-steer" \
+            --env OPENWRT_APK_PRIVATE_KEY \
             --env BUILD_LOG=1 \
             --env V=s \
             ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a \
@@ -145,6 +148,11 @@ jobs:
         env:
           SOURCE_REVISION: ${{ github.sha }}
         run: ./scripts/collect-openwrt-artifacts.sh
+
+      - name: Collect signed OpenWrt repository
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: ./scripts/collect-openwrt-repository.sh
 
       - name: Save OpenWrt SDK ccache
         if: success() && steps.sdk-ccache.outputs.cache-hit != 'true'
@@ -167,6 +175,14 @@ jobs:
           path: |
             dist/
             logs/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signed OpenWrt repository
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: openwrt-repository
+          path: openwrt-repository/
           if-no-files-found: error
           retention-days: 30
 

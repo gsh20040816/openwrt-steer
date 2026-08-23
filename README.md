@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本为 **0.6.5**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
+当前稳定版本为 **0.6.6**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
 
 ## 已实现能力
 
@@ -60,6 +60,21 @@ steer subscription status
 ```
 
 GitHub Release 提供 `steer-linux-x86_64.tar.zst` 和 `steer-linux-aarch64.tar.zst`，不捆绑 sing-box、geoview 或 Geo 数据库。主仓库不构建 deb、rpm、Arch 等发行版包；发行版维护者应从 source tag 构建并安装为 `/usr/bin/steer`。
+
+## OpenWrt 软件源
+
+OpenWrt 25.12.5 x86_64 可直接使用由 GitHub Pages 托管、CI 签名的稳定软件源：
+
+```sh
+wget -O /etc/apk/keys/steer-apk.pem \
+  https://gsh20040816.github.io/steer/openwrt/25.12.5/x86_64/steer-apk.pem
+echo 'https://gsh20040816.github.io/steer/openwrt/25.12.5/x86_64/packages.adb' \
+  >> /etc/apk/repositories.d/customfeeds.list
+apk update
+apk add steer luci-app-steer luci-i18n-steer-zh-cn
+```
+
+软件源包含 `steer`、`luci-app-steer`、`steer-geodata` 和 `geoview` 四个源码包；LuCI 构建还会生成独立的简体中文翻译 APK。不得使用 `--allow-untrusted` 绕过索引签名。
 
 ## 许可证
 
