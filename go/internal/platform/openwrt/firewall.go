@@ -64,7 +64,16 @@ func RenderFirewall(plan Plan) (string, error) {
 			"\t\tip6 daddr @non_global_ipv6 return",
 			"\t\tgoto mac_eligible", "\t}", "\tchain mac_eligible {")
 		for _, binding := range plan.Resources.MACBindings {
-			add(fmt.Sprintf("\t\tether saddr %s meta l4proto { tcp, udp } meta mark set 0x%x tproxy to :%d counter accept", binding.Address, plan.Resources.MACMark, binding.TProxyPort))
+			add(fmt.Sprintf("\t\tether saddr %s meta l4proto { tcp, udp } ct mark set 0x%x meta mark set 0x%x tproxy to :%d counter accept", binding.Address, plan.Resources.AutoRedirectOutputMark, plan.Resources.MACMark, binding.TProxyPort))
+		}
+		add("\t}")
+		// sing-box 1.13's auto_redirect UDP chain restores its own packet mark
+		// after the MAC TProxy hook. Restore the MAC mark after that chain while
+		// retaining the conntrack mark that makes auto_redirect bypass this flow.
+		add("\tchain mac_tproxy_restore {", "\t\ttype filter hook prerouting priority dstnat + 3; policy accept;",
+			"\t\tiifname \"steer0\" return")
+		for _, binding := range plan.Resources.MACBindings {
+			add(fmt.Sprintf("\t\tether saddr %s meta l4proto { tcp, udp } ct mark 0x%x meta mark set 0x%x counter", binding.Address, plan.Resources.AutoRedirectOutputMark, plan.Resources.MACMark))
 		}
 		add("\t}")
 	}

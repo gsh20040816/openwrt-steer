@@ -115,7 +115,11 @@ grep -q 'dnat ip6 to \[::1\]:1053' "$TEST_DIR/steer.nft"
 grep -q 'snat ip to 127.0.0.1' "$TEST_DIR/steer.nft"
 grep -q 'snat ip6 to ::1' "$TEST_DIR/steer.nft"
 grep -q 'ether saddr 02:00:00:00:00:10' "$TEST_DIR/steer.nft"
+grep -q 'ct mark set 0x2024' "$TEST_DIR/steer.nft"
 grep -q 'tproxy to :20000' "$TEST_DIR/steer.nft"
+grep -q 'chain mac_tproxy_restore' "$TEST_DIR/steer.nft"
+grep -q 'priority dstnat + 3' "$TEST_DIR/steer.nft"
+grep -q 'ct mark 0x2024 meta mark set 0x2026' "$TEST_DIR/steer.nft"
 if grep -Eq 'udp dport 443.*(drop|reject)' "$TEST_DIR/steer.nft"; then
 	echo 'Steer blocks QUIC instead of routing it.' >&2
 	exit 1
