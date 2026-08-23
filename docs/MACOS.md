@@ -53,6 +53,7 @@ macOS 的 DNS Proxy 必须同时覆盖 UDP 和 TCP，并在 Swift 层处理 TCP 
 - DNS inbound 绑定 `127.0.0.1:1053` 与 `[::1]:1054`；
 - target 明确使用 `DNSCaptureInboundHijack`；
 - `go/pkg/steercore` 提供版本化 `{abi_version, ok, value/error}` JSON envelope；
+- `steer-macos prepare --config … --app-group …` 在 App Group 中生成候选 generation，但不会越权宣称 provider 已激活；
 - `go test` 可在 Linux 上验证配置中存在专用 DNS `hijack-dns`，且不存在 `auto_redirect`；
 - `macos/SteerApp` 提供 SwiftUI 页面、菜单栏入口、draft/Validate/Apply 状态和 provider manager 控制骨架；
 - `macos/SteerNetwork` 提供 Packet Tunnel/DNS Proxy target 输入、entitlements 和 Info.plist 模板；

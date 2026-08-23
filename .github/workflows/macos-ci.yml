@@ -28,7 +28,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Check macOS source contracts
-        run: python3 tests/check-macos-contract.py
+        run: |
+          python3 tests/check-macos-contract.py
+          sh -n macos/scripts/build-steercore-xcframework.sh
       - name: Test shared Go core
         working-directory: go
         run: |

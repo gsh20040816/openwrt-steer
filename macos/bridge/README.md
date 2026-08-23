@@ -11,6 +11,11 @@ The bridge will eventually build two products from this module:
 - a DNS-only runtime exposing the dedicated DNS inbound used by
   `NEDNSProxyProvider`.
 
+The current C ABI exports `SteerValidateJSON`, `SteerCompileMacOS`,
+`SteerPrepareMacOS`, `SteerABIVersion` and `SteerFreeString`. Every returned
+string is allocated with `C.CString`; callers must release it exactly once with
+`SteerFreeString`.
+
 No source in this directory is claimed to build on the current Linux host.
 The first macOS implementation must record the sing-box tag, Go version, build
 tags, target architectures and SHA-256 of the resulting XCFramework.

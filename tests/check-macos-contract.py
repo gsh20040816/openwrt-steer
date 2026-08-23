@@ -17,10 +17,12 @@ def main() -> None:
     packet = read("macos/SteerNetwork/PacketTunnelProvider.swift")
     dns = read("macos/SteerNetwork/DNSProxyProvider.swift")
     bridge = read("macos/bridge/go.mod")
+    bridge_source = read("macos/bridge/bridge.go")
     root_mod = read("go/go.mod")
     packet_info = read("macos/SteerNetwork/PacketTunnel-Info.plist")
     dns_info = read("macos/SteerNetwork/DNSProxy-Info.plist")
     agent = read("macos/SteerAgent/AgentController.swift")
+    build_script = read("macos/scripts/build-steercore-xcframework.sh")
     app = read("macos/SteerApp/SteerApp.swift")
     state = read("macos/SteerApp/AppState.swift")
     content = read("macos/SteerApp/ContentView.swift")
@@ -36,6 +38,10 @@ def main() -> None:
     assert 'com.apple.networkextension.packet-tunnel' in packet_info
     assert 'com.apple.networkextension.dns-proxy' in dns_info
     assert 'SMAppService.agent' in agent
+    for symbol in ("SteerValidateJSON", "SteerCompileMacOS", "SteerPrepareMacOS", "SteerFreeString"):
+        assert symbol in bridge_source
+    assert "GOARCH=\"$arch\"" in build_script
+    assert "SteerCore.xcframework" in build_script
     assert 'NavigationSplitView' in content
     for page in ("Overview", "Configuration", "Nodes", "Routes", "DNS", "Rules", "Subscriptions", "Diagnostics", "Settings"):
         assert page in app or page in state or page in content

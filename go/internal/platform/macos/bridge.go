@@ -43,6 +43,24 @@ func CompileJSON(input []byte, stateDirectory string) []byte {
 	return steercore.EncodeEnvelope(true, bundle, nil)
 }
 
+// PrepareJSON writes a candidate into the caller-resolved App Group root and
+// returns its metadata without activating or publishing it.
+func PrepareJSON(input []byte, appGroupRoot string) []byte {
+	value, err := decodeJSON(input)
+	if err != nil {
+		return steercore.EncodeEnvelope(false, nil, &steercore.Error{Code: "INVALID_JSON", Message: err.Error()})
+	}
+	paths, err := NewPaths(appGroupRoot)
+	if err != nil {
+		return steercore.EncodeEnvelope(false, nil, &steercore.Error{Code: "INVALID_APP_GROUP", Message: err.Error()})
+	}
+	prepared, err := Prepare(value, paths)
+	if err != nil {
+		return steercore.EncodeEnvelope(false, nil, &steercore.Error{Code: "PREPARE_FAILED", Message: err.Error()})
+	}
+	return steercore.EncodeEnvelope(true, prepared, nil)
+}
+
 func decodeJSON(input []byte) (model.Intent, error) {
 	value, err := model.DecodeJSON(bytes.NewReader(input))
 	if err != nil {
