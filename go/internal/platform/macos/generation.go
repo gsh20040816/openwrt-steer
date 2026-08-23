@@ -72,6 +72,25 @@ type CurrentGeneration struct {
 	IntentDigest  string `json:"intent_digest"`
 }
 
+type ProviderHealth struct {
+	Provider     string `json:"provider"`
+	GenerationID string `json:"generation_id"`
+	Healthy      bool   `json:"healthy"`
+}
+
+// PublishHealthy enforces the two-provider barrier before publishing the
+// current pointer. A single healthy provider is never enough to activate a
+// new generation.
+func (paths Paths) PublishHealthy(prepared PreparedGeneration, packet, dns ProviderHealth) error {
+	if !packet.Healthy || !dns.Healthy {
+		return fmt.Errorf("macOS providers are not both healthy")
+	}
+	if packet.GenerationID == "" || packet.GenerationID != prepared.Metadata.GenerationID || dns.GenerationID != prepared.Metadata.GenerationID {
+		return fmt.Errorf("macOS provider generation mismatch")
+	}
+	return paths.Publish(prepared)
+}
+
 // Publish records the candidate only after the host has confirmed that both
 // PacketTunnelProvider and DNSProxyProvider are healthy for the same digest.
 func (paths Paths) Publish(prepared PreparedGeneration) error {
