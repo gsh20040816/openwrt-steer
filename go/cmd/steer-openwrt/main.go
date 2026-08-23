@@ -205,7 +205,10 @@ func runServiceStart(args []string) error {
 	backend := openwrt.NewBackend(openwrt.ExecRunner{}, value, openwrt.BackendOptions{
 		RunDirectory: *runDirectory, StateDirectory: *stateDirectory, SingBoxBinary: *singBoxPath, NFTBinary: *nftBinary,
 	})
-	compiled := compiler.Compile(value, backend.CompilerOptions())
+	compiled, err := compiler.Compile(value, backend.CompilerOptions())
+	if err != nil {
+		return err
+	}
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
 	if err != nil {
 		return err

@@ -48,7 +48,10 @@ func TestPrepareWritesLinuxGenerationFiles(t *testing.T) {
 	root := t.TempDir()
 	value := validIntent()
 	backend := NewBackend(&prepareRunner{}, value, BackendOptions{RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"})
-	compiled := compiler.Compile(value, backend.CompilerOptions())
+	compiled, err := compiler.Compile(value, backend.CompilerOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +82,10 @@ func TestPrepareUsesConfiguredGeoPathWithoutRequiringUnusedKind(t *testing.T) {
 		SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", GeoViewBinary: "/test/geoview",
 		GeoSitePath: geoSitePath,
 	})
-	compiled := compiler.Compile(value, backend.CompilerOptions())
+	compiled, err := compiler.Compile(value, backend.CompilerOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
 	if err != nil {
 		t.Fatal(err)

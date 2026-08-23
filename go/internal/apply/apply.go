@@ -45,7 +45,10 @@ func Run(ctx context.Context, value model.Intent, options compiler.Options, back
 	if !validation.OK {
 		return Result{Validation: &validation}, ValidationError{Validation: validation}
 	}
-	compiled := compiler.Compile(value, options)
+	compiled, err := compiler.Compile(value, options)
+	if err != nil {
+		return Result{}, err
+	}
 	result := Result{IntentDigest: compiled.IntentDigest}
 	if !value.Main.Enabled {
 		if err := backend.Disable(ctx); err != nil {

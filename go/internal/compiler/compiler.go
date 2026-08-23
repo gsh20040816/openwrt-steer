@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"sort"
 	"strings"
@@ -77,9 +78,9 @@ type GeoRuleSet struct {
 	Path     string `json:"path"`
 }
 
-func Compile(intent model.Intent, options Options) Output {
-	if options.StateDirectory == "" {
-		options.StateDirectory = "/var/lib/steer"
+func Compile(intent model.Intent, options Options) (Output, error) {
+	if options.StateDirectory == "" && requiresGeoStateDirectory(intent) {
+		return Output{}, errors.New("compiler state directory is required for Geo rule sets")
 	}
 	geoSets := collectGeoRuleSets(intent, options.StateDirectory)
 	dnsPaths := collectDNSPaths(intent)
@@ -89,7 +90,26 @@ func Compile(intent model.Intent, options Options) Output {
 		GeoRuleSets:          geoSets,
 	}
 	output.SingBox = compileSingBox(intent, options.Target, dnsPaths, geoSets)
-	return output
+	return output, nil
+}
+
+func requiresGeoStateDirectory(intent model.Intent) bool {
+	for _, rule := range intent.Rules {
+		if !rule.Enabled || rule.Default {
+			continue
+		}
+		for _, expression := range rule.DomainMatch {
+			if strings.HasPrefix(expression, "geosite:") {
+				return true
+			}
+		}
+		for _, expression := range rule.IPMatch {
+			if strings.HasPrefix(expression, "geoip:") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func digestIntent(intent model.Intent) string {

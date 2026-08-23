@@ -117,15 +117,19 @@ func runService(args []string) error {
 		}
 		if loadErr == nil && !disabled {
 			backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, options)
-			compiled := compiler.Compile(value, backend.CompilerOptions())
-			candidate, prepareErr := backend.Prepare(context.Background(), value, compiled)
-			if prepareErr == nil {
-				prepareErr = backend.ActivateForServiceStart(context.Background(), candidate)
+			compiled, compileErr := compiler.Compile(value, backend.CompilerOptions())
+			if compileErr != nil {
+				loadErr = compileErr
+			} else {
+				candidate, prepareErr := backend.Prepare(context.Background(), value, compiled)
+				if prepareErr == nil {
+					prepareErr = backend.ActivateForServiceStart(context.Background(), candidate)
+				}
+				if prepareErr == nil {
+					prepareErr = backend.Finalize(context.Background(), candidate)
+				}
+				loadErr = prepareErr
 			}
-			if prepareErr == nil {
-				prepareErr = backend.Finalize(context.Background(), candidate)
-			}
-			loadErr = prepareErr
 		}
 		lock.Close()
 		if loadErr != nil {

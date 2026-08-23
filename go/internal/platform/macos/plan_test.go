@@ -45,7 +45,10 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 		DNSProfiles: []model.DNSProfile{{ID: "dns", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"}},
 		Rules:       []model.Rule{{ID: "default", Enabled: true, Default: true, DNSProfile: "dns", Route: "direct"}},
 	}
-	bundle := compiler.Compile(value, NewPlan(value).CompilerOptions("/tmp/steer-state"))
+	bundle, err := compiler.Compile(value, NewPlan(value).CompilerOptions("/tmp/steer-state"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	encoded, _ := json.Marshal(bundle.SingBox["route"])
 	if !strings.Contains(string(encoded), `"action":"hijack-dns"`) {
 		t.Fatalf("dedicated macOS DNS inbound lost hijack-dns route: %s", encoded)

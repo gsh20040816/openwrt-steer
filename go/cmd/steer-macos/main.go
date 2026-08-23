@@ -88,7 +88,10 @@ func runCompile(args []string, stdout io.Writer) error {
 	if !validation.OK {
 		return errors.New("configuration validation failed")
 	}
-	bundle := compiler.Compile(value, macos.NewPlan(value).CompilerOptions(*stateDirectory))
+	bundle, err := compiler.Compile(value, macos.NewPlan(value).CompilerOptions(*stateDirectory))
+	if err != nil {
+		return err
+	}
 	return writeJSON(stdout, bundle)
 }
 

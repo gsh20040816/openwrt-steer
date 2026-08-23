@@ -43,8 +43,25 @@ func testOptions() Options {
 	}}
 }
 
+func compileTest(t *testing.T, intent model.Intent, options Options) Output {
+	t.Helper()
+	bundle, err := Compile(intent, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bundle
+}
+
+func TestCompileRequiresExplicitStateDirectoryForGeo(t *testing.T) {
+	options := testOptions()
+	options.StateDirectory = ""
+	if _, err := Compile(representativeIntent(), options); err == nil {
+		t.Fatal("Geo compilation accepted an empty state directory")
+	}
+}
+
 func TestCompilePathIsolationAndProjection(t *testing.T) {
-	bundle := Compile(representativeIntent(), testOptions())
+	bundle := compileTest(t, representativeIntent(), testOptions())
 	dns := bundle.SingBox["dns"].(map[string]any)
 	if len(dns["servers"].([]any)) != 3 {
 		t.Fatalf("DNS paths are not isolated by route: %#v", dns["servers"])
@@ -65,7 +82,7 @@ func TestCompilePathIsolationAndProjection(t *testing.T) {
 }
 
 func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
-	bundle := Compile(representativeIntent(), testOptions())
+	bundle := compileTest(t, representativeIntent(), testOptions())
 	encoded, _ := json.Marshal(bundle.SingBox)
 	text := string(encoded)
 	for _, forbidden := range []string{"fakeip", "udp/443", "smartdns", "serve_expired"} {
@@ -84,7 +101,7 @@ func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
 func TestCompileDNSCaptureModeDoesNotInventHijack(t *testing.T) {
 	options := testOptions()
 	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureNone, InboundTags: []string{"steer-dns"}}
-	bundle := Compile(representativeIntent(), options)
+	bundle := compileTest(t, representativeIntent(), options)
 	routeRules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
 	encoded, _ := json.Marshal(routeRules)
 	if strings.Contains(string(encoded), `"action":"hijack-dns"`) {
@@ -96,7 +113,7 @@ func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
 	intent := representativeIntent()
 	blockRule := model.Rule{ID: "blocked", Enabled: true, DNSProfile: "public", Route: "block", DomainMatch: []string{"domain:blocked.example"}}
 	intent.Rules = append(intent.Rules[:len(intent.Rules)-1], blockRule, intent.Rules[len(intent.Rules)-1])
-	bundle := Compile(intent, testOptions())
+	bundle := compileTest(t, intent, testOptions())
 	dns := bundle.SingBox["dns"].(map[string]any)
 	servers, _ := json.Marshal(dns["servers"])
 	if strings.Contains(string(servers), `"tag":"steer-dns-bootstrap","detour"`) || strings.Contains(string(servers), `"tag":"steer-dns-public-via-direct","detour"`) {
@@ -112,8 +129,8 @@ func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
 }
 
 func TestCompileIsDeterministic(t *testing.T) {
-	first := Compile(representativeIntent(), testOptions())
-	second := Compile(representativeIntent(), testOptions())
+	first := compileTest(t, representativeIntent(), testOptions())
+	second := compileTest(t, representativeIntent(), testOptions())
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("same intent produced different bundle")
 	}
@@ -122,7 +139,7 @@ func TestCompileIsDeterministic(t *testing.T) {
 func TestCompileRoutePrivateOutboundsAndDetour(t *testing.T) {
 	intent := representativeIntent()
 	intent.Routes = append(intent.Routes, model.Route{ID: "chained", Enabled: true, Kind: "single", Node: "node", Detour: "proxy"})
-	bundle := Compile(intent, testOptions())
+	bundle := compileTest(t, intent, testOptions())
 	outbounds := bundle.SingBox["outbounds"].([]any)
 	var proxy, chained map[string]any
 	for _, raw := range outbounds {
@@ -171,7 +188,7 @@ func TestCompileSingBoxProxyNodeFamilies(t *testing.T) {
 		model.Route{ID: "tuic_route", Enabled: true, Kind: "single", Node: "tuic"},
 		model.Route{ID: "ssh_route", Enabled: true, Kind: "single", Node: "ssh"},
 	)
-	bundle := Compile(base, testOptions())
+	bundle := compileTest(t, base, testOptions())
 	encoded, _ := json.Marshal(bundle.SingBox["outbounds"])
 	for _, expected := range []string{`"type":"shadowsocks"`, `"type":"vmess"`, `"type":"tuic"`, `"type":"ssh"`} {
 		if !strings.Contains(string(encoded), expected) {

@@ -39,6 +39,8 @@ sing-box DNS Router（DNS Profile、Route、缓存和上游协议）
 - macOS：`NEDNSProxyProvider` 将捕获的 UDP/TCP flow 转到 `steer-dns4`/`steer-dns6`；
 - 其他测试 runtime：使用 `DNSCaptureNone`，不生成 `hijack-dns` 规则。
 
+共享 compiler 不再在缺少 Geo 状态目录时猜测 `/var/lib/steer`。含 Geo 规则的调用必须显式传入平台状态目录；macOS 调用方应传入 App Group 的 state container。
+
 macOS 的 DNS Proxy 必须同时覆盖 UDP 和 TCP，并在 Swift 层处理 TCP 的两字节长度 framing、半包、粘包、超时和取消。DNS message 解析、规则选择、缓存和上游传输不在 Swift 中重写。
 
 ## 当前代码骨架
