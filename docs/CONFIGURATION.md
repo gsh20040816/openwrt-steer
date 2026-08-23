@@ -2,6 +2,18 @@
 
 当前公开配置是 schema 7。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 是严格 Canonical JSON 真相，不读取或迁移 UCI。
 
+Linux 另有严格 schema 1 的 `/etc/steer/platform.json`，只保存平台资源路径，不属于 Canonical Intent：
+
+```json
+{
+  "schema_version": 1,
+  "geosite_path": "/usr/share/v2ray/geosite.dat",
+  "geoip_path": "/usr/share/v2ray/geoip.dat"
+}
+```
+
+两个路径都可留空；只有 Intent 实际引用对应的 `geosite:` 或 `geoip:` 时才要求该绝对路径指向可读、非空的普通文件。用户不配置 provider、release 或哈希；Steer 在内部按文件内容 SHA-256 和所需 category manifest 管理 `/var/lib/steer/geodata` 缓存。
+
 ## 基本配置
 
 ```uci

@@ -3,6 +3,7 @@ package openwrt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/geodata"
 )
 
 type geoRunner struct {
@@ -27,6 +29,9 @@ func (runner catalogRunner) Output(_ context.Context, _ string, _ ...string) ([]
 
 func (runner *geoRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
 	runner.calls = append(runner.calls, name+" "+strings.Join(args, " "))
+	if len(args) > 1 && args[0] == "-action" && args[1] == "extract" {
+		return []byte("Available codes:\ncategory-example@test\ncategory-example\nprivate\nmissing\ncn\n"), nil
+	}
 	if runner.failConvert && strings.HasSuffix(name, "geoview") {
 		return nil, fmt.Errorf("category is missing")
 	}
@@ -42,7 +47,11 @@ func (runner *geoRunner) Output(_ context.Context, name string, args ...string) 
 
 func TestGeoCatalogNormalizesUpstreamOutput(t *testing.T) {
 	output := []byte("Available codes:\nCN\n category-games \nGoogle\ncn\n\n")
-	names, err := GeoCatalog(context.Background(), catalogRunner{output: output}, "geosite", t.TempDir(), "/test/geoview")
+	path := filepath.Join(t.TempDir(), "geosite.dat")
+	if err := os.WriteFile(path, []byte("site"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	names, err := GeoCatalog(context.Background(), catalogRunner{output: output}, "geosite", path, "/test/geoview")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,18 +67,22 @@ func TestEnsureGeoRulesPassesGeoSiteAttributesToGeoView(t *testing.T) {
 	if err := os.Mkdir(seed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string]string{"release": "fixture-r1\n", "geosite.dat": "site", "geoip.dat": "ip"} {
+	for name, content := range map[string]string{"geosite.dat": "site"} {
 		if err := os.WriteFile(filepath.Join(seed, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	runner := &geoRunner{}
 	rules := []compiler.GeoRuleSet{{Kind: "geosite", Category: "category-example@test", Path: filepath.Join(root, "state", "geodata", "current", "rules", "geosite-category-example@test.srs")}}
-	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), SeedDirectory: seed, GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
+	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), GeoSitePath: filepath.Join(seed, "geosite.dat"), GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
 	if err := EnsureGeoRules(context.Background(), runner, rules, options); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.calls) < 2 || !strings.Contains(runner.calls[0], "-list category-example@test ") {
+	found := false
+	for _, call := range runner.calls {
+		found = found || strings.Contains(call, "-list category-example@test ")
+	}
+	if !found {
 		t.Fatalf("geoview was not given the attribute selector: %#v", runner.calls)
 	}
 }
@@ -80,7 +93,7 @@ func TestEnsureGeoRulesBuildsAndReusesExactGeneration(t *testing.T) {
 	if err := os.Mkdir(seed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string]string{"release": "fixture-r1\n", "geosite.dat": "site", "geoip.dat": "ip"} {
+	for name, content := range map[string]string{"geosite.dat": "site", "geoip.dat": "ip"} {
 		if err := os.WriteFile(filepath.Join(seed, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +103,7 @@ func TestEnsureGeoRulesBuildsAndReusesExactGeneration(t *testing.T) {
 		{Kind: "geosite", Category: "category-example", Path: filepath.Join(root, "state", "geodata", "current", "rules", "geosite-category-example.srs")},
 	}
 	runner := &geoRunner{}
-	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), SeedDirectory: seed, GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
+	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), GeoSitePath: filepath.Join(seed, "geosite.dat"), GeoIPPath: filepath.Join(seed, "geoip.dat"), GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
 	if err := EnsureGeoRules(context.Background(), runner, ruleSets, options); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +131,32 @@ func TestEnsureGeoRulesBuildsAndReusesExactGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(seed, "release"), []byte("fixture-r2\n"), 0o600); err != nil {
+	manifest, err := os.ReadFile(filepath.Join(firstGeneration, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(manifest), seed) || strings.Contains(string(manifest), "release") || !strings.Contains(string(manifest), `"sha256"`) {
+		t.Fatalf("Geo manifest contains path/release state or lacks content hash: %s", manifest)
+	}
+	copyPath := filepath.Join(seed, "geosite-copy.dat")
+	if err := os.WriteFile(copyPath, []byte("site"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options.GeoSitePath = copyPath
+	if err := EnsureGeoRules(context.Background(), runner, ruleSets, options); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != firstCallCount {
+		t.Fatalf("same Geo content at a new path was rebuilt: %v", runner.calls)
+	}
+	info, err := os.Stat(copyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(copyPath, []byte("site-v2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(copyPath, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
 	if err := EnsureGeoRules(context.Background(), runner, ruleSets, options); err != nil {
@@ -126,7 +164,7 @@ func TestEnsureGeoRulesBuildsAndReusesExactGeneration(t *testing.T) {
 	}
 	secondGeneration, err := filepath.EvalSymlinks(current)
 	if err != nil || secondGeneration == firstGeneration {
-		t.Fatalf("Geo release change did not publish a new generation: first=%q second=%q err=%v", firstGeneration, secondGeneration, err)
+		t.Fatalf("Geo content change did not publish a new generation: first=%q second=%q err=%v", firstGeneration, secondGeneration, err)
 	}
 	if _, err := os.Stat(firstGeneration); !os.IsNotExist(err) {
 		t.Fatalf("previous current Geo generation was not pruned: %v", err)
@@ -146,19 +184,60 @@ func TestEnsureGeoRulesBuildsAndReusesExactGeneration(t *testing.T) {
 	}
 }
 
+func TestEnsureGeoRulesReturnsStructuredResourceErrors(t *testing.T) {
+	rules := []compiler.GeoRuleSet{{Kind: "geosite", Category: "cn"}}
+	state := filepath.Join(t.TempDir(), "state")
+	cases := []struct {
+		name    string
+		path    string
+		prepare func(string) error
+		code    string
+	}{
+		{name: "not configured", code: geodata.ErrorPathNotConfigured},
+		{name: "relative", path: "geosite.dat", code: geodata.ErrorPathInvalid},
+		{name: "empty", path: filepath.Join(t.TempDir(), "geosite.dat"), prepare: func(path string) error { return os.WriteFile(path, nil, 0o600) }, code: geodata.ErrorInputEmpty},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if test.prepare != nil {
+				if err := test.prepare(test.path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := EnsureGeoRules(context.Background(), &geoRunner{}, rules, GeoOptions{StateDirectory: state, GeoSitePath: test.path})
+			var geoErr *geodata.Error
+			if !errors.As(err, &geoErr) || geoErr.Code != test.code || geoErr.Kind != "geosite" {
+				t.Fatalf("error = %#v, want %s geosite error", err, test.code)
+			}
+		})
+	}
+}
+
+func TestEnsureGeoRulesReportsMissingCategory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "geosite.dat")
+	if err := os.WriteFile(path, []byte("site"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := EnsureGeoRules(context.Background(), &geoRunner{}, []compiler.GeoRuleSet{{Kind: "geosite", Category: "not-present"}}, GeoOptions{StateDirectory: filepath.Join(t.TempDir(), "state"), GeoSitePath: path, GeoViewBinary: "/test/geoview"})
+	var geoErr *geodata.Error
+	if !errors.As(err, &geoErr) || geoErr.Code != geodata.ErrorCategoryNotFound || geoErr.Category != "not-present" {
+		t.Fatalf("error = %#v, want missing category", err)
+	}
+}
+
 func TestEnsureGeoRulesPreservesCurrentOnConversionFailure(t *testing.T) {
 	root := t.TempDir()
 	seed := filepath.Join(root, "seed")
 	if err := os.Mkdir(seed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string]string{"release": "fixture-r1\n", "geosite.dat": "site", "geoip.dat": "ip"} {
+	for name, content := range map[string]string{"geosite.dat": "site"} {
 		if err := os.WriteFile(filepath.Join(seed, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	rules := []compiler.GeoRuleSet{{Kind: "geosite", Category: "missing"}}
-	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), SeedDirectory: seed, GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
+	options := GeoOptions{StateDirectory: filepath.Join(root, "state"), GeoSitePath: filepath.Join(seed, "geosite.dat"), GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
 	if err := EnsureGeoRules(context.Background(), &geoRunner{}, rules, options); err != nil {
 		t.Fatal(err)
 	}
@@ -167,11 +246,13 @@ func TestEnsureGeoRulesPreservesCurrentOnConversionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(seed, "release"), []byte("fixture-r2\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(seed, "geosite.dat"), []byte("site-v2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureGeoRules(context.Background(), &geoRunner{failConvert: true}, rules, options); err == nil {
-		t.Fatal("missing Geo category was accepted")
+	err = EnsureGeoRules(context.Background(), &geoRunner{failConvert: true}, rules, options)
+	var geoErr *geodata.Error
+	if !errors.As(err, &geoErr) || geoErr.Code != geodata.ErrorToolFailed {
+		t.Fatalf("conversion failure = %#v, want %s", err, geodata.ErrorToolFailed)
 	}
 	after, err := filepath.EvalSymlinks(current)
 	if err != nil || after != before {
@@ -193,14 +274,14 @@ func TestEnsureGeoRulesKeepsCurrentThroughAliasedStatePath(t *testing.T) {
 	if err := os.Mkdir(seed, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string]string{"release": "fixture-r1\n", "geosite.dat": "site", "geoip.dat": "ip"} {
+	for name, content := range map[string]string{"geoip.dat": "ip"} {
 		if err := os.WriteFile(filepath.Join(seed, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	rulePath := filepath.Join(aliasedState, "geodata", "current", "rules", "geoip-cn.srs")
 	rules := []compiler.GeoRuleSet{{Kind: "geoip", Category: "cn", Path: rulePath}}
-	options := GeoOptions{StateDirectory: aliasedState, SeedDirectory: seed, GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
+	options := GeoOptions{StateDirectory: aliasedState, GeoIPPath: filepath.Join(seed, "geoip.dat"), GeoViewBinary: "/test/geoview", SingBoxBinary: "/test/sing-box"}
 	if err := EnsureGeoRules(context.Background(), &geoRunner{}, rules, options); err != nil {
 		t.Fatal(err)
 	}

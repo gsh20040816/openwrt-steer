@@ -20,7 +20,8 @@ type BackendOptions struct {
 	StateDirectory string
 	SingBoxBinary  string
 	NFTBinary      string
-	SeedDirectory  string
+	GeoSitePath    string
+	GeoIPPath      string
 	GeoViewBinary  string
 	InitScript     string
 	HealthTimeout  time.Duration
@@ -59,7 +60,7 @@ func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compile
 		return generation.Candidate{}, err
 	}
 	if err := EnsureGeoRules(ctx, backend.runner, compiled.GeoRuleSets, GeoOptions{
-		StateDirectory: backend.options.StateDirectory, SeedDirectory: backend.options.SeedDirectory,
+		StateDirectory: backend.options.StateDirectory, GeoSitePath: backend.options.GeoSitePath, GeoIPPath: backend.options.GeoIPPath,
 		GeoViewBinary: backend.options.GeoViewBinary, SingBoxBinary: backend.options.SingBoxBinary,
 	}); err != nil {
 		return generation.Candidate{}, err
@@ -106,6 +107,12 @@ func normalizeBackendOptions(options BackendOptions) BackendOptions {
 	}
 	if options.NFTBinary == "" {
 		options.NFTBinary = "/usr/sbin/nft"
+	}
+	if options.GeoSitePath == "" {
+		options.GeoSitePath = "/usr/share/steer/geodata-seed/geosite.dat"
+	}
+	if options.GeoIPPath == "" {
+		options.GeoIPPath = "/usr/share/steer/geodata-seed/geoip.dat"
 	}
 	if options.InitScript == "" {
 		options.InitScript = "/etc/init.d/steer"

@@ -27,7 +27,7 @@ OpenWrt 适配器当前拥有：
 - 传统 TCP/UDP 53 DNS 捕获和源 MAC TProxy 辅助层；
 - nftables、双栈策略路由、固定 mark/table/priority/NFQUEUE 资源；
 - procd 生命周期、开机私有 `_start` 钩子、本地健康检查；
-- Geo seed 提取与 SRS 生成；
+- OpenWrt 固定 Geo 数据输入与内容寻址 SRS 生成；
 - `/run/steer` generation、`/var/lib/steer` 日志和订阅状态；
 - LuCI、ucode RPC、ACL、OpenWrt 包和 cron 订阅调度。
 

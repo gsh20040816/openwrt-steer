@@ -29,3 +29,24 @@ func TestRunServiceDisabledConfigurationExitsCleanly(t *testing.T) {
 		t.Fatalf("disabled service entered a failure path: %v", err)
 	}
 }
+
+func TestGeoCatalogLoadsConfiguredPlatformPath(t *testing.T) {
+	root := t.TempDir()
+	geoSitePath := filepath.Join(root, "geosite.dat")
+	if err := os.WriteFile(geoSitePath, []byte("site"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	platformPath := filepath.Join(root, "platform.json")
+	settings := linuxplatform.DefaultPlatformSettings()
+	settings.GeoSitePath = geoSitePath
+	if _, err := (linuxplatform.PlatformStore{Path: platformPath}).Save(settings, ""); err != nil {
+		t.Fatal(err)
+	}
+	geoViewPath := filepath.Join(root, "geoview")
+	if err := os.WriteFile(geoViewPath, []byte("#!/bin/sh\nprintf 'Available codes:\\ncn\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runGeoCatalog([]string{"-kind", "geosite", "-platform", platformPath, "-geoview", geoViewPath}); err != nil {
+		t.Fatalf("geo-catalog did not use platform settings: %v", err)
+	}
+}

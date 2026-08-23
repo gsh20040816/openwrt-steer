@@ -29,11 +29,14 @@ var webAssets embed.FS
 type webApplication struct {
 	TokenPath      string
 	ConfigPath     string
+	PlatformPath   string
 	RunDirectory   string
 	StateDirectory string
+	GeoRunner      geodata.Runner
+	GeoViewBinary  string
 }
 
-func serveWeb(listen, tokenPath, configPath, runDirectory, stateDirectory string) error {
+func serveWeb(listen, tokenPath, configPath, platformPath, runDirectory, stateDirectory string) error {
 	token, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return fmt.Errorf("read Web token (run web-token first): %w", err)
@@ -42,7 +45,7 @@ func serveWeb(listen, tokenPath, configPath, runDirectory, stateDirectory string
 	if len(token) < 32 {
 		return errors.New("Web token is too short")
 	}
-	app := webApplication{TokenPath: tokenPath, ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: stateDirectory}
+	app := webApplication{TokenPath: tokenPath, ConfigPath: configPath, PlatformPath: platformPath, RunDirectory: runDirectory, StateDirectory: stateDirectory}
 	return (&http.Server{Addr: listen, Handler: webHandler(app)}).ListenAndServe()
 }
 
@@ -52,6 +55,7 @@ func webHandler(app webApplication) http.Handler {
 	mux.HandleFunc("/app.js", app.handleAsset)
 	mux.HandleFunc("/style.css", app.handleAsset)
 	mux.HandleFunc("/api/v1/config", app.auth(app.handleConfig))
+	mux.HandleFunc("/api/v1/platform", app.auth(app.handlePlatform))
 	mux.HandleFunc("/api/v1/overview", app.auth(app.handleOverview))
 	mux.HandleFunc("/api/v1/validate", app.auth(app.handleValidate))
 	mux.HandleFunc("/api/v1/apply", app.auth(app.handleApply))
@@ -223,6 +227,134 @@ func (app webApplication) handleConfig(writer http.ResponseWriter, request *http
 		writer.Header().Set("Allow", "GET, PUT")
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+type webErrorDetails struct {
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Kind     string `json:"kind,omitempty"`
+	Category string `json:"category,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+func errorDetails(err error) *webErrorDetails {
+	if err == nil {
+		return nil
+	}
+	details := &webErrorDetails{Code: "OPERATION_FAILED", Message: err.Error()}
+	var geoErr *geodata.Error
+	if errors.As(err, &geoErr) {
+		details.Code = geoErr.Code
+		details.Kind = geoErr.Kind
+		details.Category = geoErr.Category
+		details.Path = geoErr.Path
+	}
+	return details
+}
+
+func (app webApplication) platformPath() string {
+	if app.PlatformPath == "" {
+		return "/etc/steer/platform.json"
+	}
+	return app.PlatformPath
+}
+
+func (app webApplication) handlePlatform(writer http.ResponseWriter, request *http.Request) {
+	store := linuxplatform.PlatformStore{Path: app.platformPath()}
+	switch request.Method {
+	case http.MethodGet:
+		settings, revision, err := store.Load()
+		if err != nil {
+			writeWebError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set("ETag", revision)
+		writeWebJSON(writer, map[string]any{"settings": settings, "revision": revision})
+	case http.MethodPut:
+		body, err := io.ReadAll(io.LimitReader(request.Body, 256<<10))
+		if err != nil {
+			writeWebError(writer, err, http.StatusBadRequest)
+			return
+		}
+		settings, err := decodePlatformPayload(body)
+		if err != nil {
+			writeWebError(writer, err, http.StatusBadRequest)
+			return
+		}
+		expectedRevision := request.Header.Get("If-Match")
+		var revision string
+		var saveErr error
+		var applyResult coreapply.Result
+		var applyErr error
+		lockErr := withOperationLock(app.RunDirectory, func() error {
+			if expectedRevision == "" {
+				if _, statErr := os.Stat(app.platformPath()); statErr == nil {
+					saveErr = errors.New("If-Match is required for existing platform settings")
+					return nil
+				}
+			}
+			revision, saveErr = store.Save(settings, expectedRevision)
+			if saveErr != nil {
+				return nil
+			}
+			value, validation, loadErr := loadIntent(app.ConfigPath)
+			if loadErr != nil {
+				applyResult, applyErr = coreapply.Result{Validation: &validation}, loadErr
+			} else if !validation.OK {
+				applyResult, applyErr = coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
+			} else {
+				applyResult, applyErr = app.applyValueWithPlatform(value, settings)
+			}
+			applyResult, applyErr = recordApplyResult(app.RunDirectory, applyResult, applyErr)
+			return nil
+		})
+		if lockErr != nil {
+			writeWebError(writer, lockErr, http.StatusInternalServerError)
+			return
+		}
+		if errors.Is(saveErr, linuxplatform.ErrRevisionConflict) {
+			writeWebError(writer, saveErr, http.StatusConflict)
+			return
+		}
+		if saveErr != nil {
+			status := http.StatusUnprocessableEntity
+			if strings.Contains(saveErr.Error(), "If-Match is required") {
+				status = http.StatusPreconditionRequired
+			}
+			writeWebError(writer, saveErr, status)
+			return
+		}
+		writer.Header().Set("ETag", revision)
+		response := map[string]any{"saved": true, "applied": applyErr == nil, "revision": revision, "apply_result": applyResult}
+		if applyErr != nil {
+			response["error"] = errorDetails(applyErr)
+			writeWebJSONStatus(writer, response, http.StatusUnprocessableEntity)
+			return
+		}
+		writeWebJSON(writer, response)
+	default:
+		writer.Header().Set("Allow", "GET, PUT")
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func decodePlatformPayload(body []byte) (linuxplatform.PlatformSettings, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var value linuxplatform.PlatformSettings
+	if err := decoder.Decode(&value); err != nil {
+		return linuxplatform.PlatformSettings{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			err = errors.New("multiple JSON values")
+		}
+		return linuxplatform.PlatformSettings{}, err
+	}
+	if err := linuxplatform.ValidatePlatformSettings(value); err != nil {
+		return linuxplatform.PlatformSettings{}, err
+	}
+	return value, nil
 }
 
 func (app webApplication) handleOverview(writer http.ResponseWriter, request *http.Request) {
@@ -404,12 +536,76 @@ func (app webApplication) handleGeoData(writer http.ResponseWriter, request *htt
 		return
 	}
 	kind := strings.TrimPrefix(request.URL.Path, "/api/v1/geodata/")
-	names, err := geodata.Catalog(request.Context(), linuxplatform.ExecRunner{}, kind, "/usr/share/steer/geodata-seed", "/usr/bin/geoview")
-	if err != nil {
-		writeWebError(writer, err, http.StatusInternalServerError)
+	if kind != "geosite" && kind != "geoip" {
+		writeWebError(writer, errors.New("Geo kind must be geosite or geoip"), http.StatusBadRequest)
 		return
 	}
-	writeWebJSON(writer, map[string]any{"kind": kind, "names": names})
+	writeWebJSON(writer, app.geoDataStatus(request.Context(), kind))
+}
+
+type geoDataStatus struct {
+	Kind       string           `json:"kind"`
+	Configured bool             `json:"configured"`
+	Required   bool             `json:"required"`
+	Readable   bool             `json:"readable"`
+	Path       string           `json:"path,omitempty"`
+	Count      int              `json:"count"`
+	Names      []string         `json:"names"`
+	Error      *webErrorDetails `json:"error,omitempty"`
+}
+
+func (app webApplication) geoDataStatus(ctx context.Context, kind string) geoDataStatus {
+	status := geoDataStatus{Kind: kind, Names: []string{}}
+	if value, _, err := (linuxplatform.JSONStore{Path: app.ConfigPath}).Load(); err == nil {
+		status.Required = intentRequiresGeoKind(value, kind)
+	}
+	settings, _, err := (linuxplatform.PlatformStore{Path: app.platformPath()}).Load()
+	if err != nil {
+		status.Error = &webErrorDetails{Code: "PLATFORM_SETTINGS_INVALID", Message: err.Error()}
+		return status
+	}
+	status.Path = settings.GeoIPPath
+	if kind == "geosite" {
+		status.Path = settings.GeoSitePath
+	}
+	status.Configured = status.Path != ""
+	runner := app.GeoRunner
+	if runner == nil {
+		runner = linuxplatform.ExecRunner{}
+	}
+	geoViewBinary := app.GeoViewBinary
+	if geoViewBinary == "" {
+		geoViewBinary = "/usr/bin/geoview"
+	}
+	names, err := geodata.Catalog(ctx, runner, kind, status.Path, geoViewBinary)
+	if err != nil {
+		status.Error = errorDetails(err)
+		return status
+	}
+	status.Readable = true
+	status.Names = names
+	status.Count = len(names)
+	return status
+}
+
+func intentRequiresGeoKind(value model.Intent, kind string) bool {
+	for _, rule := range value.Rules {
+		if !rule.Enabled {
+			continue
+		}
+		expressions := rule.IPMatch
+		prefix := "geoip:"
+		if kind == "geosite" {
+			expressions = rule.DomainMatch
+			prefix = "geosite:"
+		}
+		for _, expression := range expressions {
+			if strings.HasPrefix(expression, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (app webApplication) applySaved() (coreapply.Result, error) {
@@ -426,11 +622,22 @@ func (app webApplication) applySaved() (coreapply.Result, error) {
 }
 
 func (app webApplication) applyValue(value model.Intent) (coreapply.Result, error) {
+	settings, _, err := (linuxplatform.PlatformStore{Path: app.platformPath()}).Load()
+	if err != nil {
+		return coreapply.Result{}, err
+	}
+	return app.applyValueWithPlatform(value, settings)
+}
+
+func (app webApplication) applyValueWithPlatform(value model.Intent, settings linuxplatform.PlatformSettings) (coreapply.Result, error) {
 	validation := linuxplatform.Validate(value)
 	if !validation.OK {
 		return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 	}
-	backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory})
+	backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{
+		RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory,
+		GeoSitePath: settings.GeoSitePath, GeoIPPath: settings.GeoIPPath,
+	})
 	return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 }
 

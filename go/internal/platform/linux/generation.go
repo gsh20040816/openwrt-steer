@@ -23,7 +23,8 @@ type BackendOptions struct {
 	NFTBinary       string
 	SystemctlBinary string
 	ServiceName     string
-	SeedDirectory   string
+	GeoSitePath     string
+	GeoIPPath       string
 	GeoViewBinary   string
 	HealthTimeout   time.Duration
 	CheckListeners  func([]int) error
@@ -61,7 +62,7 @@ func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compile
 		return generation.Candidate{}, fmt.Errorf("sing-box capability check failed: %v", capabilityReport.Errors)
 	}
 	if err := geodata.EnsureRules(ctx, backend.runner, compiled.GeoRuleSets, geodata.Options{
-		StateDirectory: backend.options.StateDirectory, SeedDirectory: backend.options.SeedDirectory,
+		StateDirectory: backend.options.StateDirectory, GeoSitePath: backend.options.GeoSitePath, GeoIPPath: backend.options.GeoIPPath,
 		GeoViewBinary: backend.options.GeoViewBinary, SingBoxBinary: backend.options.SingBoxBinary,
 	}); err != nil {
 		return generation.Candidate{}, err

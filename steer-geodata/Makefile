@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer-geodata
 PKG_VERSION:=202608162214
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Steer contributors
@@ -49,7 +49,6 @@ define Package/steer-geodata/install
 	$(INSTALL_DIR) $(1)/usr/share/steer/geodata-seed
 	$(INSTALL_DATA) $(DL_DIR)/$(GEOSITE_FILE) $(1)/usr/share/steer/geodata-seed/geosite.dat
 	$(INSTALL_DATA) $(DL_DIR)/$(GEOIP_FILE) $(1)/usr/share/steer/geodata-seed/geoip.dat
-	$(INSTALL_DATA) ./files/release $(1)/usr/share/steer/geodata-seed/release
 endef
 
 $(eval $(call BuildPackage,steer-geodata))

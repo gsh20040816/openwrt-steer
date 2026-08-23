@@ -9,3 +9,5 @@ button { cursor: pointer; } button:hover { border-color: #93c5fd; }
 textarea { width: 100%; min-height: 520px; box-sizing: border-box; font: 13px ui-monospace, monospace; }
 .ok { color: #86efac; } .bad { color: #fca5a5; } pre { white-space: pre-wrap; }
 table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: 8px; border-bottom: 1px solid #374151; vertical-align: top; }
+.setting { margin: 16px 0; } .setting label { display: grid; gap: 6px; font-weight: 600; } .setting input { width: 100%; box-sizing: border-box; font: 13px ui-monospace, monospace; }
+.geo-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; } .geo-suggestions:empty { display: none; }

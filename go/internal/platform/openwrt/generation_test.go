@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gsh20040816/steer/go/internal/compiler"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 type prepareRunner struct {
@@ -56,5 +57,12 @@ func TestPreparePerformsAllPreMutationChecks(t *testing.T) {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("missing check %q in %s", required, joined)
 		}
+	}
+}
+
+func TestBackendDefaultsToPackageOwnedGeoFiles(t *testing.T) {
+	backend := NewBackend(nil, model.Intent{}, BackendOptions{})
+	if backend.options.GeoSitePath != "/usr/share/steer/geodata-seed/geosite.dat" || backend.options.GeoIPPath != "/usr/share/steer/geodata-seed/geoip.dat" {
+		t.Fatalf("unexpected OpenWrt Geo paths: geosite=%q geoip=%q", backend.options.GeoSitePath, backend.options.GeoIPPath)
 	}
 }

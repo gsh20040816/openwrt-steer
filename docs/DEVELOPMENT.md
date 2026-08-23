@@ -49,7 +49,7 @@ git diff --check
 - `generation` 只拥有 `intent.json` 和 `sing-box.json`；平台文件由平台适配器添加。
 - `subscription.Store` 必须保持窄接口，不能让共享逻辑依赖 UCI 命令。
 - `probe` 只测量和报告；目标选择、临时核心进程与日志路径由平台适配器处理。
-- `platform/openwrt` 是 UCI、nftables、策略路由、procd 和 OpenWrt 目录的唯一所有者；Geo seed 到 SRS generation 由 `internal/geodata` 共享。
+- `platform/openwrt` 是 UCI、nftables、策略路由、procd 和 OpenWrt 目录的唯一所有者；显式 Geo 数据文件到内容寻址 SRS generation 由 `internal/geodata` 共享。
 
 ## 公共契约
 

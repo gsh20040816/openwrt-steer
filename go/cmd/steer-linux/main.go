@@ -98,6 +98,7 @@ func runValidate(args []string) error {
 func runApply(args []string) error {
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
+	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
@@ -118,9 +119,14 @@ func runApply(args []string) error {
 		if !validation.OK {
 			return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 		}
+		settings, _, err := (linuxplatform.PlatformStore{Path: *platformPath}).Load()
+		if err != nil {
+			return coreapply.Result{}, err
+		}
 		backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{
 			RunDirectory: *runDirectory, StateDirectory: *stateDirectory, SingBoxBinary: *singBoxPath,
 			NFTBinary: *nftBinary, SystemctlBinary: *systemctl, ServiceName: *serviceName,
+			GeoSitePath: settings.GeoSitePath, GeoIPPath: settings.GeoIPPath,
 		})
 		return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 	})
@@ -129,6 +135,7 @@ func runApply(args []string) error {
 func runService(args []string) error {
 	flags := flag.NewFlagSet("_run", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
+	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
@@ -157,6 +164,14 @@ func runService(args []string) error {
 			// Disabled is a valid steady state.  A service enabled in systemd
 			// must not turn that state into a restart loop.
 			loadErr = linuxplatform.CleanupPlatform(context.Background(), linuxplatform.ExecRunner{}, *nftBinary)
+		}
+		if loadErr == nil && !disabled {
+			settings, _, settingsErr := (linuxplatform.PlatformStore{Path: *platformPath}).Load()
+			if settingsErr != nil {
+				loadErr = settingsErr
+			} else {
+				options.GeoSitePath, options.GeoIPPath = settings.GeoSitePath, settings.GeoIPPath
+			}
 		}
 		if loadErr == nil && !disabled {
 			backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, options)
@@ -286,7 +301,7 @@ func runCleanup(args []string) error {
 func runGeoCatalog(args []string) error {
 	flags := flag.NewFlagSet("geo-catalog", flag.ContinueOnError)
 	kind := flags.String("kind", "", "geosite or geoip")
-	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
+	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
 	geoViewBinary := flags.String("geoview", "/usr/bin/geoview", "geoview binary")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -294,7 +309,15 @@ func runGeoCatalog(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("geo-catalog accepts flags only")
 	}
-	names, err := geodata.Catalog(context.Background(), linuxplatform.ExecRunner{}, *kind, *seedDirectory, *geoViewBinary)
+	settings, _, err := (linuxplatform.PlatformStore{Path: *platformPath}).Load()
+	if err != nil {
+		return err
+	}
+	path := settings.GeoIPPath
+	if *kind == "geosite" {
+		path = settings.GeoSitePath
+	}
+	names, err := geodata.Catalog(context.Background(), linuxplatform.ExecRunner{}, *kind, path, *geoViewBinary)
 	if err != nil {
 		return err
 	}
@@ -371,6 +394,7 @@ func runSubscription(args []string) error {
 func runWeb(args []string) error {
 	flags := flag.NewFlagSet("web", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
+	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	listen := flags.String("listen", "127.0.0.1:9080", "loopback listen address")
@@ -384,7 +408,7 @@ func runWeb(args []string) error {
 	if !strings.HasPrefix(*listen, "127.0.0.1:") && !strings.HasPrefix(*listen, "[::1]:") {
 		return errors.New("web listen address must be loopback")
 	}
-	return serveWeb(*listen, *tokenPath, *configPath, *runDirectory, *stateDirectory)
+	return serveWeb(*listen, *tokenPath, *configPath, *platformPath, *runDirectory, *stateDirectory)
 }
 
 func runWebToken(args []string) error {

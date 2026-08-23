@@ -76,10 +76,10 @@ for retired_migration in (
         fail(f"package retained expired alpha migration: {retired_migration}")
 if "PKG_NAME:=steer" not in makefile or "define Package/steer" not in makefile:
     fail("the OpenWrt controller package must be named steer")
-if "PKG_VERSION:=0.5.0_alpha1" not in makefile or "PKG_RELEASE:=1" not in makefile:
-    fail("steer package version must be the 0.5.0_alpha1-r1 prerelease")
-if "PKG_VERSION:=0.5.0_alpha1" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
-    fail("LuCI packages must use the 0.5.0_alpha1-r1 prerelease")
+if "PKG_VERSION:=0.5.0_alpha2" not in makefile or "PKG_RELEASE:=1" not in makefile:
+    fail("steer package version must be the 0.5.0_alpha2-r1 prerelease")
+if "PKG_VERSION:=0.5.0_alpha2" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
+    fail("LuCI packages must use the 0.5.0_alpha2-r1 prerelease")
 if "PKG_RELEASE:=3" not in geoview_makefile:
     fail("geoview package release must increase when removing its downstream patch")
 patches = ROOT / "geoview/patches"
@@ -113,6 +113,12 @@ for required in (
 ):
     if required not in geodata_makefile:
         fail(f"steer-geodata is missing package-owned input: {required}")
+if "PKG_RELEASE:=2" not in geodata_makefile:
+    fail("steer-geodata release must increase when removing the release marker")
+if "files/release" in geodata_makefile or "/geodata-seed/release" in geodata_makefile:
+    fail("steer-geodata still installs the retired release marker")
+if (ROOT / "steer-geodata/files/release").exists():
+    fail("retired steer-geodata release marker still exists")
 
 if (ROOT / "steer-openwrt").exists() and any(
     path.is_file() for path in (ROOT / "steer-openwrt").rglob("*")

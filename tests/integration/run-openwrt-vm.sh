@@ -33,7 +33,7 @@ trap cleanup EXIT INT TERM
 for executable in "$CONTROL_SOURCE" "$SING_BOX_BIN" /usr/bin/geoview /usr/sbin/nft; do
 	[ -x "$executable" ] || { echo "Required executable is missing: $executable" >&2; exit 1; }
 done
-for seed in release geosite.dat geoip.dat; do
+for seed in geosite.dat geoip.dat; do
 	[ -s "/usr/share/steer/geodata-seed/$seed" ] || { echo "Geo seed is missing: $seed" >&2; exit 1; }
 done
 

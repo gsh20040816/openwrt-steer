@@ -367,7 +367,7 @@ func runGeoCatalog(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("geo-catalog accepts flags only")
 	}
-	names, err := openwrt.GeoCatalog(context.Background(), openwrt.ExecRunner{}, *kind, *seedDirectory, *geoViewBinary)
+	names, err := openwrt.GeoCatalog(context.Background(), openwrt.ExecRunner{}, *kind, filepath.Join(*seedDirectory, *kind+".dat"), *geoViewBinary)
 	if err != nil {
 		return err
 	}

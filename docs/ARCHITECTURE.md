@@ -17,7 +17,7 @@ go/internal/platform/linux         systemd、TUN、DNS nft shim、JSON 和 Linux
 go/internal/platform/openwrt/uci   严格 UCI 语法解析
 go/cmd/steer                       OpenWrt CLI
 go/cmd/steer-linux                 Linux CLI 和 loopback Web 控制面
-go/internal/geodata                 跨平台 Geo seed 到 SRS generation
+go/internal/geodata                 显式 Geo 数据文件到内容寻址 SRS generation
 ```
 
 共享包只能依赖共享包；`platform/openwrt` 和 `platform/linux` 可以依赖共享包，反向依赖禁止。
@@ -64,7 +64,7 @@ TUN 名称、地址、table、priority、mark、NFQUEUE 和平台端口都属于
 
 Linux 第一版承诺 systemd 主机及其 VM/Docker 转发的公网流量，不提供通用 LAN 网关配置向导、源 MAC 或多用户策略。平台使用与 OpenWrt 相同的 sing-box TUN 主路径，且不设置 `include_interface` 限制；传统 TCP/UDP 53 请求通过 `OUTPUT` 和 `PREROUTING` shim 进入 IPv4/IPv6 loopback DNS inbound，TUN 自身、标记为 Steer 内部出口的连接和本机目的地址直接放行。Linux 不改 NetworkManager、`/etc/resolv.conf` 或 systemd-resolved 配置，也不生成 MAC 策略路由。
 
-`platform/linux` 固定自己的 TUN、DNS、table、priority、mark 和 NFQUEUE 资源；这些只保存在 generation 的 `platform.json`，不进入 Canonical Intent。共享 Geo generation 已迁入 `internal/geodata`，OpenWrt 和 Linux 使用同一份 package-owned seed 语义。
+`platform/linux` 固定自己的 TUN、DNS、table、priority、mark 和 NFQUEUE 资源；这些只保存在 generation 的 `platform.json`，不进入 Canonical Intent。Geo category 仍是共享 Intent 语义；OpenWrt adapter 传入包拥有的固定 GeoSite/GeoIP 路径，Linux adapter 从 `/etc/steer/platform.json` 读取用户选择的任意绝对文件路径。`internal/geodata` 只按实际使用的 kind 读取文件，并以内容 SHA-256 和 category manifest 判断 SRS generation 是否可复用。
 
 ## Apply
 

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,9 +12,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
+
+type webGeoRunner struct{ output []byte }
+
+func (runner webGeoRunner) Output(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	return runner.output, nil
+}
 
 func webTestIntent() model.Intent {
 	return model.Intent{
@@ -108,6 +116,9 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	if strings.Contains(page.Body.String(), "const token =") || !strings.Contains(page.Body.String(), `src="/app.js"`) {
 		t.Fatalf("index still contains inline application code: %s", page.Body.String())
 	}
+	if !strings.Contains(page.Body.String(), `data-view="system"`) {
+		t.Fatalf("index has no system settings entry: %s", page.Body.String())
+	}
 
 	for path, contentType := range map[string]string{"/app.js": "application/javascript; charset=utf-8", "/style.css": "text/css; charset=utf-8"} {
 		asset := httptest.NewRecorder()
@@ -115,5 +126,92 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 		if asset.Code != http.StatusOK || asset.Header().Get("Content-Type") != contentType || asset.Body.Len() == 0 {
 			t.Fatalf("asset %s failed: status=%d type=%q body=%d", path, asset.Code, asset.Header().Get("Content-Type"), asset.Body.Len())
 		}
+	}
+	script := httptest.NewRecorder()
+	handler.ServeHTTP(script, httptest.NewRequest(http.MethodGet, "/app.js", nil))
+	if !strings.Contains(script.Body.String(), "/api/v1/platform") || !strings.Contains(script.Body.String(), "validateGeoCategories") || strings.Contains(script.Body.String(), "sha256") {
+		t.Fatalf("system settings UI is missing or exposes internal hashes: %s", script.Body.String())
+	}
+}
+
+func TestWebPlatformPersistsSettingsWhenImmediateApplyFails(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	platformPath := filepath.Join(root, "platform.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := webApplication{ConfigPath: configPath, PlatformPath: platformPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
+
+	response := httptest.NewRecorder()
+	app.handlePlatform(response, httptest.NewRequest(http.MethodGet, "/api/v1/platform", nil))
+	if response.Code != http.StatusOK || response.Header().Get("ETag") == "" {
+		t.Fatalf("initial platform GET failed: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	initialRevision := response.Header().Get("ETag")
+	body := `{"schema_version":1,"geosite_path":"/data/geosite.dat"}`
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/platform", strings.NewReader(body))
+	request.Header.Set("If-Match", initialRevision)
+	response = httptest.NewRecorder()
+	app.handlePlatform(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("failed immediate Apply returned %d: %s", response.Code, response.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result["saved"] != true || result["applied"] != false {
+		t.Fatalf("unexpected failed Apply response: err=%v payload=%#v", err, result)
+	}
+	saved, savedRevision, err := (linuxplatform.PlatformStore{Path: platformPath}).Load()
+	if err != nil || saved.GeoSitePath != "/data/geosite.dat" || savedRevision == initialRevision {
+		t.Fatalf("failed Apply did not preserve settings: settings=%#v revision=%q err=%v", saved, savedRevision, err)
+	}
+
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/platform", strings.NewReader(body))
+	request.Header.Set("If-Match", initialRevision)
+	response = httptest.NewRecorder()
+	app.handlePlatform(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("stale platform revision returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestWebGeoDataReturnsStatusResource(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	platformPath := filepath.Join(root, "platform.json")
+	value := webTestIntent()
+	value.Rules = append([]model.Rule{{ID: "geo", Enabled: true, DomainMatch: []string{"geosite:cn"}, DNSProfile: "public", Route: "direct"}}, value.Rules...)
+	if _, err := (linuxplatform.JSONStore{Path: configPath}).Save(value, ""); err != nil {
+		t.Fatal(err)
+	}
+	app := webApplication{ConfigPath: configPath, PlatformPath: platformPath, GeoRunner: webGeoRunner{output: []byte("Available codes:\nCN\nGoogle\n")}, GeoViewBinary: "/test/geoview"}
+
+	response := httptest.NewRecorder()
+	app.handleGeoData(response, httptest.NewRequest(http.MethodGet, "/api/v1/geodata/geosite", nil))
+	var missing geoDataStatus
+	if err := json.Unmarshal(response.Body.Bytes(), &missing); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || !missing.Required || missing.Configured || missing.Readable || missing.Error == nil || missing.Error.Code != geodata.ErrorPathNotConfigured {
+		t.Fatalf("missing Geo status = %#v status=%d", missing, response.Code)
+	}
+
+	path := filepath.Join(root, "geosite.dat")
+	if err := os.WriteFile(path, []byte("site"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings := linuxplatform.DefaultPlatformSettings()
+	settings.GeoSitePath = path
+	if _, err := (linuxplatform.PlatformStore{Path: platformPath}).Save(settings, ""); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	app.handleGeoData(response, httptest.NewRequest(http.MethodGet, "/api/v1/geodata/geosite", nil))
+	var ready geoDataStatus
+	if err := json.Unmarshal(response.Body.Bytes(), &ready); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || !ready.Required || !ready.Configured || !ready.Readable || ready.Count != 2 || len(ready.Names) != 2 || ready.Error != nil {
+		t.Fatalf("ready Geo status = %#v status=%d", ready, response.Code)
 	}
 }
