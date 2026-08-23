@@ -78,12 +78,14 @@ packaging/archlinux/
 ├── steer/
 │   ├── PKGBUILD
 │   ├── .SRCINFO
+│   ├── .gitignore
 │   ├── LICENSE
 │   ├── LICENSES/0BSD.txt -> ../LICENSE
 │   └── REUSE.toml
 └── geoview/
     ├── PKGBUILD
     ├── .SRCINFO
+    ├── .gitignore
     ├── LICENSE
     ├── LICENSES/0BSD.txt -> ../LICENSE
     └── REUSE.toml
