@@ -3,12 +3,10 @@
 package main
 
 import (
-	"bytes"
 	"embed"
-	"errors"
 	"fmt"
 	"net/http"
-	"os"
+	"path"
 	"strings"
 
 	"github.com/gsh20040816/steer/go/internal/geodata"
@@ -18,7 +16,7 @@ import (
 var webAssets embed.FS
 
 type webApplication struct {
-	TokenPath      string
+	WebConfigPath  string
 	ConfigPath     string
 	PlatformPath   string
 	RunDirectory   string
@@ -27,16 +25,11 @@ type webApplication struct {
 	GeoViewBinary  string
 }
 
-func serveWeb(listen, tokenPath, configPath, platformPath, runDirectory, stateDirectory string) error {
-	token, err := os.ReadFile(tokenPath)
-	if err != nil {
-		return fmt.Errorf("read Web token (run web-token first): %w", err)
+func serveWeb(listen, webConfigPath, configPath, platformPath, runDirectory, stateDirectory string) error {
+	if _, err := configuredWebToken(webConfigPath); err != nil {
+		return fmt.Errorf("read Web credentials: %w", err)
 	}
-	token = bytes.TrimSpace(token)
-	if len(token) < 32 {
-		return errors.New("Web token is too short")
-	}
-	app := webApplication{TokenPath: tokenPath, ConfigPath: configPath, PlatformPath: platformPath, RunDirectory: runDirectory, StateDirectory: stateDirectory}
+	app := webApplication{WebConfigPath: webConfigPath, ConfigPath: configPath, PlatformPath: platformPath, RunDirectory: runDirectory, StateDirectory: stateDirectory}
 	return (&http.Server{Addr: listen, Handler: webHandler(app)}).ListenAndServe()
 }
 
@@ -45,6 +38,7 @@ func webHandler(app webApplication) http.Handler {
 	mux.HandleFunc("/", app.handleIndex)
 	mux.HandleFunc("/app.js", app.handleAsset)
 	mux.HandleFunc("/style.css", app.handleAsset)
+	mux.HandleFunc("/js/", app.handleAsset)
 	mux.HandleFunc("/api/v1/config", app.auth(app.handleConfig))
 	mux.HandleFunc("/api/v1/platform", app.auth(app.handlePlatform))
 	mux.HandleFunc("/api/v1/overview", app.auth(app.handleOverview))
@@ -77,13 +71,14 @@ func (app webApplication) handleIndex(writer http.ResponseWriter, request *http.
 }
 
 func (app webApplication) handleAsset(writer http.ResponseWriter, request *http.Request) {
-	assets := map[string]string{"/app.js": "web/app.js", "/style.css": "web/style.css"}
-	asset, ok := assets[request.URL.Path]
-	if !ok || (request.Method != http.MethodGet && request.Method != http.MethodHead) {
-		if !ok {
-			http.NotFound(writer, request)
-			return
-		}
+	cleanPath := path.Clean(request.URL.Path)
+	asset := "web" + cleanPath
+	allowed := cleanPath == "/app.js" || cleanPath == "/style.css" || (strings.HasPrefix(cleanPath, "/js/") && strings.HasSuffix(cleanPath, ".js"))
+	if !allowed {
+		http.NotFound(writer, request)
+		return
+	}
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		writer.Header().Set("Allow", "GET, HEAD")
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
 		return

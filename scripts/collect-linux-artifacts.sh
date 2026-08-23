@@ -45,6 +45,7 @@ for target in x86_64 aarch64; do
 	install -m 0644 "$project_root"/linux/systemd/*.service "$project_root"/linux/systemd/*.timer "$package_root/systemd/"
 	install -m 0644 "$project_root/linux/config.example.json" "$package_root/config.example.json"
 	install -m 0644 "$project_root/linux/platform.example.json" "$package_root/platform.example.json"
+	install -m 0644 "$project_root/linux/web.example.json" "$package_root/web.example.json"
 	install -m 0644 "$project_root/LICENSE" "$package_root/LICENSE"
 	temporary_tar="$work_dir/$package_name.tar"
 	tar \

@@ -3,10 +3,8 @@
 package main
 
 import (
-	"bytes"
 	"crypto/subtle"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -26,11 +24,10 @@ func (app webApplication) auth(handler http.HandlerFunc) http.HandlerFunc {
 }
 
 func (app webApplication) authorized(request *http.Request) bool {
-	stored, err := os.ReadFile(app.TokenPath)
+	stored, err := configuredWebToken(app.WebConfigPath)
 	if err != nil {
 		return false
 	}
-	stored = bytes.TrimSpace(stored)
 	header := request.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
 		return false

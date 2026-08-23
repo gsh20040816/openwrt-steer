@@ -3,19 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Steer Linux</title>
+  <meta name="color-scheme" content="dark light">
+  <title>Steer · Linux 控制台</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <h1>Steer Linux</h1>
-  <p>systemd Linux 透明代理控制面。主机及 VM/Docker 公网转发流量统一进入 Steer；首次使用请在下方输入 <code>web-token</code> 输出的令牌。</p>
-  <div class="card"><label>Bearer token <input id="token" type="password" size="52"></label> <button id="connect">连接</button></div>
-  <nav>
-    <button data-view="overview">概览</button><button data-view="nodes">节点</button><button data-view="routes">路由</button>
-    <button data-view="dns">DNS Profile</button><button data-view="rules">规则</button><button data-view="proxies">本地代理</button>
-    <button data-view="subscriptions">订阅</button><button data-view="diagnostics">诊断</button><button data-view="system">系统设置</button><button data-view="config">配置</button>
-  </nav>
-  <main id="view"></main>
-  <script src="/app.js" defer></script>
+  <aside class="side" id="side"></aside>
+  <div class="stage">
+    <header class="strip" id="strip"></header>
+    <main class="view" id="view" tabindex="-1"></main>
+  </div>
+  <div class="drawer-root" id="drawer-root"></div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <noscript>Steer 控制台需要启用 JavaScript。</noscript>
+  <script src="/js/lib.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/store.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/views/overview.js"></script>
+  <script src="/js/views/nodes.js"></script>
+  <script src="/js/views/routes.js"></script>
+  <script src="/js/views/dns.js"></script>
+  <script src="/js/views/proxies.js"></script>
+  <script src="/js/views/rules.js"></script>
+  <script src="/js/views/subscriptions.js"></script>
+  <script src="/js/views/diagnostics.js"></script>
+  <script src="/js/views/system.js"></script>
+  <script src="/js/views/config.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

@@ -20,6 +20,7 @@ makedepends=('go')
 backup=(
   'etc/steer/config.json'
   'etc/steer/platform.json'
+  'etc/steer/web.json'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('883de91d8325b8ffa4f79caf1e90162e2a183115a854555a000a75a4f4ca2bef')
@@ -41,6 +42,7 @@ package() {
   install -dm700 "$pkgdir/etc/steer"
   install -m600 linux/config.example.json "$pkgdir/etc/steer/config.json"
   install -m600 linux/platform.example.json "$pkgdir/etc/steer/platform.json"
+  install -m600 linux/web.example.json "$pkgdir/etc/steer/web.json"
   install -Dm644 linux/systemd/steer.service \
     "$pkgdir/usr/lib/systemd/system/steer.service"
   install -Dm644 linux/systemd/steer-web.service \

@@ -16,6 +16,7 @@ def fail(message: str) -> None:
 for path in (
     ROOT / "linux/config.example.json",
     ROOT / "linux/platform.example.json",
+    ROOT / "linux/web.example.json",
     ROOT / "scripts/collect-linux-artifacts.sh",
     ROOT / "go/cmd/steer-openwrt/main.go",
     ROOT / "go/cmd/steer-linux/commands.go",
@@ -64,6 +65,7 @@ for required in (
     'package_name="steer-linux-$target"',
     "config.example.json",
     "platform.example.json",
+    "web.example.json",
     "linux/systemd/*.service",
     "linux/systemd/*.timer",
     "CGO_ENABLED=0",

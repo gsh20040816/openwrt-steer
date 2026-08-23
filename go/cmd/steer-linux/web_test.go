@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,15 +37,16 @@ func webTestIntent() model.Intent {
 func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
-	tokenPath := filepath.Join(root, "web.token")
-	if err := os.WriteFile(tokenPath, []byte("token-value\n"), 0o600); err != nil {
+	webConfigPath := filepath.Join(root, "web.json")
+	const token = "test-token-value-0123456789-abcdef"
+	if err := os.WriteFile(webConfigPath, []byte(`{"schema_version":1,"token":"`+token+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store := linuxplatform.IntentStore{Path: configPath}
 	if _, err := store.Save(webTestIntent(), ""); err != nil {
 		t.Fatal(err)
 	}
-	app := webApplication{TokenPath: tokenPath, ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
+	app := webApplication{WebConfigPath: webConfigPath, ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
 	handler := app.auth(app.handleConfig)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
 	response := httptest.NewRecorder()
@@ -53,7 +55,7 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 		t.Fatalf("unauthenticated request returned %d", response.Code)
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
-	request.Header.Set("Authorization", "Bearer token-value")
+	request.Header.Set("Authorization", "Bearer "+token)
 	response = httptest.NewRecorder()
 	handler(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("ETag") == "" {
@@ -69,7 +71,7 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	request = httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(string(encodedIntent)))
-	request.Header.Set("Authorization", "Bearer token-value")
+	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	response = httptest.NewRecorder()
 	handler(response, request)
@@ -83,7 +85,7 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	request = httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(string(encodedIntent)))
-	request.Header.Set("Authorization", "Bearer token-value")
+	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("If-Match", initialETag)
 	response = httptest.NewRecorder()
@@ -93,7 +95,7 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 	}
 	newETag := response.Header().Get("ETag")
 	request = httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(string(encodedIntent)))
-	request.Header.Set("Authorization", "Bearer token-value")
+	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("If-Match", newETag)
 	response = httptest.NewRecorder()
@@ -105,7 +107,7 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 
 func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	root := t.TempDir()
-	app := webApplication{TokenPath: filepath.Join(root, "web.token"), ConfigPath: filepath.Join(root, "config.json"), RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
+	app := webApplication{WebConfigPath: filepath.Join(root, "web.json"), ConfigPath: filepath.Join(root, "config.json"), RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
 	handler := webHandler(app)
 
 	page := httptest.NewRecorder()
@@ -116,21 +118,52 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	if strings.Contains(page.Body.String(), "const token =") || !strings.Contains(page.Body.String(), `src="/app.js"`) {
 		t.Fatalf("index still contains inline application code: %s", page.Body.String())
 	}
-	if !strings.Contains(page.Body.String(), `data-view="system"`) {
-		t.Fatalf("index has no system settings entry: %s", page.Body.String())
+	if !strings.Contains(page.Body.String(), `id="side"`) || !strings.Contains(page.Body.String(), `src="/js/views/system.js"`) {
+		t.Fatalf("index has no redesigned shell or system view: %s", page.Body.String())
 	}
 
-	for path, contentType := range map[string]string{"/app.js": "application/javascript; charset=utf-8", "/style.css": "text/css; charset=utf-8"} {
+	for path, contentType := range map[string]string{
+		"/app.js":             "application/javascript; charset=utf-8",
+		"/style.css":          "text/css; charset=utf-8",
+		"/js/api.js":          "application/javascript; charset=utf-8",
+		"/js/views/system.js": "application/javascript; charset=utf-8",
+	} {
 		asset := httptest.NewRecorder()
 		handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, path, nil))
 		if asset.Code != http.StatusOK || asset.Header().Get("Content-Type") != contentType || asset.Body.Len() == 0 {
 			t.Fatalf("asset %s failed: status=%d type=%q body=%d", path, asset.Code, asset.Header().Get("Content-Type"), asset.Body.Len())
 		}
 	}
-	script := httptest.NewRecorder()
-	handler.ServeHTTP(script, httptest.NewRequest(http.MethodGet, "/app.js", nil))
-	if !strings.Contains(script.Body.String(), "/api/v1/platform") || !strings.Contains(script.Body.String(), "validateGeoCategories") || !strings.Contains(script.Body.String(), "category.split('@', 1)[0]") || strings.Contains(script.Body.String(), "sha256") {
-		t.Fatalf("system settings UI is missing or exposes internal hashes: %s", script.Body.String())
+	apiScript := httptest.NewRecorder()
+	handler.ServeHTTP(apiScript, httptest.NewRequest(http.MethodGet, "/js/api.js", nil))
+	if !strings.Contains(apiScript.Body.String(), "/api/v1/platform") || !strings.Contains(apiScript.Body.String(), "validateGeoCategories") || !strings.Contains(apiScript.Body.String(), "category.split('@', 1)[0]") || strings.Contains(apiScript.Body.String(), "sha256") {
+		t.Fatalf("API adapter is missing system settings or exposes internal hashes: %s", apiScript.Body.String())
+	}
+}
+
+func TestWebTokenPrintsConfiguredCredential(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "web.json")
+	const token = "user-configured-token-0123456789-abcd"
+	if err := os.WriteFile(path, []byte(`{"schema_version":1,"token":"`+token+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = write
+	err = runWebToken([]string{"-config", path})
+	write.Close()
+	os.Stdout = original
+	output, readErr := io.ReadAll(read)
+	read.Close()
+	if err != nil || readErr != nil {
+		t.Fatalf("web-token failed: command=%v read=%v", err, readErr)
+	}
+	if string(output) != token+"\n" {
+		t.Fatalf("web-token output = %q", output)
 	}
 }
 

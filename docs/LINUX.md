@@ -32,8 +32,10 @@ sudo install -m 755 steer /usr/bin/steer
 sudo install -d -m 700 /etc/steer /var/lib/steer
 sudo install -m 600 config.example.json /etc/steer/config.json
 sudo install -m 600 platform.example.json /etc/steer/platform.json
+sudo install -m 600 web.example.json /etc/steer/web.json
 sudo install -m 644 systemd/*.service systemd/*.timer /etc/systemd/system/
-sudo steer web-token
+sudoedit /etc/steer/web.json
+sudo steer web-token  # 输出配置中的 token，粘贴到 Web 登录页
 systemctl daemon-reload
 systemctl enable --now steer.service steer-web.service steer-subscription.timer
 ```
@@ -50,6 +52,8 @@ steer health
 
 Web 默认只监听 `127.0.0.1:9080`，远程访问使用 SSH 端口转发；不支持把 Web 绑定到公网地址。
 
+Web Bearer token 的唯一配置源是严格 schema 1 的 `/etc/steer/web.json`。用户直接设置 `token`（32–256 个无空格可见 ASCII 字符）；`steer web-token` 只读取并输出当前配置，不生成、不迁移、不维护第二份 token 文件。
+
 `apply`、`_run`、`web` 和 `geo-catalog` 统一接受 `--platform`，默认读取 `/etc/steer/platform.json`。Web 的 `/api/v1/platform` 使用独立 ETag；“系统设置”保存两个路径后立即 Apply。路径或 category 不可用时，新设置仍被保存并返回结构化 Geo 错误，当前运行 generation 不切换。配置编辑器从当前数据库加载 Geo category 动态补全；catalog 可用时拒绝未知名称，catalog 不可用时由 Apply 做最终判定。
 
 ## 运行时路径
@@ -57,13 +61,13 @@ Web 默认只监听 `127.0.0.1:9080`，远程访问使用 SSH 端口转发；不
 ```text
 /etc/steer/config.json              0600，用户 Canonical Intent
 /etc/steer/platform.json            0600，Linux-only Geo 数据路径
+/etc/steer/web.json                 0600，Web bearer token
 /run/steer/current                  当前 generation 链接
 /run/steer/generations/<id>/        intent、sing-box、platform、firewall
 /run/steer/operation.lock           Apply、配置写入和订阅变更共用锁
 /run/steer/last-apply.json          最近 Apply 结果
 /var/lib/steer/geodata              Geo 派生 generation
 /var/lib/steer/subscriptions        订阅 snapshot
-/var/lib/steer/web.token            0600，Web bearer token
 ```
 
 Linux 适配器不更改 `/etc/resolv.conf`、NetworkManager connection 或 systemd-resolved drop-in。应用若使用 DoT/DoH 上游，传统 53 端口 shim 无法捕获，这属于第一版明确边界。
