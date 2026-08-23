@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 func TestSaveTestReport(t *testing.T) {
@@ -78,9 +80,10 @@ config route 'disabled_route'
 	}
 }
 
-func TestTemporaryProbeConfigMarksEveryDialSocketForSteerBypass(t *testing.T) {
+func TestTemporaryProbeConfigPreservesBootstrapAndMarksDialSockets(t *testing.T) {
 	original := map[string]any{"type": "socks", "tag": "route-proxy", "server": "192.0.2.1", "server_port": 1080}
-	config, err := temporaryProbeConfig([]any{original}, "route-proxy", 12345)
+	bootstrap := model.Bootstrap{Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"}
+	config, err := temporaryProbeConfig(bootstrap, []any{original}, "route-proxy", 12345)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +91,15 @@ func TestTemporaryProbeConfigMarksEveryDialSocketForSteerBypass(t *testing.T) {
 		t.Fatal("temporary probe mutated compiler output")
 	}
 	dns := config["dns"].(map[string]any)["servers"].([]any)[0].(map[string]any)
+	if dns["type"] != bootstrap.Protocol || dns["server"] != bootstrap.Server || dns["server_port"] != bootstrap.ServerPort {
+		t.Fatalf("temporary DNS does not preserve bootstrap: %#v", dns)
+	}
 	if dns["routing_mark"] != AutoRedirectOutputMark {
 		t.Fatalf("temporary DNS routing mark = %#v, want %#x", dns["routing_mark"], AutoRedirectOutputMark)
+	}
+	resolver := config["route"].(map[string]any)["default_domain_resolver"].(map[string]any)
+	if resolver["server"] != "steer-dns-bootstrap" || resolver["strategy"] != bootstrap.Strategy {
+		t.Fatalf("temporary default resolver does not preserve bootstrap strategy: %#v", resolver)
 	}
 	for _, value := range config["outbounds"].([]any) {
 		outbound := value.(map[string]any)

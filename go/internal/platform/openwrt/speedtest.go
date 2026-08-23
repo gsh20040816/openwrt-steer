@@ -3,6 +3,7 @@
 package openwrt
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gsh20040816/steer/go/internal/compiler"
@@ -85,7 +87,7 @@ func SpeedTestNode(ctx context.Context, configPath, stateDirectory, singBoxPath,
 	if download {
 		target, kind = value.Main.SpeedtestProxyURL, "download"
 	}
-	report, err := runTemporaryProbe(ctx, singBoxPath, []any{compiler.CompileNodeOutbound(node)}, compiler.NodeOutboundTag(node.ID), "nodes", node.ID, kind, target, download)
+	report, err := runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, []any{compiler.CompileNodeOutbound(node)}, compiler.NodeOutboundTag(node.ID), "nodes", node.ID, kind, target, download)
 	if err != nil {
 		return TestReport{}, err
 	}
@@ -119,7 +121,7 @@ func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath
 	if download {
 		target, kind = value.Main.SpeedtestProxyURL, "download"
 	}
-	report, err := runTemporaryProbe(ctx, singBoxPath, outbounds, compiler.RouteOutboundTag(route.ID), "routes", route.ID, kind, target, download)
+	report, err := runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, outbounds, compiler.RouteOutboundTag(route.ID), "routes", route.ID, kind, target, download)
 	if err != nil {
 		return TestReport{}, err
 	}
@@ -129,7 +131,7 @@ func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath
 	return report, nil
 }
 
-func runTemporaryProbe(ctx context.Context, singBoxPath string, outbounds []any, finalTag, scope, objectID, kind, target string, download bool) (TestReport, error) {
+func runTemporaryProbe(ctx context.Context, singBoxPath string, bootstrap model.Bootstrap, outbounds []any, finalTag, scope, objectID, kind, target string, download bool) (TestReport, error) {
 	ctx, cancel := withCommandTimeout(ctx, defaultCommandTimeout)
 	defer cancel()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -146,7 +148,7 @@ func runTemporaryProbe(ctx context.Context, singBoxPath string, outbounds []any,
 		return TestReport{}, fmt.Errorf("create test directory: %w", err)
 	}
 	defer os.RemoveAll(temporary)
-	config, err := temporaryProbeConfig(outbounds, finalTag, port)
+	config, err := temporaryProbeConfig(bootstrap, outbounds, finalTag, port)
 	if err != nil {
 		return TestReport{}, err
 	}
@@ -163,22 +165,34 @@ func runTemporaryProbe(ctx context.Context, singBoxPath string, outbounds []any,
 		return TestReport{}, fmt.Errorf("sing-box test config check failed: %w: %s", err, output)
 	}
 	process := newCommandContext(ctx, singBoxPath, "run", "-c", configPath)
-	process.Stdout, process.Stderr = io.Discard, io.Discard
+	var diagnostics bytes.Buffer
+	process.Stdout, process.Stderr = io.Discard, &diagnostics
 	if err := process.Start(); err != nil {
 		return TestReport{}, fmt.Errorf("start temporary sing-box: %w", err)
 	}
-	defer func() {
+	stopped := false
+	stop := func() {
+		if stopped {
+			return
+		}
+		stopped = true
 		_ = process.Process.Kill()
 		_ = process.Wait()
-	}()
+	}
+	defer stop()
 	if err := waitTemporaryProbeReady(ctx, port); err != nil {
 		return TestReport{}, err
 	}
 	proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
-	return probe.Run(ctx, probe.HTTPClient(proxyURL, download), scope, objectID, kind, target, download), nil
+	report := probe.Run(ctx, probe.HTTPClient(proxyURL, download), scope, objectID, kind, target, download)
+	stop()
+	if diagnostic := strings.TrimSpace(diagnostics.String()); !report.OK && diagnostic != "" {
+		report.Error = "temporary sing-box: " + diagnostic
+	}
+	return report, nil
 }
 
-func temporaryProbeConfig(outbounds []any, finalTag string, port int) (map[string]any, error) {
+func temporaryProbeConfig(bootstrap model.Bootstrap, outbounds []any, finalTag string, port int) (map[string]any, error) {
 	marked := make([]any, 0, len(outbounds))
 	for _, value := range outbounds {
 		outbound, ok := value.(map[string]any)
@@ -195,11 +209,13 @@ func temporaryProbeConfig(outbounds []any, finalTag string, port int) (map[strin
 	return map[string]any{
 		"log": map[string]any{"level": "error"},
 		"dns": map[string]any{"servers": []any{map[string]any{
-			"type": "local", "tag": "local", "routing_mark": AutoRedirectOutputMark,
+			"type": bootstrap.Protocol, "tag": "steer-dns-bootstrap", "server": bootstrap.Server,
+			"server_port": bootstrap.ServerPort, "routing_mark": AutoRedirectOutputMark,
 		}}},
 		"inbounds":  []any{map[string]any{"type": "mixed", "tag": "test-in", "listen": "127.0.0.1", "listen_port": port}},
 		"outbounds": marked,
-		"route":     map[string]any{"final": finalTag, "auto_detect_interface": true, "default_domain_resolver": map[string]any{"server": "local"}},
+		"route": map[string]any{"final": finalTag, "auto_detect_interface": true,
+			"default_domain_resolver": map[string]any{"server": "steer-dns-bootstrap", "strategy": bootstrap.Strategy}},
 	}, nil
 }
 
