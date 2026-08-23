@@ -23,7 +23,7 @@ func TestRunVersion(t *testing.T) {
 }
 
 func TestRunRequiresExplicitPaths(t *testing.T) {
-	for _, args := range [][]string{{"validate"}, {"compile"}, {"compile", "--config", "config.json"}} {
+	for _, args := range [][]string{{"validate"}, {"compile"}, {"compile", "--config", "config.json"}, {"prepare", "--config", "config.json"}} {
 		if err := run(args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 			t.Fatalf("expected explicit path error for %v", args)
 		}

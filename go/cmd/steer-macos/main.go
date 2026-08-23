@@ -40,6 +40,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runValidate(args[1:], stdout)
 	case "compile":
 		return runCompile(args[1:], stdout)
+	case "prepare":
+		return runPrepare(args[1:], stdout)
 	default:
 		return usage()
 	}
@@ -95,6 +97,32 @@ func runCompile(args []string, stdout io.Writer) error {
 	return writeJSON(stdout, bundle)
 }
 
+func runPrepare(args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("prepare", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "", "canonical JSON configuration")
+	appGroupRoot := flags.String("app-group", "", "resolved App Group container")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *configPath == "" || *appGroupRoot == "" {
+		return errors.New("prepare requires --config and --app-group and accepts flags only")
+	}
+	value, err := loadIntent(*configPath)
+	if err != nil {
+		return err
+	}
+	paths, err := macos.NewPaths(*appGroupRoot)
+	if err != nil {
+		return err
+	}
+	prepared, err := macos.Prepare(value, paths)
+	if err != nil {
+		return err
+	}
+	return writeJSON(stdout, prepared)
+}
+
 func loadIntent(path string) (model.Intent, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -116,5 +144,5 @@ func writeJSON(writer io.Writer, value any) error {
 }
 
 func usage() error {
-	return errors.New("usage: steer-macos {version|validate --config PATH|compile --config PATH --state-dir PATH}")
+	return errors.New("usage: steer-macos {version|validate --config PATH|compile --config PATH --state-dir PATH|prepare --config PATH --app-group PATH}")
 }
