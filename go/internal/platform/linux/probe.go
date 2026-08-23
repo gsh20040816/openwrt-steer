@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/gsh20040816/openwrt-steer/go/internal/compiler"
@@ -200,9 +199,7 @@ func temporaryProbeConfig(outbounds []any, finalTag string, port int) (map[strin
 }
 
 func newProbeCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
-	command := exec.CommandContext(ctx, name, args...)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	return command
+	return newManagedCommand(ctx, name, args...)
 }
 
 func waitTemporaryProbeReady(ctx context.Context, port int) error {

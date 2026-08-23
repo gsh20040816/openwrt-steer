@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本线为 **0.4.3**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 是稳定发行平台；Linux systemd 工作站适配器已实现源码基线，暂不随 OpenWrt 发布包打包；macOS 尚未提供适配器。
+当前稳定版本线为 **0.4.3**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 是稳定发行平台；Linux systemd 适配器已实现源码基线，覆盖主机及 VM/Docker 公网转发流量，暂不打包；macOS 尚未提供适配器。
 
 ## 已实现能力
 
@@ -13,7 +13,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - HTTP(S) 节点订阅、稳定节点 ID、过期节点显式清理。
 - 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
 - OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、最小 DNS/MAC nftables 辅助层。
-- Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、本机 DNS OUTPUT shim、systemd 服务和 loopback Web API/UI。
+- Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、主机与 VM/Docker DNS 的双栈 nft shim、systemd 服务和 loopback Web API/UI。
 
 ## 明确边界
 

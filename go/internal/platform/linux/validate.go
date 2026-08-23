@@ -4,7 +4,7 @@ package linux
 
 import model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
 
-// Validate combines the canonical contract with Linux workstation limits.
+// Validate combines the canonical contract with Linux platform limits.
 // Source-MAC policy is an OpenWrt gateway feature and is rejected explicitly.
 func Validate(value model.Intent) model.Validation {
 	validation := model.Validate(value)
@@ -14,7 +14,7 @@ func Validate(value model.Intent) model.Validation {
 		}
 		validation.Errors = append(validation.Errors, model.Issue{
 			Code: "PLATFORM_UNSUPPORTED_SOURCE_MAC", ObjectType: "rule", ObjectID: rule.ID,
-			Option: "source_mac_address", Message: "Linux workstation mode does not support source MAC rules",
+			Option: "source_mac_address", Message: "Linux platform does not support source MAC rules",
 		})
 	}
 	validation.OK = len(validation.Errors) == 0

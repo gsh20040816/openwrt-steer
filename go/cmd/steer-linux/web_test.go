@@ -51,6 +51,7 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 	if response.Code != http.StatusOK || response.Header().Get("ETag") == "" {
 		t.Fatalf("authenticated config request failed: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
 	}
+	initialETag := response.Header().Get("ETag")
 	var payload map[string]any
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil || payload["intent"] == nil {
 		t.Fatalf("config response is not canonical intent payload: %v %#v", err, payload)
@@ -66,5 +67,53 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 	handler(response, request)
 	if response.Code != http.StatusPreconditionRequired {
 		t.Fatalf("missing If-Match returned %d: %s", response.Code, response.Body.String())
+	}
+	updated := webTestIntent()
+	updated.Main.LogLevel = "info"
+	encodedIntent, err = json.Marshal(map[string]any{"intent": updated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(string(encodedIntent)))
+	request.Header.Set("Authorization", "Bearer token-value")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", initialETag)
+	response = httptest.NewRecorder()
+	handler(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("ETag") == "" {
+		t.Fatalf("first config save failed to return a new ETag: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	newETag := response.Header().Get("ETag")
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(string(encodedIntent)))
+	request.Header.Set("Authorization", "Bearer token-value")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", newETag)
+	response = httptest.NewRecorder()
+	handler(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("second config save rejected the returned ETag: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
+	root := t.TempDir()
+	app := webApplication{TokenPath: filepath.Join(root, "web.token"), ConfigPath: filepath.Join(root, "config.json"), RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
+	handler := webHandler(app)
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK || page.Header().Get("Content-Security-Policy") != "default-src 'self'; style-src 'self'; script-src 'self'" {
+		t.Fatalf("strict CSP was not returned: status=%d headers=%v", page.Code, page.Header())
+	}
+	if strings.Contains(page.Body.String(), "const token =") || !strings.Contains(page.Body.String(), `src="/app.js"`) {
+		t.Fatalf("index still contains inline application code: %s", page.Body.String())
+	}
+
+	for path, contentType := range map[string]string{"/app.js": "application/javascript; charset=utf-8", "/style.css": "text/css; charset=utf-8"} {
+		asset := httptest.NewRecorder()
+		handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, path, nil))
+		if asset.Code != http.StatusOK || asset.Header().Get("Content-Type") != contentType || asset.Body.Len() == 0 {
+			t.Fatalf("asset %s failed: status=%d type=%q body=%d", path, asset.Code, asset.Header().Get("Content-Type"), asset.Body.Len())
+		}
 	}
 }

@@ -1,18 +1,18 @@
 # Linux 适配器
 
-Linux 第一版是面向 systemd 发行版本机工作站的源码适配器，目标是验证 Steer 的跨平台语义，而不是立即维护发行版包。
+Linux 第一版是面向 systemd 发行版的源码适配器，覆盖 Linux 主机以及由该主机转发的 VM/Docker 公网流量；当前目标是验证 Steer 的跨平台语义，不维护发行版包。
 
 ## 范围
 
 - 配置：严格 Canonical JSON schema 7，唯一真相为 `/etc/steer/config.json`。
 - 数据面：sing-box `>=1.13.18,<1.14.0`、TUN `auto_route + strict_route + auto_redirect`。
-- DNS：sing-box DNS 加最小 nftables `OUTPUT` TCP/UDP 53 shim。
+- DNS：sing-box 双栈 loopback DNS inbound，加 nftables `OUTPUT`/`PREROUTING` TCP/UDP 53 shim；VM/Docker 的传统 DNS 请求也进入 Steer。
 - 生命周期：systemd `steer.service`，`_run` 完成准备后直接 exec sing-box；`cleanup` 由 `ExecStopPost` 调用。
 - 管理：CLI `steer-linux` 和只监听 loopback 的 `steer-linux web`。
 - 订阅：systemd timer 更新 JSON 配置，不自动 Apply；更新失败或 HTTP 200 但没有有效节点时保留旧配置。
 - Geo：运行时从包管理器提供的 seed 派生 SRS，使用跨平台 `internal/geodata`。
 
-Linux 第一版明确不提供非 systemd、LAN 网关、源 MAC、多用户权限分离、远程 Web、NetworkManager/systemd-resolved 深度集成、DIRECT kernel bypass、Clash API、实时连接图和 macOS GUI。
+Linux 第一版明确不提供非 systemd、通用 LAN 网关配置向导、源 MAC、多用户权限分离、远程 Web、NetworkManager/systemd-resolved 深度集成、DIRECT kernel bypass、Clash API、实时连接图和 macOS GUI。Linux TUN 不使用 workstation-only 的接口白名单；主机转发的 VM/Docker 公网流量随主机规则进入代理，私有/链路本地目的地址仍按平台排除规则处理。
 
 ## 手工构建与安装
 
@@ -46,11 +46,11 @@ Web 默认只监听 `127.0.0.1:9080`，远程访问使用 SSH 端口转发；不
 /etc/steer/config.json              0600，用户 Canonical Intent
 /run/steer/current                  当前 generation 链接
 /run/steer/generations/<id>/        intent、sing-box、platform、firewall
-/run/steer/operation.lock           Apply/JSON 写入锁
+/run/steer/operation.lock           Apply、配置写入和订阅变更共用锁
 /run/steer/last-apply.json          最近 Apply 结果
 /var/lib/steer/geodata              Geo 派生 generation
 /var/lib/steer/subscriptions        订阅 snapshot
 /var/lib/steer/web.token            0600，Web bearer token
 ```
 
-Linux 适配器不更改 `/etc/resolv.conf`、NetworkManager connection 或 systemd-resolved drop-in。应用若使用 DoT/DoH 上游或只向 loopback DNS daemon 转发，传统 DNS shim 无法捕获，这属于第一版明确边界。
+Linux 适配器不更改 `/etc/resolv.conf`、NetworkManager connection 或 systemd-resolved drop-in。应用若使用 DoT/DoH 上游，传统 53 端口 shim 无法捕获，这属于第一版明确边界。

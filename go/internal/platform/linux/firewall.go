@@ -7,12 +7,19 @@ import (
 	"strings"
 )
 
-// RenderFirewall only captures DNS emitted by the local host.  It does not
-// alter forwarding or resolver configuration and deliberately leaves local
-// destinations alone.
+// RenderFirewall captures traditional DNS from the host and from forwarded
+// namespaces such as Docker and VMs. The main TUN auto_redirect path has no
+// interface allow-list, so public forwarded traffic follows the same rules as
+// host traffic. Resolver configuration files are deliberately left untouched.
 func RenderFirewall(plan Plan) string {
 	lines := []string{
 		"table inet steer {",
+		"\tchain dns_prerouting {",
+		"\t\ttype nat hook prerouting priority dstnat; policy accept;",
+		fmt.Sprintf("\t\tiifname \"%s\" return", plan.Resources.TunInterface),
+		fmt.Sprintf("\t\tmeta mark 0x%x counter return", plan.Resources.AutoRedirectOutputMark),
+		fmt.Sprintf("\t\tmeta l4proto { tcp, udp } th dport 53 counter redirect to :%d", plan.Resources.DNSPort),
+		"\t}",
 		"\tchain dns_output {",
 		"\t\ttype nat hook output priority mangle - 2; policy accept;",
 		fmt.Sprintf("\t\tmeta mark 0x%x counter return", plan.Resources.AutoRedirectOutputMark),

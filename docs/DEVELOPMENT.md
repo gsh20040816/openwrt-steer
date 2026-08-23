@@ -8,7 +8,7 @@
 go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
 go/internal/{subscription,probe,capability}     共享服务
 go/internal/platform/openwrt                    OpenWrt 适配器
-go/internal/platform/linux                      Linux systemd 工作站适配器
+go/internal/platform/linux                      Linux systemd 主机/转发流量适配器
 go/cmd/steer-openwrt                            OpenWrt CLI
 go/cmd/steer-linux                              Linux CLI/Web
 linux/systemd                                   Linux unit 文件（手工安装参考）

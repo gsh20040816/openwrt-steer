@@ -152,10 +152,13 @@ func runService(args []string) error {
 				loadErr = linuxplatform.ValidationError{Validation: validation}
 			}
 		}
-		if loadErr == nil && !value.Main.Enabled {
-			loadErr = errors.New("cannot start a disabled configuration")
+		disabled := loadErr == nil && !value.Main.Enabled
+		if disabled {
+			// Disabled is a valid steady state.  A service enabled in systemd
+			// must not turn that state into a restart loop.
+			loadErr = linuxplatform.CleanupPlatform(context.Background(), linuxplatform.ExecRunner{}, *nftBinary)
 		}
-		if loadErr == nil {
+		if loadErr == nil && !disabled {
 			backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, options)
 			compiled := compiler.Compile(value, backend.CompilerOptions())
 			candidate, prepareErr := backend.Prepare(context.Background(), value, compiled)
@@ -170,6 +173,9 @@ func runService(args []string) error {
 		lock.Close()
 		if loadErr != nil {
 			return loadErr
+		}
+		if disabled {
+			return nil
 		}
 	}
 	if err := linuxplatform.EnsureCurrentFirewall(context.Background(), linuxplatform.ExecRunner{}, *runDirectory, *nftBinary); err != nil {
@@ -307,6 +313,7 @@ func runSubscription(args []string) error {
 	flags := flag.NewFlagSet("subscription", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "subscription snapshot directory")
+	runDirectory := flags.String("run-dir", "/run/steer", "shared operation lock directory")
 	id := flags.String("id", "", "only update this subscription ID")
 	nodeID := flags.String("node", "", "subscription node ID for clean")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -330,7 +337,12 @@ func runSubscription(args []string) error {
 		if *id == "" || *nodeID == "" {
 			return errors.New("subscription clean requires --id and --node")
 		}
-		snapshot, err := linuxplatform.CleanSubscriptionNode(*configPath, *stateDirectory, *id, *nodeID)
+		var snapshot linuxplatform.SubscriptionSnapshot
+		err := withOperationLock(*runDirectory, func() error {
+			var err error
+			snapshot, err = linuxplatform.CleanSubscriptionNode(*configPath, *stateDirectory, *id, *nodeID)
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -340,7 +352,12 @@ func runSubscription(args []string) error {
 		}{true, snapshot})
 		return nil
 	}
-	snapshots, err := linuxplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
+	var snapshots []linuxplatform.SubscriptionSnapshot
+	err := withOperationLock(*runDirectory, func() error {
+		var err error
+		snapshots, err = linuxplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -410,7 +427,35 @@ func runLockedApply(runDirectory string, operation func() (coreapply.Result, err
 		return err
 	}
 	defer lock.Close()
+	result, err := runApplyOperation(runDirectory, operation)
+	writeJSON(result)
+	return err
+}
+
+func runLockedApplyResult(runDirectory string, operation func() (coreapply.Result, error)) (coreapply.Result, error) {
+	lock, err := acquireApplyLock(runDirectory)
+	if err != nil {
+		return coreapply.Result{}, err
+	}
+	defer lock.Close()
+	return runApplyOperation(runDirectory, operation)
+}
+
+func withOperationLock(runDirectory string, operation func() error) error {
+	lock, err := acquireApplyLock(runDirectory)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	return operation()
+}
+
+func runApplyOperation(runDirectory string, operation func() (coreapply.Result, error)) (coreapply.Result, error) {
 	result, err := operation()
+	return recordApplyResult(runDirectory, result, err)
+}
+
+func recordApplyResult(runDirectory string, result coreapply.Result, err error) (coreapply.Result, error) {
 	if err != nil {
 		result.OK = false
 		result.Error = err.Error()
@@ -423,11 +468,9 @@ func runLockedApply(runDirectory string, operation func() (coreapply.Result, err
 		}
 		result.OK = false
 		result.Error = err.Error()
-		writeJSON(result)
-		return err
+		return result, err
 	}
-	writeJSON(result)
-	return err
+	return result, err
 }
 
 func acquireApplyLock(runDirectory string) (*os.File, error) {

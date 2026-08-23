@@ -78,7 +78,7 @@ func Fetch(ctx context.Context, client *http.Client, configured model.Subscripti
 	if err != nil {
 		return ParseResult{}, err
 	}
-	if len(parsed.Nodes) == 0 && parsed.Skipped > 0 {
+	if len(parsed.Nodes) == 0 {
 		return ParseResult{}, fmt.Errorf("subscription contains no valid nodes")
 	}
 	return parsed, nil

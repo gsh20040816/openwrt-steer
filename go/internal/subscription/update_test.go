@@ -92,3 +92,12 @@ func TestFetchRejectsHTTP200WithNoValidNodes(t *testing.T) {
 		t.Fatalf("invalid HTTP 200 body was accepted: %v", err)
 	}
 }
+
+func TestFetchRejectsHTTP200EmptyBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {}))
+	defer server.Close()
+	_, err := Fetch(context.Background(), server.Client(), model.Subscription{ID: "empty-body", Enabled: true, URL: server.URL})
+	if err == nil || !strings.Contains(err.Error(), "no valid nodes") {
+		t.Fatalf("empty HTTP 200 body was accepted: %v", err)
+	}
+}

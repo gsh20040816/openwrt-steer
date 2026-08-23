@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,8 +23,8 @@ import (
 	"github.com/gsh20040816/openwrt-steer/go/internal/subscription"
 )
 
-//go:embed web/index.html
-var webIndex []byte
+//go:embed web/*
+var webAssets embed.FS
 
 type webApplication struct {
 	TokenPath      string
@@ -43,8 +43,14 @@ func serveWeb(listen, tokenPath, configPath, runDirectory, stateDirectory string
 		return errors.New("Web token is too short")
 	}
 	app := webApplication{TokenPath: tokenPath, ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: stateDirectory}
+	return (&http.Server{Addr: listen, Handler: webHandler(app)}).ListenAndServe()
+}
+
+func webHandler(app webApplication) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", app.handleIndex)
+	mux.HandleFunc("/app.js", app.handleAsset)
+	mux.HandleFunc("/style.css", app.handleAsset)
 	mux.HandleFunc("/api/v1/config", app.auth(app.handleConfig))
 	mux.HandleFunc("/api/v1/overview", app.auth(app.handleOverview))
 	mux.HandleFunc("/api/v1/validate", app.auth(app.handleValidate))
@@ -54,12 +60,11 @@ func serveWeb(listen, tokenPath, configPath, runDirectory, stateDirectory string
 	mux.HandleFunc("/api/v1/subscriptions", app.auth(app.handleSubscriptions))
 	mux.HandleFunc("/api/v1/subscriptions/", app.auth(app.handleSubscriptions))
 	mux.HandleFunc("/api/v1/geodata/", app.auth(app.handleGeoData))
-	server := &http.Server{Addr: listen, Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'")
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		mux.ServeHTTP(writer, request)
-	})}
-	return server.ListenAndServe()
+	})
 }
 
 func (app webApplication) handleIndex(writer http.ResponseWriter, request *http.Request) {
@@ -68,7 +73,39 @@ func (app webApplication) handleIndex(writer http.ResponseWriter, request *http.
 		return
 	}
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = writer.Write(webIndex)
+	content, err := webAssets.ReadFile("web/index.html")
+	if err != nil {
+		http.Error(writer, "web asset is unavailable", http.StatusInternalServerError)
+		return
+	}
+	_, _ = writer.Write(content)
+}
+
+func (app webApplication) handleAsset(writer http.ResponseWriter, request *http.Request) {
+	assets := map[string]string{"/app.js": "web/app.js", "/style.css": "web/style.css"}
+	asset, ok := assets[request.URL.Path]
+	if !ok || (request.Method != http.MethodGet && request.Method != http.MethodHead) {
+		if !ok {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Allow", "GET, HEAD")
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	content, err := webAssets.ReadFile(asset)
+	if err != nil {
+		http.Error(writer, "web asset is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if strings.HasSuffix(asset, ".js") {
+		writer.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	} else {
+		writer.Header().Set("Content-Type", "text/css; charset=utf-8")
+	}
+	if request.Method == http.MethodGet {
+		_, _ = writer.Write(content)
+	}
 }
 
 func (app webApplication) auth(handler http.HandlerFunc) http.HandlerFunc {
@@ -131,28 +168,55 @@ func (app webApplication) handleConfig(writer http.ResponseWriter, request *http
 			return
 		}
 		expectedRevision := request.Header.Get("If-Match")
-		if expectedRevision == "" {
-			if _, statErr := os.Stat(store.Path); statErr == nil {
-				writeWebError(writer, errors.New("If-Match is required for an existing configuration"), http.StatusPreconditionRequired)
-				return
+		var revision string
+		var saveErr error
+		var applyResult coreapply.Result
+		var applyErr error
+		lockErr := withOperationLock(app.RunDirectory, func() error {
+			if expectedRevision == "" {
+				if _, statErr := os.Stat(store.Path); statErr == nil {
+					saveErr = errors.New("If-Match is required for an existing configuration")
+					return nil
+				}
 			}
-		}
-		revision, err := store.Save(value, expectedRevision)
-		if errors.Is(err, linuxplatform.ErrRevisionConflict) {
-			writeWebError(writer, err, http.StatusConflict)
+			revision, saveErr = store.Save(value, expectedRevision)
+			if saveErr != nil || !apply {
+				return nil
+			}
+			// Save and Apply use the exact value submitted by this request while
+			// holding the same operation lock. A subscription timer cannot
+			// replace it between the two steps.
+			applyResult, applyErr = app.applyValue(value)
+			applyResult, applyErr = recordApplyResult(app.RunDirectory, applyResult, applyErr)
+			return nil
+		})
+		if lockErr != nil {
+			writeWebError(writer, lockErr, http.StatusInternalServerError)
 			return
 		}
-		if err != nil {
-			writeWebError(writer, err, http.StatusUnprocessableEntity)
+		if errors.Is(saveErr, linuxplatform.ErrRevisionConflict) {
+			writeWebError(writer, saveErr, http.StatusConflict)
 			return
 		}
+		if saveErr != nil {
+			status := http.StatusUnprocessableEntity
+			if strings.Contains(saveErr.Error(), "If-Match is required") {
+				status = http.StatusPreconditionRequired
+			}
+			writeWebError(writer, saveErr, status)
+			return
+		}
+		writer.Header().Set("ETag", revision)
 		response := map[string]any{"saved": true, "applied": false, "revision": revision}
 		if apply {
-			result, applyErr := app.applySaved()
-			response["apply_result"] = result
+			response["apply_result"] = applyResult
 			if applyErr == nil {
 				response["applied"] = true
 			}
+		}
+		if applyErr != nil {
+			writeWebJSONStatus(writer, response, http.StatusUnprocessableEntity)
+			return
 		}
 		writeWebJSON(writer, response)
 	default:
@@ -304,7 +368,12 @@ func (app webApplication) handleSubscriptions(writer http.ResponseWriter, reques
 	remainder := strings.TrimPrefix(request.URL.Path, prefix)
 	parts := strings.Split(strings.TrimSuffix(remainder, "/"), "/")
 	if len(parts) == 2 && parts[1] == "update" && request.Method == http.MethodPost {
-		snapshots, err := linuxplatform.UpdateConfiguredSubscriptions(request.Context(), &http.Client{Timeout: 30 * time.Second}, app.ConfigPath, app.StateDirectory, parts[0])
+		var snapshots []linuxplatform.SubscriptionSnapshot
+		err := withOperationLock(app.RunDirectory, func() error {
+			var err error
+			snapshots, err = linuxplatform.UpdateConfiguredSubscriptions(request.Context(), &http.Client{Timeout: 30 * time.Second}, app.ConfigPath, app.StateDirectory, parts[0])
+			return err
+		})
 		if err != nil {
 			writeWebError(writer, err, http.StatusUnprocessableEntity)
 			return
@@ -313,7 +382,12 @@ func (app webApplication) handleSubscriptions(writer http.ResponseWriter, reques
 		return
 	}
 	if len(parts) == 3 && parts[1] == "nodes" && request.Method == http.MethodDelete {
-		snapshot, err := linuxplatform.CleanSubscriptionNode(app.ConfigPath, app.StateDirectory, parts[0], parts[2])
+		var snapshot linuxplatform.SubscriptionSnapshot
+		err := withOperationLock(app.RunDirectory, func() error {
+			var err error
+			snapshot, err = linuxplatform.CleanSubscriptionNode(app.ConfigPath, app.StateDirectory, parts[0], parts[2])
+			return err
+		})
 		if err != nil {
 			writeWebError(writer, err, http.StatusUnprocessableEntity)
 			return
@@ -339,22 +413,25 @@ func (app webApplication) handleGeoData(writer http.ResponseWriter, request *htt
 }
 
 func (app webApplication) applySaved() (coreapply.Result, error) {
-	var result coreapply.Result
-	err := runLockedApply(app.RunDirectory, func() (coreapply.Result, error) {
+	return runLockedApplyResult(app.RunDirectory, func() (coreapply.Result, error) {
 		value, validation, err := loadIntent(app.ConfigPath)
 		if err != nil {
-			result = coreapply.Result{Validation: &validation}
-			return result, err
+			return coreapply.Result{Validation: &validation}, err
 		}
 		if !validation.OK {
-			result = coreapply.Result{Validation: &validation}
-			return result, linuxplatform.ValidationError{Validation: validation}
+			return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 		}
-		backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory})
-		result, err = coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
-		return result, err
+		return app.applyValue(value)
 	})
-	return result, err
+}
+
+func (app webApplication) applyValue(value model.Intent) (coreapply.Result, error) {
+	validation := linuxplatform.Validate(value)
+	if !validation.OK {
+		return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
+	}
+	backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory})
+	return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 }
 
 func decodeIntentPayload(body []byte) (model.Intent, bool, error) {
@@ -378,7 +455,9 @@ func writeWebJSON(writer http.ResponseWriter, value any) {
 func writeWebJSONStatus(writer http.ResponseWriter, value any, status int) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
-	writeWebJSON(writer, value)
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(value)
 }
 
 func writeWebError(writer http.ResponseWriter, err error, status int) {

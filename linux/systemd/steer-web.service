@@ -1,7 +1,6 @@
 [Unit]
 Description=Steer Linux web control plane
 After=steer.service
-Wants=steer.service
 
 [Service]
 Type=simple

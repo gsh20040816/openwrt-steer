@@ -62,13 +62,13 @@ TUN 名称、地址、table、priority、mark、NFQUEUE 和平台端口都属于
 
 ## Linux 数据面
 
-Linux 第一版只承诺 systemd 本机工作站，不承担 LAN 网关、源 MAC 或容器流量策略。平台使用与 OpenWrt 相同的 sing-box TUN 主路径，但只增加本机 `OUTPUT` DNS shim：传统 TCP/UDP 53 请求进入专用 DNS inbound，TUN 自身、标记为 Steer 内部出口的连接和本机目的地址直接放行。Linux 不改 NetworkManager、`/etc/resolv.conf` 或 systemd-resolved 配置，也不生成 MAC 策略路由。
+Linux 第一版承诺 systemd 主机及其 VM/Docker 转发的公网流量，不提供通用 LAN 网关配置向导、源 MAC 或多用户策略。平台使用与 OpenWrt 相同的 sing-box TUN 主路径，且不设置 `include_interface` 限制；传统 TCP/UDP 53 请求通过 `OUTPUT` 和 `PREROUTING` shim 进入 IPv4/IPv6 loopback DNS inbound，TUN 自身、标记为 Steer 内部出口的连接和本机目的地址直接放行。Linux 不改 NetworkManager、`/etc/resolv.conf` 或 systemd-resolved 配置，也不生成 MAC 策略路由。
 
 `platform/linux` 固定自己的 TUN、DNS、table、priority、mark 和 NFQUEUE 资源；这些只保存在 generation 的 `platform.json`，不进入 Canonical Intent。共享 Geo generation 已迁入 `internal/geodata`，OpenWrt 和 Linux 使用同一份 package-owned seed 语义。
 
 ## Apply
 
-公共 Apply 是单锁、同步流程：
+Linux 的 Apply、配置写入和订阅变更共用一把 operation lock；Apply 本身仍是同步流程：
 
 1. 平台 codec 严格解码配置；
 2. 共享校验器拒绝非法 Intent；

@@ -11,7 +11,7 @@ go test ./...
 
 覆盖 schema 7、严格 JSON/UCI 解码、引用和前置链校验、确定性编译、Route 私有出站、DNS 路径、共享 Apply 生命周期、generation、订阅合并/Store、probe 测量，以及 OpenWrt 计划、nftables、激活、健康、Geo、日志和 UCI batch。
 
-Linux 适配器测试覆盖固定 workstation plan、只捕获本机 DNS 的 OUTPUT shim、JSON 原子写入与 ETag 冲突、Linux source-MAC 拒绝、systemd/backend generation、Web bearer token、临时 probe 的 bypass mark 和静态 Linux 构建。
+Linux 适配器测试覆盖主机与转发流量 plan、OUTPUT/PREROUTING DNS shim、JSON 原子写入与 ETag 冲突、Linux source-MAC 拒绝、systemd/backend generation、Web bearer token/CSP 静态资源、临时 probe 的 bypass mark 和静态 Linux 构建。
 
 ## LuCI 与静态边界
 

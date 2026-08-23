@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package linux implements the systemd workstation adapter for Steer.
+// Package linux implements the systemd Linux adapter for Steer.
 package linux
 
 import (
@@ -34,7 +34,19 @@ func (runner ExecRunner) Output(ctx context.Context, name string, args ...string
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, runner.Timeout)
 	defer cancel()
-	command := exec.CommandContext(commandCtx, name, args...)
+	command := newManagedCommand(commandCtx, name, args...)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		if commandCtx.Err() != nil {
+			err = commandCtx.Err()
+		}
+		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return output, nil
+}
+
+func newManagedCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, name, args...)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Cancel = func() error {
 		if command.Process == nil {
@@ -46,14 +58,7 @@ func (runner ExecRunner) Output(ctx context.Context, name string, args ...string
 		return nil
 	}
 	command.WaitDelay = commandWaitDelay
-	output, err := command.CombinedOutput()
-	if err != nil {
-		if commandCtx.Err() != nil {
-			err = commandCtx.Err()
-		}
-		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-	return output, nil
+	return command
 }
 
 func atomicWrite(path string, content []byte) error {

@@ -74,12 +74,16 @@ func (plan Plan) CompilerTarget() compiler.Target {
 			"route_exclude_address":                      append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...),
 		},
 		map[string]any{
-			"type": "direct", "tag": "steer-dns", "listen": "::", "listen_port": plan.Resources.DNSPort,
+			"type": "direct", "tag": "steer-dns4", "listen": "127.0.0.1", "listen_port": plan.Resources.DNSPort,
+			"network": []string{"tcp", "udp"},
+		},
+		map[string]any{
+			"type": "direct", "tag": "steer-dns6", "listen": "::1", "listen_port": plan.Resources.DNSPort,
 			"network": []string{"tcp", "udp"},
 		},
 	}
 	return compiler.Target{
-		Inbounds: inbounds, DNSInboundTags: []string{"steer-dns"}, SniffInboundTags: []string{"steer-tun"},
+		Inbounds: inbounds, DNSInboundTags: []string{"steer-dns4", "steer-dns6"}, SniffInboundTags: []string{"steer-tun"},
 		RequiredCapabilities: []string{"tun", "auto_route", "auto_redirect"},
 	}
 }
