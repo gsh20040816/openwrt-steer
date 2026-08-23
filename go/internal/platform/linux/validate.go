@@ -2,7 +2,7 @@
 
 package linux
 
-import model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+import model "github.com/gsh20040816/steer/go/internal/intent"
 
 // Validate combines the canonical contract with Linux platform limits.
 // Source-MAC policy is an OpenWrt gateway feature and is rejected explicitly.

@@ -30,7 +30,7 @@ required_fragments = (
     "chmod -R a+rwx",
     "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-    "--env PACKAGES=\"geoview steer-geodata steer-openwrt luci-app-steer\"",
+    "--env PACKAGES=\"geoview steer-geodata steer luci-app-steer\"",
     "cp -R \"$RUNNER_TEMP/steer-sdk-artifacts/bin\" \"$GITHUB_WORKSPACE/bin\"",
 )
 for fragment in required_fragments:
@@ -42,7 +42,7 @@ for forbidden in (
     "docker/setup-buildx-action",
     "aria2c",
     "parallel download",
-    "steer-openwrt-builder",
+    "steer-builder",
     ".github/actions/openwrt-builder",
     "GO_BOOTSTRAP_IMAGE",
     "CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT",
@@ -95,6 +95,7 @@ required_entrypoint_fragments = (
     'make "package/$package/download" V=s',
     'make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)"',
     "make package/index",
+    "'steer-[0-9]*.apk'",
     "'luci-i18n-steer-zh-cn-*.apk'",
     "staging_dir/host/bin/ccache -vv --show-stats",
 )

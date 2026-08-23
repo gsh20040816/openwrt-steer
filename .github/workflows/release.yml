@@ -98,7 +98,7 @@ jobs:
             --volume "$GITHUB_WORKSPACE/.github/actions/openwrt-sdk/entrypoint.sh:/entrypoint.sh:ro" \
             --env FEEDNAME=steer \
             --env ARTIFACTS_DIR=/artifacts \
-            --env PACKAGES="geoview steer-geodata steer-openwrt luci-app-steer" \
+            --env PACKAGES="geoview steer-geodata steer luci-app-steer" \
             --env BUILD_LOG=1 \
             --env V=s \
             ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a \

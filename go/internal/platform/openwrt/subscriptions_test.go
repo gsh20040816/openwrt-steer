@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
-	"github.com/gsh20040816/openwrt-steer/go/internal/platform/openwrt/uci"
-	"github.com/gsh20040816/openwrt-steer/go/internal/subscription"
+	model "github.com/gsh20040816/steer/go/internal/intent"
+	"github.com/gsh20040816/steer/go/internal/platform/openwrt/uci"
+	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
 func TestSubscriptionDisappearanceIsPinnedStale(t *testing.T) {

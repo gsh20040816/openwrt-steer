@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
-	"github.com/gsh20040816/openwrt-steer/go/internal/subscription"
+	model "github.com/gsh20040816/steer/go/internal/intent"
+	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
 type SubscriptionSnapshot = subscription.Snapshot

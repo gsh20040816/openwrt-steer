@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	coreapply "github.com/gsh20040816/openwrt-steer/go/internal/apply"
-	"github.com/gsh20040816/openwrt-steer/go/internal/geodata"
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
-	linuxplatform "github.com/gsh20040816/openwrt-steer/go/internal/platform/linux"
-	"github.com/gsh20040816/openwrt-steer/go/internal/subscription"
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/geodata"
+	model "github.com/gsh20040816/steer/go/internal/intent"
+	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
+	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
 //go:embed web/*

@@ -10,8 +10,8 @@ import (
 	"io"
 	"strconv"
 
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
-	"github.com/gsh20040816/openwrt-steer/go/internal/platform/openwrt/uci"
+	model "github.com/gsh20040816/steer/go/internal/intent"
+	"github.com/gsh20040816/steer/go/internal/platform/openwrt/uci"
 )
 
 func DecodeBytes(config []byte) (model.Intent, error) {

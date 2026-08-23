@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsh20040816/openwrt-steer/go/internal/generation"
+	"github.com/gsh20040816/steer/go/internal/generation"
 )
 
 type activationRunner struct{ calls []string }

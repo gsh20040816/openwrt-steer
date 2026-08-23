@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gsh20040816/openwrt-steer/go/internal/generation"
+	"github.com/gsh20040816/steer/go/internal/generation"
 )
 
 func (backend *Backend) Activate(ctx context.Context, candidate generation.Candidate) error {

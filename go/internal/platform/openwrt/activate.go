@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gsh20040816/openwrt-steer/go/internal/generation"
+	"github.com/gsh20040816/steer/go/internal/generation"
 )
 
 func ActivateGeneration(ctx context.Context, runner Runner, candidate generation.Candidate, plan Plan, runDirectory, nftBinary string) error {

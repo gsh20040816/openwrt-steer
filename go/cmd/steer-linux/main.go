@@ -18,11 +18,11 @@ import (
 	"syscall"
 	"time"
 
-	coreapply "github.com/gsh20040816/openwrt-steer/go/internal/apply"
-	"github.com/gsh20040816/openwrt-steer/go/internal/compiler"
-	"github.com/gsh20040816/openwrt-steer/go/internal/geodata"
-	"github.com/gsh20040816/openwrt-steer/go/internal/intent"
-	linuxplatform "github.com/gsh20040816/openwrt-steer/go/internal/platform/linux"
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/geodata"
+	"github.com/gsh20040816/steer/go/internal/intent"
+	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
 
 var version = "development"

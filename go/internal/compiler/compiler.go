@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 type Output struct {

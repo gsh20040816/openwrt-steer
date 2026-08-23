@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	coreapply "github.com/gsh20040816/openwrt-steer/go/internal/apply"
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 )
 
 func TestApplyRecordFailurePreservesOperationError(t *testing.T) {

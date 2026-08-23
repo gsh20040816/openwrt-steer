@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 func TestCreateWritesOnlySharedFiles(t *testing.T) {

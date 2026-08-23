@@ -1,3 +1,3 @@
-module github.com/gsh20040816/openwrt-steer/go
+module github.com/gsh20040816/steer/go
 
 go 1.26

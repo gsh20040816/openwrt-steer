@@ -6,7 +6,7 @@ set -eu
 
 FEEDNAME="${FEEDNAME:-steer}"
 ARTIFACTS_DIR="${ARTIFACTS_DIR:-/artifacts}"
-PACKAGES="${PACKAGES:-geoview steer-geodata steer-openwrt luci-app-steer}"
+PACKAGES="${PACKAGES:-geoview steer-geodata steer luci-app-steer}"
 CCACHE_DIR="${CCACHE_DIR:-/builder/.ccache}"
 GO_BUILD_CACHE_DIR="${GO_BUILD_CACHE_DIR:-/go-build-cache}"
 export CCACHE_DIR
@@ -134,7 +134,7 @@ for package in $PACKAGES; do
 done
 
 # Compile one top-level dependency closure.  OpenWrt's dependency graph pulls
-# geoview, steer-geodata and steer-openwrt into the LuCI package build.
+# geoview, steer-geodata and steer into the LuCI package build.
 phase package-compile
 make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)" CONFIG_AUTOREMOVE=y $kmod_overrides
 
@@ -144,7 +144,7 @@ make package/index
 for package_pattern in \
   'geoview-*.apk' \
   'steer-geodata-*.apk' \
-  'steer-openwrt-*.apk' \
+  'steer-[0-9]*.apk' \
   'luci-app-steer-*.apk' \
   'luci-i18n-steer-zh-cn-*.apk'; do
   find bin/packages -type f -name "$package_pattern" -print -quit | grep -q . || {

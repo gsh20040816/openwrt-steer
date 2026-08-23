@@ -57,7 +57,7 @@ jobs:
           for pattern in \
             'geoview-*.apk' \
             'steer-geodata-*.apk' \
-            'steer-openwrt-*.apk' \
+            'steer-[0-9]*.apk' \
             'luci-app-steer-*.apk' \
             'luci-i18n-steer-zh-cn-*.apk'; do
             set -- $pattern

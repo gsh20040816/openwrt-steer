@@ -5,8 +5,8 @@ package openwrt
 import (
 	"context"
 
-	"github.com/gsh20040816/openwrt-steer/go/internal/compiler"
-	"github.com/gsh20040816/openwrt-steer/go/internal/geodata"
+	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/geodata"
 )
 
 // GeoOptions is kept as an OpenWrt-facing alias while Geo generation itself

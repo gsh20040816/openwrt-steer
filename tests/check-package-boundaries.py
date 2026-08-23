@@ -13,7 +13,7 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-makefile = (ROOT / "steer-openwrt/Makefile").read_text()
+makefile = (ROOT / "steer/Makefile").read_text()
 luci_makefile = (ROOT / "luci-app-steer/Makefile").read_text()
 geodata_makefile = (ROOT / "steer-geodata/Makefile").read_text()
 geoview_makefile = (ROOT / "geoview/Makefile").read_text()
@@ -29,15 +29,15 @@ for dependency in (
     "kmod-tun",
 ):
     if f"+{dependency}" not in makefile:
-        fail(f"steer-openwrt must declare external dependency: {dependency}")
+        fail(f"steer must declare external dependency: {dependency}")
 
 for retired in ("smartdns", "curl", "ucode-mod-uci", "bind-dig"):
     if f"+{retired}" in makefile:
-        fail(f"steer-openwrt retained retired dependency: {retired}")
+        fail(f"steer retained retired dependency: {retired}")
 
 for concrete_ip_provider in ("ip-tiny", "ip-full"):
     if f"+{concrete_ip_provider}" in makefile:
-        fail(f"steer-openwrt must use the virtual ip provider, not {concrete_ip_provider}")
+        fail(f"steer must use the virtual ip provider, not {concrete_ip_provider}")
 
 extra_depends = [
     line.strip()
@@ -47,21 +47,25 @@ extra_depends = [
 if extra_depends != ["EXTRA_DEPENDS:=sing-box (>=1.13.18), sing-box (<1.14.0)"]:
     fail("only sing-box may bypass Kconfig through EXTRA_DEPENDS")
 
-for metadata in ("PROVIDES:=steer", "CONFLICTS:=steer", "REPLACES:=steer"):
+for metadata in (
+    "PROVIDES:=steer-openwrt",
+    "CONFLICTS:=steer-openwrt",
+    "REPLACES:=steer-openwrt",
+):
     if metadata not in makefile:
-        fail(f"old steer package cutover metadata is missing: {metadata}")
+        fail(f"steer-openwrt package replacement metadata is missing: {metadata}")
 
 for forbidden_path in ("usr/bin/sing-box", "usr/bin/geoview"):
     if forbidden_path in makefile:
-        fail(f"steer-openwrt must not install third-party binary: {forbidden_path}")
+        fail(f"steer must not install third-party binary: {forbidden_path}")
 
 if "$(1)/usr/sbin/steer" not in makefile:
-    fail("steer-openwrt must install the public CLI as /usr/sbin/steer")
+    fail("steer must install the public CLI as /usr/sbin/steer")
 if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc:
     fail("retired steer-openwrt CLI name is still user-visible")
 
 if '[ "$$schema" = 7 ]' not in makefile or "schema 7 is required" not in makefile:
-    fail("steer-openwrt package must reject configurations outside schema 7")
+    fail("steer package must reject configurations outside schema 7")
 for retired_migration in (
     "for option in probe_direct probe_proxy speedtest_proxy",
     "uci set steer.main.schema_version='7'",
@@ -70,17 +74,19 @@ for retired_migration in (
 ):
     if retired_migration in makefile:
         fail(f"package retained expired alpha migration: {retired_migration}")
-if "PKG_VERSION:=0.4.3" not in makefile or "PKG_RELEASE:=1" not in makefile:
-    fail("steer-openwrt package version must be the 0.4.3-r1 release")
-if "PKG_VERSION:=0.4.3" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
-    fail("LuCI packages must use the 0.4.3-r1 release")
+if "PKG_NAME:=steer" not in makefile or "define Package/steer" not in makefile:
+    fail("the OpenWrt controller package must be named steer")
+if "PKG_VERSION:=0.5.0_alpha1" not in makefile or "PKG_RELEASE:=1" not in makefile:
+    fail("steer package version must be the 0.5.0_alpha1-r1 prerelease")
+if "PKG_VERSION:=0.5.0_alpha1" not in luci_makefile or "PKG_RELEASE:=1" not in luci_makefile:
+    fail("LuCI packages must use the 0.5.0_alpha1-r1 prerelease")
 if "PKG_RELEASE:=3" not in geoview_makefile:
     fail("geoview package release must increase when removing its downstream patch")
 patches = ROOT / "geoview/patches"
 if patches.exists() and any(path.is_file() for path in patches.rglob("*")):
     fail("geoview must be built from upstream without downstream patches")
-if "github.com/gsh20040816/openwrt-steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
-    fail("steer-openwrt must build the repository-level Go module")
+if "github.com/gsh20040816/steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
+    fail("steer must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
     if stale_repair in makefile:
         fail(f"package retained the expired subscription network repair: {stale_repair}")
@@ -108,8 +114,10 @@ for required in (
     if required not in geodata_makefile:
         fail(f"steer-geodata is missing package-owned input: {required}")
 
-if (ROOT / "steer").exists() and any(path.is_file() for path in (ROOT / "steer").rglob("*")):
-    fail("retired steer package/runtime still exists")
+if (ROOT / "steer-openwrt").exists() and any(
+    path.is_file() for path in (ROOT / "steer-openwrt").rglob("*")
+):
+    fail("retired steer-openwrt package directory still exists")
 
 retired_tokens = (
     "smartdns",
@@ -117,7 +125,7 @@ retired_tokens = (
     "/usr/sbin/steerctl",
     "/usr/libexec/steer/runtime",
 )
-for path in (ROOT / "steer-openwrt").rglob("*"):
+for path in (ROOT / "steer").rglob("*"):
     if path.is_file() and not path.name.endswith("_test.go"):
         content = path.read_text(errors="ignore").lower()
         for token in retired_tokens:

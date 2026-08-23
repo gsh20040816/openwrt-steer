@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gsh20040816/openwrt-steer/go/internal/capability"
-	"github.com/gsh20040816/openwrt-steer/go/internal/compiler"
-	"github.com/gsh20040816/openwrt-steer/go/internal/generation"
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+	"github.com/gsh20040816/steer/go/internal/capability"
+	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/generation"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 type BackendOptions struct {

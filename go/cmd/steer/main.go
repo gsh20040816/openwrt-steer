@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	coreapply "github.com/gsh20040816/openwrt-steer/go/internal/apply"
-	"github.com/gsh20040816/openwrt-steer/go/internal/compiler"
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
-	"github.com/gsh20040816/openwrt-steer/go/internal/platform/openwrt"
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/compiler"
+	model "github.com/gsh20040816/steer/go/internal/intent"
+	"github.com/gsh20040816/steer/go/internal/platform/openwrt"
 )
 
 var version = "development"

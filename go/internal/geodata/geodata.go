@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gsh20040816/openwrt-steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/compiler"
 )
 
 type Runner interface {

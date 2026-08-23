@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	coreapply "github.com/gsh20040816/openwrt-steer/go/internal/apply"
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 )
 
 // Status is intentionally minimal and shared by future platform commands.

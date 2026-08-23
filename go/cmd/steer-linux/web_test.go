@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
-	linuxplatform "github.com/gsh20040816/openwrt-steer/go/internal/platform/linux"
+	model "github.com/gsh20040816/steer/go/internal/intent"
+	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
 
 func webTestIntent() model.Intent {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	linuxplatform "github.com/gsh20040816/openwrt-steer/go/internal/platform/linux"
+	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
 
 func TestRunServiceDisabledConfigurationExitsCleanly(t *testing.T) {

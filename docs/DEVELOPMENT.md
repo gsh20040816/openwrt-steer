@@ -1,6 +1,6 @@
 # 开发与验证
 
-0.4 的任务是固定跨平台边界并保持 OpenWrt 正常使用可靠。功能边界已经冻结；修改应落在正确包中，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构。
+0.5 alpha 的任务是验证统一项目命名和跨平台边界，同时保持 OpenWrt 正常使用可靠。功能边界已经冻结；修改应落在正确包中，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构。
 
 ## 仓库结构
 
@@ -9,18 +9,18 @@ go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
 go/internal/{subscription,probe,capability}     共享服务
 go/internal/platform/openwrt                    OpenWrt 适配器
 go/internal/platform/linux                      Linux systemd 主机/转发流量适配器
-go/cmd/steer-openwrt                            OpenWrt CLI
+go/cmd/steer                                    OpenWrt CLI
 go/cmd/steer-linux                              Linux CLI/Web
 linux/systemd                                   Linux unit 文件（手工安装参考）
 luci-app-steer                                  LuCI、RPC、ACL、翻译
-steer-openwrt                                   OpenWrt 控制器包
+steer                                           OpenWrt 控制器包
 steer-geodata                                   固定 Geo 数据包
 geoview                                         上游工具原样打包
 tests/node                                      LuCI/分享 URL 回归
 tests/integration                               一次性 OpenWrt VM 正常路径
 ```
 
-旧 `steer-openwrt/src` 已原子删除。共享模块路径为 `github.com/gsh20040816/openwrt-steer/go`。
+共享模块路径为 `github.com/gsh20040816/steer/go`，OpenWrt 控制器包和命令源码均使用统一名称 `steer`。
 
 ## 本地验证
 

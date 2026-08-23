@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=steer-openwrt
-PKG_VERSION:=0.4.3
+PKG_NAME:=steer
+PKG_VERSION:=0.5.0_alpha1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -12,36 +12,36 @@ PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
 
-GO_PKG:=github.com/gsh20040816/openwrt-steer/go
-GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/steer-openwrt
+GO_PKG:=github.com/gsh20040816/steer/go
+GO_PKG_BUILD_PKG:=$(GO_PKG)/cmd/steer
 GO_PKG_LDFLAGS_X:=main.version=$(PKG_VERSION)-r$(PKG_RELEASE)
 
 include $(INCLUDE_DIR)/package.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
 
-define Package/steer-openwrt
+define Package/steer
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Intent-driven transparent proxy controller for OpenWrt
-  URL:=https://github.com/gsh20040816/openwrt-steer
+  URL:=https://github.com/gsh20040816/steer
 	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +geoview +ip \
 	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun +steer-geodata
   EXTRA_DEPENDS:=sing-box (>=1.13.18), sing-box (<1.14.0)
-  PROVIDES:=steer
-  CONFLICTS:=steer
-  REPLACES:=steer
+  PROVIDES:=steer-openwrt
+  CONFLICTS:=steer-openwrt
+  REPLACES:=steer-openwrt
 endef
 
-define Package/steer-openwrt/description
+define Package/steer/description
  Steer validates strict routing and DNS intent, compiles the final sing-box
  configuration, and applies the required OpenWrt platform resources.
 endef
 
-define Package/steer-openwrt/conffiles
+define Package/steer/conffiles
 /etc/config/steer
 endef
 
-define Package/steer-openwrt/postinst
+define Package/steer/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 
@@ -72,7 +72,7 @@ apply_output="$$(PKG_UPGRADE=0 /usr/sbin/steer apply 2>&1)" || {
 }
 endef
 
-define Package/steer-openwrt/prerm
+define Package/steer/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 cron_file=/etc/crontabs/root
@@ -91,10 +91,10 @@ define Build/Prepare
 	$(CP) $(CURDIR)/../LICENSE $(PKG_BUILD_DIR)/
 endef
 
-define Package/steer-openwrt/install
+define Package/steer/install
 	$(call GoPackage/Package/Install/Bin,$(PKG_INSTALL_DIR))
 	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/steer-openwrt $(1)/usr/sbin/steer
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/steer $(1)/usr/sbin/steer
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/steer $(1)/etc/config/steer
@@ -106,5 +106,5 @@ define Package/steer-openwrt/install
 	$(INSTALL_DATA) ./files/lib/upgrade/keep.d/steer $(1)/lib/upgrade/keep.d/steer
 endef
 
-$(eval $(call GoBinPackage,steer-openwrt))
-$(eval $(call BuildPackage,steer-openwrt))
+$(eval $(call GoBinPackage,steer))
+$(eval $(call BuildPackage,steer))

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	model "github.com/gsh20040816/openwrt-steer/go/internal/intent"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 // Store is the only mutable configuration boundary required by shared

@@ -5,7 +5,7 @@ set -eu
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 REPO_DIR="$(CDPATH='' cd -- "$SCRIPT_DIR/../.." && pwd)"
-CONTROL_SOURCE="${STEER_OPENWRT_BIN:-$REPO_DIR/bin/steer-openwrt-linux-amd64}"
+CONTROL_SOURCE="${STEER_BIN:-$REPO_DIR/bin/steer-linux-amd64}"
 SING_BOX_BIN="${SING_BOX_BIN:-/usr/bin/sing-box}"
 TEST_DIR="$(mktemp -d /tmp/steer-m1-integration.XXXXXX)"
 ORIGINAL_CONFIG="$TEST_DIR/original-steer"
@@ -40,7 +40,7 @@ done
 [ ! -f /etc/config/steer ] || cp /etc/config/steer "$ORIGINAL_CONFIG"
 /etc/init.d/steer stop >/dev/null 2>&1 || true
 ln -sf "$CONTROL_SOURCE" /usr/sbin/steer
-cp "$REPO_DIR/steer-openwrt/files/etc/init.d/steer" /etc/init.d/steer
+cp "$REPO_DIR/steer/files/etc/init.d/steer" /etc/init.d/steer
 chmod 0755 /usr/sbin/steer /etc/init.d/steer
 
 mkdir -p /usr/share/rpcd/ucode

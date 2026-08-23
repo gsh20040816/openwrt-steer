@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	coreapply "github.com/gsh20040816/openwrt-steer/go/internal/apply"
-	"github.com/gsh20040816/openwrt-steer/go/internal/generation"
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/generation"
 )
 
 type fakeRunner map[string]string
