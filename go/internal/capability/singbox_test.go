@@ -21,3 +21,10 @@ func TestParseRejectsVersionAndMissingTag(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRejectsUnknownCapability(t *testing.T) {
+	report := Parse("sing-box version 1.13.19\nTags: with_quic\n", []string{"made_up"})
+	if report.OK || len(report.Errors) != 1 || report.Errors[0] != "unknown runtime capability made_up" {
+		t.Fatalf("unknown capability was not rejected: %#v", report)
+	}
+}

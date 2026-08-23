@@ -18,6 +18,12 @@ type Report struct {
 
 var versionPattern = regexp.MustCompile(`(?m)^sing-box version ([0-9]+\.[0-9]+\.[0-9]+)`)
 
+var knownCapabilities = map[string]bool{
+	"tun": true, "auto_route": true, "auto_redirect": true, "tproxy": true,
+	"network_extension": true, "dns_proxy": true,
+	"with_quic": true, "dns_quic": true, "with_utls": true,
+}
+
 func Parse(output string, required []string) Report {
 	report := Report{}
 	match := versionPattern.FindStringSubmatch(output)
@@ -45,6 +51,10 @@ func Parse(output string, required []string) Report {
 		tagSet[tag] = true
 	}
 	for _, capability := range required {
+		if !knownCapabilities[capability] {
+			report.Errors = append(report.Errors, "unknown runtime capability "+capability)
+			continue
+		}
 		requiredTag := ""
 		switch capability {
 		case "with_quic", "dns_quic":
