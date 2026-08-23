@@ -109,11 +109,15 @@ version_match = re.search(r"^pkgver=(\S+)$", arch_pkgbuild, re.MULTILINE)
 if version_match is None:
     fail("Arch steer PKGBUILD has no scalar pkgver")
 arch_version = version_match.group(1)
+commit_match = re.search(r"^_commit=([0-9a-f]{40})$", arch_pkgbuild, re.MULTILINE)
+if commit_match is None:
+    fail("Arch steer PKGBUILD must pin a full source commit")
+arch_commit = commit_match.group(1)
 for required in (
     "  'git'\n",
     f"pkgver = {arch_version}\n",
     "\tmakedepends = git\n",
-    f"\tsource = steer::git+https://github.com/gsh20040816/steer.git#tag=v{arch_version}\n",
+    f"\tsource = steer::git+https://github.com/gsh20040816/steer.git#commit={arch_commit}\n",
 ):
     source = arch_pkgbuild if required == "  'git'\n" else arch_srcinfo
     if required not in source:

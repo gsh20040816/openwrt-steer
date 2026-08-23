@@ -86,11 +86,11 @@ packaging/archlinux/
     └── .gitignore
 ```
 
-`steer` 从对应的 Steer source tag 构建，因此构建依赖同时声明 `git` 和 `go`；运行时依赖发行版提供的 `sing-box >=1.13.18,<1.14.0`、`geoview`、systemd、nftables、iproute2 和 ca-certificates。`geoview` 直接从其独立的上游 release 构建；0.2.6 源码没有声明许可证，因此配方按 Arch 规范标记为 `unknown`，不从其他发行版的打包元数据推测上游授权。两者都不捆绑 sing-box 或 Geo 数据，也不在安装过程中启用服务、Apply 配置或生成 Web token。Linux Geo 数据保持 provider-neutral，不声明特定 Geo 包为依赖。
+`steer` 从对应稳定版的固定 source commit 构建，因此构建依赖同时声明 `git` 和 `go`；运行时依赖发行版提供的 `sing-box >=1.13.18,<1.14.0`、`geoview`、systemd、nftables、iproute2 和 ca-certificates。`geoview` 直接从其独立的上游 release 构建；0.2.6 源码没有声明许可证，因此配方按 Arch 规范标记为 `unknown`，不从其他发行版的打包元数据推测上游授权。两者都不捆绑 sing-box 或 Geo 数据，也不在安装过程中启用服务、Apply 配置或生成 Web token。Linux Geo 数据保持 provider-neutral，不声明特定 Geo 包为依赖。
 
 这里的 `PKGBUILD` 是唯一手工维护的配方，`.SRCINFO` 只是由它生成并随包目录提交的元数据；独立的 AUR Git 仓库只是人工发布镜像。当前不在 CI 中保存 AUR 凭据或推送 AUR，也不提供同步/推送脚本。更新时按以下顺序执行：
 
-1. 上游 release 完成后只更新对应的 `pkgver`；配方通过 `git+https://...#tag=v$pkgver` 克隆精确 source tag，因此不再维护源码归档 SHA-256。纯打包修订只增加 `pkgrel`。Git source 配方使用 `sha256sums=('SKIP')`，依赖 HTTPS 与约定不改写的版本 tag；若需要强制供应链校验，应改用固定 commit 并配套签名/哈希校验。
+1. 更新稳定版时同时更新 `pkgver` 和 40 位 `_commit`；配方通过 `git+https://...#commit=$_commit` 克隆不可移动的 source revision。纯打包修订只增加 `pkgrel`。VCS source 本身使用 `sha256sums=('SKIP')`，供应链边界由固定 commit、HTTPS 和上游仓库共同确定。
 2. 在对应目录用 `makepkg --printsrcinfo` 重新生成 `.SRCINFO`，不得手工维护其字段，并确认生成结果与提交内容完全一致。
 3. 在干净 Arch 环境先构建 geoview，再构建 steer；分别执行 `makepkg --cleanbuild --syncdeps`，检查生成包的文件、权限、版本与依赖。
 4. 提交主仓库后，再由维护者把该包目录中的 `PKGBUILD`、`.SRCINFO` 和 `.gitignore` 人工复制、审查并提交到对应 AUR Git 仓库。
