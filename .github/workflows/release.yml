@@ -220,9 +220,12 @@ jobs:
           GEODATA_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
           SING_BOX_UPSTREAM_SHA256: ${{ env.SING_BOX_OPENWRT_X86_64_SHA256 }}
         run: |
-          mirrored_apk="$(find bin/packages -type f -name 'sing-box-*.apk')"
-          [ -n "$mirrored_apk" ]
-          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$mirrored_apk" | cut -d ' ' -f 1)"
+          set -- $(find bin/packages -type f -path '*/steer/sing-box-*.apk' | sort)
+          [ "$#" -eq 1 ] || {
+            echo "Expected exactly one mirrored sing-box APK, found $#" >&2
+            exit 1
+          }
+          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$1" | cut -d ' ' -f 1)"
           ./scripts/collect-openwrt-artifacts.sh
 
       - name: Collect signed OpenWrt repository
@@ -232,9 +235,12 @@ jobs:
           GEODATA_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
           SING_BOX_UPSTREAM_SHA256: ${{ env.SING_BOX_OPENWRT_X86_64_SHA256 }}
         run: |
-          mirrored_apk="$(find bin/packages -type f -name 'sing-box-*.apk')"
-          [ -n "$mirrored_apk" ]
-          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$mirrored_apk" | cut -d ' ' -f 1)"
+          set -- $(find bin/packages -type f -path '*/steer/sing-box-*.apk' | sort)
+          [ "$#" -eq 1 ] || {
+            echo "Expected exactly one mirrored sing-box APK, found $#" >&2
+            exit 1
+          }
+          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$1" | cut -d ' ' -f 1)"
           ./scripts/collect-openwrt-repository.sh
 
       - name: Save OpenWrt SDK ccache
