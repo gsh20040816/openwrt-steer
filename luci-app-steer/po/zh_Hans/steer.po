@@ -84,9 +84,6 @@ msgstr "阻止"
 msgid "Bootstrap DNS"
 msgstr "引导 DNS"
 
-msgid "Cache"
-msgstr "缓存"
-
 msgid "Cache capacity"
 msgstr "缓存容量"
 
@@ -378,8 +375,11 @@ msgstr "REALITY 公钥"
 msgid "REALITY short ID"
 msgstr "REALITY 短 ID"
 
-msgid "Reserved for sing-box 1.14; the current 1.13 baseline rejects it."
-msgstr "为 sing-box 1.14 预留；当前 1.13 基线会拒绝启用。"
+msgid "Persist the shared DNS cache in the Steer cache database."
+msgstr "将共享 DNS 缓存持久化到 Steer 缓存数据库。"
+
+msgid "Serve recently expired DNS answers while refreshing them in the background."
+msgstr "在后台刷新时继续返回刚过期的 DNS 响应。"
 
 msgid "Review imported node"
 msgstr "审查导入节点"

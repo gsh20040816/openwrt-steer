@@ -24,7 +24,7 @@ var optionNames = map[string]map[string]bool{
 	"node":         set("enabled", "name", "type", "server", "server_port", "uuid", "username", "flow", "packet_encoding", "password", "method", "plugin", "plugin_options", "security", "alter_id", "version", "network", "transport", "transport_path", "transport_host", "service_name", "congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat", "quic", "quic_congestion_control", "insecure_concurrency", "private_key", "host_key", "executable_path", "data_directory", "host_key_algorithms", "server_ports", "extra_args", "hop_interval", "obfs_type", "obfs_password", "up_mbps", "down_mbps", "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint", "source_subscription", "source_fingerprint", "pinned_stale"),
 	"subscription": set("enabled", "name", "url", "update_interval"),
 	"route":        set("enabled", "name", "kind", "node", "detour"),
-	"dns_profile":  set("enabled", "name", "protocol", "server", "server_port", "tls_server_name", "path", "insecure", "strategy", "cache_persist", "optimistic_cache"),
+	"dns_profile":  set("enabled", "name", "protocol", "server", "server_port", "tls_server_name", "path", "insecure", "strategy"),
 	"local_proxy":  set("enabled", "name", "protocol", "listen", "listen_port", "username", "password"),
 	"rule":         set("enabled", "default", "name", "dns_profile", "route", "inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"),
 }
@@ -48,7 +48,12 @@ func Decode(r io.Reader) (model.Intent, error) {
 	if err != nil {
 		return model.Intent{}, err
 	}
+	return decodeDocument(document)
+}
+
+func decodeDocument(document uci.Document) (model.Intent, error) {
 	var intent model.Intent
+	var err error
 	mainCount, bootstrapCount := 0, 0
 	for _, section := range document.Sections {
 		known, exists := optionNames[section.Type]
@@ -241,17 +246,8 @@ func decodeDNSProfile(s uci.Section) (model.DNSProfile, error) {
 	if err != nil {
 		return model.DNSProfile{}, err
 	}
-	persist, err := boolean(s, "cache_persist", false)
-	if err != nil {
-		return model.DNSProfile{}, err
-	}
-	optimistic, err := boolean(s, "optimistic_cache", false)
-	if err != nil {
-		return model.DNSProfile{}, err
-	}
 	return model.DNSProfile{ID: s.ID, Enabled: enabled, Name: s.Options["name"], Protocol: s.Options["protocol"], Server: s.Options["server"], ServerPort: port,
-		TLSServerName: s.Options["tls_server_name"], Path: s.Options["path"], Insecure: insecure, Strategy: value(s, "strategy", "prefer_ipv4"),
-		CachePersist: persist, OptimisticCache: optimistic}, nil
+		TLSServerName: s.Options["tls_server_name"], Path: s.Options["path"], Insecure: insecure, Strategy: value(s, "strategy", "prefer_ipv4")}, nil
 }
 
 func decodeLocalProxy(s uci.Section) (model.LocalProxy, error) {

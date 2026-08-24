@@ -1,7 +1,7 @@
 {
   "main": {
     "id": "main",
-    "schema_version": 7,
+    "schema_version": 8,
     "enabled": false,
     "log_level": "debug",
     "probe_direct": "https://direct.example/",

@@ -4,12 +4,16 @@ package linux
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
@@ -19,27 +23,7 @@ func (runner *prepareRunner) Output(_ context.Context, name string, args ...stri
 	call := name + " " + strings.Join(args, " ")
 	runner.calls = append(runner.calls, call)
 	if name == "/test/sing-box" && len(args) == 1 && args[0] == "version" {
-		return []byte("sing-box version 1.13.19\nTags: with_quic,with_utls\n"), nil
-	}
-	return nil, nil
-}
-
-type geoPrepareRunner struct{ calls []string }
-
-func (runner *geoPrepareRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
-	runner.calls = append(runner.calls, name+" "+strings.Join(args, " "))
-	if name == "/test/sing-box" && len(args) == 1 && args[0] == "version" {
-		return []byte("sing-box version 1.13.19\nTags: with_quic,with_utls\n"), nil
-	}
-	if len(args) > 1 && args[0] == "-action" && args[1] == "extract" {
-		return []byte("Available codes:\ncn\n"), nil
-	}
-	for index, arg := range args {
-		if (arg == "-output" || arg == "--output") && index+1 < len(args) {
-			if err := os.WriteFile(args[index+1], []byte("compiled\n"), 0o600); err != nil {
-				return nil, err
-			}
-		}
+		return []byte("sing-box version 1.14.0-rc.1\nTags: with_quic,with_utls\n"), nil
 	}
 	return nil, nil
 }
@@ -65,19 +49,15 @@ func TestPrepareWritesLinuxGenerationFiles(t *testing.T) {
 	}
 }
 
-func TestPrepareUsesConfiguredGeoPathWithoutRequiringUnusedKind(t *testing.T) {
+func TestPrepareValidatesPackageOwnedGeoSeed(t *testing.T) {
 	root := t.TempDir()
-	geoSitePath := filepath.Join(root, "geosite.dat")
-	if err := os.WriteFile(geoSitePath, []byte("site"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	seedDirectory := writeTestSeed(t, root, "geosite", "cn")
 	value := validIntent()
 	value.Rules = append([]model.Rule{{ID: "geo", Enabled: true, DomainMatch: []string{"geosite:cn"}, DNSProfile: "public", Route: "direct"}}, value.Rules...)
-	runner := &geoPrepareRunner{}
+	runner := &prepareRunner{}
 	backend := NewBackend(runner, value, BackendOptions{
 		RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"),
-		SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", GeoViewBinary: "/test/geoview",
-		GeoSitePath: geoSitePath,
+		SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", GeoDataDirectory: seedDirectory,
 	})
 	compiled := compiler.Compile(value, backend.CompilerOptions())
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
@@ -85,11 +65,46 @@ func TestPrepareUsesConfiguredGeoPathWithoutRequiringUnusedKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(candidate.Directory)
-	found := false
 	for _, call := range runner.calls {
-		found = found || strings.Contains(call, "-input "+geoSitePath+" ")
+		if strings.Contains(call, "geoview") || strings.Contains(call, "rule-set compile") {
+			t.Fatalf("device-side Geo conversion was invoked: %#v", runner.calls)
+		}
 	}
-	if !found {
-		t.Fatalf("configured GeoSite path was not used: %#v", runner.calls)
+}
+
+func writeTestSeed(t *testing.T, root, kind, category string) string {
+	t.Helper()
+	seedDirectory := filepath.Join(root, "seed")
+	rulesDirectory := filepath.Join(seedDirectory, "rules")
+	if err := os.MkdirAll(rulesDirectory, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	tag := "steer-" + kind + "-" + category
+	content := []byte("compiled\n")
+	rulePath := filepath.Join(rulesDirectory, tag+".srs")
+	if err := os.WriteFile(rulePath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(content)
+	inputSum := sha256.Sum256([]byte("input"))
+	manifest := geodata.Manifest{
+		SchemaVersion: geodata.ManifestSchemaVersion,
+		Upstream: geodata.UpstreamIdentity{
+			Repository: geodata.UpstreamRepository, Version: "test",
+			GeoSiteSHA256: hex.EncodeToString(inputSum[:]), GeoIPSHA256: hex.EncodeToString(inputSum[:]),
+		},
+		Tools: geodata.ToolIdentity{GeoViewRef: geodata.GeoViewCommit, SingBoxVersion: geodata.SingBoxCompiler},
+		Rules: []geodata.Rule{{
+			Kind: kind, Category: category, Tag: tag, Path: "rules/" + tag + ".srs",
+			SHA256: hex.EncodeToString(sum[:]), Size: int64(len(content)),
+		}},
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedDirectory, "manifest.json"), encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return seedDirectory
 }

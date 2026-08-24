@@ -17,17 +17,15 @@ import (
 )
 
 type BackendOptions struct {
-	RunDirectory    string
-	StateDirectory  string
-	SingBoxBinary   string
-	NFTBinary       string
-	SystemctlBinary string
-	ServiceName     string
-	GeoSitePath     string
-	GeoIPPath       string
-	GeoViewBinary   string
-	HealthTimeout   time.Duration
-	CheckListeners  func([]int) error
+	RunDirectory     string
+	StateDirectory   string
+	GeoDataDirectory string
+	SingBoxBinary    string
+	NFTBinary        string
+	SystemctlBinary  string
+	ServiceName      string
+	HealthTimeout    time.Duration
+	CheckListeners   func([]int) error
 }
 
 type Backend struct {
@@ -45,7 +43,10 @@ func NewBackend(runner Runner, value model.Intent, options BackendOptions) *Back
 }
 
 func (backend *Backend) CompilerOptions() compiler.Options {
-	return compiler.Options{StateDirectory: backend.options.StateDirectory, Target: backend.plan.CompilerTarget()}
+	return compiler.Options{
+		StateDirectory: backend.options.StateDirectory, GeoDataDirectory: backend.options.GeoDataDirectory,
+		Target: backend.plan.CompilerTarget(),
+	}
 }
 
 func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compiled compiler.Output) (candidate generation.Candidate, returnErr error) {
@@ -61,17 +62,11 @@ func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compile
 	if !capabilityReport.OK {
 		return generation.Candidate{}, fmt.Errorf("sing-box capability check failed: %v", capabilityReport.Errors)
 	}
-	if err := geodata.EnsureRules(ctx, backend.runner, compiled.GeoRuleSets, geodata.Options{
-		StateDirectory: backend.options.StateDirectory, GeoSitePath: backend.options.GeoSitePath, GeoIPPath: backend.options.GeoIPPath,
-		GeoViewBinary: backend.options.GeoViewBinary, SingBoxBinary: backend.options.SingBoxBinary,
-	}); err != nil {
+	if err := geodata.ValidateRequiredRules(compiled.GeoRuleSets, backend.options.GeoDataDirectory); err != nil {
 		return generation.Candidate{}, err
 	}
-	for _, ruleSet := range compiled.GeoRuleSets {
-		info, statErr := os.Stat(ruleSet.Path)
-		if statErr != nil || !info.Mode().IsRegular() {
-			return generation.Candidate{}, fmt.Errorf("required Geo rule-set is unavailable: %s", ruleSet.Path)
-		}
+	if err := os.MkdirAll(backend.options.StateDirectory, 0o700); err != nil {
+		return generation.Candidate{}, fmt.Errorf("create Linux state directory: %w", err)
 	}
 	candidate, err = generation.Create(filepath.Join(backend.options.RunDirectory, "generations"), value, compiled.SingBox)
 	if err != nil {
@@ -103,6 +98,9 @@ func normalizeBackendOptions(options BackendOptions) BackendOptions {
 	}
 	if options.StateDirectory == "" {
 		options.StateDirectory = "/var/lib/steer"
+	}
+	if options.GeoDataDirectory == "" {
+		options.GeoDataDirectory = geodata.DefaultSeedDirectory
 	}
 	if options.SingBoxBinary == "" {
 		options.SingBoxBinary = "/usr/bin/sing-box"

@@ -7,8 +7,6 @@
   let intent = null;
   let revision = '';
   let dirty = false;
-  let platform = null;
-  let platformRevision = '';
   let overview = null;
   let runtime = null;
 
@@ -25,8 +23,6 @@
     get intent() { return intent; },
     get revision() { return revision; },
     get dirty() { return dirty; },
-    get platform() { return platform; },
-    get platformRevision() { return platformRevision; },
     get overview() { return overview; },
     get runtime() { return runtime; },
 
@@ -35,11 +31,9 @@
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
     async init() {
-      const [config, plat, ov, runtimeInfo] = await Promise.all([S.api.config(), S.api.platform(), S.api.overview(), S.api.runtime()]);
+      const [config, ov, runtimeInfo] = await Promise.all([S.api.config(), S.api.overview(), S.api.runtime()]);
       intent = normalizeIntent(config.intent);
       revision = config.revision;
-      platform = plat.settings;
-      platformRevision = plat.revision;
       overview = ov;
       runtime = runtimeInfo;
       emit();
@@ -70,13 +64,6 @@
       revision = config.revision;
       dirty = false;
       emit();
-    },
-
-    async savePlatform() {
-      const res = await S.api.putPlatform(platform, platformRevision);
-      platformRevision = res.revision;
-      emit();
-      return res;
     }
   };
 

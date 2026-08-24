@@ -41,7 +41,7 @@ func Validate(intent Intent) Validation {
 	}
 
 	if intent.Main.SchemaVersion != SchemaVersion {
-		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 7 is supported")
+		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 8 is supported")
 	}
 	if !validID.MatchString(intent.Main.ID) {
 		err("INVALID_ID", "steer", intent.Main.ID, "id", "invalid section ID")
@@ -51,12 +51,6 @@ func Validate(intent Intent) Validation {
 	}
 	if intent.Main.DNSCacheCapacity != 0 && (intent.Main.DNSCacheCapacity < 1024 || intent.Main.DNSCacheCapacity > 10_000_000) {
 		err("INVALID_CACHE_CAPACITY", "steer", intent.Main.ID, "dns_cache_capacity", "DNS cache capacity must be 1024..10000000")
-	}
-	if intent.Main.DNSCachePersist {
-		err("REQUIRES_SING_BOX_1_14", "steer", intent.Main.ID, "dns_cache_persist", "persistent DNS cache is unavailable on the supported sing-box 1.13 baseline")
-	}
-	if intent.Main.DNSOptimisticCache {
-		err("REQUIRES_SING_BOX_1_14", "steer", intent.Main.ID, "dns_optimistic_cache", "optimistic DNS cache is unavailable on the supported sing-box 1.13 baseline")
 	}
 	validateProbeURL(intent.Main.ProbeDirectURL, intent.Main.ID, "probe_direct", err)
 	validateProbeURL(intent.Main.ProbeProxyURL, intent.Main.ID, "probe_proxy", err)
@@ -274,7 +268,7 @@ func validateNode(value Node, err, warn issueFn) {
 		warn("SUBSCRIPTION_NODE_STALE", "node", value.ID, "pinned_stale", "subscription no longer advertises this node; remove it explicitly when confirmed")
 	}
 	if !oneOf(value.Type, "socks", "http", "shadowsocks", "vmess", "trojan", "hysteria", "vless", "shadowtls", "tuic", "hysteria2", "anytls", "ssh", "naive", "tor") {
-		err("UNSUPPORTED_NODE_TYPE", "node", value.ID, "type", "node type is not supported by the sing-box 1.13 baseline")
+		err("UNSUPPORTED_NODE_TYPE", "node", value.ID, "type", "node type is not supported by the current sing-box baseline")
 		return
 	}
 	if value.Type != "tor" && !validHost(value.Server) {
@@ -526,12 +520,6 @@ func validateDNSProfile(value DNSProfile, err, warn issueFn) {
 	}
 	if !validStrategy(value.Strategy) {
 		err("INVALID_DNS_STRATEGY", "dns_profile", value.ID, "strategy", "invalid DNS strategy")
-	}
-	if value.CachePersist {
-		err("REQUIRES_SING_BOX_1_14", "dns_profile", value.ID, "cache_persist", "persistent DNS cache is unavailable on sing-box 1.13")
-	}
-	if value.OptimisticCache {
-		err("REQUIRES_SING_BOX_1_14", "dns_profile", value.ID, "optimistic_cache", "optimistic DNS cache is unavailable on sing-box 1.13")
 	}
 	if value.Insecure {
 		warn("INSECURE_TLS", "dns_profile", value.ID, "insecure", "DNS TLS certificate verification is disabled")

@@ -16,7 +16,6 @@ def fail(message: str) -> None:
 
 for path in (
     ROOT / "linux/config.example.json",
-    ROOT / "linux/platform.example.json",
     ROOT / "linux/web.example.json",
     ROOT / "scripts/collect-linux-artifacts.sh",
     ROOT / "tests/integration/linux-system.Dockerfile",
@@ -38,6 +37,7 @@ for path in (
 for retired in (
     ROOT / "linux/config.json",
     ROOT / "linux/platform.json",
+    ROOT / "linux/platform.example.json",
     ROOT / "go/cmd/steer/main.go",
     ROOT / "scripts/collect-release-artifacts.sh",
 ):
@@ -69,8 +69,8 @@ for required in (
     "for target in x86_64 aarch64",
     'package_name="steer-linux-$target"',
     "config.example.json",
-    "platform.example.json",
     "web.example.json",
+    "geodata-seed",
     "linux/systemd/*.service",
     "linux/systemd/*.timer",
     "CGO_ENABLED=0",
@@ -122,5 +122,13 @@ for required in (
     source = arch_pkgbuild if required == "  'git'\n" else arch_srcinfo
     if required not in source:
         fail(f"Arch steer metadata is missing or stale: {required.strip()}")
+
+for required in (
+    "steer-geodata.tar.zst::https://gsh20040816.github.io/steer/geodata/latest/steer-geodata.tar.zst",
+    "go run ./cmd/steer-geodata-build verify",
+    "install=steer.install",
+):
+    if required not in arch_pkgbuild:
+        fail(f"Arch steer package is missing Geo seed or migration contract: {required}")
 
 print("generic Linux packaging checks passed")

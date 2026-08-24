@@ -27,8 +27,7 @@ public_key="${3:-keys/steer-apk.pem}"
 mkdir -p "$output_dir"
 
 for pattern in \
-	'geoview-*.apk' \
-	'steer-geodata-*.apk' \
+	'sing-box-*.apk' \
 	'steer-[0-9]*.apk' \
 	'luci-app-steer-*.apk' \
 	'luci-i18n-steer-zh-cn-*.apk'; do
@@ -47,6 +46,10 @@ cp "$public_key" "$output_dir/steer-apk.pem"
 	echo "OpenWrt release: ${OPENWRT_RELEASE:-unknown}"
 	echo "OpenWrt target: ${OPENWRT_TARGET:-unknown}"
 	echo "Source revision: ${SOURCE_REVISION:-unknown}"
+	echo "Geo data version: ${GEODATA_VERSION:-unknown}"
+	echo "Geo manifest SHA256: ${GEODATA_MANIFEST_SHA256:-unknown}"
+	echo "sing-box upstream SHA256: ${SING_BOX_UPSTREAM_SHA256:-unknown}"
+	echo "sing-box mirrored SHA256: ${SING_BOX_MIRRORED_SHA256:-unknown}"
 	echo "Repository key SHA256: $(sha256sum "$public_key" | cut -d ' ' -f 1)"
 } > "$output_dir/BUILD-METADATA.txt"
 

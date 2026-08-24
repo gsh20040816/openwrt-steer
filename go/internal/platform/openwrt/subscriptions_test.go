@@ -282,7 +282,7 @@ func TestUpdateSubscriptionStillRejectsGlobalCandidateConflicts(t *testing.T) {
 
 func validSubscriptionConfig(subscriptionURL string) string {
 	return `config steer 'main'
-	option schema_version '7'
+	option schema_version '8'
 	option enabled '1'
 	option log_level 'warn'
 	option probe_direct 'https://www.baidu.com/'

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* DNS Profile：六种传输 + TLS + 缓存（1.14 预留标记）+ 规则引用计数。 */
+/* DNS Profile：六种传输 + TLS + 规则引用计数。 */
 'use strict';
 (function () {
   const S = window.S;
@@ -27,8 +27,6 @@
         const path = ui.input({ value: draft.path || '', placeholder: '/dns-query' });
         const tlsName = ui.input({ value: draft.tls_server_name || '', placeholder: 'dns.example.com' });
         const insecure = ui.toggle(draft.insecure, (v) => { draft.insecure = v; });
-        const cachePersist = ui.toggle(draft.cache_persist, (v) => { draft.cache_persist = v; });
-        const optimistic = ui.toggle(draft.optimistic_cache, (v) => { draft.optimistic_cache = v; });
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '上游'), [
@@ -39,10 +37,6 @@
             ui.field('HTTP 路径', path, 'DoH / DoH3 使用'),
             ui.field('TLS 服务器名', tlsName, 'DoT / DoH / DoQ / DoH3 使用'),
             ui.field('跳过证书校验', insecure)
-          ]),
-          h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '缓存'), [
-            ui.field('持久缓存', cachePersist, 'sing-box 1.14 预留 · 当前 1.13 基线拒绝'),
-            ui.field('乐观缓存', optimistic, 'sing-box 1.14 预留 · 当前 1.13 基线拒绝')
           ])
         );
         return {
@@ -55,8 +49,6 @@
             draft.strategy = strategy.value;
             draft.path = path.value.trim() || undefined;
             draft.tls_server_name = tlsName.value.trim() || undefined;
-            draft.cache_persist = draft.cache_persist || undefined;
-            draft.optimistic_cache = draft.optimistic_cache || undefined;
             for (const key of Object.keys(draft)) if (draft[key] == null) delete draft[key];
             Object.assign(profile, draft);
             return profile;

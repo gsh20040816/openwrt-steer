@@ -30,12 +30,14 @@ trap cleanup EXIT INT TERM
 	echo 'This integration test requires an OpenWrt x86/64 VM.' >&2
 	exit 1
 }
-for executable in "$CONTROL_SOURCE" "$SING_BOX_BIN" /usr/bin/geoview /usr/sbin/nft; do
+for executable in "$CONTROL_SOURCE" "$SING_BOX_BIN" /usr/sbin/nft; do
 	[ -x "$executable" ] || { echo "Required executable is missing: $executable" >&2; exit 1; }
 done
-for seed in geosite.dat geoip.dat; do
-	[ -s "/usr/share/steer/geodata-seed/$seed" ] || { echo "Geo seed is missing: $seed" >&2; exit 1; }
-done
+[ -s /usr/share/steer/geodata-seed/manifest.json ] || { echo 'Geo seed manifest is missing.' >&2; exit 1; }
+find /usr/share/steer/geodata-seed/rules -type f -name '*.srs' -print -quit | grep -q . || {
+	echo 'Geo SRS seed is empty.' >&2
+	exit 1
+}
 
 [ ! -f /etc/config/steer ] || cp /etc/config/steer "$ORIGINAL_CONFIG"
 /etc/init.d/steer stop >/dev/null 2>&1 || true
@@ -72,7 +74,7 @@ ubus call luci.steer geodata_catalog > "$TEST_DIR/geodata-catalog.json"
 # validator. Native compilation is exercised by normal Apply below and by the
 # shared Go compiler tests; no engineering compiler command is public.
 /usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/m1-representative-valid/steer" > "$TEST_DIR/representative-validation.json"
-/usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/schema7-detour-valid/steer" > "$TEST_DIR/detour-validation.json"
+/usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/schema8-detour-valid/steer" > "$TEST_DIR/detour-validation.json"
 
 cp "$REPO_DIR/tests/fixtures/m1-openwrt-direct-valid/steer" /etc/config/steer
 
@@ -80,6 +82,9 @@ cp "$REPO_DIR/tests/fixtures/m1-openwrt-direct-valid/steer" /etc/config/steer
 # trigger before LuCI can edit an already running configuration.
 /usr/sbin/steer apply > "$TEST_DIR/initial-apply.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/initial-apply.json" -e '@.ok')" = 'true' ]
+grep -Fq '"initial_path"' /run/steer/current/sing-box.json
+grep -Fq '"type": "remote"' /run/steer/current/sing-box.json
+[ -s /var/lib/steer/cache.db ]
 
 # Reproduce the LuCI form lifecycle with a real authenticated UCI session.
 # The disk value must remain old until the session-scoped commit completes,

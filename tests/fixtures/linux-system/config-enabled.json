@@ -1,13 +1,15 @@
 {
   "main": {
     "id": "main",
-    "schema_version": 7,
+    "schema_version": 8,
     "enabled": true,
     "log_level": "debug",
     "probe_direct": "https://direct.example/",
     "probe_proxy": "https://proxy.example/",
     "speedtest_proxy": "https://speed.example/",
-    "dns_cache_capacity": 1024
+    "dns_cache_capacity": 1024,
+    "dns_cache_persist": true,
+    "dns_optimistic_cache": true
   },
   "bootstrap": {
     "id": "bootstrap",
@@ -27,6 +29,7 @@
   ],
   "local_proxies": [],
   "rules": [
+    {"id": "geo-cn", "enabled": true, "default": false, "dns_profile": "test", "route": "direct", "domain_match": ["geosite:cn"]},
     {"id": "default", "enabled": true, "default": true, "dns_profile": "test", "route": "direct"}
   ]
 }

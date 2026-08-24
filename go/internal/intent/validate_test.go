@@ -138,11 +138,12 @@ func TestDisabledObjectsRemainStagingOnly(t *testing.T) {
 	}
 }
 
-func TestFutureDNSCacheFeaturesFailOn113(t *testing.T) {
+func TestGlobalDNSCacheFeaturesValidateOn114(t *testing.T) {
 	intent := validIntent()
-	intent.DNSProfiles[0].OptimisticCache = true
+	intent.Main.DNSCachePersist = true
+	intent.Main.DNSOptimisticCache = true
 	validation := Validate(intent)
-	if validation.OK || !hasIssue(validation, "REQUIRES_SING_BOX_1_14") {
+	if !validation.OK {
 		t.Fatalf("unexpected result: %#v", validation)
 	}
 }

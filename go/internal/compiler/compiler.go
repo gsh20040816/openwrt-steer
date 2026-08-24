@@ -24,8 +24,10 @@ type Output struct {
 }
 
 type Options struct {
-	StateDirectory string
-	Target         Target
+	StateDirectory   string
+	GeoDataDirectory string
+	GeoDataBaseURL   string
+	Target           Target
 }
 
 // Target contains sing-box-native fragments selected by one platform adapter.
@@ -51,24 +53,31 @@ type DNSPath struct {
 }
 
 type GeoRuleSet struct {
-	Kind     string `json:"kind"`
-	Category string `json:"category"`
-	Tag      string `json:"tag"`
-	Path     string `json:"path"`
+	Kind        string `json:"kind"`
+	Category    string `json:"category"`
+	Tag         string `json:"tag"`
+	InitialPath string `json:"initial_path"`
+	URL         string `json:"url"`
 }
 
 func Compile(intent model.Intent, options Options) Output {
 	if options.StateDirectory == "" {
 		options.StateDirectory = "/var/lib/steer"
 	}
-	geoSets := collectGeoRuleSets(intent, options.StateDirectory)
+	if options.GeoDataDirectory == "" {
+		options.GeoDataDirectory = "/usr/share/steer/geodata-seed"
+	}
+	if options.GeoDataBaseURL == "" {
+		options.GeoDataBaseURL = "https://gsh20040816.github.io/steer/geodata/latest/rules"
+	}
+	geoSets := collectGeoRuleSets(intent, options.GeoDataDirectory, options.GeoDataBaseURL)
 	dnsPaths := collectDNSPaths(intent)
 	output := Output{
 		IntentDigest:         digestIntent(intent),
 		RequiredCapabilities: requiredCapabilities(intent, options.Target),
 		GeoRuleSets:          geoSets,
 	}
-	output.SingBox = compileSingBox(intent, options.Target, dnsPaths, geoSets)
+	output.SingBox = compileSingBox(intent, options.Target, dnsPaths, geoSets, options.StateDirectory)
 	return output
 }
 
@@ -124,7 +133,7 @@ func collectDNSPaths(intent model.Intent) []DNSPath {
 	return paths
 }
 
-func collectGeoRuleSets(intent model.Intent, stateDirectory string) []GeoRuleSet {
+func collectGeoRuleSets(intent model.Intent, seedDirectory, baseURL string) []GeoRuleSet {
 	seen := map[string]bool{}
 	var result []GeoRuleSet
 	for _, rule := range intent.Rules {
@@ -133,12 +142,12 @@ func collectGeoRuleSets(intent model.Intent, stateDirectory string) []GeoRuleSet
 		}
 		for _, expression := range rule.DomainMatch {
 			if strings.HasPrefix(expression, "geosite:") {
-				addGeoSet(&result, seen, stateDirectory, "geosite", strings.TrimPrefix(expression, "geosite:"))
+				addGeoSet(&result, seen, seedDirectory, baseURL, "geosite", strings.TrimPrefix(expression, "geosite:"))
 			}
 		}
 		for _, expression := range rule.IPMatch {
 			if strings.HasPrefix(expression, "geoip:") {
-				addGeoSet(&result, seen, stateDirectory, "geoip", strings.TrimPrefix(expression, "geoip:"))
+				addGeoSet(&result, seen, seedDirectory, baseURL, "geoip", strings.TrimPrefix(expression, "geoip:"))
 			}
 		}
 	}
@@ -146,16 +155,20 @@ func collectGeoRuleSets(intent model.Intent, stateDirectory string) []GeoRuleSet
 	return result
 }
 
-func addGeoSet(result *[]GeoRuleSet, seen map[string]bool, stateDirectory, kind, category string) {
+func addGeoSet(result *[]GeoRuleSet, seen map[string]bool, seedDirectory, baseURL, kind, category string) {
 	tag := "steer-" + kind + "-" + category
 	if seen[tag] {
 		return
 	}
 	seen[tag] = true
-	*result = append(*result, GeoRuleSet{Kind: kind, Category: category, Tag: tag, Path: strings.TrimRight(stateDirectory, "/") + "/geodata/current/rules/" + kind + "-" + category + ".srs"})
+	*result = append(*result, GeoRuleSet{
+		Kind: kind, Category: category, Tag: tag,
+		InitialPath: strings.TrimRight(seedDirectory, "/") + "/rules/" + tag + ".srs",
+		URL:         strings.TrimRight(baseURL, "/") + "/" + tag + ".srs",
+	})
 }
 
-func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoRuleSets []GeoRuleSet) map[string]any {
+func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoRuleSets []GeoRuleSet, stateDirectory string) map[string]any {
 	profiles := indexDNSProfiles(intent.DNSProfiles)
 	routes := indexRoutes(intent.Routes)
 	macIndex := map[string]MACBinding{}
@@ -237,19 +250,55 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 	} else {
 		finalDNS = dnsPathTag(defaultRule.DNSProfile, defaultRule.Route)
 	}
-	ruleSets := make([]any, 0, len(geoRuleSets))
-	for _, ruleSet := range geoRuleSets {
-		ruleSets = append(ruleSets, map[string]any{"type": "local", "tag": ruleSet.Tag, "format": "binary", "path": ruleSet.Path})
+	ruleSets := []any{}
+	if len(geoRuleSets) > 0 {
+		tags := make([]string, 0, len(geoRuleSets))
+		for _, ruleSet := range geoRuleSets {
+			tags = append(tags, ruleSet.Tag)
+		}
+		first := geoRuleSets[0]
+		ruleSets = append(ruleSets, map[string]any{
+			"type": "remote", "tag": tags, "format": "binary",
+			"url": geoTemplate(first.URL, first.Tag), "initial_path": geoTemplate(first.InitialPath, first.Tag),
+			"update_interval": "1d",
+		})
 	}
-	return map[string]any{
-		"log": map[string]any{"level": intent.Main.LogLevel, "timestamp": true},
-		"dns": map[string]any{"servers": dnsServers, "rules": dnsRules, "final": finalDNS, "strategy": profiles[defaultRule.DNSProfile].Strategy,
-			"independent_cache": true, "cache_capacity": intent.Main.DNSCacheCapacity, "reverse_mapping": true},
+	dnsOptions := map[string]any{
+		"servers": dnsServers, "rules": dnsRules, "final": finalDNS, "strategy": profiles[defaultRule.DNSProfile].Strategy,
+		"cache_capacity": intent.Main.DNSCacheCapacity, "reverse_mapping": true,
+	}
+	if intent.Main.DNSOptimisticCache {
+		dnsOptions["optimistic"] = true
+	}
+	routeOptions := map[string]any{
+		"rules": routeRules, "rule_set": ruleSets, "final": routeTag(defaultRule.Route), "auto_detect_interface": true,
+		"default_domain_resolver": map[string]any{"server": "steer-dns-bootstrap", "strategy": intent.Bootstrap.Strategy},
+	}
+	result := map[string]any{
+		"log":       map[string]any{"level": intent.Main.LogLevel, "timestamp": true},
+		"dns":       dnsOptions,
 		"inbounds":  inbounds,
 		"outbounds": outbounds,
-		"route": map[string]any{"rules": routeRules, "rule_set": ruleSets, "final": routeTag(defaultRule.Route), "auto_detect_interface": true,
-			"default_domain_resolver": map[string]any{"server": "steer-dns-bootstrap", "strategy": intent.Bootstrap.Strategy}},
+		"route":     routeOptions,
 	}
+	if len(geoRuleSets) > 0 {
+		result["http_clients"] = []any{map[string]any{"tag": "steer-geodata"}}
+		routeOptions["default_http_client"] = "steer-geodata"
+	}
+	if len(geoRuleSets) > 0 || intent.Main.DNSCachePersist {
+		cacheFile := map[string]any{
+			"enabled": true, "path": strings.TrimRight(stateDirectory, "/") + "/cache.db", "cache_id": "steer",
+		}
+		if intent.Main.DNSCachePersist {
+			cacheFile["store_dns"] = true
+		}
+		result["experimental"] = map[string]any{"cache_file": cacheFile}
+	}
+	return result
+}
+
+func geoTemplate(value, tag string) string {
+	return strings.TrimSuffix(value, tag+".srs") + "{tag}.srs"
 }
 
 func compileNode(node model.Node) map[string]any {

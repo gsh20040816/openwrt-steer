@@ -29,6 +29,8 @@ func run(args []string) error {
 		return runCleanup(args[1:])
 	case "geo-catalog":
 		return runGeoCatalog(args[1:])
+	case "migrate":
+		return runMigrate(args[1:])
 	case "subscription":
 		return runSubscription(args[1:])
 	case "web":
@@ -43,5 +45,5 @@ func run(args []string) error {
 }
 
 func usage() error {
-	return errors.New("usage: steer version|validate|apply|health|status|probe|cleanup|geo-catalog|subscription|web|web-token|_run [flags]")
+	return errors.New("usage: steer version|validate|apply|health|status|probe|cleanup|geo-catalog|migrate|subscription|web|web-token|_run [flags]")
 }

@@ -43,12 +43,6 @@
     return data;
   }
 
-  async function platform() {
-    const { response, data } = await request('/api/v1/platform');
-    data.revision = response.headers.get('ETag') || data.revision || '';
-    return data;
-  }
-
   async function putConfig(intent, expectedRevision, apply) {
     const revision = expectedRevision || (await config()).revision;
     const { response, data } = await fetchJSON('/api/v1/config', {
@@ -78,8 +72,7 @@
         const known = new Set(catalogs[kind].names || []);
         S.asList(values).filter((value) => String(value).startsWith(`${kind}:`)).forEach((value) => {
           const category = String(value).slice(kind.length + 1);
-          const catalogName = category.split('@', 1)[0];
-          if (!known.has(catalogName)) {
+          if (!known.has(category)) {
             errors.push(`${rule.id || 'rule'}: ${value} 不存在于当前 ${kind} 数据库`);
           }
         });
@@ -119,17 +112,6 @@
       return (await request(`/api/v1/subscriptions/${encodeURIComponent(subscriptionId)}/nodes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' })).data;
     },
     async geodata(kind) { return (await request(`/api/v1/geodata/${encodeURIComponent(kind)}`)).data; },
-    platform,
-    async putPlatform(settings, expectedRevision) {
-      const revision = expectedRevision || (await platform()).revision;
-      const { response, data } = await fetchJSON('/api/v1/platform', {
-        method: 'PUT', headers: { 'If-Match': revision }, body: JSON.stringify(settings)
-      });
-      data.revision = response.headers.get('ETag') || data.revision || revision;
-      if (!response.ok && data.saved !== true) throw responseError(response, data);
-      data.request_ok = response.ok;
-      return data;
-    },
     async importNode(uri) {
       const data = (await request('/api/v1/nodes/import', { method: 'POST', body: JSON.stringify({ uri }) })).data;
       return { ...data, warnings: data.warnings || [] };

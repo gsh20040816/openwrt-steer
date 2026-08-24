@@ -5,7 +5,7 @@ Steer 采用“共享意图核心 + 平台适配器”。共享编译器生成�
 ## 代码边界
 
 ```text
-go/internal/intent                 Canonical Intent、schema 7 校验、严格 JSON codec
+go/internal/intent                 Canonical Intent、schema 8 校验、严格 JSON codec、7→8 迁移
 go/internal/compiler               确定性 sing-box 最终配置编译
 go/internal/apply                  同步 Apply 编排和结果合同
 go/internal/generation             平台中立 generation 文件
@@ -17,7 +17,7 @@ go/internal/platform/linux         systemd、TUN、DNS nft shim、JSON 和 Linux
 go/internal/platform/openwrt/uci   严格 UCI 语法解析
 go/cmd/steer-openwrt               OpenWrt CLI 源码 target
 go/cmd/steer-linux                 Linux CLI 和 loopback Web 控制面
-go/internal/geodata                 显式 Geo 数据文件到内容寻址 SRS generation
+go/internal/geodata                包内 SRS seed manifest 与文件完整性校验
 ```
 
 共享包只能依赖共享包；`platform/openwrt` 和 `platform/linux` 可以依赖共享包，反向依赖禁止。
@@ -53,7 +53,7 @@ Linux JSON ──严格解码───┼→ Canonical Intent → Validate → C
 
 ## OpenWrt 数据面
 
-主路径由 sing-box TUN 的 `auto_route`、`strict_route` 和 `auto_redirect` 接管。平台适配器补充两项 1.13 基线能力：
+主路径由 sing-box TUN 的 `auto_route`、`strict_route` 和 `auto_redirect` 接管。平台适配器补充两项数据面能力：
 
 - nftables 把传统 TCP/UDP 53 送入专用 sing-box DNS 入口；
 - 源 MAC 条件使用专用双栈 TProxy/DNS 入口和策略路由。
@@ -64,7 +64,9 @@ TUN 名称、地址、table、priority、mark、NFQUEUE 和平台端口都属于
 
 Linux 第一版承诺 systemd 主机及其 VM/Docker 转发的公网流量，不提供通用 LAN 网关配置向导、源 MAC 或多用户策略。平台使用与 OpenWrt 相同的 sing-box TUN 主路径，且不设置 `include_interface` 限制；传统 TCP/UDP 53 请求通过 `OUTPUT` 和 `PREROUTING` shim 进入 IPv4/IPv6 loopback DNS inbound，TUN 自身、标记为 Steer 内部出口的连接和本机目的地址直接放行。Linux 不改 NetworkManager、`/etc/resolv.conf` 或 systemd-resolved 配置，也不生成 MAC 策略路由。
 
-`platform/linux` 固定自己的 TUN、DNS、table、priority、mark 和 NFQUEUE 资源；这些只保存在 generation 的 `platform.json`，不进入 Canonical Intent。Geo category 仍是共享 Intent 语义；OpenWrt adapter 传入包拥有的固定 GeoSite/GeoIP 路径，Linux adapter 从 `/etc/steer/platform.json` 读取用户选择的任意绝对文件路径。`internal/geodata` 只按实际使用的 kind 读取文件，并以内容 SHA-256 和 category manifest 判断 SRS generation 是否可复用。
+`platform/linux` 固定自己的 TUN、DNS、table、priority、mark 和 NFQUEUE 资源；这些只保存在 generation 内部的 `platform.json`，不进入 Canonical Intent，也不存在用户可编辑的 `/etc/steer/platform.json`。Geo category 是共享 Intent 语义；两个 adapter 都使用包内 `/usr/share/steer/geodata-seed`。`internal/geodata` 以严格 manifest 精确解析 selector，并在切换运行态前校验所需 SRS 的普通文件类型、大小和 SHA-256。
+
+编译器为用到的 Geo selector 生成 sing-box remote binary rule-set：包内 SRS 是 `initial_path`，Pages 上同名 SRS 是 `url`，更新周期为 1 天。显式 direct HTTP client 避免 Geo 下载受用户代理路由影响；`/var/lib/steer/cache.db` 由 sing-box 保存 remote rule-set cache。首次启动不依赖网络，远端更新失败只记录在 sing-box 日志中，不改变已通过 seed 启动的 Apply 结果。
 
 ## Apply
 

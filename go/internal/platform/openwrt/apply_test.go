@@ -24,7 +24,7 @@ func (runner *applyRunner) Output(_ context.Context, name string, args ...string
 	runner.calls = append(runner.calls, call)
 	switch {
 	case strings.HasSuffix(call, "sing-box version"):
-		return []byte("sing-box version 1.13.19\nTags: with_quic,with_utls\n"), nil
+		return []byte("sing-box version 1.14.0-rc.1\nTags: with_quic,with_utls\n"), nil
 	case strings.Contains(call, "sing-box check -c"), strings.Contains(call, "nft -c -f"):
 		return nil, nil
 	case call == "/test/init stop", call == "/usr/bin/env STEER_USE_CURRENT=1 /test/init start":

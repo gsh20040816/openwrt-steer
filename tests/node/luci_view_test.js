@@ -397,7 +397,7 @@ async function main() {
 		local_proxy: []
 	};
 	environment = await renderRules(geoSections, {
-		geosite: { ok: true, names: [ 'category-example', 'category-media' ] },
+		geosite: { ok: true, names: [ 'category-example', 'category-media', 'category-media@test' ] },
 		geoip: { ok: true, names: [ 'example', 'private' ] }
 	});
 	options = allOptions(environment);
@@ -406,7 +406,7 @@ async function main() {
 	assert.ok(domainMatch && ipMatch && domainMatch.type == ipMatch.type,
 		'Domain and destination IP use the same multiline match editor');
 	assert.deepEqual(domainMatch.editorSuggestions('domain', 'geosite:media', domainMatch.catalogNames),
-		[ 'geosite:category-media' ],
+		[ 'geosite:category-media', 'geosite:category-media@test' ],
 		'Domain editor filters GeoSite names using the current line');
 	assert.deepEqual(ipMatch.editorSuggestions('ip', 'geoip:pri', ipMatch.catalogNames),
 		[ 'geoip:private' ],
@@ -424,7 +424,9 @@ async function main() {
 		{ start: 15, end: 28, value: 'geosite:media' },
 		'Completion reads only the line under the cursor');
 	assert.equal(domainMatch.validate('geo_rule', 'geosite:category-media@test'), true,
-		'GeoSite attribute selectors pass when their base category is known');
+		'GeoSite attribute selectors pass only when the exact selector is known');
+	assert.notEqual(domainMatch.validate('geo_rule', 'geosite:category-media@missing'), true,
+		'Unknown GeoSite attribute selectors are rejected even when the base category exists');
 	assert.notEqual(domainMatch.validate('geo_rule', 'geosite:not-present@cn'), true,
 		'Names absent from current Geo data are rejected in the editor');
 	const editorInstance = Object.create(domainMatch.type.prototype);

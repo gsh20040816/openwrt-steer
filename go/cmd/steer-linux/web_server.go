@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/gsh20040816/steer/go/internal/geodata"
+	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
 
 //go:embed web/*
@@ -18,18 +18,20 @@ var webAssets embed.FS
 type webApplication struct {
 	WebConfigPath  string
 	ConfigPath     string
-	PlatformPath   string
 	RunDirectory   string
 	StateDirectory string
-	GeoRunner      geodata.Runner
-	GeoViewBinary  string
+	SeedDirectory  string
+	Runner         linuxplatform.Runner
 }
 
-func serveWeb(listen, webConfigPath, configPath, platformPath, runDirectory, stateDirectory string) error {
+func serveWeb(listen, webConfigPath, configPath, runDirectory, stateDirectory, seedDirectory string) error {
 	if _, err := configuredWebToken(webConfigPath); err != nil {
 		return fmt.Errorf("read Web credentials: %w", err)
 	}
-	app := webApplication{WebConfigPath: webConfigPath, ConfigPath: configPath, PlatformPath: platformPath, RunDirectory: runDirectory, StateDirectory: stateDirectory}
+	app := webApplication{
+		WebConfigPath: webConfigPath, ConfigPath: configPath, RunDirectory: runDirectory,
+		StateDirectory: stateDirectory, SeedDirectory: seedDirectory,
+	}
 	return (&http.Server{Addr: listen, Handler: webHandler(app)}).ListenAndServe()
 }
 
@@ -40,7 +42,6 @@ func webHandler(app webApplication) http.Handler {
 	mux.HandleFunc("/style.css", app.handleAsset)
 	mux.HandleFunc("/js/", app.handleAsset)
 	mux.HandleFunc("/api/v1/config", app.auth(app.handleConfig))
-	mux.HandleFunc("/api/v1/platform", app.auth(app.handlePlatform))
 	mux.HandleFunc("/api/v1/runtime", app.auth(app.handleRuntime))
 	mux.HandleFunc("/api/v1/overview", app.auth(app.handleOverview))
 	mux.HandleFunc("/api/v1/validate", app.auth(app.handleValidate))
@@ -55,6 +56,13 @@ func webHandler(app webApplication) http.Handler {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		mux.ServeHTTP(writer, request)
 	})
+}
+
+func (app webApplication) seedDirectory() string {
+	if app.SeedDirectory == "" {
+		return "/usr/share/steer/geodata-seed"
+	}
+	return app.SeedDirectory
 }
 
 func (app webApplication) handleIndex(writer http.ResponseWriter, request *http.Request) {

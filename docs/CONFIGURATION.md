@@ -1,27 +1,17 @@
 # 配置与使用
 
-当前公开配置是 schema 7。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 是严格 Canonical JSON 真相，不读取或迁移 UCI。
-
-Linux 另有严格 schema 1 的 `/etc/steer/platform.json`，只保存平台资源路径，不属于 Canonical Intent：
-
-```json
-{
-  "schema_version": 1,
-  "geosite_path": "/usr/share/v2ray/geosite.dat",
-  "geoip_path": "/usr/share/v2ray/geoip.dat"
-}
-```
-
-两个路径都可留空；只有 Intent 实际引用对应的 `geosite:` 或 `geoip:` 时才要求该绝对路径指向可读、非空的普通文件。用户不配置 provider、release 或哈希；Steer 在内部按文件内容 SHA-256 和所需 category manifest 管理 `/var/lib/steer/geodata` 缓存。
+当前公开配置是 schema 8。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 是严格 Canonical JSON 真相，不读取 UCI。Geo category 由包内 `/usr/share/steer/geodata-seed/manifest.json` 精确校验，不再配置 DAT 路径。
 
 ## 基本配置
 
 ```uci
 config steer 'main'
-	option schema_version '7'
+	option schema_version '8'
 	option enabled '1'
 	option log_level 'warn'
 	option dns_cache_capacity '4096'
+	option dns_cache_persist '1'
+	option dns_optimistic_cache '1'
 	option probe_direct 'https://www.baidu.com/'
 	option probe_proxy 'https://www.google.com/generate_204'
 	option speedtest_proxy 'https://speed.cloudflare.com/__down?bytes=1000000'
@@ -92,7 +82,7 @@ config dns_profile 'secure_dns'
 	option strategy 'prefer_ipv4'
 ```
 
-协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。`dns_cache_persist` 和 `dns_optimistic_cache` 为 sing-box 1.14 预留，在当前 1.13 基线上启用会被拒绝。
+协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。缓存容量、持久化与乐观缓存是全局设置；schema 8 不再提供无法精确表达的 profile 级缓存开关。
 
 ## 规则
 
@@ -123,6 +113,8 @@ config rule 'default'
 - `network`、`protocol`、`port`。
 
 同一字段多值为 OR，不同非空字段为 AND。目标 IP、网络、协议和端口只参与业务路由，不参与 DNS 选择。
+
+`geosite:` 与 `geoip:` 引用必须精确存在于包内 manifest；`geosite:steam@cn` 之类属性 selector 也按完整名称校验。Apply 在停止当前 generation 前验证所需 seed 的路径、大小和 SHA-256。sing-box 随后使用本地 `initial_path` 启动，并每 24 小时后台检查 `https://gsh20040816.github.io/steer/geodata/latest/`。远端失败不会把有效 seed/cache 伪装成失败，错误保留在 sing-box 日志中。
 
 ## 本地入口和订阅
 
@@ -185,4 +177,4 @@ steer probe --kind speedtest --route <route-id> --download
 
 ## 版本与升级
 
-0.4 只接受 schema 7，不迁移旧 schema，也不注入缺失字段。安装/升级在 schema 不匹配时 fail-fast。旧版本遗留的 `/var/lib/steer/rollback.uci` 会被删除，因为 rollback 功能和接口已经完全移除。
+0.7 只在正常运行路径接受 schema 8。OpenWrt 包安装脚本会显式执行一次 schema 7→8 窄迁移；Arch 包升级脚本调用同一 Linux 迁移命令；通用 Linux 归档用户在替换服务前运行 `steer migrate --config /etc/steer/config.json`。迁移只删除从未生效的 DNS profile cache 字段并更新 schema 号，其他语义保持不变。旧版本遗留的 `/var/lib/steer/rollback.uci` 仍会被删除。

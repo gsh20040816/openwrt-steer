@@ -1,0 +1,175 @@
+name: Publish current Geo rule-sets
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+
+concurrency:
+  group: pages-site
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+  pages: write
+  id-token: write
+
+env:
+  SING_BOX_VERSION: 1.14.0-rc.1
+  SING_BOX_LINUX_AMD64_MUSL_SHA256: e057d850417b0f86b0da0c169adc552b7fd8b40012884435e9e7aaecf03aa9a8
+
+jobs:
+  publish:
+    name: Build, verify and deploy latest Geo data
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve latest Loyalsoldier release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release="$(gh api /repos/Loyalsoldier/v2ray-rules-dat/releases/latest)"
+          version="$(jq -r '.tag_name' <<<"$release")"
+          published_at="$(jq -r '.published_at' <<<"$release")"
+          [ -n "$version" ] && [ "$version" != null ]
+          [ -n "$published_at" ] && [ "$published_at" != null ]
+          current_version="$(curl --fail --location --silent --show-error \
+            https://gsh20040816.github.io/steer/geodata/latest/manifest.json 2>/dev/null \
+            | jq -r '.upstream.version' 2>/dev/null || true)"
+          if [ "$current_version" = "$version" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_date_epoch=$(date --date="$published_at" +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Download Geo inputs and sing-box compiler
+        if: steps.upstream.outputs.changed == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/geodata-input"
+          for input in geosite geoip; do
+            curl --fail --location --silent --show-error \
+              --output "$RUNNER_TEMP/geodata-input/$input.dat" \
+              "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download/${{ steps.upstream.outputs.version }}/$input.dat"
+          done
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/sing-box.tar.gz" \
+            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/sing-box-$SING_BOX_VERSION-linux-amd64-musl.tar.gz"
+          printf '%s  %s\n' \
+            "$SING_BOX_LINUX_AMD64_MUSL_SHA256" \
+            "$RUNNER_TEMP/sing-box.tar.gz" \
+            | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/sing-box.tar.gz" -C "$RUNNER_TEMP"
+
+      - name: Generate and verify every SRS
+        if: steps.upstream.outputs.changed == 'true'
+        working-directory: go
+        run: |
+          go run ./cmd/steer-geodata-build generate \
+            --geosite "$RUNNER_TEMP/geodata-input/geosite.dat" \
+            --geoip "$RUNNER_TEMP/geodata-input/geoip.dat" \
+            --sing-box "$RUNNER_TEMP/sing-box-$SING_BOX_VERSION-linux-amd64-musl/sing-box" \
+            --upstream-version "${{ steps.upstream.outputs.version }}" \
+            --output "$RUNNER_TEMP/geodata-seed"
+
+      - name: Assemble deterministic Geo bundle
+        if: steps.upstream.outputs.changed == 'true'
+        run: |
+          temporary_tar="$RUNNER_TEMP/steer-geodata.tar"
+          tar \
+            --sort=name \
+            --mtime="@${{ steps.upstream.outputs.source_date_epoch }}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            -cf "$temporary_tar" \
+            -C "$RUNNER_TEMP/geodata-seed" \
+            .
+          zstd -q -19 -T0 "$temporary_tar" -o "$RUNNER_TEMP/steer-geodata.tar.zst"
+
+      - name: Restore current generated Pages state
+        if: steps.upstream.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          if git fetch origin refs/heads/pages:refs/remotes/origin/pages; then
+            git archive refs/remotes/origin/pages \
+              | tar -xf - -C "$RUNNER_TEMP/site"
+          else
+            run_id="$({
+              gh api --paginate \
+                "/repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=master&status=success&per_page=100" \
+                --jq '.workflow_runs[] | select(.event == "push") | .id'
+            } | head -n 1)"
+            [ -n "$run_id" ] || {
+              echo 'No generated Pages branch or successful OpenWrt repository artifact exists.' >&2
+              exit 1
+            }
+            gh run download "$run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --name openwrt-repository \
+              --dir "$RUNNER_TEMP/openwrt-repository"
+            set -- $(find "$RUNNER_TEMP/openwrt-repository" -type f -name packages.adb)
+            [ "$#" -eq 1 ]
+            repository_dir="$(dirname "$1")"
+            mkdir -p "$RUNNER_TEMP/site/openwrt/25.12.5/x86_64"
+            cp "$repository_dir"/* "$RUNNER_TEMP/site/openwrt/25.12.5/x86_64/"
+            cp repository/index.html "$RUNNER_TEMP/site/index.html"
+          fi
+
+      - name: Replace current Geo subtree
+        if: steps.upstream.outputs.changed == 'true'
+        run: |
+          target="$RUNNER_TEMP/site/geodata/latest"
+          rm -rf "$target"
+          mkdir -p "$target"
+          cp -R "$RUNNER_TEMP/geodata-seed/rules" "$target/rules"
+          cp "$RUNNER_TEMP/geodata-seed/manifest.json" "$target/manifest.json"
+          cp "$RUNNER_TEMP/steer-geodata.tar.zst" "$target/steer-geodata.tar.zst"
+          touch "$RUNNER_TEMP/site/.nojekyll"
+
+      - name: Publish one current generated branch commit
+        if: steps.upstream.outputs.changed == 'true'
+        run: |
+          pages_repo="$RUNNER_TEMP/pages-repository"
+          mkdir -p "$pages_repo"
+          git -C "$pages_repo" init --initial-branch=pages
+          git -C "$pages_repo" config user.name github-actions[bot]
+          git -C "$pages_repo" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          auth_header="$(git config --get http.https://github.com/.extraheader)"
+          git -C "$pages_repo" config http.https://github.com/.extraheader "$auth_header"
+          git -C "$pages_repo" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          cp -R "$RUNNER_TEMP/site"/. "$pages_repo/"
+          git -C "$pages_repo" add --all
+          git -C "$pages_repo" commit -m "chore: publish current Pages state"
+          previous="$(git rev-parse refs/remotes/origin/pages 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            git -C "$pages_repo" push \
+              --force-with-lease="refs/heads/pages:$previous" \
+              origin HEAD:pages
+          else
+            git -C "$pages_repo" push origin HEAD:pages
+          fi
+
+      - name: Upload GitHub Pages artifact
+        if: steps.upstream.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9d
+        with:
+          path: ${{ runner.temp }}/site
+
+      - name: Deploy current Pages state
+        if: steps.upstream.outputs.changed == 'true'
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128

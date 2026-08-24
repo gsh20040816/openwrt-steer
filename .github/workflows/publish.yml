@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: pages-site
+  cancel-in-progress: false
+
 permissions:
   actions: read
   contents: write
@@ -72,8 +76,7 @@ jobs:
           sha256sum -c SHA256SUMS
           grep -Fqx "Source revision: $SOURCE_REVISION" BUILD-METADATA.txt
           for pattern in \
-            'geoview-*.apk' \
-            'steer-geodata-*.apk' \
+            'sing-box-*.apk' \
             'steer-[0-9]*.apk' \
             'luci-app-steer-*.apk' \
             'luci-i18n-steer-zh-cn-*.apk' \
@@ -103,8 +106,7 @@ jobs:
           grep -Fqx "Source revision: $SOURCE_REVISION" BUILD-METADATA.txt
           openssl pkey -pubin -in steer-apk.pem -noout
           for pattern in \
-            'geoview-*.apk' \
-            'steer-geodata-*.apk' \
+            'sing-box-*.apk' \
             'steer-[0-9]*.apk' \
             'luci-app-steer-*.apk' \
             'luci-i18n-steer-zh-cn-*.apk'; do
@@ -137,11 +139,39 @@ jobs:
       - name: Prepare stable repository site
         if: ${{ !contains(github.ref_name, '-') }}
         run: |
+          mkdir -p site
+          if git fetch origin refs/heads/pages:refs/remotes/origin/pages; then
+            git archive refs/remotes/origin/pages | tar -xf - -C site
+          fi
+          rm -rf site/openwrt/25.12.5/x86_64
           mkdir -p site/openwrt/25.12.5/x86_64
           cp "${{ steps.repository.outputs.repository_dir }}"/* \
             site/openwrt/25.12.5/x86_64/
           cp repository/index.html site/index.html
           touch site/.nojekyll
+
+      - name: Publish one current generated branch commit
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: |
+          pages_repo="$RUNNER_TEMP/pages-repository"
+          mkdir -p "$pages_repo"
+          git -C "$pages_repo" init --initial-branch=pages
+          git -C "$pages_repo" config user.name github-actions[bot]
+          git -C "$pages_repo" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          auth_header="$(git config --get http.https://github.com/.extraheader)"
+          git -C "$pages_repo" config http.https://github.com/.extraheader "$auth_header"
+          git -C "$pages_repo" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          cp -R site/. "$pages_repo/"
+          git -C "$pages_repo" add --all
+          git -C "$pages_repo" commit -m "chore: publish current Pages state"
+          previous="$(git rev-parse refs/remotes/origin/pages 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            git -C "$pages_repo" push \
+              --force-with-lease="refs/heads/pages:$previous" \
+              origin HEAD:pages
+          else
+            git -C "$pages_repo" push origin HEAD:pages
+          fi
 
       - name: Upload GitHub Pages artifact
         if: ${{ !contains(github.ref_name, '-') }}
