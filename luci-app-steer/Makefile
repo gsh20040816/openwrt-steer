@@ -1,6 +1,6 @@
 include $(TOPDIR)/rules.mk
 
-PKG_VERSION:=0.7.0-alpha.1
+PKG_VERSION:=0.7.0_alpha1
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)-r$(PKG_RELEASE)
 
