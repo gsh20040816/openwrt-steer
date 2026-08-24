@@ -25,8 +25,7 @@ define Package/steer
   TITLE:=Intent-driven transparent proxy controller for OpenWrt
   URL:=https://github.com/gsh20040816/steer
 	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +ip \
-	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun
-  EXTRA_DEPENDS:=sing-box
+	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun +sing-box
   PROVIDES:=steer-openwrt
   CONFLICTS:=steer-openwrt
   REPLACES:=steer-openwrt

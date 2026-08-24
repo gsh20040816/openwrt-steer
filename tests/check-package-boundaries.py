@@ -39,13 +39,10 @@ for concrete_ip_provider in ("ip-tiny", "ip-full"):
     if f"+{concrete_ip_provider}" in makefile:
         fail(f"steer must use the virtual ip provider, not {concrete_ip_provider}")
 
-extra_depends = [
-    line.strip()
-    for line in makefile.splitlines()
-    if line.strip().startswith("EXTRA_DEPENDS:=")
-]
-if extra_depends != ["EXTRA_DEPENDS:=sing-box"]:
-    fail("only the unversioned sing-box provider may bypass Kconfig through EXTRA_DEPENDS")
+if "+sing-box" not in makefile:
+    fail("steer must depend on the unversioned sing-box provider")
+if "EXTRA_DEPENDS:=" in makefile:
+    fail("steer must not use version-constrained EXTRA_DEPENDS for sing-box")
 
 for metadata in (
     "PROVIDES:=steer-openwrt",
