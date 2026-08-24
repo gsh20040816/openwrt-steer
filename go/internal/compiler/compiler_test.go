@@ -13,7 +13,8 @@ import (
 func representativeIntent() model.Intent {
 	return model.Intent{
 		Main: model.Main{ID: "main", SchemaVersion: model.SchemaVersion, Enabled: true, LogLevel: "warn",
-			ProbeDirectURL: "https://www.baidu.com/", ProbeProxyURL: "https://www.google.com/generate_204", SpeedtestProxyURL: "https://speed.cloudflare.com/__down?bytes=1000000", DNSCacheCapacity: 4096},
+			ProbeDirectURL: "https://www.baidu.com/", ProbeProxyURL: "https://www.google.com/generate_204", SpeedtestProxyURL: "https://speed.cloudflare.com/__down?bytes=1000000",
+			DNSCacheCapacity: 4096, DNSCachePersist: true, DNSOptimisticCache: true},
 		Bootstrap:    model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeTransport: model.NodeTransport{Flow: "xtls-rprx-vision", PacketEncoding: "xudp"}, NodeTLS: model.NodeTLS{TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}}},
 		Routes:       []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy", Enabled: true, Kind: "single", Node: "node"}, {ID: "block", Enabled: true, Kind: "block"}},
@@ -66,11 +67,24 @@ func TestCompilePathIsolationAndProjection(t *testing.T) {
 	if len(dns["servers"].([]any)) != 3 {
 		t.Fatalf("DNS paths are not isolated by route: %#v", dns["servers"])
 	}
-	if dns["independent_cache"] != true {
-		t.Fatal("sing-box 1.13 independent cache is required")
+	if _, exists := dns["independent_cache"]; exists || dns["optimistic"] != true {
+		t.Fatalf("sing-box 1.14 DNS cache options are wrong: %#v", dns)
+	}
+	route := bundle.SingBox["route"].(map[string]any)
+	sets := route["rule_set"].([]any)
+	if len(sets) != 1 {
+		t.Fatalf("Geo rule-sets were not grouped: %#v", sets)
+	}
+	remote := sets[0].(map[string]any)
+	if remote["type"] != "remote" || remote["url"] != "https://gsh20040816.github.io/steer/geodata/latest/rules/{tag}.srs" || remote["initial_path"] != "/usr/share/steer/geodata-seed/rules/{tag}.srs" {
+		t.Fatalf("unexpected remote Geo rule-set: %#v", remote)
+	}
+	cache := bundle.SingBox["experimental"].(map[string]any)["cache_file"].(map[string]any)
+	if cache["path"] != "/var/lib/steer/cache.db" || cache["store_dns"] != true {
+		t.Fatalf("unexpected persistent cache: %#v", cache)
 	}
 	dnsRules := dns["rules"].([]any)
-	routeRules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	routeRules := route["rules"].([]any)
 	encodedDNS, _ := json.Marshal(dnsRules)
 	encodedRoute, _ := json.Marshal(routeRules)
 	if strings.Contains(string(encodedDNS), `"port":`) || !strings.Contains(string(encodedRoute), `"port":[443]`) {

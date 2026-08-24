@@ -55,6 +55,8 @@ func run(args []string) error {
 		return runSubscription(args[1:])
 	case "geo-catalog":
 		return runGeoCatalog(args[1:])
+	case "migrate":
+		return runMigrate(args[1:])
 	case "cleanup":
 		return runCleanup(args[1:])
 	case "_start":
@@ -363,14 +365,13 @@ func runGeoCatalog(args []string) error {
 	flags := flag.NewFlagSet("geo-catalog", flag.ContinueOnError)
 	kind := flags.String("kind", "", "geosite or geoip")
 	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
-	geoViewBinary := flags.String("geoview", "/usr/bin/geoview", "geoview binary")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("geo-catalog accepts flags only")
 	}
-	names, err := openwrt.GeoCatalog(context.Background(), openwrt.ExecRunner{}, *kind, filepath.Join(*seedDirectory, *kind+".dat"), *geoViewBinary)
+	names, err := openwrt.GeoCatalog(*seedDirectory, *kind)
 	if err != nil {
 		return err
 	}
@@ -378,6 +379,26 @@ func runGeoCatalog(args []string) error {
 		Kind  string   `json:"kind"`
 		Names []string `json:"names"`
 	}{*kind, names})
+	return nil
+}
+
+func runMigrate(args []string) error {
+	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("migrate accepts flags only")
+	}
+	changed, err := openwrt.MigrateSchema7(context.Background(), *configPath)
+	if err != nil {
+		return err
+	}
+	writeJSON(struct {
+		OK      bool `json:"ok"`
+		Changed bool `json:"changed"`
+	}{true, changed})
 	return nil
 }
 
@@ -464,5 +485,5 @@ func writeJSON(value any) {
 }
 
 func usage() error {
-	return errors.New("usage: steer version|validate|apply|health|status|probe|subscription|geo-catalog|cleanup [flags]")
+	return errors.New("usage: steer version|validate|apply|health|status|probe|subscription|geo-catalog|migrate|cleanup [flags]")
 }

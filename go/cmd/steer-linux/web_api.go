@@ -203,40 +203,16 @@ func (app webApplication) handleGeoData(writer http.ResponseWriter, request *htt
 }
 
 type geoDataStatus struct {
-	Kind       string           `json:"kind"`
-	Configured bool             `json:"configured"`
-	Required   bool             `json:"required"`
-	Readable   bool             `json:"readable"`
-	Path       string           `json:"path,omitempty"`
-	Count      int              `json:"count"`
-	Names      []string         `json:"names"`
-	Error      *webErrorDetails `json:"error,omitempty"`
+	Kind     string           `json:"kind"`
+	Readable bool             `json:"readable"`
+	Count    int              `json:"count"`
+	Names    []string         `json:"names"`
+	Error    *webErrorDetails `json:"error,omitempty"`
 }
 
-func (app webApplication) geoDataStatus(ctx context.Context, kind string) geoDataStatus {
+func (app webApplication) geoDataStatus(_ context.Context, kind string) geoDataStatus {
 	status := geoDataStatus{Kind: kind, Names: []string{}}
-	if value, _, err := (linuxplatform.IntentStore{Path: app.ConfigPath}).Load(); err == nil {
-		status.Required = intentRequiresGeoKind(value, kind)
-	}
-	settings, _, err := (linuxplatform.SettingsStore{Path: app.platformPath()}).Load()
-	if err != nil {
-		status.Error = &webErrorDetails{Code: "PLATFORM_SETTINGS_INVALID", Message: err.Error()}
-		return status
-	}
-	status.Path = settings.GeoIPPath
-	if kind == "geosite" {
-		status.Path = settings.GeoSitePath
-	}
-	status.Configured = status.Path != ""
-	runner := app.GeoRunner
-	if runner == nil {
-		runner = linuxplatform.ExecRunner{}
-	}
-	geoViewBinary := app.GeoViewBinary
-	if geoViewBinary == "" {
-		geoViewBinary = "/usr/bin/geoview"
-	}
-	names, err := geodata.Catalog(ctx, runner, kind, status.Path, geoViewBinary)
+	names, err := geodata.Catalog(app.seedDirectory(), kind)
 	if err != nil {
 		status.Error = errorDetails(err)
 		return status
@@ -245,26 +221,6 @@ func (app webApplication) geoDataStatus(ctx context.Context, kind string) geoDat
 	status.Names = names
 	status.Count = len(names)
 	return status
-}
-
-func intentRequiresGeoKind(value model.Intent, kind string) bool {
-	for _, rule := range value.Rules {
-		if !rule.Enabled {
-			continue
-		}
-		expressions := rule.IPMatch
-		prefix := "geoip:"
-		if kind == "geosite" {
-			expressions = rule.DomainMatch
-			prefix = "geosite:"
-		}
-		for _, expression := range expressions {
-			if strings.HasPrefix(expression, prefix) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (app webApplication) applySaved() (coreapply.Result, error) {
@@ -281,21 +237,12 @@ func (app webApplication) applySaved() (coreapply.Result, error) {
 }
 
 func (app webApplication) applyValue(value model.Intent) (coreapply.Result, error) {
-	settings, _, err := (linuxplatform.SettingsStore{Path: app.platformPath()}).Load()
-	if err != nil {
-		return coreapply.Result{}, err
-	}
-	return app.applyValueWithPlatform(value, settings)
-}
-
-func (app webApplication) applyValueWithPlatform(value model.Intent, settings linuxplatform.Settings) (coreapply.Result, error) {
 	validation := linuxplatform.Validate(value)
 	if !validation.OK {
 		return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 	}
 	backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{
-		RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory,
-		GeoSitePath: settings.GeoSitePath, GeoIPPath: settings.GeoIPPath,
+		RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory, GeoDataDirectory: app.seedDirectory(),
 	})
 	return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 }

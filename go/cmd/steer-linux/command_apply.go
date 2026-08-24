@@ -42,7 +42,6 @@ func runValidate(args []string) error {
 func runApply(args []string) error {
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
-	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
@@ -63,14 +62,9 @@ func runApply(args []string) error {
 		if !validation.OK {
 			return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 		}
-		settings, _, err := (linuxplatform.SettingsStore{Path: *platformPath}).Load()
-		if err != nil {
-			return coreapply.Result{}, err
-		}
 		backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{
 			RunDirectory: *runDirectory, StateDirectory: *stateDirectory, SingBoxBinary: *singBoxPath,
 			NFTBinary: *nftBinary, SystemctlBinary: *systemctl, ServiceName: *serviceName,
-			GeoSitePath: settings.GeoSitePath, GeoIPPath: settings.GeoIPPath,
 		})
 		return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 	})
@@ -79,7 +73,6 @@ func runApply(args []string) error {
 func runService(args []string) error {
 	flags := flag.NewFlagSet("_run", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
-	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
@@ -106,14 +99,6 @@ func runService(args []string) error {
 		disabled := loadErr == nil && !value.Main.Enabled
 		if disabled {
 			loadErr = linuxplatform.CleanupPlatform(context.Background(), linuxplatform.ExecRunner{}, *nftBinary)
-		}
-		if loadErr == nil && !disabled {
-			settings, _, settingsErr := (linuxplatform.SettingsStore{Path: *platformPath}).Load()
-			if settingsErr != nil {
-				loadErr = settingsErr
-			} else {
-				options.GeoSitePath, options.GeoIPPath = settings.GeoSitePath, settings.GeoIPPath
-			}
 		}
 		if loadErr == nil && !disabled {
 			backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, options)
@@ -143,6 +128,26 @@ func runService(args []string) error {
 		return err
 	}
 	return syscall.Exec(*singBoxPath, []string{filepath.Base(*singBoxPath), "run", "-c", filepath.Join(*runDirectory, "current", "sing-box.json")}, os.Environ())
+}
+
+func runMigrate(args []string) error {
+	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("migrate accepts flags only")
+	}
+	changed, err := (linuxplatform.IntentStore{Path: *configPath}).MigrateSchema7()
+	if err != nil {
+		return err
+	}
+	writeJSON(struct {
+		OK      bool `json:"ok"`
+		Changed bool `json:"changed"`
+	}{true, changed})
+	return nil
 }
 
 func runHealth(args []string) error {

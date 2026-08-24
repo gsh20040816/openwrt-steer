@@ -95,11 +95,11 @@ return view.extend({
 
 		o = s.taboption('dns', form.Flag, 'dns_cache_persist', _('Persistent cache'));
 		o.default = '0';
-		o.description = _('Reserved for sing-box 1.14; the current 1.13 baseline rejects it.');
+		o.description = _('Persist the shared DNS cache in the Steer cache database.');
 
 		o = s.taboption('dns', form.Flag, 'dns_optimistic_cache', _('Optimistic cache'));
 		o.default = '0';
-		o.description = _('Reserved for sing-box 1.14; the current 1.13 baseline rejects it.');
+		o.description = _('Serve recently expired DNS answers while refreshing them in the background.');
 
 		o = s.taboption('probes', form.Value, 'probe_direct', _('Direct connectivity probe URL'));
 		o.datatype = 'url';

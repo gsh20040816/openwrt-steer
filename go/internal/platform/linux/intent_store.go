@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -61,6 +62,48 @@ func (store IntentStore) Save(value model.Intent, expectedRevision string) (stri
 		return "", fmt.Errorf("write canonical intent: %w", err)
 	}
 	return revision(content), nil
+}
+
+func (store IntentStore) MigrateSchema7() (bool, error) {
+	path := store.normalizedPath()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read canonical intent for migration: %w", err)
+	}
+	var header struct {
+		Main struct {
+			SchemaVersion int `json:"schema_version"`
+		} `json:"main"`
+	}
+	if err := json.Unmarshal(content, &header); err != nil {
+		return false, fmt.Errorf("inspect canonical intent schema: %w", err)
+	}
+	switch header.Main.SchemaVersion {
+	case model.SchemaVersion:
+		if _, err := model.DecodeJSON(bytes.NewReader(content)); err != nil {
+			return false, err
+		}
+		return false, nil
+	case 7:
+	default:
+		return false, fmt.Errorf("cannot migrate canonical intent schema %d", header.Main.SchemaVersion)
+	}
+	value, err := model.MigrateJSON7(content)
+	if err != nil {
+		return false, err
+	}
+	validation := Validate(value)
+	if !validation.OK {
+		return false, ValidationError{Validation: validation}
+	}
+	var encoded bytes.Buffer
+	if err := model.EncodeJSON(&encoded, value); err != nil {
+		return false, err
+	}
+	if err := atomicWrite(path, encoded.Bytes()); err != nil {
+		return false, fmt.Errorf("write migrated canonical intent: %w", err)
+	}
+	return true, nil
 }
 
 func revision(content []byte) string {

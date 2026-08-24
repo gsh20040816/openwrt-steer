@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,20 +21,12 @@ import (
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
 
-type webGeoRunner struct{ output []byte }
-
-func (runner webGeoRunner) Output(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	return runner.output, nil
-}
-
 type webRuntimeRunner struct{}
 
 func (webRuntimeRunner) Output(_ context.Context, name string, _ ...string) ([]byte, error) {
 	switch name {
 	case "/usr/bin/sing-box":
-		return []byte("sing-box version 1.13.19\nTags: with_quic,with_utls\n"), nil
-	case "/usr/bin/geoview":
-		return []byte("Geoview 0.2.6\n"), nil
+		return []byte("sing-box version 1.14.0-rc.1\nTags: with_quic,with_utls\n"), nil
 	default:
 		return nil, fmt.Errorf("unexpected runtime command %s", name)
 	}
@@ -150,8 +144,8 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	}
 	apiScript := httptest.NewRecorder()
 	handler.ServeHTTP(apiScript, httptest.NewRequest(http.MethodGet, "/js/api.js", nil))
-	if !strings.Contains(apiScript.Body.String(), "/api/v1/platform") || !strings.Contains(apiScript.Body.String(), "validateGeoCategories") || !strings.Contains(apiScript.Body.String(), "category.split('@', 1)[0]") || strings.Contains(apiScript.Body.String(), "sha256") {
-		t.Fatalf("API adapter is missing system settings or exposes internal hashes: %s", apiScript.Body.String())
+	if strings.Contains(apiScript.Body.String(), "/api/v1/platform") || !strings.Contains(apiScript.Body.String(), "validateGeoCategories") || strings.Contains(apiScript.Body.String(), "category.split('@', 1)[0]") || strings.Contains(apiScript.Body.String(), "sha256") {
+		t.Fatalf("API adapter retained platform settings, lost exact Geo validation or exposes hashes: %s", apiScript.Body.String())
 	}
 	systemScript := httptest.NewRecorder()
 	handler.ServeHTTP(systemScript, httptest.NewRequest(http.MethodGet, "/js/views/system.js", nil))
@@ -161,7 +155,9 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 }
 
 func TestWebRuntimeReportsInstalledToolVersions(t *testing.T) {
-	app := webApplication{GeoRunner: webRuntimeRunner{}}
+	root := t.TempDir()
+	seedDirectory := writeWebSeed(t, root)
+	app := webApplication{Runner: webRuntimeRunner{}, SeedDirectory: seedDirectory}
 	response := httptest.NewRecorder()
 	app.handleRuntime(response, httptest.NewRequest(http.MethodGet, "/api/v1/runtime", nil))
 	if response.Code != http.StatusOK {
@@ -171,10 +167,10 @@ func TestWebRuntimeReportsInstalledToolVersions(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &value); err != nil {
 		t.Fatalf("runtime response is not JSON: %v", err)
 	}
-	if value.Steer != version || value.SingBox.Version != "1.13.19" || value.GeoView.Version != "0.2.6" || value.CanonicalSchema != model.SchemaVersion || value.PlatformSchema != linuxplatform.PlatformSchemaVersion {
+	if value.Steer != version || value.SingBox.Version != "1.14.0-rc.1" || value.GeoData.Version != "test" || value.GeoData.RuleCount != 1 || value.CanonicalSchema != model.SchemaVersion {
 		t.Fatalf("runtime response = %#v", value)
 	}
-	if value.SingBox.Error != "" || value.GeoView.Error != "" || strings.Join(value.SingBox.Tags, ",") != "with_quic,with_utls" {
+	if value.SingBox.Error != "" || value.GeoData.Error != "" || strings.Join(value.SingBox.Tags, ",") != "with_quic,with_utls" {
 		t.Fatalf("runtime dependency details = %#v", value)
 	}
 }
@@ -205,84 +201,53 @@ func TestWebTokenPrintsConfiguredCredential(t *testing.T) {
 	}
 }
 
-func TestWebPlatformPersistsSettingsWhenImmediateApplyFails(t *testing.T) {
-	root := t.TempDir()
-	configPath := filepath.Join(root, "config.json")
-	platformPath := filepath.Join(root, "platform.json")
-	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	app := webApplication{ConfigPath: configPath, PlatformPath: platformPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
-
-	response := httptest.NewRecorder()
-	app.handlePlatform(response, httptest.NewRequest(http.MethodGet, "/api/v1/platform", nil))
-	if response.Code != http.StatusOK || response.Header().Get("ETag") == "" {
-		t.Fatalf("initial platform GET failed: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
-	}
-	initialRevision := response.Header().Get("ETag")
-	body := `{"schema_version":1,"geosite_path":"/data/geosite.dat"}`
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/platform", strings.NewReader(body))
-	request.Header.Set("If-Match", initialRevision)
-	response = httptest.NewRecorder()
-	app.handlePlatform(response, request)
-	if response.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("failed immediate Apply returned %d: %s", response.Code, response.Body.String())
-	}
-	var result map[string]any
-	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result["saved"] != true || result["applied"] != false {
-		t.Fatalf("unexpected failed Apply response: err=%v payload=%#v", err, result)
-	}
-	saved, savedRevision, err := (linuxplatform.SettingsStore{Path: platformPath}).Load()
-	if err != nil || saved.GeoSitePath != "/data/geosite.dat" || savedRevision == initialRevision {
-		t.Fatalf("failed Apply did not preserve settings: settings=%#v revision=%q err=%v", saved, savedRevision, err)
-	}
-
-	request = httptest.NewRequest(http.MethodPut, "/api/v1/platform", strings.NewReader(body))
-	request.Header.Set("If-Match", initialRevision)
-	response = httptest.NewRecorder()
-	app.handlePlatform(response, request)
-	if response.Code != http.StatusConflict {
-		t.Fatalf("stale platform revision returned %d: %s", response.Code, response.Body.String())
-	}
-}
-
 func TestWebGeoDataReturnsStatusResource(t *testing.T) {
 	root := t.TempDir()
-	configPath := filepath.Join(root, "config.json")
-	platformPath := filepath.Join(root, "platform.json")
-	value := webTestIntent()
-	value.Rules = append([]model.Rule{{ID: "geo", Enabled: true, DomainMatch: []string{"geosite:cn"}, DNSProfile: "public", Route: "direct"}}, value.Rules...)
-	if _, err := (linuxplatform.IntentStore{Path: configPath}).Save(value, ""); err != nil {
-		t.Fatal(err)
-	}
-	app := webApplication{ConfigPath: configPath, PlatformPath: platformPath, GeoRunner: webGeoRunner{output: []byte("Available codes:\nCN\nGoogle\n")}, GeoViewBinary: "/test/geoview"}
-
+	seedDirectory := writeWebSeed(t, root)
+	app := webApplication{SeedDirectory: seedDirectory}
 	response := httptest.NewRecorder()
-	app.handleGeoData(response, httptest.NewRequest(http.MethodGet, "/api/v1/geodata/geosite", nil))
-	var missing geoDataStatus
-	if err := json.Unmarshal(response.Body.Bytes(), &missing); err != nil {
-		t.Fatal(err)
-	}
-	if response.Code != http.StatusOK || !missing.Required || missing.Configured || missing.Readable || missing.Error == nil || missing.Error.Code != geodata.ErrorPathNotConfigured {
-		t.Fatalf("missing Geo status = %#v status=%d", missing, response.Code)
-	}
-
-	path := filepath.Join(root, "geosite.dat")
-	if err := os.WriteFile(path, []byte("site"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	settings := linuxplatform.DefaultSettings()
-	settings.GeoSitePath = path
-	if _, err := (linuxplatform.SettingsStore{Path: platformPath}).Save(settings, ""); err != nil {
-		t.Fatal(err)
-	}
-	response = httptest.NewRecorder()
 	app.handleGeoData(response, httptest.NewRequest(http.MethodGet, "/api/v1/geodata/geosite", nil))
 	var ready geoDataStatus
 	if err := json.Unmarshal(response.Body.Bytes(), &ready); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != http.StatusOK || !ready.Required || !ready.Configured || !ready.Readable || ready.Count != 2 || len(ready.Names) != 2 || ready.Error != nil {
+	if response.Code != http.StatusOK || !ready.Readable || ready.Count != 1 || len(ready.Names) != 1 || ready.Names[0] != "cn@ads" || ready.Error != nil {
 		t.Fatalf("ready Geo status = %#v status=%d", ready, response.Code)
 	}
+}
+
+func writeWebSeed(t *testing.T, root string) string {
+	t.Helper()
+	seedDirectory := filepath.Join(root, "seed")
+	rulesDirectory := filepath.Join(seedDirectory, "rules")
+	if err := os.MkdirAll(rulesDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const tag = "steer-geosite-cn@ads"
+	content := []byte("compiled\n")
+	if err := os.WriteFile(filepath.Join(rulesDirectory, tag+".srs"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ruleSum := sha256.Sum256(content)
+	inputSum := sha256.Sum256([]byte("input"))
+	manifest := geodata.Manifest{
+		SchemaVersion: geodata.ManifestSchemaVersion,
+		Upstream: geodata.UpstreamIdentity{
+			Repository: geodata.UpstreamRepository, Version: "test",
+			GeoSiteSHA256: hex.EncodeToString(inputSum[:]), GeoIPSHA256: hex.EncodeToString(inputSum[:]),
+		},
+		Tools: geodata.ToolIdentity{GeoViewRef: geodata.GeoViewCommit, SingBoxVersion: geodata.SingBoxCompiler},
+		Rules: []geodata.Rule{{
+			Kind: "geosite", Category: "cn@ads", Tag: tag, Path: "rules/" + tag + ".srs",
+			SHA256: hex.EncodeToString(ruleSum[:]), Size: int64(len(content)),
+		}},
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedDirectory, "manifest.json"), encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return seedDirectory
 }

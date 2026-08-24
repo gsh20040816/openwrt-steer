@@ -64,23 +64,14 @@ func runProbe(args []string) error {
 func runGeoCatalog(args []string) error {
 	flags := flag.NewFlagSet("geo-catalog", flag.ContinueOnError)
 	kind := flags.String("kind", "", "geosite or geoip")
-	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
-	geoViewBinary := flags.String("geoview", "/usr/bin/geoview", "geoview binary")
+	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("geo-catalog accepts flags only")
 	}
-	settings, _, err := (linuxplatform.SettingsStore{Path: *platformPath}).Load()
-	if err != nil {
-		return err
-	}
-	path := settings.GeoIPPath
-	if *kind == "geosite" {
-		path = settings.GeoSitePath
-	}
-	names, err := geodata.Catalog(context.Background(), linuxplatform.ExecRunner{}, *kind, path, *geoViewBinary)
+	names, err := geodata.Catalog(*seedDirectory, *kind)
 	if err != nil {
 		return err
 	}

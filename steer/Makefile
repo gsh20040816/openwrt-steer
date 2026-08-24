@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
-PKG_VERSION:=0.6.6
+PKG_VERSION:=0.7.0-alpha.1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -24,9 +24,9 @@ define Package/steer
   CATEGORY:=Network
   TITLE:=Intent-driven transparent proxy controller for OpenWrt
   URL:=https://github.com/gsh20040816/steer
-	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +geoview +ip \
-	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun +steer-geodata
-  EXTRA_DEPENDS:=sing-box (>=1.13.18), sing-box (<1.14.0)
+	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +ip \
+	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun
+  EXTRA_DEPENDS:=sing-box (>=1.14.0_beta2), sing-box (<1.15.0)
   PROVIDES:=steer-openwrt
   CONFLICTS:=steer-openwrt
   REPLACES:=steer-openwrt
@@ -47,11 +47,7 @@ define Package/steer/postinst
 
 config=/etc/config/steer
 [ -f "$$config" ] || exit 0
-schema="$$(uci -q get steer.main.schema_version 2>/dev/null)"
-[ "$$schema" = 7 ] || {
-	echo "steer: schema 7 is required, found '$$schema'" >&2
-	exit 1
-}
+/usr/sbin/steer migrate --config "$$config" >/dev/null
 
 # The rollback interface was removed before the cross-platform alpha. Delete
 # its single legacy state file instead of carrying an inactive migration path.
@@ -64,7 +60,7 @@ mkdir -p /etc/crontabs
 grep -Fqx "$$cron_line" "$$cron_file" 2>/dev/null || echo "$$cron_line" >> "$$cron_file"
 /etc/init.d/cron restart
 
-# Switch the schema 7 intent through Steer's verified generation
+# Switch the schema 8 intent through Steer's verified generation
 # transaction. PKG_UPGRADE must not leak into the init calls made by Apply.
 apply_output="$$(PKG_UPGRADE=0 /usr/sbin/steer apply 2>&1)" || {
 	echo "$$apply_output" >&2
@@ -95,6 +91,9 @@ define Package/steer/install
 	$(call GoPackage/Package/Install/Bin,$(PKG_INSTALL_DIR))
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/steer-openwrt $(1)/usr/sbin/steer
+
+	$(INSTALL_DIR) $(1)/usr/share/steer
+	$(CP) $(CURDIR)/../generated/geodata-seed $(1)/usr/share/steer/
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/steer $(1)/etc/config/steer

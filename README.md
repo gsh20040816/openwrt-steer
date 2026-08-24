@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本为 **0.6.6**，公开配置为 **schema 7**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
+当前预览版本为 **0.7.0-alpha.1**，公开配置为 **schema 8**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
 
 ## 已实现能力
 
@@ -14,10 +14,11 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
 - OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、最小 DNS/MAC nftables 辅助层。
 - Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、主机与 VM/Docker DNS 的双栈 nft shim、受保护的 wildcard DNS listener、nftables 重启联动、systemd 服务和 loopback Web API/UI。
+- CI 将 Loyalsoldier GeoSite/GeoIP 转换为完整 SRS seed；设备以 seed 离线启动，并由 sing-box 每 24 小时后台检查 Pages `latest`。
 
 ## 明确边界
 
-- 只支持 sing-box `>= 1.13.18` 且 `< 1.14.0`；使用到 QUIC/uTLS 时会检查对应 build tags。
+- 只支持 sing-box `>= 1.14.0-beta.2` 且 `< 1.15.0`；使用到 QUIC/uTLS 时会检查对应 build tags。
 - Bootstrap DNS 必须是 IP 字面量并固定直连。远程订阅和 Geo 数据不能携带本地动作。
 - 启用配置中必须恰好有一个 Direct 路由和一个 Default 规则。
 - 三个测试 URL 都是必填 HTTPS scalar option，没有隐藏默认值。
@@ -45,10 +46,11 @@ steer status
 steer probe --kind direct
 steer subscription status
 steer geo-catalog --kind geosite
+steer migrate
 steer cleanup
 ```
 
-公共命令固定为 `version validate apply health status probe subscription geo-catalog cleanup`。编译器中间结果和平台计划属于内部接口，不通过 CLI 或 RPC 暴露。
+公共命令固定为 `version validate apply health status probe subscription geo-catalog migrate cleanup`。编译器中间结果和平台计划属于内部接口，不通过 CLI 或 RPC 暴露。
 
 Linux 源码 target 是 `cmd/steer-linux`，安装后的产品命令统一为 `steer`，并提供 loopback Web 控制面：
 
@@ -59,7 +61,7 @@ steer web
 steer subscription status
 ```
 
-GitHub Release 提供 `steer-linux-x86_64.tar.zst` 和 `steer-linux-aarch64.tar.zst`，不捆绑 sing-box、geoview 或 Geo 数据库。主仓库不构建 deb、rpm、Arch 等发行版包；发行版维护者应从 source tag 构建并安装为 `/usr/bin/steer`。
+GitHub Release 提供 `steer-linux-x86_64.tar.zst` 和 `steer-linux-aarch64.tar.zst`，内含包构建时验证过的 SRS seed，不捆绑 sing-box、geoview 或 DAT 数据库。主仓库不构建 deb、rpm、Arch 等发行版包；发行版维护者应从 source tag 构建并安装为 `/usr/bin/steer`。
 
 ## OpenWrt 软件源
 
@@ -74,8 +76,8 @@ apk update
 apk add steer luci-app-steer luci-i18n-steer-zh-cn
 ```
 
-软件源包含 `steer`、`luci-app-steer`、`steer-geodata` 和 `geoview` 四个源码包；LuCI 构建还会生成独立的简体中文翻译 APK。不得使用 `--allow-untrusted` 绕过索引签名。
+软件源包含 `steer`、`luci-app-steer`、简体中文翻译以及经官方 SHA 校验后由 Steer key 重签的 SagerNet sing-box x86_64 APK。SRS seed 由 `steer` 包直接拥有；不得使用 `--allow-untrusted` 绕过索引签名。
 
 ## 许可证
 
-GPL-3.0-or-later。sing-box、Geo 数据和其他第三方组件继续遵循各自许可证；Steer 不复制或 fork sing-box。
+GPL-3.0-or-later。sing-box、Geo 数据和其他第三方组件继续遵循各自许可证；Steer 不 fork 或重编译 sing-box，但 OpenWrt 软件源会镜像并重签经过摘要验证的官方构件。

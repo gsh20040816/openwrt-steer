@@ -23,7 +23,7 @@ func (runner *prepareRunner) Output(_ context.Context, name string, args ...stri
 	runner.calls = append(runner.calls, call)
 	switch {
 	case strings.HasSuffix(call, "sing-box version"):
-		return []byte("sing-box version 1.13.19\nTags: with_quic,with_utls\n"), nil
+		return []byte("sing-box version 1.14.0-rc.1\nTags: with_quic,with_utls\n"), nil
 	case strings.Contains(call, "sing-box check -c") || strings.Contains(call, "nft -c -f"):
 		return nil, nil
 	default:
@@ -63,9 +63,9 @@ func TestPreparePerformsAllPreMutationChecks(t *testing.T) {
 	}
 }
 
-func TestBackendDefaultsToPackageOwnedGeoFiles(t *testing.T) {
+func TestBackendDefaultsToPackageOwnedGeoSeed(t *testing.T) {
 	backend := NewBackend(nil, model.Intent{}, BackendOptions{})
-	if backend.options.GeoSitePath != "/usr/share/steer/geodata-seed/geosite.dat" || backend.options.GeoIPPath != "/usr/share/steer/geodata-seed/geoip.dat" {
-		t.Fatalf("unexpected OpenWrt Geo paths: geosite=%q geoip=%q", backend.options.GeoSitePath, backend.options.GeoIPPath)
+	if backend.options.GeoDataDirectory != "/usr/share/steer/geodata-seed" {
+		t.Fatalf("unexpected OpenWrt Geo seed directory: %q", backend.options.GeoDataDirectory)
 	}
 }

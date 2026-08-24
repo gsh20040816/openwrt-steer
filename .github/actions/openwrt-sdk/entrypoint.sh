@@ -6,7 +6,7 @@ set -eu
 
 FEEDNAME="${FEEDNAME:-steer}"
 ARTIFACTS_DIR="${ARTIFACTS_DIR:-/artifacts}"
-PACKAGES="${PACKAGES:-geoview steer-geodata steer luci-app-steer}"
+PACKAGES="${PACKAGES:-steer luci-app-steer}"
 CCACHE_DIR="${CCACHE_DIR:-/builder/.ccache}"
 GO_BUILD_CACHE_DIR="${GO_BUILD_CACHE_DIR:-/go-build-cache}"
 export CCACHE_DIR
@@ -20,6 +20,14 @@ phase() {
 
 [ -n "${OPENWRT_APK_PRIVATE_KEY:-}" ] || {
   echo 'OPENWRT_APK_PRIVATE_KEY is required to sign the OpenWrt repository.' >&2
+  exit 1
+}
+[ -n "${SING_BOX_UPSTREAM_APK:-}" ] && [ -f "$SING_BOX_UPSTREAM_APK" ] || {
+  echo 'SING_BOX_UPSTREAM_APK must name the mounted official APK.' >&2
+  exit 1
+}
+[ -n "${SING_BOX_UPSTREAM_SHA256:-}" ] || {
+  echo 'SING_BOX_UPSTREAM_SHA256 is required.' >&2
   exit 1
 }
 
@@ -153,15 +161,35 @@ for package in $PACKAGES; do
 done
 
 # Compile one top-level dependency closure.  OpenWrt's dependency graph pulls
-# geoview, steer-geodata and steer into the LuCI package build.
+# steer into the LuCI package build.
 phase package-compile
 make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)" CONFIG_AUTOREMOVE=y $kmod_overrides
+
+phase mirror-sing-box
+printf '%s  %s\n' "$SING_BOX_UPSTREAM_SHA256" "$SING_BOX_UPSTREAM_APK" | sha256sum -c
+package_arch="$(make --no-print-directory val.ARCH_PACKAGES)"
+repository_dir="bin/packages/$package_arch/$FEEDNAME"
+mkdir -p "$repository_dir"
+mirrored_sing_box="$repository_dir/sing-box-1.14.0_rc1-r0.apk"
+cp "$SING_BOX_UPSTREAM_APK" "$mirrored_sing_box"
+upstream_dump="$(mktemp)"
+mirrored_dump="$(mktemp)"
+staging_dir/host/bin/apk adbdump "$mirrored_sing_box" | sed '/^# sig /d' > "$upstream_dump"
+staging_dir/host/bin/apk --allow-untrusted adbsign \
+  --reset-signatures \
+  --sign-key private-key.pem \
+  "$mirrored_sing_box"
+staging_dir/host/bin/apk adbdump "$mirrored_sing_box" | sed '/^# sig /d' > "$mirrored_dump"
+cmp "$upstream_dump" "$mirrored_dump" || {
+  echo 'Re-signing changed official sing-box package metadata or payload.' >&2
+  exit 1
+}
+rm -f "$upstream_dump" "$mirrored_dump"
+staging_dir/host/bin/apk --keys-dir /feed/keys verify "$mirrored_sing_box"
 
 phase package-index
 make package/index
 
-package_arch="$(make --no-print-directory val.ARCH_PACKAGES)"
-repository_dir="bin/packages/$package_arch/$FEEDNAME"
 [ -f "$repository_dir/packages.adb" ] || {
   echo "Signed package index was not produced: $repository_dir/packages.adb" >&2
   exit 1
@@ -176,11 +204,10 @@ staging_dir/host/bin/apk adbdump "$repository_dir/packages.adb" \
   | sed -n 's/^  - name: //p' \
   | sort > "$actual_packages"
 printf '%s\n' \
-  geoview \
   luci-app-steer \
   luci-i18n-steer-zh-cn \
+  sing-box \
   steer \
-  steer-geodata \
   | sort > "$expected_packages"
 cmp "$expected_packages" "$actual_packages" || {
   echo 'OpenWrt repository index does not contain the exact Steer package set.' >&2
@@ -189,8 +216,7 @@ cmp "$expected_packages" "$actual_packages" || {
 rm -f "$actual_packages" "$expected_packages"
 
 for package_pattern in \
-  'geoview-*.apk' \
-  'steer-geodata-*.apk' \
+  'sing-box-*.apk' \
   'steer-[0-9]*.apk' \
   'luci-app-steer-*.apk' \
   'luci-i18n-steer-zh-cn-*.apk'; do

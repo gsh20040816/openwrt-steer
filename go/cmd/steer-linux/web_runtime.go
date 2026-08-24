@@ -5,10 +5,10 @@ package main
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/gsh20040816/steer/go/internal/capability"
+	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 )
@@ -20,14 +20,17 @@ type runtimeTool struct {
 }
 
 type runtimeInfo struct {
-	Steer           string      `json:"steer"`
-	SingBox         runtimeTool `json:"sing_box"`
-	GeoView         runtimeTool `json:"geoview"`
-	CanonicalSchema int         `json:"canonical_schema"`
-	PlatformSchema  int         `json:"platform_schema"`
+	Steer           string         `json:"steer"`
+	SingBox         runtimeTool    `json:"sing_box"`
+	GeoData         runtimeGeoData `json:"geodata"`
+	CanonicalSchema int            `json:"canonical_schema"`
 }
 
-var geoviewVersionPattern = regexp.MustCompile(`(?mi)^\s*Geoview\s+v?([0-9]+\.[0-9]+\.[0-9]+)\s*$`)
+type runtimeGeoData struct {
+	Version   string `json:"version,omitempty"`
+	RuleCount int    `json:"rule_count,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
 
 func (app webApplication) handleRuntime(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
@@ -42,9 +45,8 @@ func (app webApplication) runtimeInfo(ctx context.Context) runtimeInfo {
 	info := runtimeInfo{
 		Steer:           version,
 		CanonicalSchema: model.SchemaVersion,
-		PlatformSchema:  linuxplatform.PlatformSchemaVersion,
 	}
-	runner := app.GeoRunner
+	runner := app.Runner
 	if runner == nil {
 		runner = linuxplatform.ExecRunner{}
 	}
@@ -61,13 +63,12 @@ func (app webApplication) runtimeInfo(ctx context.Context) runtimeInfo {
 		}
 	}
 
-	geoViewOutput, err := runner.Output(ctx, "/usr/bin/geoview", "--version")
+	manifest, err := geodata.ReadManifest(app.seedDirectory())
 	if err != nil {
-		info.GeoView.Error = err.Error()
-	} else if match := geoviewVersionPattern.FindStringSubmatch(string(geoViewOutput)); len(match) == 2 {
-		info.GeoView.Version = match[1]
+		info.GeoData.Error = err.Error()
 	} else {
-		info.GeoView.Error = "cannot parse geoview version output"
+		info.GeoData.Version = manifest.Upstream.Version
+		info.GeoData.RuleCount = len(manifest.Rules)
 	}
 	return info
 }

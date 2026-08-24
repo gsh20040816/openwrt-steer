@@ -12,9 +12,9 @@ import (
 func runWeb(args []string) error {
 	flags := flag.NewFlagSet("web", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
-	platformPath := flags.String("platform", "/etc/steer/platform.json", "Linux platform settings file")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
+	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
 	listen := flags.String("listen", "127.0.0.1:9080", "loopback listen address")
 	webConfigPath := flags.String("web-config", defaultWebCredentialsPath, "Web credentials configuration file")
 	if err := flags.Parse(args); err != nil {
@@ -26,7 +26,7 @@ func runWeb(args []string) error {
 	if !strings.HasPrefix(*listen, "127.0.0.1:") && !strings.HasPrefix(*listen, "[::1]:") {
 		return errors.New("web listen address must be loopback")
 	}
-	return serveWeb(*listen, *webConfigPath, *configPath, *platformPath, *runDirectory, *stateDirectory)
+	return serveWeb(*listen, *webConfigPath, *configPath, *runDirectory, *stateDirectory, *seedDirectory)
 }
 
 func runWebToken(args []string) error {

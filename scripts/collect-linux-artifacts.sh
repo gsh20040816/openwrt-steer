@@ -6,9 +6,15 @@ set -eu
 project_root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 binary_root="${1:-bin/linux}"
 output_dir="${2:-dist-linux}"
+seed_root="${3:?Geo seed directory is required}"
 source_date_epoch="${SOURCE_DATE_EPOCH:-0}"
 steer_version="${STEER_VERSION:?STEER_VERSION is required}"
 source_revision="${SOURCE_REVISION:?SOURCE_REVISION is required}"
+
+[ -f "$seed_root/manifest.json" ] || {
+	echo "Geo seed manifest not found: $seed_root/manifest.json" >&2
+	exit 1
+}
 
 case "$source_date_epoch" in
 	''|*[!0-9]*)
@@ -44,9 +50,9 @@ for target in x86_64 aarch64; do
 	install -m 0755 "$binary" "$package_root/steer"
 	install -m 0644 "$project_root"/linux/systemd/*.service "$project_root"/linux/systemd/*.timer "$package_root/systemd/"
 	install -m 0644 "$project_root/linux/config.example.json" "$package_root/config.example.json"
-	install -m 0644 "$project_root/linux/platform.example.json" "$package_root/platform.example.json"
 	install -m 0644 "$project_root/linux/web.example.json" "$package_root/web.example.json"
 	install -m 0644 "$project_root/LICENSE" "$package_root/LICENSE"
+	cp -R "$seed_root" "$package_root/geodata-seed"
 	temporary_tar="$work_dir/$package_name.tar"
 	tar \
 		--sort=name \
@@ -65,6 +71,8 @@ done
 	echo "Source revision: $source_revision"
 	echo "Linux targets: x86_64 aarch64"
 	echo "Build mode: CGO_ENABLED=0"
+	echo "Geo data version: $(sed -n 's/^[[:space:]]*\"version\": \"\([^\"]*\)\",*$/\1/p' "$seed_root/manifest.json" | head -n 1)"
+	echo "Geo manifest SHA256: $(sha256sum "$seed_root/manifest.json" | cut -d ' ' -f 1)"
 } > "$output_dir/BUILD-METADATA.txt"
 
 (

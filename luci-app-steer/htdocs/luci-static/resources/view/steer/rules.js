@@ -191,7 +191,7 @@ function configureMatchEditor(option, catalog, kind) {
 	option.validate = function(sectionId, value) {
 		for (const line of editorLines(value)) {
 			const prefix = geoKind + ':';
-			const category = line.slice(prefix.length).split('@', 1)[0];
+			const category = line.slice(prefix.length);
 			if (line.startsWith(prefix) && source.ok === true && !known.has(category))
 				return _('%s is not a valid %s name in the current Geo data.').format(line.slice(prefix.length), geoKind);
 		}

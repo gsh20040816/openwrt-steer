@@ -3,7 +3,7 @@
 // Package model defines Steer's platform-neutral canonical intent.
 package intent
 
-const SchemaVersion = 7
+const SchemaVersion = 8
 
 type Intent struct {
 	Main          Main           `json:"main"`
@@ -131,18 +131,16 @@ type Route struct {
 }
 
 type DNSProfile struct {
-	ID              string `json:"id"`
-	Enabled         bool   `json:"enabled"`
-	Name            string `json:"name,omitempty"`
-	Protocol        string `json:"protocol"`
-	Server          string `json:"server"`
-	ServerPort      int    `json:"server_port"`
-	TLSServerName   string `json:"tls_server_name,omitempty"`
-	Path            string `json:"path,omitempty"`
-	Insecure        bool   `json:"insecure,omitempty"`
-	Strategy        string `json:"strategy"`
-	CachePersist    bool   `json:"cache_persist,omitempty"`
-	OptimisticCache bool   `json:"optimistic_cache,omitempty"`
+	ID            string `json:"id"`
+	Enabled       bool   `json:"enabled"`
+	Name          string `json:"name,omitempty"`
+	Protocol      string `json:"protocol"`
+	Server        string `json:"server"`
+	ServerPort    int    `json:"server_port"`
+	TLSServerName string `json:"tls_server_name,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Insecure      bool   `json:"insecure,omitempty"`
+	Strategy      string `json:"strategy"`
 }
 
 type LocalProxy struct {

@@ -23,10 +23,12 @@ permissions:
   contents: read
 
 env:
-  STEER_VERSION: 0.6.6
+  STEER_VERSION: 0.7.0-alpha.1
   OPENWRT_RELEASE: 25.12.5
   OPENWRT_TARGET: x86/64
-  GEOVIEW_REF: 3c91926d360b8f49d47520639e574608318baf12
+  SING_BOX_VERSION: 1.14.0-rc.1
+  SING_BOX_LINUX_AMD64_MUSL_SHA256: e057d850417b0f86b0da0c169adc552b7fd8b40012884435e9e7aaecf03aa9a8
+  SING_BOX_OPENWRT_X86_64_SHA256: a1b2581ca4b823cda0e12e6cfafbe94c0ccd473b97d420de15045432f4b3b2f4
 
 jobs:
   verify:
@@ -67,9 +69,54 @@ jobs:
           go test -race ./...
           go vet ./...
 
+  geodata:
+    name: Resolve verified Geo seed
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.manifest.outputs.version }}
+      manifest_sha256: ${{ steps.manifest.outputs.sha256 }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Download current Pages Geo bundle
+        run: |
+          mkdir -p "$RUNNER_TEMP/geodata-seed"
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/steer-geodata.tar.zst" \
+            https://gsh20040816.github.io/steer/geodata/latest/steer-geodata.tar.zst
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/manifest.json" \
+            https://gsh20040816.github.io/steer/geodata/latest/manifest.json
+          tar --zstd -xf "$RUNNER_TEMP/steer-geodata.tar.zst" \
+            -C "$RUNNER_TEMP/geodata-seed"
+          cmp "$RUNNER_TEMP/manifest.json" "$RUNNER_TEMP/geodata-seed/manifest.json"
+
+      - name: Verify complete Geo seed
+        working-directory: go
+        run: go run ./cmd/steer-geodata-build verify --directory "$RUNNER_TEMP/geodata-seed"
+
+      - name: Record Geo seed identity
+        id: manifest
+        run: |
+          echo "version=$(jq -r '.upstream.version' "$RUNNER_TEMP/manifest.json")" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/manifest.json" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact Geo seed
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: geodata-seed
+          path: ${{ runner.temp }}/geodata-seed/
+          if-no-files-found: error
+          retention-days: 30
+
   openwrt:
     name: OpenWrt 25.12.5 x86_64
-    needs: verify
+    needs:
+      - verify
+      - geodata
     runs-on: ubuntu-latest
 
     steps:
@@ -77,6 +124,22 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+
+      - name: Download verified Geo seed
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: geodata-seed
+          path: ${{ runner.temp }}/geodata-seed
+
+      - name: Download official sing-box OpenWrt APK
+        run: |
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/sing-box-openwrt.apk" \
+            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/sing-box_${SING_BOX_VERSION}_openwrt_x86_64.apk"
+          printf '%s  %s\n' \
+            "$SING_BOX_OPENWRT_X86_64_SHA256" \
+            "$RUNNER_TEMP/sing-box-openwrt.apk" \
+            | sha256sum --check
 
       - name: Prepare official SDK artifacts directory
         run: |
@@ -121,17 +184,22 @@ jobs:
           source_dir="$RUNNER_TEMP/steer-source"
           mkdir -p "$source_dir"
           git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_dir"
+          mkdir -p "$source_dir/generated"
+          cp -R "$RUNNER_TEMP/geodata-seed" "$source_dir/generated/geodata-seed"
           docker run --rm \
             --volume "$source_dir:/feed:ro" \
             --volume "$RUNNER_TEMP/steer-sdk-artifacts:/artifacts" \
             --volume "$RUNNER_TEMP/steer-sdk-dl:/builder/dl" \
             --volume "$RUNNER_TEMP/steer-sdk-ccache:/builder/.ccache" \
             --volume "$RUNNER_TEMP/steer-sdk-go-cache:/go-build-cache" \
+            --volume "$RUNNER_TEMP/sing-box-openwrt.apk:/upstream/sing-box.apk:ro" \
             --volume "$GITHUB_WORKSPACE/.github/actions/openwrt-sdk/entrypoint.sh:/entrypoint.sh:ro" \
             --env FEEDNAME=steer \
             --env ARTIFACTS_DIR=/artifacts \
-            --env PACKAGES="geoview steer-geodata steer luci-app-steer" \
+            --env PACKAGES="steer luci-app-steer" \
             --env OPENWRT_APK_PRIVATE_KEY \
+            --env SING_BOX_UPSTREAM_APK=/upstream/sing-box.apk \
+            --env SING_BOX_UPSTREAM_SHA256="$SING_BOX_OPENWRT_X86_64_SHA256" \
             --env BUILD_LOG=1 \
             --env V=s \
             ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a \
@@ -147,12 +215,26 @@ jobs:
       - name: Collect exact OpenWrt release assets
         env:
           SOURCE_REVISION: ${{ github.sha }}
-        run: ./scripts/collect-openwrt-artifacts.sh
+          GEODATA_VERSION: ${{ needs.geodata.outputs.version }}
+          GEODATA_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
+          SING_BOX_UPSTREAM_SHA256: ${{ env.SING_BOX_OPENWRT_X86_64_SHA256 }}
+        run: |
+          mirrored_apk="$(find bin/packages -type f -name 'sing-box-*.apk')"
+          [ -n "$mirrored_apk" ]
+          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$mirrored_apk" | cut -d ' ' -f 1)"
+          ./scripts/collect-openwrt-artifacts.sh
 
       - name: Collect signed OpenWrt repository
         env:
           SOURCE_REVISION: ${{ github.sha }}
-        run: ./scripts/collect-openwrt-repository.sh
+          GEODATA_VERSION: ${{ needs.geodata.outputs.version }}
+          GEODATA_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
+          SING_BOX_UPSTREAM_SHA256: ${{ env.SING_BOX_OPENWRT_X86_64_SHA256 }}
+        run: |
+          mirrored_apk="$(find bin/packages -type f -name 'sing-box-*.apk')"
+          [ -n "$mirrored_apk" ]
+          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$mirrored_apk" | cut -d ' ' -f 1)"
+          ./scripts/collect-openwrt-repository.sh
 
       - name: Save OpenWrt SDK ccache
         if: success() && steps.sdk-ccache.outputs.cache-hit != 'true'
@@ -188,7 +270,9 @@ jobs:
 
   linux:
     name: Generic Linux x86_64 and aarch64
-    needs: verify
+    needs:
+      - verify
+      - geodata
     runs-on: ubuntu-latest
 
     steps:
@@ -196,6 +280,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+
+      - name: Download verified Geo seed
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: geodata-seed
+          path: ${{ runner.temp }}/geodata-seed
 
       - name: Build static Linux binaries
         working-directory: go
@@ -217,7 +307,10 @@ jobs:
         run: |
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
           export SOURCE_DATE_EPOCH
-          ./scripts/collect-linux-artifacts.sh "$RUNNER_TEMP/steer-linux-binaries" dist-linux
+          ./scripts/collect-linux-artifacts.sh \
+            "$RUNNER_TEMP/steer-linux-binaries" \
+            dist-linux \
+            "$RUNNER_TEMP/geodata-seed"
 
       - name: Verify generic Linux archives
         run: |
@@ -231,8 +324,8 @@ jobs:
             for required in \
               "steer-linux-$target/steer" \
               "steer-linux-$target/config.example.json" \
-              "steer-linux-$target/platform.example.json" \
               "steer-linux-$target/web.example.json" \
+              "steer-linux-$target/geodata-seed/manifest.json" \
               "steer-linux-$target/LICENSE" \
               "steer-linux-$target/systemd/steer.service" \
               "steer-linux-$target/systemd/steer-web.service" \
@@ -244,6 +337,14 @@ jobs:
               echo "Linux archive bundles an external dependency or Geo database" >&2
               exit 1
             fi
+            extract_dir="$RUNNER_TEMP/$target-extracted"
+            mkdir -p "$extract_dir"
+            tar --zstd -xf "$archive" -C "$extract_dir"
+            (
+              cd "$GITHUB_WORKSPACE/go"
+              go run ./cmd/steer-geodata-build verify \
+                --directory "$extract_dir/steer-linux-$target/geodata-seed"
+            )
           done
 
       - name: Upload generic Linux artifacts
@@ -256,7 +357,9 @@ jobs:
 
   linux-system:
     name: Linux system integration
-    needs: verify
+    needs:
+      - verify
+      - geodata
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -277,16 +380,22 @@ jobs:
           )
           curl --fail --location --silent --show-error \
             --output "$RUNNER_TEMP/steer-linux-system/sing-box.tar.gz" \
-            https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-musl.tar.gz
+            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/sing-box-$SING_BOX_VERSION-linux-amd64-musl.tar.gz"
           printf '%s  %s\n' \
-            150456f94fcf936fc2519de28d856422fb671a1ff181cd909b78f20e208fdcb8 \
+            "$SING_BOX_LINUX_AMD64_MUSL_SHA256" \
             "$RUNNER_TEMP/steer-linux-system/sing-box.tar.gz" \
             | sha256sum --check
           tar -xzf "$RUNNER_TEMP/steer-linux-system/sing-box.tar.gz" \
             -C "$RUNNER_TEMP/steer-linux-system"
           install -m 755 \
-            "$RUNNER_TEMP/steer-linux-system/sing-box-1.13.19-linux-amd64-musl/sing-box" \
+            "$RUNNER_TEMP/steer-linux-system/sing-box-$SING_BOX_VERSION-linux-amd64-musl/sing-box" \
             "$RUNNER_TEMP/steer-linux-system/sing-box"
+
+      - name: Download verified Geo seed
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: geodata-seed
+          path: ${{ runner.temp }}/steer-linux-system/geodata-seed
 
       - name: Build disposable systemd container
         run: docker build --file tests/integration/linux-system.Dockerfile --tag steer-linux-system:test .
@@ -320,6 +429,7 @@ jobs:
             --env STEER_SOURCE_ROOT=/workspace \
             --env STEER_BINARY=/artifacts/steer \
             --env SING_BOX_BINARY=/artifacts/sing-box \
+            --env STEER_GEODATA_SEED=/artifacts/geodata-seed \
             steer-linux-system \
             /workspace/tests/integration/run-linux-system.sh
 
@@ -332,6 +442,7 @@ jobs:
   bundle:
     name: Assemble verified release bundle
     needs:
+      - geodata
       - openwrt
       - linux
       - linux-system
@@ -374,14 +485,15 @@ jobs:
             echo "Source revision: $GITHUB_SHA"
             echo "OpenWrt release: $OPENWRT_RELEASE"
             echo "OpenWrt target: $OPENWRT_TARGET"
-            echo "geoview ref: $GEOVIEW_REF"
+            echo "Geo data version: ${{ needs.geodata.outputs.version }}"
+            echo "Geo manifest SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}"
+            echo "sing-box version: $SING_BOX_VERSION"
             echo "Linux targets: x86_64 aarch64"
             echo "Linux build mode: CGO_ENABLED=0"
           } > "$release_dir/BUILD-METADATA.txt"
 
           for pattern in \
-            'geoview-*.apk' \
-            'steer-geodata-*.apk' \
+            'sing-box-*.apk' \
             'steer-[0-9]*.apk' \
             'luci-app-steer-*.apk' \
             'luci-i18n-steer-zh-cn-*.apk' \

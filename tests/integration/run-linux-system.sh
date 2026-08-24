@@ -13,6 +13,7 @@ systemd-detect-virt --quiet --container || fail "must run inside a disposable sy
 source_root=${STEER_SOURCE_ROOT:-/workspace}
 steer_binary=${STEER_BINARY:-/artifacts/steer}
 sing_box_binary=${SING_BOX_BINARY:-/artifacts/sing-box}
+geodata_seed=${STEER_GEODATA_SEED:-/artifacts/geodata-seed}
 fixture_root="$source_root/tests/fixtures/linux-system"
 run_root=$(mktemp -d /run/steer-linux-system.XXXXXX)
 
@@ -55,14 +56,16 @@ trap 'exit 130' INT TERM
 
 [ -x "$steer_binary" ] || fail "Steer binary is not executable: $steer_binary"
 [ -x "$sing_box_binary" ] || fail "sing-box binary is not executable: $sing_box_binary"
+[ -f "$geodata_seed/manifest.json" ] || fail "Geo seed manifest is missing: $geodata_seed/manifest.json"
 [ -d "$fixture_root" ] || fail "fixture directory is missing: $fixture_root"
 
 install -Dm755 "$steer_binary" /usr/bin/steer
 install -Dm755 "$sing_box_binary" /usr/bin/sing-box
+install -d -m755 /usr/share/steer
+cp -a "$geodata_seed" /usr/share/steer/geodata-seed
 install -Dm644 "$source_root"/linux/systemd/steer.service /usr/lib/systemd/system/steer.service
 install -d -m700 /etc/steer
 install -Dm600 "$fixture_root/config-enabled.json" /etc/steer/config.json
-install -Dm600 "$fixture_root/platform.json" /etc/steer/platform.json
 install -Dm644 "$fixture_root/nftables.conf" /etc/nftables.conf
 
 ip netns add steer-upstream
@@ -155,6 +158,7 @@ ip netns exec steer-client curl --fail --silent --show-error --max-time 5 'http:
 
 systemctl daemon-reload
 systemctl restart nftables.service
+steer geo-catalog --kind geosite | jq -e '.names | index("cn") != null' >/dev/null
 systemctl start steer.service
 
 wait_healthy() {
@@ -206,6 +210,9 @@ expect_dns() {
 wait_healthy
 ip link show dev steer0 >/dev/null
 nft list table inet steer >/dev/null
+grep -Fq '"initial_path"' /run/steer/current/sing-box.json || fail "compiled Geo rule-set has no initial_path"
+grep -Fq '"type": "remote"' /run/steer/current/sing-box.json || fail "compiled Geo rule-set is not remote"
+[ -s /var/lib/steer/cache.db ] || fail "sing-box cache database was not created"
 
 curl --fail --silent --show-error --max-time 5 http://11.77.0.2:18080/ >/dev/null
 curl --fail --silent --show-error --max-time 5 'http://[2001:4860:77::2]:18080/' >/dev/null
