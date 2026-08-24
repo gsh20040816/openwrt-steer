@@ -47,9 +47,9 @@ Pages 只保存当前版本，不承诺历史 seed 或可重复取得任意旧�
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.7.0_alpha.1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
-| `luci-app-steer` | `0.7.0_alpha.1-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.7.0_alpha.1-r1` | 简体中文翻译 |
+| `steer` | `0.7.0_alpha1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
+| `luci-app-steer` | `0.7.0_alpha1-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.7.0_alpha1-r1` | 简体中文翻译 |
 | `sing-box` | `1.14.0_rc1-r0` | SagerNet 官方 x86_64 APK，经内容核验后改用 Steer 仓库密钥签名 |
 
 Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签后比较除签名记录外的 APK 元数据，再用仓库公钥验证安装包。软件源的四个 APK 与 `packages.adb` 使用同一 Steer P-256 信任根；私钥只来自 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY`，不得进入源码、构件、Release 或 Pages。
