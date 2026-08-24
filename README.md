@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前预览版本为 **0.7.0-alpha.1**，公开配置为 **schema 8**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
+当前稳定版本为 **0.7.0**，公开配置为 **schema 8**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
 
 ## 已实现能力
 
@@ -12,13 +12,13 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - UDP、TCP、DoT、DoH、DoQ、DoH3 DNS Profile；每个实际使用的 `(DNS Profile, Route)` 拥有独立传输路径。
 - HTTP(S) 节点订阅、稳定节点 ID、过期节点显式清理。
 - 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
-- OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、最小 DNS/MAC nftables 辅助层。
+- OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、1.14 原生源 MAC 规则和最小 DNS nftables shim。
 - Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、主机与 VM/Docker DNS 的双栈 nft shim、受保护的 wildcard DNS listener、nftables 重启联动、systemd 服务和 loopback Web API/UI。
 - CI 将 Loyalsoldier GeoSite/GeoIP 转换为完整 SRS seed；设备以 seed 离线启动，并由 sing-box 每 24 小时后台检查 Pages `latest`。
 
 ## 明确边界
 
-- 只支持 sing-box `>= 1.14.0-beta.2` 且 `< 1.15.0`；使用到 QUIC/uTLS 时会检查对应 build tags。
+- 不把 sing-box 版本写死在发行包依赖中；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求指定兼容版本/构建。
 - Bootstrap DNS 必须是 IP 字面量并固定直连。远程订阅和 Geo 数据不能携带本地动作。
 - 启用配置中必须恰好有一个 Direct 路由和一个 Default 规则。
 - 三个测试 URL 都是必填 HTTPS scalar option，没有隐藏默认值。

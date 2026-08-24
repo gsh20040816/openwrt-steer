@@ -15,7 +15,7 @@ func TestLinuxPlanCapturesHostAndForwardedTraffic(t *testing.T) {
 		t.Fatalf("unexpected Linux resources: %#v", plan.Resources)
 	}
 	target := plan.CompilerTarget()
-	if len(target.MACBindings) != 0 || len(target.Inbounds) != 3 || len(target.DNSInboundTags) != 2 {
+	if len(target.Inbounds) != 3 || len(target.DNSInboundTags) != 2 {
 		t.Fatalf("Linux target has unexpected resources: %#v", target)
 	}
 	dns4 := target.Inbounds[1].(map[string]any)

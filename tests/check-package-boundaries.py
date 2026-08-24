@@ -44,8 +44,8 @@ extra_depends = [
     for line in makefile.splitlines()
     if line.strip().startswith("EXTRA_DEPENDS:=")
 ]
-if extra_depends != ["EXTRA_DEPENDS:=sing-box (>=1.14.0_beta2), sing-box (<1.15.0)"]:
-    fail("only sing-box may bypass Kconfig through EXTRA_DEPENDS")
+if extra_depends != ["EXTRA_DEPENDS:=sing-box"]:
+    fail("only the unversioned sing-box provider may bypass Kconfig through EXTRA_DEPENDS")
 
 for metadata in (
     "PROVIDES:=steer-openwrt",
@@ -78,10 +78,10 @@ for retired_migration in (
         fail(f"package retained expired alpha migration: {retired_migration}")
 if "PKG_NAME:=steer" not in makefile or "define Package/steer" not in makefile:
     fail("the OpenWrt controller package must be named steer")
-if "PKG_VERSION:=0.7.0_alpha1\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
-	fail("steer package version must be the APK-safe 0.7.0_alpha1-r1 release")
-if "PKG_VERSION:=0.7.0_alpha1\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
-	fail("LuCI packages must use the APK-safe 0.7.0_alpha1-r1 release")
+if "PKG_VERSION:=0.7.0\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
+	fail("steer package version must be the stable 0.7.0-r1 release")
+if "PKG_VERSION:=0.7.0\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
+	fail("LuCI packages must use the stable 0.7.0-r1 release")
 if "github.com/gsh20040816/steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
     fail("steer must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):

@@ -23,9 +23,8 @@ permissions:
   contents: read
 
 env:
-  STEER_VERSION: 0.7.0-alpha.1
-  # OpenWrt APK normalizes the same prerelease as 0.7.0_alpha1; the Git tag
-  # and Linux artifact version intentionally retain the public semver spelling.
+  STEER_VERSION: 0.7.0
+  # OpenWrt, Linux and the Git tag use the same stable public version.
   OPENWRT_RELEASE: 25.12.5
   OPENWRT_TARGET: x86/64
   SING_BOX_VERSION: 1.14.0-rc.1

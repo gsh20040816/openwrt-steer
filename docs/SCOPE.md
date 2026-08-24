@@ -24,8 +24,8 @@ OpenWrt 适配器当前拥有：
 
 - UCI schema 8 codec、显式 schema 7→8 窄迁移和 UCI 订阅节点持久化；
 - sing-box TUN `auto_route`/`auto_redirect` 入站；
-- 传统 TCP/UDP 53 DNS 捕获和源 MAC TProxy 辅助层；
-- nftables、双栈策略路由、固定 mark/table/priority/NFQUEUE 资源；
+- 传统 TCP/UDP 53 DNS 捕获和 sing-box 原生 `source_mac_address` 规则；
+- nftables DNS shim、固定 TUN mark/table/priority/NFQUEUE 资源；
 - procd 生命周期、开机私有 `_start` 钩子、本地健康检查；
 - 包内完整 SRS seed、manifest 精确 selector 校验与 sing-box remote rule-set；
 - `/run/steer` generation、`/var/lib/steer` 日志和订阅状态；

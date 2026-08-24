@@ -24,7 +24,7 @@ func (runner *activationRunner) Output(_ context.Context, name string, args ...s
 		return []byte(`[{"priority":32766,"table":254}]`), nil
 	case call == "ip -json -4 route show table all", call == "ip -json -6 route show table all":
 		return []byte(`[{"dst":"default","table":254}]`), nil
-	case strings.Contains(call, "route flush table 2023"), strings.Contains(call, "route replace local"), strings.Contains(call, "rule add priority 8999"), strings.HasPrefix(call, "/test/nft -f "):
+	case strings.Contains(call, "route flush table 2023"), strings.HasPrefix(call, "/test/nft -f "):
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("unexpected command: %s", call)
@@ -40,10 +40,9 @@ func TestActivatePublishesOnlyAfterPlatformResources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(generationDirectory, "firewall.nft"), []byte("table inet steer {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	plan := Plan{Resources: Resources{MACMark: 0x2026, MACTable: 2023, MACPriority: 8999, MACBindings: []MACBinding{{Address: "02:00:00:00:00:10", TProxyPort: 20000, DNSPort: 20001}}}}
 	runner := &activationRunner{}
 	candidate := generation.Candidate{Directory: generationDirectory}
-	if err := ActivateGeneration(context.Background(), runner, candidate, plan, root, "/test/nft"); err != nil {
+	if err := ActivateGeneration(context.Background(), runner, candidate, root, "/test/nft"); err != nil {
 		t.Fatal(err)
 	}
 	target, err := os.Readlink(filepath.Join(root, "current"))
@@ -54,8 +53,8 @@ func TestActivatePublishesOnlyAfterPlatformResources(t *testing.T) {
 		t.Fatalf("unexpected current target: %s", target)
 	}
 	calls := strings.Join(runner.calls, "\n")
-	if strings.Index(calls, "/test/nft -f") > strings.Index(calls, "rule add priority") {
-		t.Fatalf("MAC route was loaded before nft table:\n%s", calls)
+	if strings.Contains(calls, "rule add priority 8999") || strings.Contains(calls, "route replace local") {
+		t.Fatalf("activation recreated pre-1.14 MAC policy routes:\n%s", calls)
 	}
 }
 
@@ -78,10 +77,9 @@ func (runner *cleanupRunner) Output(_ context.Context, name string, args ...stri
 	}
 }
 
-func TestCleanupRemovesLegacyScopedAndCurrentGlobalMACRules(t *testing.T) {
+func TestCleanupRemovesPre114MACPolicyRules(t *testing.T) {
 	runner := &cleanupRunner{}
-	plan := Plan{Resources: Resources{MACMark: 0x2026, MACTable: 2023, MACPriority: 8999}}
-	if err := CleanupPlatform(context.Background(), runner, plan, "/test/nft"); err != nil {
+	if err := CleanupPlatform(context.Background(), runner, "/test/nft"); err != nil {
 		t.Fatal(err)
 	}
 	calls := strings.Join(runner.calls, "\n")

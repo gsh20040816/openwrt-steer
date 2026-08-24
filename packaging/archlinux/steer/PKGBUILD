@@ -1,7 +1,7 @@
 # Maintainer: Shenghan Gao <gsh20040816 at gmail dot com>
 
 pkgname=steer
-pkgver=0.7.0alpha1
+pkgver=0.7.0
 pkgrel=1
 _commit=dbfd6d17ce2f7883156a3835ce168234e538639f
 pkgdesc='Transparent proxy policy compiler and Linux systemd adapter'
@@ -12,8 +12,7 @@ depends=(
   'ca-certificates'
   'iproute2'
   'nftables'
-  'sing-box>=1.14.0beta2'
-  'sing-box<1.15.0'
+  'sing-box'
   'systemd'
 )
 makedepends=(

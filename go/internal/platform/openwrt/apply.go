@@ -19,7 +19,7 @@ func (backend *Backend) Activate(ctx context.Context, candidate generation.Candi
 	if _, err := backend.runner.Output(ctx, backend.options.InitScript, "stop"); err != nil {
 		return fmt.Errorf("stop current generation: %w", err)
 	}
-	if err := ActivateGeneration(ctx, backend.runner, candidate, backend.plan, backend.options.RunDirectory, backend.options.NFTBinary); err != nil {
+	if err := ActivateGeneration(ctx, backend.runner, candidate, backend.options.RunDirectory, backend.options.NFTBinary); err != nil {
 		return err
 	}
 	if _, err := backend.runner.Output(ctx, "/usr/bin/env", "STEER_USE_CURRENT=1", backend.options.InitScript, "start"); err != nil {
@@ -32,7 +32,7 @@ func (backend *Backend) Activate(ctx context.Context, candidate generation.Candi
 // already constructing the sing-box instance. It is an init-script hook, not
 // part of the public Apply lifecycle.
 func (backend *Backend) ActivateForServiceStart(ctx context.Context, candidate generation.Candidate) error {
-	return ActivateGeneration(ctx, backend.runner, candidate, backend.plan, backend.options.RunDirectory, backend.options.NFTBinary)
+	return ActivateGeneration(ctx, backend.runner, candidate, backend.options.RunDirectory, backend.options.NFTBinary)
 }
 
 func (backend *Backend) Healthy(ctx context.Context, _ generation.Candidate) error {
@@ -110,11 +110,7 @@ func readCurrentPlan(runDirectory string) (Plan, error) {
 }
 
 func planListenerPorts(plan Plan) []int {
-	ports := []int{plan.Resources.DNSPort}
-	for _, binding := range plan.Resources.MACBindings {
-		ports = append(ports, binding.TProxyPort, binding.DNSPort)
-	}
-	return ports
+	return []int{plan.Resources.DNSPort}
 }
 
 func checkHealthOnce(ctx context.Context, runner Runner, plan Plan, listenerCheck func([]int) error, nftBinary string) error {

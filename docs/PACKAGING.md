@@ -8,10 +8,10 @@ Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SR
 2. Geo 工作流每 6 小时检查 Loyalsoldier 最新 release，以固定版本的生成器和 sing-box 把完整 GeoSite/GeoIP 转换成 SRS，并只保留 Pages 上的 `geodata/latest`。
 3. 每份 seed 都有严格 manifest，记录上游版本、DAT SHA-256、转换工具版本以及每个 selector 对应 SRS 的路径、大小和 SHA-256。
 4. 设备 Apply 只校验所引用的 seed 文件；sing-box 通过 `initial_path` 立即启动，并使用 direct HTTP client 每 24 小时后台检查同名 remote SRS。
-5. 控制器要求 `sing-box >=1.14.0-beta.2,<1.15.0`。当前发布构建和系统验收固定使用官方 `1.14.0-rc.1`。
+5. 控制器只依赖无版本的 `sing-box` 提供者；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求用户指定兼容版本/构建。当前 CI 发布构建和系统验收固定使用官方 `1.14.0-rc.1` 作为验证基线，不构成运行时依赖约束。
 6. tag 发布不重新编译，只复用 tag 所指 master commit 的成功 release bundle。预发布 tag 创建 GitHub prerelease，但不替换稳定 OpenWrt 软件源。
 
-当前预览版本是 `v0.7.0-alpha.1`。alpha 描述的是 Steer 的稳定性，不改变 sing-box 的独立版本语义。
+当前稳定版本是 `v0.7.0`。
 
 ## Geo SRS
 
@@ -43,13 +43,13 @@ Pages 只保存当前版本，不承诺历史 seed 或可重复取得任意旧�
 
 ## OpenWrt
 
-`v0.7.0-alpha.1` 面向 OpenWrt 25.12.5 x86/64：
+`v0.7.0` 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.7.0_alpha1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
-| `luci-app-steer` | `0.7.0_alpha1-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.7.0_alpha1-r1` | 简体中文翻译 |
+| `steer` | `0.7.0-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
+| `luci-app-steer` | `0.7.0-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.7.0-r1` | 简体中文翻译 |
 | `sing-box` | `1.14.0_rc1-r0` | SagerNet 官方 x86_64 APK，经内容核验后改用 Steer 仓库密钥签名 |
 
 Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签后比较除签名记录外的 APK 元数据，再用仓库公钥验证安装包。软件源的四个 APK 与 `packages.adb` 使用同一 Steer P-256 信任根；私钥只来自 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY`，不得进入源码、构件、Release 或 Pages。
@@ -132,7 +132,7 @@ packaging/archlinux/steer/
 └── .gitignore
 ```
 
-配方从固定 `_commit` 构建 Steer，并下载 Pages 当前 Geo bundle；`prepare()` 使用同一 Go verifier 完整校验 seed。运行依赖是 `sing-box>=1.14.0beta2`、`sing-box<1.15.0`、systemd、nftables、iproute2 和 ca-certificates。安装/升级 hook 自动执行 schema 7→8 迁移，但不启用服务、不 Apply 配置，也不生成 Web token。
+配方从固定 `_commit` 构建 Steer，并下载 Pages 当前 Geo bundle；`prepare()` 使用同一 Go verifier 完整校验 seed。Arch 依赖声明使用虚拟包名 `sing-box`，以兼容官方包和 Arch Linux CN 的 `sing-box-alpha`（后者提供 `sing-box` 但不提供可用于 pacman 版本比较的 versioned provides）；Steer 在 Apply 时通过实际二进制的 native config check 和 build tags 判断能力，不满足时要求指定兼容版本/构建。其他运行依赖是 systemd、nftables、iproute2 和 ca-certificates。安装/升级 hook 自动执行 schema 7→8 迁移，但不启用服务、不 Apply 配置，也不生成 Web token。
 
 `PKGBUILD` 是唯一手工维护的配方，`.SRCINFO` 必须由 `makepkg --printsrcinfo` 生成。更新时：
 

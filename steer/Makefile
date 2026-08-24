@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
-PKG_VERSION:=0.7.0_alpha1
+PKG_VERSION:=0.7.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -26,7 +26,7 @@ define Package/steer
   URL:=https://github.com/gsh20040816/steer
 	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +ip \
 	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun
-  EXTRA_DEPENDS:=sing-box (>=1.14.0_beta2), sing-box (<1.15.0)
+  EXTRA_DEPENDS:=sing-box
   PROVIDES:=steer-openwrt
   CONFLICTS:=steer-openwrt
   REPLACES:=steer-openwrt

@@ -13,24 +13,28 @@ import (
 	"github.com/gsh20040816/steer/go/internal/generation"
 )
 
-func ActivateGeneration(ctx context.Context, runner Runner, candidate generation.Candidate, plan Plan, runDirectory, nftBinary string) error {
+// These identifiers belong only to the pre-1.14 MAC firewall implementation.
+// Cleanup keeps upgrades from leaving its policy rules behind; new generations
+// never create this table or any rules that reference it.
+const (
+	legacyMACTable               = 2023
+	legacyMACPriority            = 8999
+	legacyMACMark                = 0x2026
+	legacyAutoRedirectOutputMark = 0x2024
+)
+
+func ActivateGeneration(ctx context.Context, runner Runner, candidate generation.Candidate, runDirectory, nftBinary string) error {
 	if runDirectory == "" {
 		runDirectory = "/run/steer"
 	}
 	if nftBinary == "" {
 		nftBinary = "/usr/sbin/nft"
 	}
-	if err := CleanupPlatform(ctx, runner, plan, nftBinary); err != nil {
+	if err := CleanupPlatform(ctx, runner, nftBinary); err != nil {
 		return err
 	}
 	if _, err := runner.Output(ctx, nftBinary, "-f", filepath.Join(candidate.Directory, "firewall.nft")); err != nil {
 		return fmt.Errorf("load Steer nftables shim: %w", err)
-	}
-	for _, command := range RenderMACRoutes(plan) {
-		args := append([]string{command.Family}, command.Args...)
-		if _, err := runner.Output(ctx, "ip", args...); err != nil {
-			return fmt.Errorf("load MAC policy route: %w", err)
-		}
 	}
 	link := filepath.Join(runDirectory, "current")
 	temporary := filepath.Join(runDirectory, ".current."+strconv.Itoa(os.Getpid()))
@@ -45,7 +49,7 @@ func ActivateGeneration(ctx context.Context, runner Runner, candidate generation
 	return nil
 }
 
-func CleanupPlatform(ctx context.Context, runner Runner, plan Plan, nftBinary string) error {
+func CleanupPlatform(ctx context.Context, runner Runner, nftBinary string) error {
 	if nftBinary == "" {
 		nftBinary = "/usr/sbin/nft"
 	}
@@ -80,15 +84,14 @@ func CleanupPlatform(ctx context.Context, runner Runner, plan Plan, nftBinary st
 		}
 		for _, rule := range rules {
 			mark := jsonInt(rule["fwmark"])
-			legacyMark := AutoRedirectOutputMark
-			if jsonInt(rule["priority"]) != plan.Resources.MACPriority || jsonInt(rule["table"]) != plan.Resources.MACTable || (mark != plan.Resources.MACMark && mark != legacyMark) {
+			if jsonInt(rule["priority"]) != legacyMACPriority || jsonInt(rule["table"]) != legacyMACTable || (mark != legacyMACMark && mark != legacyAutoRedirectOutputMark) {
 				continue
 			}
-			args := []string{"rule", "del", "priority", fmt.Sprint(plan.Resources.MACPriority)}
+			args := []string{"rule", "del", "priority", fmt.Sprint(legacyMACPriority)}
 			if iif := fmt.Sprint(rule["iif"]); iif != "" && iif != "<nil>" {
 				args = append(args, "iif", iif)
 			}
-			args = append(args, "fwmark", fmt.Sprintf("0x%x", mark), "lookup", fmt.Sprint(plan.Resources.MACTable))
+			args = append(args, "fwmark", fmt.Sprintf("0x%x", mark), "lookup", fmt.Sprint(legacyMACTable))
 			if _, err := runner.Output(ctx, "ip", append([]string{family}, args...)...); err != nil {
 				return fmt.Errorf("delete Steer MAC policy rule: %w", err)
 			}
@@ -102,10 +105,10 @@ func CleanupPlatform(ctx context.Context, runner Runner, plan Plan, nftBinary st
 			return fmt.Errorf("decode %s route tables: %w", family, err)
 		}
 		for _, route := range routes {
-			if jsonInt(route["table"]) != plan.Resources.MACTable {
+			if jsonInt(route["table"]) != legacyMACTable {
 				continue
 			}
-			if _, err := runner.Output(ctx, "ip", family, "route", "flush", "table", fmt.Sprint(plan.Resources.MACTable)); err != nil {
+			if _, err := runner.Output(ctx, "ip", family, "route", "flush", "table", fmt.Sprint(legacyMACTable)); err != nil {
 				return fmt.Errorf("flush Steer MAC route table: %w", err)
 			}
 			break

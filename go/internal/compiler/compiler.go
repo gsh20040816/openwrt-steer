@@ -33,17 +33,10 @@ type Options struct {
 // Target contains sing-box-native fragments selected by one platform adapter.
 // It deliberately contains no nftables, routing-table or service-manager plan.
 type Target struct {
-	Inbounds             []any        `json:"inbounds"`
-	DNSInboundTags       []string     `json:"dns_inbound_tags"`
-	SniffInboundTags     []string     `json:"sniff_inbound_tags"`
-	MACBindings          []MACBinding `json:"mac_bindings"`
-	RequiredCapabilities []string     `json:"required_capabilities"`
-}
-
-type MACBinding struct {
-	Address       string `json:"address"`
-	TProxyTag     string `json:"tproxy_tag"`
-	DNSInboundTag string `json:"dns_inbound_tag"`
+	Inbounds             []any    `json:"inbounds"`
+	DNSInboundTags       []string `json:"dns_inbound_tags"`
+	SniffInboundTags     []string `json:"sniff_inbound_tags"`
+	RequiredCapabilities []string `json:"required_capabilities"`
 }
 
 type DNSPath struct {
@@ -171,10 +164,6 @@ func addGeoSet(result *[]GeoRuleSet, seen map[string]bool, seedDirectory, baseUR
 func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoRuleSets []GeoRuleSet, stateDirectory string) map[string]any {
 	profiles := indexDNSProfiles(intent.DNSProfiles)
 	routes := indexRoutes(intent.Routes)
-	macIndex := map[string]MACBinding{}
-	for _, binding := range target.MACBindings {
-		macIndex[binding.Address] = binding
-	}
 
 	inbounds := append([]any{}, target.Inbounds...)
 	dnsInboundTags := append([]string{}, target.DNSInboundTags...)
@@ -229,11 +218,11 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 			defaultRule = rule
 			continue
 		}
-		routeMatch := compileRuleMatch(rule, macIndex, false)
+		routeMatch := compileRuleMatch(rule, false)
 		routeMatch["action"] = "route"
 		routeMatch["outbound"] = routeTag(rule.Route)
 		routeRules = append(routeRules, routeMatch)
-		if dnsMatch := compileDNSMatch(rule, macIndex); len(dnsMatch) > 0 {
+		if dnsMatch := compileDNSMatch(rule); len(dnsMatch) > 0 {
 			if routes[rule.Route].Kind == "block" {
 				dnsMatch["action"] = "reject"
 			} else {
@@ -530,7 +519,7 @@ func compileDNSPath(profile model.DNSProfile, route model.Route, path DNSPath) m
 	return clean(result)
 }
 
-func compileRuleMatch(rule model.Rule, macIndex map[string]MACBinding, dns bool) map[string]any {
+func compileRuleMatch(rule model.Rule, dns bool) map[string]any {
 	groups := []map[string]any{}
 	if len(rule.Inbound) > 0 {
 		values := make([]string, len(rule.Inbound))
@@ -540,16 +529,11 @@ func compileRuleMatch(rule model.Rule, macIndex map[string]MACBinding, dns bool)
 		groups = append(groups, map[string]any{"inbound": values})
 	}
 	if len(rule.SourceMACAddress) > 0 {
-		values := []string{}
-		for _, address := range rule.SourceMACAddress {
-			binding := macIndex[strings.ToLower(address)]
-			if dns {
-				values = append(values, binding.DNSInboundTag)
-			} else {
-				values = append(values, binding.TProxyTag)
-			}
+		values := make([]string, len(rule.SourceMACAddress))
+		for i, address := range rule.SourceMACAddress {
+			values[i] = strings.ToLower(address)
 		}
-		groups = append(groups, map[string]any{"inbound": values})
+		groups = append(groups, map[string]any{"source_mac_address": values})
 	}
 	if len(rule.DomainMatch) > 0 {
 		groups = append(groups, compileDomainGroup(rule.DomainMatch))
@@ -574,8 +558,8 @@ func compileRuleMatch(rule model.Rule, macIndex map[string]MACBinding, dns bool)
 	return combine(groups, "and")
 }
 
-func compileDNSMatch(rule model.Rule, macIndex map[string]MACBinding) map[string]any {
-	return compileRuleMatch(rule, macIndex, true)
+func compileDNSMatch(rule model.Rule) map[string]any {
+	return compileRuleMatch(rule, true)
 }
 
 func compileDomainGroup(expressions []string) map[string]any {

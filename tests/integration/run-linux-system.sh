@@ -90,6 +90,7 @@ ip netns exec steer-upstream ip -6 route add default via fd76::1
 ip netns add steer-client
 ip link add st-client type veth peer name client0
 ip link set client0 netns steer-client
+ip netns exec steer-client ip link set dev client0 address 02:00:00:00:00:77
 ip address add 10.77.0.1/24 dev st-client
 ip -6 address add fd77::1/64 dev st-client nodad
 ip link set st-client up
@@ -212,6 +213,9 @@ ip link show dev steer0 >/dev/null
 nft list table inet steer >/dev/null
 grep -Fq '"initial_path"' /run/steer/current/sing-box.json || fail "compiled Geo rule-set has no initial_path"
 grep -Fq '"type": "remote"' /run/steer/current/sing-box.json || fail "compiled Geo rule-set is not remote"
+mac_rule_count=$(grep -c '"source_mac_address"' /run/steer/current/sing-box.json)
+[ "$mac_rule_count" -ge 2 ] || fail "native source MAC rule was not projected to route and DNS"
+grep -Fq '02:00:00:00:00:77' /run/steer/current/sing-box.json || fail "native source MAC address was not preserved"
 [ -s /var/lib/steer/cache.db ] || fail "sing-box cache database was not created"
 
 curl --fail --silent --show-error --max-time 5 http://11.77.0.2:18080/ >/dev/null

@@ -119,18 +119,25 @@ grep -q 'dnat ip to 127.0.0.1:1053' "$TEST_DIR/steer.nft"
 grep -q 'dnat ip6 to \[::1\]:1053' "$TEST_DIR/steer.nft"
 grep -q 'snat ip to 127.0.0.1' "$TEST_DIR/steer.nft"
 grep -q 'snat ip6 to ::1' "$TEST_DIR/steer.nft"
-grep -q 'ether saddr 02:00:00:00:00:10' "$TEST_DIR/steer.nft"
-grep -q 'ct mark set 0x2024' "$TEST_DIR/steer.nft"
-grep -q 'tproxy to :20000' "$TEST_DIR/steer.nft"
-grep -q 'chain mac_tproxy_restore' "$TEST_DIR/steer.nft"
-grep -q 'priority dstnat + 3' "$TEST_DIR/steer.nft"
-grep -q 'ct mark 0x2024 meta mark set 0x2026' "$TEST_DIR/steer.nft"
+mac_rule_count="$(grep -c '"source_mac_address"' /run/steer/current/sing-box.json)"
+[ "$mac_rule_count" -ge 2 ]
+grep -q '02:00:00:00:00:10' /run/steer/current/sing-box.json
+if grep -Eq 'steer-mac-|"type": "tproxy"' /run/steer/current/sing-box.json; then
+	echo 'Compiled configuration retained the pre-1.14 MAC inbound shim.' >&2
+	exit 1
+fi
+if grep -Eq 'ether saddr|mac_tproxy|tproxy to :20000|0x2026' "$TEST_DIR/steer.nft"; then
+	echo 'OpenWrt firewall retained the pre-1.14 MAC shim.' >&2
+	exit 1
+fi
 if grep -Eq 'udp dport 443.*(drop|reject)' "$TEST_DIR/steer.nft"; then
 	echo 'Steer blocks QUIC instead of routing it.' >&2
 	exit 1
 fi
-ip -4 rule show | grep -Eq '8999:.*fwmark 0x2026.*lookup 2023'
-ip -6 rule show | grep -Eq '8999:.*fwmark 0x2026.*lookup 2023'
+if ip -4 rule show | grep -Eq '8999:.*lookup 2023' || ip -6 rule show | grep -Eq '8999:.*lookup 2023'; then
+	echo 'OpenWrt retained the pre-1.14 MAC policy route.' >&2
+	exit 1
+fi
 nslookup openwrt.org 1.1.1.1 > "$TEST_DIR/dns.txt"
 grep -q 'Address' "$TEST_DIR/dns.txt"
 

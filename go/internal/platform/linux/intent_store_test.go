@@ -85,20 +85,12 @@ func TestIntentStoreRoundTripAndRevisionConflict(t *testing.T) {
 	}
 }
 
-func TestLinuxValidationRejectsSourceMAC(t *testing.T) {
+func TestLinuxValidationAcceptsNativeSourceMAC(t *testing.T) {
 	value := validIntent()
-	value.Rules = append(value.Rules, model.Rule{ID: "mac", Enabled: true, SourceMACAddress: []string{"02:00:00:00:00:10"}, DNSProfile: "public", Route: "direct"})
+	macRule := model.Rule{ID: "mac", Enabled: true, SourceMACAddress: []string{"02:00:00:00:00:10"}, DNSProfile: "public", Route: "direct"}
+	value.Rules = append(value.Rules[:len(value.Rules)-1], macRule, value.Rules[len(value.Rules)-1])
 	validation := Validate(value)
-	if validation.OK {
-		t.Fatal("source MAC rule was accepted on Linux")
-	}
-	found := false
-	for _, issue := range validation.Errors {
-		if issue.Code == "PLATFORM_UNSUPPORTED_SOURCE_MAC" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("missing explicit source MAC platform error: %#v", validation.Errors)
+	if !validation.OK {
+		t.Fatalf("sing-box 1.14 native source MAC rule was rejected on Linux: %#v", validation.Errors)
 	}
 }

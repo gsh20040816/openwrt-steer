@@ -16,18 +16,14 @@ func TestPlanOwnsOpenWrtResourcesAndCompilerTarget(t *testing.T) {
 		Rules:        []model.Rule{{Enabled: true, SourceMACAddress: []string{"02:00:00:00:00:10"}}},
 	}
 	plan := NewPlan(value)
-	if len(plan.Resources.MACBindings) != 1 || plan.Resources.MACMark == 0 {
-		t.Fatalf("OpenWrt MAC resources were not planned: %#v", plan.Resources)
+	target := plan.CompilerTarget()
+	encoded, _ := json.Marshal(target)
+	if len(target.Inbounds) != 2 || !strings.Contains(string(encoded), `"auto_redirect":true`) {
+		t.Fatalf("compiler target omitted OpenWrt native inbounds: %s", encoded)
 	}
-	if plan.Resources.MACMark == plan.Resources.AutoRedirectOutputMark {
-		t.Fatalf("MAC mark collides with sing-box output mark: %#v", plan.Resources)
-	}
-	binding := plan.Resources.MACBindings[0]
-	if binding.TProxyPort == 20000 || binding.DNSPort == 20000 {
-		t.Fatalf("MAC listeners collided with local proxy: %#v", binding)
-	}
-	target, _ := json.Marshal(plan.CompilerTarget())
-	if !strings.Contains(string(target), `"auto_redirect":true`) || !strings.Contains(string(target), `"type":"tproxy"`) {
-		t.Fatalf("compiler target omitted OpenWrt inbounds: %s", target)
+	for _, retired := range []string{`"type":"tproxy"`, `"mac_bindings"`, `"steer-mac-"`} {
+		if strings.Contains(string(encoded), retired) {
+			t.Fatalf("compiler target retained pre-1.14 MAC shim %q: %s", retired, encoded)
+		}
 	}
 }

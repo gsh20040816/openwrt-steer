@@ -34,13 +34,10 @@ func testOptions() Options {
 		Inbounds: []any{
 			map[string]any{"type": "tun", "tag": "steer-tun", "address": []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"}, "auto_route": true, "auto_redirect": true},
 			map[string]any{"type": "direct", "tag": "steer-dns", "listen": "::", "listen_port": 1053},
-			map[string]any{"type": "tproxy", "tag": "steer-mac-tproxy-0", "listen_port": 20000},
-			map[string]any{"type": "direct", "tag": "steer-mac-dns-0", "listen_port": 20001},
 		},
-		DNSInboundTags:       []string{"steer-dns", "steer-mac-dns-0"},
-		SniffInboundTags:     []string{"steer-tun", "steer-mac-tproxy-0"},
-		MACBindings:          []MACBinding{{Address: "02:00:00:00:00:10", TProxyTag: "steer-mac-tproxy-0", DNSInboundTag: "steer-mac-dns-0"}},
-		RequiredCapabilities: []string{"tun", "auto_route", "auto_redirect", "tproxy"},
+		DNSInboundTags:       []string{"steer-dns"},
+		SniffInboundTags:     []string{"steer-tun"},
+		RequiredCapabilities: []string{"tun", "auto_route", "auto_redirect"},
 	}}
 }
 
@@ -78,11 +75,11 @@ func TestCompilePathIsolationAndProjection(t *testing.T) {
 	}
 }
 
-func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
+func TestCompileNativeMACRulesAndNoForbiddenFeatures(t *testing.T) {
 	bundle := Compile(representativeIntent(), testOptions())
 	encoded, _ := json.Marshal(bundle.SingBox)
 	text := string(encoded)
-	for _, forbidden := range []string{"fakeip", "udp/443", "smartdns", "serve_expired"} {
+	for _, forbidden := range []string{"fakeip", "udp/443", "smartdns", "serve_expired", "steer-mac-tproxy", "steer-mac-dns"} {
 		if strings.Contains(strings.ToLower(text), forbidden) {
 			t.Fatalf("forbidden feature %q in %s", forbidden, text)
 		}
@@ -93,6 +90,38 @@ func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
 	if !strings.Contains(text, `"address":["198.18.0.1/30","fdfe:dcba:9876::1/126"]`) {
 		t.Fatalf("unexpected TUN addresses: %s", text)
 	}
+	dnsRules, _ := json.Marshal(bundle.SingBox["dns"].(map[string]any)["rules"])
+	routeRules, _ := json.Marshal(bundle.SingBox["route"].(map[string]any)["rules"])
+	for name, rules := range map[string][]byte{"DNS": dnsRules, "Route": routeRules} {
+		if !strings.Contains(string(rules), `"source_mac_address":["02:00:00:00:00:10"]`) {
+			t.Fatalf("%s rules do not use sing-box 1.14 native source MAC matching: %s", name, rules)
+		}
+	}
+}
+
+func TestCompileKeepsDedicatedDNSHijackBoundary(t *testing.T) {
+	bundle := Compile(representativeIntent(), testOptions())
+	route := bundle.SingBox["route"].(map[string]any)
+	rules := route["rules"].([]any)
+	first := rules[0].(map[string]any)
+	if first["action"] != "hijack-dns" {
+		t.Fatalf("DNS capture boundary lost: %#v", first)
+	}
+	inbounds := first["inbound"].([]string)
+	if len(inbounds) != 1 || inbounds[0] != "steer-dns" {
+		t.Fatalf("hijack-dns is not restricted to the dedicated DNS inbound: %#v", first)
+	}
+	if strings.Contains(string(mustJSON(first)), "steer-tun") {
+		t.Fatalf("general TUN inbound was connected directly to hijack-dns: %#v", first)
+	}
+}
+
+func mustJSON(value any) []byte {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return encoded
 }
 
 func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {

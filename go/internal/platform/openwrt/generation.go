@@ -54,7 +54,7 @@ func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compile
 	}
 	capabilityReport := capability.Parse(string(versionOutput), compiled.RequiredCapabilities)
 	if !capabilityReport.OK {
-		return generation.Candidate{}, fmt.Errorf("sing-box capability check failed: %v", capabilityReport.Errors)
+		return generation.Candidate{}, fmt.Errorf("installed sing-box %s cannot satisfy this intent; specify an explicit compatible sing-box version/build: %v", capabilityReport.Version, capabilityReport.Errors)
 	}
 	firewall, err := RenderFirewall(backend.plan)
 	if err != nil {
@@ -82,7 +82,7 @@ func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compile
 		return generation.Candidate{}, fmt.Errorf("write firewall.nft: %w", err)
 	}
 	if _, err := backend.runner.Output(ctx, backend.options.SingBoxBinary, "check", "-c", filepath.Join(candidate.Directory, "sing-box.json")); err != nil {
-		return generation.Candidate{}, fmt.Errorf("sing-box native check failed: %w", err)
+		return generation.Candidate{}, fmt.Errorf("installed sing-box %s rejected the generated native configuration; specify an explicit compatible sing-box version/build: %w", capabilityReport.Version, err)
 	}
 	if _, err := backend.runner.Output(ctx, backend.options.NFTBinary, "-c", "-f", filepath.Join(candidate.Directory, "firewall.nft")); err != nil {
 		return generation.Candidate{}, fmt.Errorf("nftables native check failed: %w", err)

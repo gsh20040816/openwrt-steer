@@ -32,6 +32,7 @@
     const domains = asList(rule.domain_match);
     const ips = asList(rule.ip_match);
     const srcs = asList(rule.source_ip_cidr);
+    const macs = asList(rule.source_mac_address);
     const ports = asList(rule.port);
     const nets = asList(rule.network);
     const protos = asList(rule.protocol);
@@ -40,6 +41,7 @@
     if (domains.length) parts.push(`域名 ×${domains.length}`);
     if (ips.length) parts.push(`IP ×${ips.length}`);
     if (srcs.length) parts.push(`源 CIDR ×${srcs.length}`);
+    if (macs.length) parts.push(`源 MAC ×${macs.length}`);
     if (nets.length) parts.push(nets.join('/').toUpperCase());
     if (protos.length) parts.push(`协议 ${protos.join(',')}`);
     if (ports.length) parts.push(`端口 ×${ports.length}`);
@@ -73,15 +75,10 @@
           placeholder: '1.1.1.1\n10.0.0.0/8\ngeoip:cn'
         });
         const srcCidr = ui.chips(asList(draft.source_ip_cidr), { placeholder: '192.168.50.0/24', onchange: (v) => { draft.source_ip_cidr = v; } });
+        const srcMac = ui.chips(asList(draft.source_mac_address), { placeholder: '02:00:00:00:00:10', onchange: (v) => { draft.source_mac_address = v; } });
         const nets = ui.chips(asList(draft.network), { placeholder: 'tcp / udp', onchange: (v) => { draft.network = v; } });
         const protos = ui.chips(asList(draft.protocol), { placeholder: 'tls / http / quic …', onchange: (v) => { draft.protocol = v; } });
         const ports = ui.chips(asList(draft.port).map(String), { placeholder: '443 / 27015', onchange: (v) => { draft.port = v.map((x) => (/^\d+$/.test(x) ? Number(x) : x)); } });
-
-        const macNote = h('div', { class: 'field' }, [
-          h('label', {}, '源 MAC'),
-          h('input', { class: 'input', disabled: true, placeholder: '不支持', value: '' }),
-          h('div', { class: 'field__hint' }, 'Linux 平台不支持源 MAC 匹配（PLATFORM_UNSUPPORTED_SOURCE_MAC）；这是 OpenWrt 网关特性。')
-        ]);
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '意图'), [
@@ -94,12 +91,12 @@
             ui.field('域名匹配', domain.el, `每行一条 · ${geo.geosite?.readable ? `${geo.geosite.count} 个 GeoSite 名称可补全` : 'catalog 不可用，Apply 时最终判定'}`),
             ui.field('目标 IP 匹配', ip.el, `每行一条 · ${geo.geoip?.readable ? `${geo.geoip.count} 个 GeoIP 名称可补全` : 'catalog 不可用，Apply 时最终判定'}`),
             ui.field('源 IP/CIDR', srcCidr, '稳定 DHCP 租约或稳定 IPv6 地址'),
+            ui.field('源 MAC', srcMac, '由 sing-box 1.14 邻居解析原生匹配；不能与本地代理 inbound 组合'),
             h('div', { class: 'field--row' }, [
               ui.field('网络', nets),
               ui.field('检测协议', protos)
             ]),
-            ui.field('目标端口', ports, '精确端口 · 只参与业务流量'),
-            macNote
+            ui.field('目标端口', ports, '精确端口 · 只参与业务流量')
           ])
         );
         return {
