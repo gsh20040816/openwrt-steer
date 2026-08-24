@@ -1,80 +1,110 @@
 # macOS 开发基线
 
-本文记录 macOS 开发的当前边界。macOS 目标使用原生 SwiftUI/AppKit 界面和 Apple NetworkExtension；共享 Canonical Intent、校验和 sing-box 配置编译仍由 Go 核心负责。
-
-DNS 方案的正式决策记录在 [ADR 0001](adr/0001-macos-dns-capture.md)。
-
-## 运行时边界
+macOS 的正式实现不依赖 Apple Developer Program、NetworkExtension entitlement 或付费签名。运行时采用普通 sing-box 二进制、Darwin TUN/`auto_route` 和 root LaunchDaemon：
 
 ```text
-Steer.app
-├── 原生 GUI：编辑 draft、Validate、Apply、状态与诊断
-├── Agent：订阅、探测、Geo/Tor 等后台任务
-└── Network Extension
-    ├── PacketTunnelProvider：接管普通应用流量
-    └── DNSProxyProvider：先捕获传统 UDP/TCP DNS
+steer-macos apply
+        ↓
+launchctl bootstrap
+        ↓
+LaunchDaemon: steer-macos _run
+        ↓
+exec sing-box run -c current/sing-box.json
+        ↓
+macOS utun + auto_route
 ```
 
-Packet Tunnel 由 NetworkExtension 创建和配置 utun。macOS 目标不使用 Linux 的 `auto_route`、`auto_redirect`、nftables、pf 或 root daemon，也不把 DNS 设置安装到 Packet Tunnel 的网络设置中。系统路由和 DNS Proxy 授权必须在真实签名的 Mac 上验证；当前开发环境没有 macOS，因此这里只提交可在 Linux 上验证的配置契约。
+sing-box 的 TUN inbound 官方支持 macOS；`auto_redirect` 是 Linux 路径，macOS 不使用它。[sing-box Tun](https://sing-box.sagernet.org/configuration/inbound/tun/)
 
 ## DNS 路径
 
-DNS 采用两层边界，但只保留一份 sing-box DNS Router：
+macOS 不复制 Linux 的 nftables `PREROUTING`/`OUTPUT` shim，也不引入 SmartDNS。DNS 仍由同一份 sing-box DNS Router 处理，Steer 在 TUN inbound 上只对明确的 TCP/UDP 目标端口 53 生成 `hijack-dns` 规则：
 
 ```text
-系统 resolver / 应用
+应用 / 系统 resolver
         ↓
-NEDNSProxyProvider（第一层：确认 UDP/TCP DNS）
+macOS utun
         ↓
-Steer 专用 loopback DNS inbound
+sing-box route: inbound=steer-tun, tcp/udp, port=53
         ↓
-sing-box route action: hijack-dns
+sing-box DNS Router
         ↓
-sing-box DNS Router（DNS Profile、Route、缓存和上游协议）
+DNS Profile → Route / outbound
 ```
 
-`hijack-dns` 只匹配专用 DNS inbound，不匹配 Packet Tunnel 中的普通 UDP session。这样与 Linux/OpenWrt 的“先按目标端口分流，再交给专用 inbound”语义一致，同时避免把 TUN 会话识别为 DNS。
+这不会把普通 UDP session 当成 DNS，也不需要 Swift 重写 DNS 报文。DNS Profile、缓存、detour 和上游协议继续由 sing-box 内部实现。
 
-共享 compiler 的 `DNSCapture` 只描述 sing-box 需要的 inbound tags 和模式，不包含 nftables、NetworkExtension 或 Swift 类型。平台适配器负责第一层捕获：
+## Go macOS adapter
 
-- Linux/OpenWrt：nftables 将 UDP/TCP 53 转到专用 inbound；
-- macOS：`NEDNSProxyProvider` 将捕获的 UDP/TCP flow 转到 `steer-dns4`/`steer-dns6`；
-- 其他测试 runtime：使用 `DNSCaptureNone`，不生成 `hijack-dns` 规则。
+`go/internal/platform/macos` 负责：
 
-当前 macOS adapter 对 `source_mac_address` 和 Geo 表达式 fail-fast；在 GeoToolchain 和本机流量能力完成前，返回明确的平台不支持错误，不静默降级为普通域名或忽略策略。
+- Darwin TUN plan：地址、MTU、`auto_route` 和非全球地址排除；
+- 显式 TCP/UDP 53 DNS capture；
+- sing-box version/capability/check；
+- generation prepare/publish；
+- launchd stop/bootstrap；
+- utun 地址和 LaunchDaemon health；
+- atomic Apply record、status 和 cleanup。
 
-共享 compiler 不再在缺少 Geo 状态目录时猜测 `/var/lib/steer`。含 Geo 规则的调用必须显式传入平台状态目录；macOS 调用方应传入 App Group 的 state container。
+默认运行目录为：
 
-macOS 的 DNS Proxy 必须同时覆盖 UDP 和 TCP，并在 Swift 层处理 TCP 的两字节长度 framing、半包、粘包、超时和取消。DNS message 解析、规则选择、缓存和上游传输不在 Swift 中重写。
+```text
+/Library/Application Support/Steer/config/config.json
+/Library/Application Support/Steer/run/
+/Library/Application Support/Steer/state/
+/Library/Application Support/Steer/geodata-seed/manifest.json
+/Library/Application Support/Steer/geodata-seed/rules/*.srs
+```
 
-## 当前代码骨架
+公共命令：
 
-`go/internal/platform/macos` 目前包含纯 Go 的 `Plan`、JSON bridge、App Group store、generation prepare/publish 和 DNS framing：
+```text
+version validate compile prepare apply health status cleanup
+```
 
-- TUN inbound 不声明 `auto_route`/`auto_redirect`，由 NetworkExtension 负责系统路由；
-- DNS inbound 绑定 `127.0.0.1:1053` 与 `[::1]:1054`；
-- target 明确使用 `DNSCaptureInboundHijack`；
-- `go/pkg/steercore` 提供版本化 `{abi_version, ok, value/error}` JSON envelope；
-- `steer-macos prepare --config … --app-group …` 在 App Group 中生成候选 generation，但不会越权宣称 provider 已激活；
-- `go test` 可在 Linux 上验证配置中存在专用 DNS `hijack-dns`，且不存在 `auto_redirect`；
-- `macos/SteerApp` 提供 SwiftUI 页面、菜单栏入口、draft/Validate/Apply 状态和 provider manager 控制骨架；
-- `macos/SteerNetwork` 提供 Packet Tunnel/DNS Proxy target 输入、entitlements 和 Info.plist 模板；
-- `macos/bridge/go.mod` 将 sing-box 固定在 `v1.13.19`，不污染根 Go module。
+`_run` 只供 LaunchDaemon 使用。它在冷启动时准备 current generation，然后直接 `exec` sing-box，不成为第二个 supervisor。
 
-这不是 macOS 系统扩展的完成声明。没有真实 Mac、Apple Developer 签名、App Group 和 NetworkExtension 授权时，不能声称 Packet Tunnel/DNS Proxy 已启动或端到端可用。
+## 安装
 
-## 尚未完成但已留好接口的部分
+先安装 sing-box。官方提供 Homebrew 安装方式：[sing-box package manager](https://sing-box.sagernet.org/installation/package-manager/)
 
-- DNSProxyProvider 的 `NEAppProxyUDPFlow`/`NEAppProxyTCPFlow` 实际读写循环；
-- Packet Tunnel 中 Libbox command server、utun fd handoff 和物理接口绑定；
-- Swift 逐字段 schema 7 编辑器、订阅刷新/Geo/Probe/Agent；当前原生页面已支持 draft collection 的新增、删除、排序和 canonical JSON 保存。
-- XCFramework 产物、Developer ID 签名、notarization 和真实 provider 健康检查。
+然后以 root 执行：
 
-这些部分需要 macOS SDK、Apple entitlement、签名身份或真实流量，当前环境无法诚实完成验证，因此代码中保持 fail-fast 占位，不把失败伪装成可用。
+```sh
+sudo macos/scripts/install-launchdaemon.sh
+```
 
-## 后续顺序
+安装脚本会：
 
-1. 在真实 Mac 上验证空 PacketTunnelProvider 与 DNSProxyProvider 的签名、App Group、安装、启动、停止和重启恢复；
-2. 为两个 provider 接入同一 generation ID，并实现 DNS Proxy 到专用 inbound 的 UDP/TCP 转发；
-3. 固定 sing-box/Libbox 版本，建立 Swift/Go JSON round-trip 和配置 golden test；
-4. 再实现原生 GUI、Agent、订阅、探测和 Geo 能力。
+1. 构建 `/usr/local/libexec/steer/steer-macos`；
+2. 复制 LaunchDaemon plist；
+3. 自动发现 `sing-box` 路径，兼容 Apple Silicon 和 Intel Homebrew；
+4. 创建 Steer 配置、runtime、state、Geo seed 和日志目录；
+5. 执行 `launchctl bootstrap`。
+
+配置文件应由用户或上层 UI 写入：
+
+```text
+/Library/Application Support/Steer/config/config.json
+```
+
+应用配置：
+
+```sh
+sudo /usr/local/libexec/steer/steer-macos apply
+sudo /usr/local/libexec/steer/steer-macos health
+sudo /usr/local/libexec/steer/steer-macos status
+```
+
+## 限制
+
+当前 macOS 目标明确不支持：
+
+- `source_mac_address`；
+- Geo 表达式可以使用；macOS 需要把与当前 master 构建匹配的 `geodata-seed/`（含 `manifest.json` 和 `rules/*.srs`）放入上述目录。Geo 转换在 CI/release 阶段完成，目标机不安装 geoview，也不读取 DAT；
+- Linux `auto_redirect`、nftables、pf；
+- NetworkExtension provider；
+- SmartDNS 独立进程；
+- 应用自带 DoH/DoQ 的明文查询识别。
+
+`macos/SteerApp`、`macos/SteerNetwork` 和 `macos/Package.swift` 保留为未来原生 UI/NetworkExtension 实验输入，但它们不是当前可交付运行时，也不应进入安装和 Apply 主路径。没有 Apple Developer Program 时，不声称它们可以安装或启动 provider。

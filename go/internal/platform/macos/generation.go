@@ -23,10 +23,9 @@ type PreparedGeneration struct {
 	Metadata GenerationMetadata
 }
 
-// Prepare compiles a validated intent and writes an immutable candidate. It
-// intentionally stops before NetworkExtension activation; the native app must
-// activate both providers and call Publish only after they report the same
-// generation healthy.
+// Prepare compiles a validated intent and writes an immutable candidate. The
+// launchd backend publishes it only after sing-box has passed its native config
+// check and the new utun generation becomes healthy.
 func Prepare(value model.Intent, paths Paths) (PreparedGeneration, error) {
 	validation := Validate(value)
 	if !validation.OK {
@@ -36,10 +35,7 @@ func Prepare(value model.Intent, paths Paths) (PreparedGeneration, error) {
 		return PreparedGeneration{}, err
 	}
 	plan := NewPlan(value)
-	compiled, err := compiler.Compile(value, plan.CompilerOptions(paths.StateDirectory))
-	if err != nil {
-		return PreparedGeneration{}, err
-	}
+	compiled := compiler.Compile(value, plan.CompilerOptions(paths.StateDirectory))
 	candidate, err := generation.Create(paths.GenerationsDirectory, value, compiled.SingBox)
 	if err != nil {
 		return PreparedGeneration{}, err
@@ -72,27 +68,8 @@ type CurrentGeneration struct {
 	IntentDigest  string `json:"intent_digest"`
 }
 
-type ProviderHealth struct {
-	Provider     string `json:"provider"`
-	GenerationID string `json:"generation_id"`
-	Healthy      bool   `json:"healthy"`
-}
-
-// PublishHealthy enforces the two-provider barrier before publishing the
-// current pointer. A single healthy provider is never enough to activate a
-// new generation.
-func (paths Paths) PublishHealthy(prepared PreparedGeneration, packet, dns ProviderHealth) error {
-	if !packet.Healthy || !dns.Healthy {
-		return fmt.Errorf("macOS providers are not both healthy")
-	}
-	if packet.GenerationID == "" || packet.GenerationID != prepared.Metadata.GenerationID || dns.GenerationID != prepared.Metadata.GenerationID {
-		return fmt.Errorf("macOS provider generation mismatch")
-	}
-	return paths.Publish(prepared)
-}
-
-// Publish records the candidate only after the host has confirmed that both
-// PacketTunnelProvider and DNSProxyProvider are healthy for the same digest.
+// Publish records the candidate after launchd has stopped the old sing-box
+// process and before the new LaunchDaemon is bootstrapped.
 func (paths Paths) Publish(prepared PreparedGeneration) error {
 	if prepared.Directory == "" || prepared.Metadata.GenerationID == "" {
 		return fmt.Errorf("cannot publish an incomplete macOS generation")

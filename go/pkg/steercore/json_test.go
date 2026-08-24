@@ -46,24 +46,6 @@ func TestCompileJSONKeepsPlatformTargetOutsideCore(t *testing.T) {
 	}
 }
 
-func TestCompileJSONReportsCompilerFailure(t *testing.T) {
-	value := minimalIntent()
-	geoRule := model.Rule{ID: "geo", Enabled: true, DNSProfile: "dns", Route: "direct", DomainMatch: []string{"geosite:cn"}}
-	value.Rules = append(value.Rules[:len(value.Rules)-1], geoRule, value.Rules[len(value.Rules)-1])
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	output := CompileJSON(encoded, "", Target{})
-	var envelope Envelope
-	if err := json.Unmarshal(output, &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.OK || envelope.Error == nil || envelope.Error.Code != "COMPILE_FAILED" {
-		t.Fatalf("missing explicit compiler failure: %#v", envelope)
-	}
-}
-
 func minimalIntent() model.Intent {
 	return model.Intent{
 		Main:        model.Main{ID: "main", SchemaVersion: model.SchemaVersion, Enabled: true, LogLevel: "warn", ProbeDirectURL: "https://direct.example/", ProbeProxyURL: "https://proxy.example/", SpeedtestProxyURL: "https://speed.example/", DNSCacheCapacity: 4096},

@@ -59,7 +59,9 @@ func TestRunCompileEmitsMacOSTarget(t *testing.T) {
 	if err := run([]string{"compile", "--config", configPath, "--state-dir", filepath.Join(root, "state")}, &output, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"action": "hijack-dns"`, `"listen": "127.0.0.1"`, `"listen": "::1"`} {
+	for _, expected := range []string{`"action": "hijack-dns"`, `"port": [
+            "53"
+          ]`, `"auto_route": true`} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("compiled macOS output is missing %s:\n%s", expected, output.String())
 		}

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsh20040816/steer/go/internal/compiler"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
@@ -16,11 +15,8 @@ func TestLinuxPlanCapturesHostAndForwardedTraffic(t *testing.T) {
 		t.Fatalf("unexpected Linux resources: %#v", plan.Resources)
 	}
 	target := plan.CompilerTarget()
-	if len(target.MACBindings) != 0 || len(target.Inbounds) != 3 || len(target.DNSCapture.InboundTags) != 2 {
+	if len(target.MACBindings) != 0 || len(target.Inbounds) != 3 || len(target.DNSInboundTags) != 2 {
 		t.Fatalf("Linux target has unexpected resources: %#v", target)
-	}
-	if target.DNSCapture.Mode != compiler.DNSCaptureInboundHijack {
-		t.Fatalf("Linux target has unexpected DNS capture mode: %#v", target.DNSCapture)
 	}
 	dns4 := target.Inbounds[1].(map[string]any)
 	dns6 := target.Inbounds[2].(map[string]any)

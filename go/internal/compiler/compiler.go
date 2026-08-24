@@ -35,9 +35,33 @@ type Options struct {
 type Target struct {
 	Inbounds             []any        `json:"inbounds"`
 	DNSInboundTags       []string     `json:"dns_inbound_tags"`
+	DNSCapture           DNSCapture   `json:"dns_capture"`
 	SniffInboundTags     []string     `json:"sniff_inbound_tags"`
 	MACBindings          []MACBinding `json:"mac_bindings"`
 	RequiredCapabilities []string     `json:"required_capabilities"`
+}
+
+// DNSCaptureMode describes which component has already identified DNS
+// traffic before the sing-box route rules see it. Keeping this explicit
+// prevents a packet-oriented runtime from treating arbitrary UDP sessions as
+// DNS.
+type DNSCaptureMode string
+
+const (
+	DNSCaptureNone            DNSCaptureMode = "none"
+	DNSCaptureInboundHijack   DNSCaptureMode = "inbound_hijack"
+	DNSCaptureTUNPort53Hijack DNSCaptureMode = "tun_port53_hijack"
+)
+
+// DNSCapture contains only sing-box-facing DNS inbound tags. Platform code
+// remains responsible for the first capture layer. The inbound_hijack mode is
+// safe only when those tags refer to dedicated DNS flows, never to a packet
+// runtime's general UDP sessions. tun_port53_hijack is the explicit exception
+// for a Darwin TUN: it matches only TCP/UDP destination port 53 on the TUN
+// inbound, so arbitrary UDP sessions are not treated as DNS.
+type DNSCapture struct {
+	Mode        DNSCaptureMode `json:"mode"`
+	InboundTags []string       `json:"inbound_tags"`
 }
 
 type MACBinding struct {
@@ -215,10 +239,21 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path))
 	}
 
-	routeRules := []any{
-		map[string]any{"inbound": dnsInboundTags, "action": "hijack-dns"},
-		map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"},
+	routeRules := make([]any, 0, 2+len(intent.Rules))
+	capture := target.DNSCapture
+	if capture.Mode == "" && len(capture.InboundTags) == 0 && len(target.DNSInboundTags) > 0 {
+		capture.Mode = DNSCaptureInboundHijack
+		capture.InboundTags = append([]string{}, target.DNSInboundTags...)
 	}
+	dnsInboundTags = append([]string{}, capture.InboundTags...)
+	if capture.Mode == DNSCaptureInboundHijack && len(dnsInboundTags) > 0 {
+		routeRules = append(routeRules, map[string]any{"inbound": dnsInboundTags, "action": "hijack-dns"})
+	} else if capture.Mode == DNSCaptureTUNPort53Hijack && len(dnsInboundTags) > 0 {
+		routeRules = append(routeRules, map[string]any{
+			"inbound": dnsInboundTags, "network": []string{"tcp", "udp"}, "port": []string{"53"}, "action": "hijack-dns",
+		})
+	}
+	routeRules = append(routeRules, map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"})
 	dnsRules := []any{}
 	var defaultRule model.Rule
 	for _, rule := range intent.Rules {

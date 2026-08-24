@@ -36,10 +36,7 @@ func CompileJSON(input []byte, stateDirectory string) []byte {
 	if !validation.OK {
 		return steercore.EncodeEnvelope(false, validation, &steercore.Error{Code: "VALIDATION_FAILED", Message: "macOS intent validation failed"})
 	}
-	bundle, err := compiler.Compile(value, NewPlan(value).CompilerOptions(stateDirectory))
-	if err != nil {
-		return steercore.EncodeEnvelope(false, nil, &steercore.Error{Code: "COMPILE_FAILED", Message: err.Error()})
-	}
+	bundle := compiler.Compile(value, NewPlan(value).CompilerOptions(stateDirectory))
 	return steercore.EncodeEnvelope(true, bundle, nil)
 }
 

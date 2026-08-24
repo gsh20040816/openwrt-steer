@@ -36,21 +36,15 @@ func TestValidateAcceptsCanonicalLocalTrafficIntent(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsGeoUntilToolchainExists(t *testing.T) {
+func TestValidateLeavesGeoToolchainChecksToPrepare(t *testing.T) {
 	value := validIntent()
 	value.Rules = append(value.Rules[:len(value.Rules)-1], model.Rule{
 		ID: "geo", Enabled: true, DNSProfile: "dns", Route: "direct", DomainMatch: []string{"geosite:cn"},
 	}, value.Rules[len(value.Rules)-1])
 	validation := Validate(value)
-	if validation.OK {
-		t.Fatalf("macOS Geo rule was accepted without a toolchain: %#v", validation)
+	if !validation.OK {
+		t.Fatalf("macOS Geo rule should be semantically valid before toolchain checks: %#v", validation)
 	}
-	for _, issue := range validation.Errors {
-		if issue.Code == "PLATFORM_UNSUPPORTED_GEO_TOOLCHAIN" {
-			return
-		}
-	}
-	t.Fatalf("Geo toolchain error is missing: %#v", validation.Errors)
 }
 
 func validIntent() model.Intent {

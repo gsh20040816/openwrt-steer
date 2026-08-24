@@ -26,7 +26,7 @@ func TestMacOSBridgeAppliesPlatformValidation(t *testing.T) {
 	}
 }
 
-func TestMacOSBridgeCompilesDedicatedDNSInbound(t *testing.T) {
+func TestMacOSBridgeCompilesTUNPort53DNSCapture(t *testing.T) {
 	value := validIntent()
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -36,7 +36,7 @@ func TestMacOSBridgeCompilesDedicatedDNSInbound(t *testing.T) {
 	if err := json.Unmarshal(CompileJSON(encoded, "/tmp/steer-state"), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if !envelope.OK || envelope.Error != nil || !strings.Contains(string(envelope.Value), `"action":"hijack-dns"`) {
+	if !envelope.OK || envelope.Error != nil || !strings.Contains(string(envelope.Value), `"action":"hijack-dns"`) || !strings.Contains(string(envelope.Value), `"port":["53"]`) {
 		t.Fatalf("unexpected macOS compile envelope: %#v", envelope)
 	}
 }

@@ -83,10 +83,7 @@ func TestPreparePublishAndLoadCurrentGeneration(t *testing.T) {
 			t.Fatalf("prepared generation is missing %s: %v", name, err)
 		}
 	}
-	if err := paths.PublishHealthy(prepared,
-		ProviderHealth{Provider: "packet-tunnel", GenerationID: prepared.Metadata.GenerationID, Healthy: true},
-		ProviderHealth{Provider: "dns-proxy", GenerationID: prepared.Metadata.GenerationID, Healthy: true},
-	); err != nil {
+	if err := paths.Publish(prepared); err != nil {
 		t.Fatal(err)
 	}
 	current, err := paths.LoadCurrent()
@@ -95,23 +92,5 @@ func TestPreparePublishAndLoadCurrentGeneration(t *testing.T) {
 	}
 	if current.GenerationID != prepared.Metadata.GenerationID || current.Directory != filepath.Base(prepared.Directory) {
 		t.Fatalf("published generation mismatch: %#v %#v", current, prepared.Metadata)
-	}
-}
-
-func TestPublishHealthyRejectsMismatchedProvider(t *testing.T) {
-	paths, err := NewPaths(filepath.Join(t.TempDir(), "group.container"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	prepared, err := Prepare(validIntent(), paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = paths.PublishHealthy(prepared,
-		ProviderHealth{Provider: "packet-tunnel", GenerationID: prepared.Metadata.GenerationID, Healthy: true},
-		ProviderHealth{Provider: "dns-proxy", GenerationID: "wrong", Healthy: true},
-	)
-	if err == nil {
-		t.Fatal("mismatched provider generation was published")
 	}
 }

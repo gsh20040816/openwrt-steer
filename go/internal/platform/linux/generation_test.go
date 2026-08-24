@@ -32,10 +32,7 @@ func TestPrepareWritesLinuxGenerationFiles(t *testing.T) {
 	root := t.TempDir()
 	value := validIntent()
 	backend := NewBackend(&prepareRunner{}, value, BackendOptions{RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft"})
-	compiled, err := compiler.Compile(value, backend.CompilerOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
+	compiled := compiler.Compile(value, backend.CompilerOptions())
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
 	if err != nil {
 		t.Fatal(err)
@@ -62,10 +59,7 @@ func TestPrepareValidatesPackageOwnedGeoSeed(t *testing.T) {
 		RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"),
 		SingBoxBinary: "/test/sing-box", NFTBinary: "/test/nft", GeoDataDirectory: seedDirectory,
 	})
-	compiled, err := compiler.Compile(value, backend.CompilerOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
+	compiled := compiler.Compile(value, backend.CompilerOptions())
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
 	if err != nil {
 		t.Fatal(err)

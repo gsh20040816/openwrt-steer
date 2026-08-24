@@ -58,7 +58,7 @@ struct RuntimeStatus: Codable {
 }
 
 struct ValidationIssue: Codable, Identifiable {
-    var id: String { "\(code):\(objectID):\(option)" }
+    var id: String { "\(code):\(objectID ?? ""):\(option ?? "")" }
     let code: String
     let objectType: String?
     let objectID: String?
@@ -164,7 +164,7 @@ struct ProcessCoreBridge: CoreBridge {
         let executableURL = executableURL
         return try await Task.detached {
             let temporaryURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("steer-draft-(UUID().uuidString).json")
+                .appendingPathComponent("steer-draft-\(UUID().uuidString).json")
             try Data(document.utf8).write(to: temporaryURL, options: .atomic)
             defer { try? FileManager.default.removeItem(at: temporaryURL) }
 
@@ -249,7 +249,7 @@ final class AppModel: ObservableObject {
             isDirty = false
             message = "draft 已写入 App Group config。"
         } catch {
-            message = "保存 draft 失败：(error.localizedDescription)"
+            message = "保存 draft 失败：\(error.localizedDescription)"
         }
     }
 
@@ -264,7 +264,7 @@ final class AppModel: ObservableObject {
             isDirty = false
             message = "已读取 App Group config。"
         } catch {
-            message = "读取 draft 失败：(error.localizedDescription)"
+            message = "读取 draft 失败：\(error.localizedDescription)"
         }
     }
 
@@ -317,7 +317,7 @@ final class AppModel: ObservableObject {
 
     private func mutateCollection(_ key: String, _ mutate: (inout [JSONValue]) -> Void) {
         guard var root = parseDraft()?.objectValue else {
-            message = "当前 draft 不是 JSON object，无法修改 (key)"
+            message = "当前 draft 不是 JSON object，无法修改 \(key)"
             return
         }
         var values: [JSONValue]
@@ -329,7 +329,7 @@ final class AppModel: ObservableObject {
             rawJSON = String(decoding: data, as: UTF8.self)
             markDirty()
         } catch {
-            message = "写回 (key) 失败：(error.localizedDescription)"
+            message = "写回 \(key) 失败：\(error.localizedDescription)"
         }
     }
 

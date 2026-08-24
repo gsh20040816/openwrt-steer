@@ -1,38 +1,52 @@
 # macOS targets
 
-这里预留原生 macOS 工程目录。当前仓库没有 macOS 开发机，因此暂不提交未经 Xcode、签名和真实 NetworkExtension 授权验证的 `.xcodeproj` 或 provider 实现。
-
-目标结构：
+macOS 的当前正式运行时不使用 NetworkExtension，也不要求 Apple Developer Program。主路径是：
 
 ```text
-Steer.app
-├── SwiftUI/AppKit host
-├── SteerNetwork.systemextension
-│   ├── PacketTunnelProvider
-│   └── DNSProxyProvider
-└── SteerAgent
+steer-macos
+├── validate / compile / prepare
+├── apply / health / status / cleanup
+└── _run → exec sing-box
+
+macos/launchd/com.gsh20040816.steer.plist
+└── root LaunchDaemon
 ```
 
-当前已提交的原生源码占位位于：
+当前已提交的运行时输入位于：
 
-- `SteerApp/`：SwiftUI NavigationSplitView、菜单栏入口、draft/Validate/Apply 状态骨架；
-- `SteerNetwork/`：Packet Tunnel 与 DNS Proxy provider 的职责边界、Info.plist 和 entitlements；
-- `SteerAgent/`：`SMAppService` 用户级 LaunchAgent 注册/注销骨架和 plist 模板；
-- `bridge/`：固定 sing-box `v1.13.19` 的独立 Go module 边界。
+- `../go/internal/platform/macos/`：Darwin TUN、DNS port-53 capture、generation 和 launchd backend；
+- `launchd/`：LaunchDaemon plist；
+- `scripts/install-launchdaemon.sh`：构建 helper、发现 sing-box、安装并 bootstrap 服务；
+- `../go/cmd/steer-macos/`：macOS CLI。
 
-`SteerApp` 会在 bundle 中找到 `steer-macos` 时通过临时 canonical JSON 文件调用
-`validate`；未嵌入 helper 时按钮保持明确的“未配置”错误，不会静默伪造校验通过。
+## 安装和运行
 
-在 macOS 上可运行 `scripts/build-steercore-xcframework.sh` 生成 arm64/x86_64
-`SteerCore.xcframework`、构建元数据和逐文件 SHA-256。脚本在非 Darwin 主机上
-会立即报错，当前 Linux 开发环境未执行该构建。
+先安装外部 sing-box：
 
-实现约束：
+```sh
+brew install sing-box
+```
 
-- Packet Tunnel 不设置 `NEDNSSettings`；
-- DNS Proxy 同时处理 UDP/TCP 53，并把已捕获流量转发到生成配置中的专用 DNS inbound；
-- 两个 provider 共享 App Group 中的 generation/status/log 路径；
-- Go 编译与校验通过 `go/cmd/steer-macos` 和 `go/internal/platform/macos` 完成；
-- 首次提交必须在真实 Mac 上验证签名、App Group、安装、启动、停止、重启恢复和卸载。
+再执行：
 
-当前没有 `.xcodeproj`，因为 Xcode 会根据实际 Developer Team、Bundle ID、App Group 和 System Extension target 生成签名元数据；这些值不能在没有 Apple 开发环境时凭空写入。现有 Swift 源码是工程输入，不是已构建或已签名的应用声明。
+```sh
+sudo macos/scripts/install-launchdaemon.sh
+sudo /usr/local/libexec/steer/steer-macos validate
+sudo /usr/local/libexec/steer/steer-macos apply
+sudo /usr/local/libexec/steer/steer-macos health
+```
+
+安装脚本会根据 `command -v sing-box` 自动处理 `/opt/homebrew/bin` 和 `/usr/local/bin`，不把某个 Homebrew 前缀写死到运行逻辑中。
+
+## TUN 和 DNS
+
+sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables、pf 或 Linux mark。DNS 由 sing-box 内部 DNS Router 处理，Steer 只生成明确匹配 TUN 上 TCP/UDP 53 的 `hijack-dns` route rule。
+
+Geo 不是 macOS 语义限制。若 Intent 使用 `geosite:`/`geoip:`，把与当前 master 构建
+匹配的 `geodata-seed/`（含 `manifest.json` 和 `rules/*.srs`）放入
+`/Library/Application Support/Steer/geodata-seed/`。Apply 会按 manifest 校验所需 SRS；
+目标机不安装 geoview，也不读取 DAT。
+
+## Swift / NetworkExtension（未来实验）
+
+`SteerApp/`、`SteerNetwork/` 和 `Package.swift` 保留为未来原生 UI/NetworkExtension 实验输入，但不是当前正式运行时。没有付费 Apple Developer 账号时，不应配置、安装或声称 Packet Tunnel/DNS Proxy provider 可用；它们也不参与 LaunchDaemon 安装和 Apply。

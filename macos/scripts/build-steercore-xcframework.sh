@@ -7,6 +7,7 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 command -v go >/dev/null 2>&1 || { echo "go is required" >&2; exit 1; }
 command -v xcodebuild >/dev/null 2>&1 || { echo "xcodebuild is required" >&2; exit 1; }
+command -v lipo >/dev/null 2>&1 || { echo "lipo is required" >&2; exit 1; }
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repository_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
@@ -32,18 +33,24 @@ for arch in arm64 amd64; do
     cp "$slice_dir/libSteerCore.h" "$headers_dir/SteerCore.h"
 done
 
+universal_dir="$temporary_dir/universal"
+mkdir -p "$universal_dir/Headers"
+lipo -create \
+    "$temporary_dir/arm64/libSteerCore.a" \
+    "$temporary_dir/amd64/libSteerCore.a" \
+    -output "$universal_dir/libSteerCore.a"
+cp "$temporary_dir/arm64/Headers/SteerCore.h" "$universal_dir/Headers/SteerCore.h"
+
 xcodebuild -create-xcframework \
-    -library "$temporary_dir/arm64/libSteerCore.a" \
-    -headers "$temporary_dir/arm64/Headers" \
-    -library "$temporary_dir/amd64/libSteerCore.a" \
-    -headers "$temporary_dir/amd64/Headers" \
+    -library "$universal_dir/libSteerCore.a" \
+    -headers "$universal_dir/Headers" \
     -output "$output_dir/SteerCore.xcframework"
 
 {
     echo "Source revision: $(git -C "$repository_root" rev-parse HEAD)"
     echo "Go version: $(go version)"
-    echo "sing-box: v1.13.19"
-    echo "architectures: arm64 amd64"
+    echo "sing-box: v1.14.0-rc.1"
+    echo "architectures: arm64 x86_64"
 } > "$output_dir/SteerCore-BUILD-METADATA.txt"
 
 (

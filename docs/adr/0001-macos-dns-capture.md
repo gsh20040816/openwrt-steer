@@ -1,5 +1,9 @@
 # ADR 0001：macOS DNS 先捕获、再进入专用 inbound
 
+> Superseded for the supported runtime by [ADR 0002](0002-macos-launchd-tun.md).
+> The NetworkExtension design below remains an optional future experiment and
+> is not part of the no-paid-account macOS implementation.
+
 - 状态：accepted
 - 日期：2026-08-24
 - 范围：macOS NetworkExtension 与共享 sing-box 编译目标

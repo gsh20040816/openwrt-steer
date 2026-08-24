@@ -14,15 +14,22 @@ let package = Package(
         .executableTarget(
             name: "SteerApp",
             dependencies: ["SteerAgent"],
-            path: "SteerApp"
+            path: "SteerApp",
+            exclude: ["Info.plist", "SteerApp.entitlements"]
         ),
         .target(
             name: "SteerAgent",
-            path: "SteerAgent"
+            path: "SteerAgent",
+            exclude: ["com.gsh20040816.steer.agent.plist"]
         ),
         .target(
             name: "SteerNetwork",
-            path: "SteerNetwork"
+            path: "SteerNetwork",
+            exclude: [
+                "DNSProxy-Info.plist",
+                "PacketTunnel-Info.plist",
+                "SteerNetwork.entitlements",
+            ]
         ),
     ]
 )

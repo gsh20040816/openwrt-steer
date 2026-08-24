@@ -46,19 +46,7 @@ func testOptions() Options {
 
 func compileTest(t *testing.T, intent model.Intent, options Options) Output {
 	t.Helper()
-	bundle, err := Compile(intent, options)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return bundle
-}
-
-func TestCompileRequiresExplicitStateDirectoryForGeo(t *testing.T) {
-	options := testOptions()
-	options.StateDirectory = ""
-	if _, err := Compile(representativeIntent(), options); err == nil {
-		t.Fatal("Geo compilation accepted an empty state directory")
-	}
+	return Compile(intent, options)
 }
 
 func TestCompilePathIsolationAndProjection(t *testing.T) {
@@ -120,6 +108,17 @@ func TestCompileDNSCaptureModeDoesNotInventHijack(t *testing.T) {
 	encoded, _ := json.Marshal(routeRules)
 	if strings.Contains(string(encoded), `"action":"hijack-dns"`) {
 		t.Fatalf("DNS hijack rule was emitted for DNS capture mode none: %s", encoded)
+	}
+}
+
+func TestCompileTUNPort53DNSCaptureIsExplicit(t *testing.T) {
+	value := representativeIntent()
+	options := testOptions()
+	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureTUNPort53Hijack, InboundTags: []string{"steer-tun"}}
+	bundle := Compile(value, options)
+	encoded, _ := json.Marshal(bundle.SingBox["route"])
+	if !strings.Contains(string(encoded), `"action":"hijack-dns"`) || !strings.Contains(string(encoded), `"port":["53"]`) {
+		t.Fatalf("TUN port-53 capture was not explicit: %s", encoded)
 	}
 }
 

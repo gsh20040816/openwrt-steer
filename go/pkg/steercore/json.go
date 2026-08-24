@@ -73,10 +73,7 @@ func CompileJSON(input []byte, stateDirectory string, target Target) []byte {
 	if !validation.OK {
 		return envelope(false, validation, &Error{Code: "VALIDATION_FAILED", Message: "canonical intent validation failed"})
 	}
-	bundle, err := compiler.Compile(value, compiler.Options{StateDirectory: stateDirectory, Target: target.compilerTarget()})
-	if err != nil {
-		return failure("COMPILE_FAILED", err.Error())
-	}
+	bundle := compiler.Compile(value, compiler.Options{StateDirectory: stateDirectory, Target: target.compilerTarget()})
 	return success(bundle)
 }
 
