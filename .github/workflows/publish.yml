@@ -164,7 +164,7 @@ jobs:
           cp -R site/. "$pages_repo/"
           git -C "$pages_repo" add --all
           git -C "$pages_repo" commit -m "chore: publish current Pages state"
-          previous="$(git rev-parse refs/remotes/origin/pages 2>/dev/null || true)"
+          previous="$(git rev-parse --verify refs/remotes/origin/pages 2>/dev/null || true)"
           if [ -n "$previous" ]; then
             git -C "$pages_repo" push \
               --force-with-lease="refs/heads/pages:$previous" \
