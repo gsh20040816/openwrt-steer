@@ -46,6 +46,8 @@ def main() -> None:
     assert 'runtime_binary="$helper_directory/sing-box"' in installer
     assert '/usr/local/libexec/steer/sing-box' in launchd
     assert 'plutil -replace ProgramArguments' not in installer
+    assert 'while launchctl print system/com.steer.steer' in installer
+    assert 'Timed out waiting for the previous Steer LaunchDaemon to stop.' in installer
     assert 'SMAppService.agent' in agent
     assert '.executable(name: "SteerApp"' in package
     assert "SteerNetwork" not in package

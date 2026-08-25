@@ -40,5 +40,14 @@ chmod 0755 "$helper_directory/steer-macos" "$runtime_binary"
 chmod 0644 "$plist_path"
 
 launchctl bootout system/com.steer.steer 2>/dev/null || true
+remaining_checks=50
+while launchctl print system/com.steer.steer >/dev/null 2>&1; do
+	if [ "$remaining_checks" -le 0 ]; then
+		printf '%s\n' 'Timed out waiting for the previous Steer LaunchDaemon to stop.' >&2
+		exit 1
+	fi
+	remaining_checks=$((remaining_checks - 1))
+	sleep 0.1
+done
 launchctl bootstrap system "$plist_path"
 printf '%s\n' "Installed Steer LaunchDaemon with a root-owned copy of $sing_box_path"
