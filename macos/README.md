@@ -49,6 +49,6 @@ GUI 通过 macOS 管理员授权访问 `/Library/Application Support/Steer/confi
 
 ## TUN、DNS 和 Geo
 
-sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf。DNS 由 sing-box 内部 DNS Router 处理，Steer 只生成明确匹配 TUN 上 TCP/UDP 53 的 `hijack-dns` route rule。
+sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf。TUN 使用 `198.18.0.1/30` 时，排除表不得覆盖其 system-stack 对端 `198.18.0.2`。DNS 由 sing-box 内部 DNS Router 处理，Steer 只生成明确匹配 TUN 上 TCP/UDP 53 的 `hijack-dns` route rule。
 
 Geo 不是 macOS 语义限制。若 Intent 使用 `geosite:`/`geoip:`，把与当前 master 构建匹配的 `geodata-seed/` 放入 `/Library/Application Support/Steer/geodata-seed/`。Apply 会按 manifest 校验所需 SRS；目标机不安装 geoview，也不读取 DAT。

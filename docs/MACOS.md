@@ -59,7 +59,7 @@ DNS Profile → Route / outbound
 
 `go/internal/platform/macos` 负责：
 
-- Darwin TUN plan：地址、MTU、`auto_route` 和非全球地址排除；
+- Darwin TUN plan：地址、MTU、`auto_route` 和非全球地址排除；`198.18.0.0/15` 包含 system stack 自身的 IPv4 对端，不能加入排除表；
 - 显式 TCP/UDP 53 DNS capture；
 - sing-box version/capability/check；
 - generation prepare/publish；

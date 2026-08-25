@@ -33,6 +33,11 @@ func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
 	if len(tun["route_exclude_address"].([]string)) == 0 {
 		t.Fatal("macOS TUN must preserve non-global routes")
 	}
+	for _, prefix := range tun["route_exclude_address"].([]string) {
+		if prefix == "198.18.0.0/15" {
+			t.Fatal("macOS must not exclude the IPv4 subnet containing the system-stack peer")
+		}
+	}
 }
 
 func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
