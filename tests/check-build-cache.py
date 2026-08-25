@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce verify-only master CI and one-run tag release boundaries."""
+"""Enforce all-commit platform CI and one-run tag release boundaries."""
 
 from pathlib import Path
 import re
@@ -30,20 +30,33 @@ if (ROOT / ".github/workflows/macos-ci.yml").exists():
 for fragment in (
     "name: CI",
     "pull_request:",
-    "branches:\n      - master",
+    "push:",
     "workflow_dispatch:",
-    "group: ci-${{ github.ref }}",
-    "cancel-in-progress: true",
-    "verify-ubuntu:",
-    "build-go-smoke:",
-    "macos-native-smoke:",
+    "linux-openwrt:",
+    "name: Test Linux and OpenWrt",
+    "linux-system:",
+    "name: Test Linux system integration",
+    "macos:",
+    "name: Test macOS (${{ matrix.arch }})",
     "runner: macos-14",
     "runner: macos-15-intel",
+    "go test -race ./...",
+    "go vet ./...",
+    "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build",
+    'CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build',
+    "CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build",
+    "/workspace/tests/integration/run-linux-system.sh",
     "swift build -c release --disable-sandbox",
     "python3 tests/check-macos-packaging.py",
 ):
     if fragment not in CI:
-        fail(f"verify-only CI is missing: {fragment}")
+        fail(f"all-commit platform CI is missing: {fragment}")
+
+ci_trigger = CI.split("permissions:", 1)[0]
+if "branches:" in ci_trigger or "tags:" in ci_trigger:
+    fail("CI push trigger must cover every branch commit")
+if "concurrency:" in CI:
+    fail("CI must not impose a concurrency group or cancel older commits")
 
 for forbidden in (
     "actions/upload-artifact@",
@@ -56,7 +69,7 @@ for forbidden in (
     "release-bundle",
 ):
     if forbidden in CI:
-        fail(f"master CI must not build or publish release assets: {forbidden}")
+        fail(f"all-commit CI must not publish release assets: {forbidden}")
 
 release_trigger = RELEASE.split("concurrency:", 1)[0]
 if "tags:\n      - 'v*'" not in release_trigger:
@@ -74,11 +87,12 @@ for fragment in (
     'select(.head_sha == \\\"$SOURCE_REVISION\\\" and .event == \\\"push\\\")',
     "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$",
     'version="${GITHUB_REF_NAME#v}"',
-    'package_version="${version%%-*}"',
+    'base_version="${version%%-*}"',
+    'openwrt_version="${base_version}_${package_suffix}"',
+    'arch_version="${base_version}${package_suffix}"',
     "name: Resolve verified Geo seed",
     "name: OpenWrt 25.12.5 x86_64",
     "name: Generic Linux x86_64 and aarch64",
-    "name: Linux system integration",
     "name: macOS ${{ matrix.arch }} DMG",
     "name: Assemble verified release bundle",
     "name: Attest final release assets",
@@ -106,6 +120,8 @@ for forbidden in (
     "steps.build.outputs.run_id",
     "Download exact release bundle",
     "release-artifact-build",
+    "name: Linux system integration",
+    "/workspace/tests/integration/run-linux-system.sh",
 ):
     if forbidden in RELEASE:
         fail(f"tag release must not reuse master artifacts: {forbidden}")
@@ -133,7 +149,6 @@ required_release_fragments = (
     "./scripts/collect-openwrt-artifacts.sh",
     "./scripts/collect-openwrt-repository.sh",
     "./scripts/collect-linux-artifacts.sh",
-    "/workspace/tests/integration/run-linux-system.sh",
 )
 for fragment in required_release_fragments:
     if fragment not in RELEASE:
@@ -176,4 +191,4 @@ for fragment in ("packages.adb", "steer-apk.pem", "BUILD-METADATA.txt", "SHA256S
     if fragment not in REPOSITORY_COLLECTOR:
         fail(f"OpenWrt repository collector is missing: {fragment}")
 
-print("verify-only CI and one-run tag release checks passed")
+print("all-commit platform CI and one-run tag release checks passed")

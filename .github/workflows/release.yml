@@ -47,12 +47,26 @@ jobs:
           printf '%s\n' "$GITHUB_REF_NAME" \
             | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
           version="${GITHUB_REF_NAME#v}"
-          package_version="${version%%-*}"
-          grep -Fqx "PKG_VERSION:=$package_version" steer/Makefile
-          grep -Fqx "PKG_VERSION:=$package_version" luci-app-steer/Makefile
-          grep -Fqx "pkgver=$package_version" packaging/archlinux/steer/PKGBUILD
-          grep -Fq "当前稳定版本为 **$package_version**" README.md
-          grep -Fq "当前稳定版本是 \`v$package_version\`" docs/PACKAGING.md
+          base_version="${version%%-*}"
+          case "$version" in
+            *-*)
+              prerelease="${version#*-}"
+              package_suffix="$(printf '%s' "$prerelease" | tr -d '.')"
+              openwrt_version="${base_version}_${package_suffix}"
+              arch_version="${base_version}${package_suffix}"
+              grep -Fq "当前预览版本为 **$version**" README.md
+              grep -Fq "当前预览版本是 \`v$version\`" docs/PACKAGING.md
+              ;;
+            *)
+              openwrt_version="$version"
+              arch_version="$version"
+              grep -Fq "当前稳定版本为 **$version**" README.md
+              grep -Fq "当前稳定版本是 \`v$version\`" docs/PACKAGING.md
+              ;;
+          esac
+          grep -Fqx "PKG_VERSION:=$openwrt_version" steer/Makefile
+          grep -Fqx "PKG_VERSION:=$openwrt_version" luci-app-steer/Makefile
+          grep -Fqx "pkgver=$arch_version" packaging/archlinux/steer/PKGBUILD
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Require a successful master CI push run for this commit
@@ -368,92 +382,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  linux-system:
-    name: Linux system integration
-    needs:
-      - source-gate
-      - geodata
-    runs-on: ubuntu-latest
-    env:
-      STEER_VERSION: ${{ needs.source-gate.outputs.version }}
-    timeout-minutes: 20
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-      - name: Build Linux system-test inputs
-        run: |
-          mkdir -p "$RUNNER_TEMP/steer-linux-system"
-          (
-            cd go
-            CGO_ENABLED=0 go build \
-              -trimpath \
-              -ldflags "-s -w -X main.version=$STEER_VERSION" \
-              -o "$RUNNER_TEMP/steer-linux-system/steer" \
-              ./cmd/steer-linux
-          )
-          curl --fail --location --silent --show-error \
-            --output "$RUNNER_TEMP/steer-linux-system/sing-box.tar.gz" \
-            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/sing-box-$SING_BOX_VERSION-linux-amd64-musl.tar.gz"
-          printf '%s  %s\n' \
-            "$SING_BOX_LINUX_AMD64_MUSL_SHA256" \
-            "$RUNNER_TEMP/steer-linux-system/sing-box.tar.gz" \
-            | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/steer-linux-system/sing-box.tar.gz" \
-            -C "$RUNNER_TEMP/steer-linux-system"
-          install -m 755 \
-            "$RUNNER_TEMP/steer-linux-system/sing-box-$SING_BOX_VERSION-linux-amd64-musl/sing-box" \
-            "$RUNNER_TEMP/steer-linux-system/sing-box"
-
-      - name: Download verified Geo seed
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: geodata-seed
-          path: ${{ runner.temp }}/steer-linux-system/geodata-seed
-
-      - name: Build disposable systemd container
-        run: docker build --file tests/integration/linux-system.Dockerfile --tag steer-linux-system:test .
-
-      - name: Start disposable systemd container
-        run: |
-          docker run --detach \
-            --name steer-linux-system \
-            --privileged \
-            --cgroupns=host \
-            --tmpfs /run \
-            --tmpfs /run/lock \
-            --volume /sys/fs/cgroup:/sys/fs/cgroup:rw \
-            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
-            --volume "$RUNNER_TEMP/steer-linux-system:/artifacts:ro" \
-            steer-linux-system:test
-          attempt=0
-          until docker exec steer-linux-system systemctl is-system-running --wait >/dev/null 2>&1; do
-            attempt=$((attempt + 1))
-            if [ "$attempt" -ge 10 ]; then
-              docker logs steer-linux-system
-              exit 1
-            fi
-            sleep 1
-          done
-
-      - name: Run Linux system integration
-        run: |
-          docker exec \
-            --env STEER_LINUX_SYSTEM_TEST=1 \
-            --env STEER_SOURCE_ROOT=/workspace \
-            --env STEER_BINARY=/artifacts/steer \
-            --env SING_BOX_BINARY=/artifacts/sing-box \
-            --env STEER_GEODATA_SEED=/artifacts/geodata-seed \
-            steer-linux-system \
-            /workspace/tests/integration/run-linux-system.sh
-
-      - name: Stop disposable systemd container
-        if: always()
-        run: |
-          docker stop steer-linux-system >/dev/null 2>&1 || true
-          docker container rm steer-linux-system >/dev/null 2>&1 || true
-
   macos:
     name: macOS ${{ matrix.arch }} DMG
     needs:
@@ -602,7 +530,6 @@ jobs:
       - geodata
       - openwrt
       - linux
-      - linux-system
       - macos
     runs-on: ubuntu-latest
     env:

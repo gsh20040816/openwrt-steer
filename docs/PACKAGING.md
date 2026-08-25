@@ -1,6 +1,6 @@
 # 打包与发布
 
-Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SRS；master/PR CI 只验证源码正确性；`v*` tag workflow 从 tag 指向的源码构建、验收并发布所有 OpenWrt、Linux 和 macOS 构件。目标设备不再安装 geoview，也不再持有或转换 DAT。
+Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SRS；所有分支 commit 与 PR 在全部支持平台运行测试；`v*` tag workflow 从 tag 指向的源码构建、验收并发布所有 OpenWrt、Linux 和 macOS 构件。目标设备不再安装 geoview，也不再持有或转换 DAT。
 
 ## 共同规则
 
@@ -12,6 +12,7 @@ Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SR
 6. master 不构建或保存正式发布包。tag 必须指向 `origin/master` 的祖先，且同一 `head_sha` 已有成功的 master CI push run；随后在同一个 tag workflow/run 内重新构建、验收、attest 并发布所有资产。预发布 tag 创建 GitHub prerelease，但不替换稳定 OpenWrt 软件源。
 
 当前稳定版本是 `v0.7.1`。
+当前预览版本是 `v0.8.0-alpha.1`；OpenWrt APK 将同一版本规范化为 `0.8.0_alpha1`，Arch `pkgver` 使用 `0.8.0alpha1`，Git tag、Linux 与 macOS 构件保留公开 SemVer 拼写。
 
 ## Geo SRS
 
@@ -43,13 +44,13 @@ Pages 只保存当前版本，不承诺历史 seed 或可重复取得任意旧�
 
 ## OpenWrt
 
-`v0.7.1` 面向 OpenWrt 25.12.5 x86/64：
+`v0.8.0-alpha.1` 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.7.1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
-| `luci-app-steer` | `0.7.1-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.7.1-r1` | 简体中文翻译 |
+| `steer` | `0.8.0_alpha1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
+| `luci-app-steer` | `0.8.0_alpha1-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.8.0_alpha1-r1` | 简体中文翻译 |
 | `sing-box` | `1.14.0_rc1-r0` | SagerNet 官方 x86_64 APK，经内容核验后改用 Steer 仓库密钥签名 |
 
 Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签后比较除签名记录外的 APK 元数据，再用仓库公钥验证安装包。软件源的四个 APK 与 `packages.adb` 使用同一 Steer P-256 信任根；私钥只来自 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY`，不得进入源码、构件、Release 或 Pages。
@@ -187,12 +188,13 @@ packaging/archlinux/steer/
 ## 主线构建与发布门
 
 ```text
-master / PR CI
+all-commit / PR CI（无 concurrency 限制）
   ├── Go race tests + vet
   ├── Node/LuCI tests
   ├── i18n、包边界、workflow/Linux/macOS 打包契约
   ├── Go 平台命令 smoke build
-  └── arm64/x86_64 原生 Swift debug + release build
+  ├── Linux systemd 容器集成测试
+  └── arm64/x86_64 原生 Go + Swift debug/release 测试
         ↓ tag source gate（master 祖先 + 同 SHA 成功 CI + 版本一致）
 v* tag workflow
         ↓
@@ -203,7 +205,7 @@ verified Pages Geo seed
   ├── CGO_ENABLED=0 构建两份 Linux tar.zst
   └── 原生 runner 构建两个 macOS DMG
         ↓
-Linux systemd + macOS bundle/DMG 验收
+macOS bundle/DMG 与各平台产物验收
         ↓
 本次 run verified release bundle + attestation
         ↓

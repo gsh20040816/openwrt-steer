@@ -84,6 +84,7 @@ for bundled in ("sing-box", "geoview", "geosite.dat", "geoip.dat"):
         fail(f"Linux collector bundles external resource: {bundled}")
 
 workflow = (ROOT / ".github/workflows/release.yml").read_text()
+ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 for required in (
     "needs: source-gate",
     "Generic Linux x86_64 and aarch64",
@@ -91,14 +92,17 @@ for required in (
     "./scripts/collect-linux-artifacts.sh",
     "name: linux-generic",
     "name: release-bundle",
-    "name: Linux system integration",
-    "/workspace/tests/integration/run-linux-system.sh",
 ):
     if required not in workflow:
         fail(f"release workflow is missing: {required}")
 for archive in ("steer-linux-x86_64.tar.zst", "steer-linux-aarch64.tar.zst"):
     if workflow.count(archive) < 2:
         fail(f"release pipeline does not enforce archive: {archive}")
+for required in ("name: Test Linux system integration", "/workspace/tests/integration/run-linux-system.sh"):
+    if required not in ci_workflow:
+        fail(f"all-commit CI is missing Linux integration coverage: {required}")
+    if required in workflow:
+        fail(f"tag release must package rather than repeat Linux integration: {required}")
 for distro_tool in ("makepkg", "dpkg-buildpackage", "rpmbuild"):
     if distro_tool in workflow:
         fail(f"upstream CI must not build distribution package with {distro_tool}")

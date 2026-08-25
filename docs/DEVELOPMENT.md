@@ -72,10 +72,10 @@ version validate apply health status probe subscription geo-catalog migrate clea
 Linux 适配器与上游发行资产已经建立，后续修改必须保持：
 
 1. 源码 target 继续叫 `cmd/steer-linux`，安装名固定为 `/usr/bin/steer`；
-2. 主 CI 只构建 x86_64/aarch64 通用 tar.zst，不构建 deb、rpm、pkg.tar 等发行版包；
+2. 每个分支 commit 的 CI 只运行测试和 x86_64/aarch64 编译 smoke，不归档 tar.zst，也不构建 deb、rpm、pkg.tar 等发行版包；
 3. Linux 归档和发行版包安装经 manifest 完整校验的 SRS seed，不读取用户指定的 DAT 或第二份 platform settings；
 4. sing-box、nftables、iproute2 和 ca-certificates 由系统包管理器提供，geoview 只存在于 CI 生成器的构建依赖中；
-5. tag 发布只复用同一 master commit 已验证的 OpenWrt 与 Linux 产物，不重新编译。
+5. `v*` tag workflow 从 tag 源码构建 OpenWrt、Linux 与 macOS 正式产物，不复用其他 run 的构件。
 
 macOS 使用 launchd、Darwin utun 和管理员授权；SwiftUI GUI 与 LuCI、Linux Web 同为平台前端。GUI 不得复制共享规则、路由、DNS、订阅、Validate 或 Apply 语义。
 
@@ -83,13 +83,13 @@ macOS 使用 launchd、Darwin utun 和管理员授权；SwiftUI GUI 与 LuCI、L
 
 `tests/integration/run-openwrt-vm.sh` 只能运行在一次性 OpenWrt 25.12.5 x86/64 VM。它会替换 UCI、运行目录、nftables 和 procd，并覆盖公开 RPC、正常 Apply/reload/restart、DNS shim、1.14 原生 MAC 规则、禁用/重新启用及非法配置 fail-fast。
 
-`tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器。tag release workflow 使用固定 Debian 基础镜像、校验过 SHA-256 的 sing-box 1.14.0-rc.1 musl 产物和该次 run 解析的 SRS seed，在独立 netns 中覆盖主机与转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP DNS、listener 访问限制、禁用/启用、服务重启和 nftables 重启恢复。Linux 的 systemd、nftables、端口与 netns 断言只属于平台验收，不进入共享核心测试。
+`tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器。每个 commit 的 CI 使用固定 Debian 基础镜像、校验过 SHA-256 的 sing-box 1.14.0-rc.1 musl 产物和经过验证的当前 SRS seed，在独立 netns 中覆盖主机与转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP DNS、listener 访问限制、禁用/启用、服务重启和 nftables 重启恢复。Linux 的 systemd、nftables、端口与 netns 断言只属于平台验收，不进入共享核心测试。
 
 发布门：
 
 1. 全部本地检查通过；
-2. 官方 OpenWrt SDK 构建 Steer/LuCI 三个 APK，并校验、重签官方 sing-box APK；Linux 并行构建两个通用 tar.zst；
-3. release bundle 中全部产物来自拟发布 commit；
-4. Linux systemd 容器验收通过；
+2. commit CI 的 Ubuntu、Linux systemd、macOS arm64 与 macOS x86_64 jobs 全部通过；
+3. tag workflow 使用官方 OpenWrt SDK 构建 Steer/LuCI 三个 APK，并校验、重签官方 sing-box APK；Linux 并行构建两个通用 tar.zst；macOS 原生构建两个 DMG；
+4. release bundle 中全部产物来自拟发布 commit；
 5. 安装后运行 `validate`、`health`、`status` 和显式测试；
 6. 预发布版本在真实目标上满足稳定门槛后再晋级稳定版。
