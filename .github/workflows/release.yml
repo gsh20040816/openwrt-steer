@@ -23,9 +23,8 @@ permissions:
   contents: read
 
 env:
-  STEER_VERSION: 0.7.0-alpha.1
-  # OpenWrt APK normalizes the same prerelease as 0.7.0_alpha1; the Git tag
-  # and Linux artifact version intentionally retain the public semver spelling.
+  STEER_VERSION: 0.7.1
+  # OpenWrt, Linux and the Git tag use the same stable public version.
   OPENWRT_RELEASE: 25.12.5
   OPENWRT_TARGET: x86/64
   SING_BOX_VERSION: 1.14.0-rc.1
@@ -221,9 +220,12 @@ jobs:
           GEODATA_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
           SING_BOX_UPSTREAM_SHA256: ${{ env.SING_BOX_OPENWRT_X86_64_SHA256 }}
         run: |
-          mirrored_apk="$(find bin/packages -type f -name 'sing-box-*.apk')"
-          [ -n "$mirrored_apk" ]
-          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$mirrored_apk" | cut -d ' ' -f 1)"
+          set -- $(find bin/packages -type f -path '*/steer/sing-box-*.apk' | sort)
+          [ "$#" -eq 1 ] || {
+            echo "Expected exactly one mirrored sing-box APK, found $#" >&2
+            exit 1
+          }
+          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$1" | cut -d ' ' -f 1)"
           ./scripts/collect-openwrt-artifacts.sh
 
       - name: Collect signed OpenWrt repository
@@ -233,9 +235,12 @@ jobs:
           GEODATA_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
           SING_BOX_UPSTREAM_SHA256: ${{ env.SING_BOX_OPENWRT_X86_64_SHA256 }}
         run: |
-          mirrored_apk="$(find bin/packages -type f -name 'sing-box-*.apk')"
-          [ -n "$mirrored_apk" ]
-          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$mirrored_apk" | cut -d ' ' -f 1)"
+          set -- $(find bin/packages -type f -path '*/steer/sing-box-*.apk' | sort)
+          [ "$#" -eq 1 ] || {
+            echo "Expected exactly one mirrored sing-box APK, found $#" >&2
+            exit 1
+          }
+          export SING_BOX_MIRRORED_SHA256="$(sha256sum "$1" | cut -d ' ' -f 1)"
           ./scripts/collect-openwrt-repository.sh
 
       - name: Save OpenWrt SDK ccache

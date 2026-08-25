@@ -40,6 +40,7 @@ for retired in (
     ROOT / "linux/platform.example.json",
     ROOT / "go/cmd/steer/main.go",
     ROOT / "scripts/collect-release-artifacts.sh",
+    ROOT / "packaging/archlinux/geoview",
 ):
     if retired.exists():
         fail(f"retired path still exists: {retired.relative_to(ROOT)}")
@@ -130,5 +131,9 @@ for required in (
 ):
     if required not in arch_pkgbuild:
         fail(f"Arch steer package is missing Geo seed or migration contract: {required}")
+if "  'sing-box'\n" not in arch_pkgbuild or "sing-box>=1.14" in arch_pkgbuild or "sing-box<1.15" in arch_pkgbuild:
+    fail("Arch steer must depend only on the virtual sing-box provider; native config check decides compatibility")
+if "\tdepends = sing-box\n" not in arch_srcinfo:
+    fail("Arch steer .SRCINFO is missing the virtual sing-box dependency")
 
 print("generic Linux packaging checks passed")

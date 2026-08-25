@@ -18,7 +18,7 @@ func representativeIntent() model.Intent {
 		Bootstrap:    model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeTransport: model.NodeTransport{Flow: "xtls-rprx-vision", PacketEncoding: "xudp"}, NodeTLS: model.NodeTLS{TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}}},
 		Routes:       []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy", Enabled: true, Kind: "single", Node: "node"}, {ID: "block", Enabled: true, Kind: "block"}},
-		DNSProfiles:  []model.DNSProfile{{ID: "public", Enabled: true, Protocol: "https", Server: "1.1.1.1", ServerPort: 443, TLSServerName: "one.one.one.one", Path: "/dns-query", Strategy: "prefer_ipv4"}},
+		DNSProfiles:  []model.DNSProfile{{ID: "public", Enabled: true, Protocol: "https", Server: "1.1.1.1", ServerPort: 443, TLSServerName: "one.one.one.one", Path: "/dns-query"}},
 		LocalProxies: []model.LocalProxy{{ID: "local", Enabled: true, Protocol: "mixed", Listen: "127.0.0.1", ListenPort: 1090}},
 		Rules: []model.Rule{
 			{ID: "mac", Enabled: true, DNSProfile: "public", Route: "direct", SourceMACAddress: []string{"02:00:00:00:00:10"}},
@@ -32,25 +32,17 @@ func representativeIntent() model.Intent {
 func testOptions() Options {
 	return Options{StateDirectory: "/var/lib/steer", Target: Target{
 		Inbounds: []any{
-			map[string]any{"type": "tun", "tag": "steer-tun", "address": []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"}, "auto_route": true, "auto_redirect": true},
+			map[string]any{"type": "tun", "tag": "steer-tun", "address": []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"}, "dns_mode": "disabled", "auto_route": true, "auto_redirect": true},
 			map[string]any{"type": "direct", "tag": "steer-dns", "listen": "::", "listen_port": 1053},
-			map[string]any{"type": "tproxy", "tag": "steer-mac-tproxy-0", "listen_port": 20000},
-			map[string]any{"type": "direct", "tag": "steer-mac-dns-0", "listen_port": 20001},
 		},
-		DNSCapture:           DNSCapture{Mode: DNSCaptureInboundHijack, InboundTags: []string{"steer-dns", "steer-mac-dns-0"}},
-		SniffInboundTags:     []string{"steer-tun", "steer-mac-tproxy-0"},
-		MACBindings:          []MACBinding{{Address: "02:00:00:00:00:10", TProxyTag: "steer-mac-tproxy-0", DNSInboundTag: "steer-mac-dns-0"}},
-		RequiredCapabilities: []string{"tun", "auto_route", "auto_redirect", "tproxy"},
+		DNSInboundTags:       []string{"steer-dns"},
+		SniffInboundTags:     []string{"steer-tun"},
+		RequiredCapabilities: []string{"tun", "auto_route", "auto_redirect"},
 	}}
 }
 
-func compileTest(t *testing.T, intent model.Intent, options Options) Output {
-	t.Helper()
-	return Compile(intent, options)
-}
-
 func TestCompilePathIsolationAndProjection(t *testing.T) {
-	bundle := compileTest(t, representativeIntent(), testOptions())
+	bundle := Compile(representativeIntent(), testOptions())
 	dns := bundle.SingBox["dns"].(map[string]any)
 	if len(dns["servers"].([]any)) != 3 {
 		t.Fatalf("DNS paths are not isolated by route: %#v", dns["servers"])
@@ -81,13 +73,58 @@ func TestCompilePathIsolationAndProjection(t *testing.T) {
 	if !strings.Contains(string(encodedDNS), "steer-dns-public-via-proxy") {
 		t.Fatalf("proxy DNS path missing: %s", encodedDNS)
 	}
+	if strings.Contains(string(encodedDNS), `"strategy"`) {
+		t.Fatalf("DNS rules retained the deprecated route-action strategy: %s", encodedDNS)
+	}
 }
 
-func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
-	bundle := compileTest(t, representativeIntent(), testOptions())
+func TestCompileUsesStrategyOnlyForInternalDomainResolution(t *testing.T) {
+	intent := representativeIntent()
+	intent.Bootstrap.Strategy = "prefer_ipv6"
+	intent.DNSProfiles = append(intent.DNSProfiles, model.DNSProfile{
+		ID: "hostname", Enabled: true, Protocol: "udp", Server: "resolver.example",
+		ServerPort: 53,
+	})
+	intent.Rules = append(intent.Rules[:len(intent.Rules)-1],
+		model.Rule{ID: "hostname", Enabled: true, DNSProfile: "hostname", Route: "direct", DomainMatch: []string{"domain:resolver.test"}},
+		intent.Rules[len(intent.Rules)-1],
+	)
+	bundle := Compile(intent, testOptions())
+	dns := bundle.SingBox["dns"].(map[string]any)
+	if dns["strategy"] != nil {
+		t.Fatalf("client DNS unexpectedly received a global address strategy: %#v", dns)
+	}
+	defaultResolver := bundle.SingBox["route"].(map[string]any)["default_domain_resolver"].(map[string]any)
+	if defaultResolver["strategy"] != "prefer_ipv6" {
+		t.Fatalf("route domain resolver lost bootstrap strategy: %#v", defaultResolver)
+	}
+	for _, raw := range dns["rules"].([]any) {
+		if rule := raw.(map[string]any); rule["strategy"] != nil {
+			t.Fatalf("DNS rule retained deprecated per-query strategy: %#v", rule)
+		}
+	}
+	foundResolver := false
+	for _, raw := range dns["servers"].([]any) {
+		server := raw.(map[string]any)
+		if server["tag"] != "steer-dns-hostname-via-direct" {
+			continue
+		}
+		resolver := server["domain_resolver"].(map[string]any)
+		if resolver["strategy"] != "prefer_ipv6" {
+			t.Fatalf("DNS server domain resolver lost its independent strategy: %#v", server)
+		}
+		foundResolver = true
+	}
+	if !foundResolver {
+		t.Fatal("hostname DNS server path was not compiled")
+	}
+}
+
+func TestCompileNativeMACRulesAndNoForbiddenFeatures(t *testing.T) {
+	bundle := Compile(representativeIntent(), testOptions())
 	encoded, _ := json.Marshal(bundle.SingBox)
 	text := string(encoded)
-	for _, forbidden := range []string{"fakeip", "udp/443", "smartdns", "serve_expired"} {
+	for _, forbidden := range []string{"fakeip", "udp/443", "smartdns", "serve_expired", "steer-mac-tproxy", "steer-mac-dns"} {
 		if strings.Contains(strings.ToLower(text), forbidden) {
 			t.Fatalf("forbidden feature %q in %s", forbidden, text)
 		}
@@ -98,35 +135,68 @@ func TestCompileMACShimAndNoForbiddenFeatures(t *testing.T) {
 	if !strings.Contains(text, `"address":["198.18.0.1/30","fdfe:dcba:9876::1/126"]`) {
 		t.Fatalf("unexpected TUN addresses: %s", text)
 	}
+	dnsRules, _ := json.Marshal(bundle.SingBox["dns"].(map[string]any)["rules"])
+	routeRules, _ := json.Marshal(bundle.SingBox["route"].(map[string]any)["rules"])
+	for name, rules := range map[string][]byte{"DNS": dnsRules, "Route": routeRules} {
+		if !strings.Contains(string(rules), `"source_mac_address":["02:00:00:00:00:10"]`) {
+			t.Fatalf("%s rules do not use sing-box 1.14 native source MAC matching: %s", name, rules)
+		}
+	}
 }
 
-func TestCompileDNSCaptureModeDoesNotInventHijack(t *testing.T) {
-	options := testOptions()
-	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureNone, InboundTags: []string{"steer-dns"}}
-	bundle := compileTest(t, representativeIntent(), options)
-	routeRules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
-	encoded, _ := json.Marshal(routeRules)
-	if strings.Contains(string(encoded), `"action":"hijack-dns"`) {
-		t.Fatalf("DNS hijack rule was emitted for DNS capture mode none: %s", encoded)
+func TestCompileKeepsDedicatedDNSHijackBoundary(t *testing.T) {
+	bundle := Compile(representativeIntent(), testOptions())
+	route := bundle.SingBox["route"].(map[string]any)
+	rules := route["rules"].([]any)
+	first := rules[0].(map[string]any)
+	if first["action"] != "hijack-dns" {
+		t.Fatalf("DNS capture boundary lost: %#v", first)
+	}
+	inbounds := first["inbound"].([]string)
+	if len(inbounds) != 1 || inbounds[0] != "steer-dns" {
+		t.Fatalf("hijack-dns is not restricted to the dedicated DNS inbound: %#v", first)
+	}
+	if strings.Contains(string(mustJSON(first)), "steer-tun") {
+		t.Fatalf("general TUN inbound was connected directly to hijack-dns: %#v", first)
 	}
 }
 
 func TestCompileTUNPort53DNSCaptureIsExplicit(t *testing.T) {
-	value := representativeIntent()
 	options := testOptions()
+	options.Target.DNSInboundTags = nil
 	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureTUNPort53Hijack, InboundTags: []string{"steer-tun"}}
-	bundle := Compile(value, options)
-	encoded, _ := json.Marshal(bundle.SingBox["route"])
-	if !strings.Contains(string(encoded), `"action":"hijack-dns"`) || !strings.Contains(string(encoded), `"port":["53"]`) {
-		t.Fatalf("TUN port-53 capture was not explicit: %s", encoded)
+	bundle := Compile(representativeIntent(), options)
+	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	first := rules[0].(map[string]any)
+	if first["action"] != "hijack-dns" || !strings.Contains(string(mustJSON(first)), `"port":["53"]`) {
+		t.Fatalf("TUN port-53 capture was not explicit: %#v", first)
 	}
+}
+
+func TestCompileDNSCaptureNoneDoesNotInventHijack(t *testing.T) {
+	options := testOptions()
+	options.Target.DNSInboundTags = nil
+	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureNone, InboundTags: []string{"steer-dns"}}
+	bundle := Compile(representativeIntent(), options)
+	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	if strings.Contains(string(mustJSON(rules)), `"action":"hijack-dns"`) {
+		t.Fatalf("DNS capture none emitted hijack-dns: %#v", rules)
+	}
+}
+
+func mustJSON(value any) []byte {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return encoded
 }
 
 func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
 	intent := representativeIntent()
 	blockRule := model.Rule{ID: "blocked", Enabled: true, DNSProfile: "public", Route: "block", DomainMatch: []string{"domain:blocked.example"}}
 	intent.Rules = append(intent.Rules[:len(intent.Rules)-1], blockRule, intent.Rules[len(intent.Rules)-1])
-	bundle := compileTest(t, intent, testOptions())
+	bundle := Compile(intent, testOptions())
 	dns := bundle.SingBox["dns"].(map[string]any)
 	servers, _ := json.Marshal(dns["servers"])
 	if strings.Contains(string(servers), `"tag":"steer-dns-bootstrap","detour"`) || strings.Contains(string(servers), `"tag":"steer-dns-public-via-direct","detour"`) {
@@ -142,8 +212,8 @@ func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
 }
 
 func TestCompileIsDeterministic(t *testing.T) {
-	first := compileTest(t, representativeIntent(), testOptions())
-	second := compileTest(t, representativeIntent(), testOptions())
+	first := Compile(representativeIntent(), testOptions())
+	second := Compile(representativeIntent(), testOptions())
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("same intent produced different bundle")
 	}
@@ -152,7 +222,7 @@ func TestCompileIsDeterministic(t *testing.T) {
 func TestCompileRoutePrivateOutboundsAndDetour(t *testing.T) {
 	intent := representativeIntent()
 	intent.Routes = append(intent.Routes, model.Route{ID: "chained", Enabled: true, Kind: "single", Node: "node", Detour: "proxy"})
-	bundle := compileTest(t, intent, testOptions())
+	bundle := Compile(intent, testOptions())
 	outbounds := bundle.SingBox["outbounds"].([]any)
 	var proxy, chained map[string]any
 	for _, raw := range outbounds {
@@ -201,7 +271,7 @@ func TestCompileSingBoxProxyNodeFamilies(t *testing.T) {
 		model.Route{ID: "tuic_route", Enabled: true, Kind: "single", Node: "tuic"},
 		model.Route{ID: "ssh_route", Enabled: true, Kind: "single", Node: "ssh"},
 	)
-	bundle := compileTest(t, base, testOptions())
+	bundle := Compile(base, testOptions())
 	encoded, _ := json.Marshal(bundle.SingBox["outbounds"])
 	for _, expected := range []string{`"type":"shadowsocks"`, `"type":"vmess"`, `"type":"tuic"`, `"type":"ssh"`} {
 		if !strings.Contains(string(encoded), expected) {

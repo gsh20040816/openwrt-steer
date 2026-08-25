@@ -3,7 +3,7 @@
 
 set -eu
 
-package_root="${1:-bin/packages/x86_64}"
+package_root="${1:-bin/packages/x86_64/steer}"
 output_dir="${2:-dist}"
 
 [ -d "$package_root" ] || {
@@ -18,7 +18,7 @@ for pattern in \
 	'steer-[0-9]*.apk' \
 	'luci-app-steer-*.apk' \
 	'luci-i18n-steer-zh-cn-*.apk'; do
-	set -- $(find "$package_root" -type f -name "$pattern" | sort)
+	set -- $(find "$package_root" -maxdepth 1 -type f -name "$pattern" | sort)
 	if [ "$#" -ne 1 ]; then
 		echo "Expected exactly one APK matching $pattern, found $#" >&2
 		exit 1

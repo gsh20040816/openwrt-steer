@@ -33,18 +33,16 @@ type Options struct {
 // Target contains sing-box-native fragments selected by one platform adapter.
 // It deliberately contains no nftables, routing-table or service-manager plan.
 type Target struct {
-	Inbounds             []any        `json:"inbounds"`
-	DNSInboundTags       []string     `json:"dns_inbound_tags"`
-	DNSCapture           DNSCapture   `json:"dns_capture"`
-	SniffInboundTags     []string     `json:"sniff_inbound_tags"`
-	MACBindings          []MACBinding `json:"mac_bindings"`
-	RequiredCapabilities []string     `json:"required_capabilities"`
+	Inbounds             []any      `json:"inbounds"`
+	DNSInboundTags       []string   `json:"dns_inbound_tags"`
+	DNSCapture           DNSCapture `json:"dns_capture"`
+	SniffInboundTags     []string   `json:"sniff_inbound_tags"`
+	RequiredCapabilities []string   `json:"required_capabilities"`
 }
 
-// DNSCaptureMode describes which component has already identified DNS
-// traffic before the sing-box route rules see it. Keeping this explicit
-// prevents a packet-oriented runtime from treating arbitrary UDP sessions as
-// DNS.
+// DNSCaptureMode makes the ownership boundary for DNS traffic explicit. A
+// dedicated DNS inbound has already classified its traffic; Darwin TUN capture
+// must additionally restrict hijacking to TCP/UDP destination port 53.
 type DNSCaptureMode string
 
 const (
@@ -53,21 +51,9 @@ const (
 	DNSCaptureTUNPort53Hijack DNSCaptureMode = "tun_port53_hijack"
 )
 
-// DNSCapture contains only sing-box-facing DNS inbound tags. Platform code
-// remains responsible for the first capture layer. The inbound_hijack mode is
-// safe only when those tags refer to dedicated DNS flows, never to a packet
-// runtime's general UDP sessions. tun_port53_hijack is the explicit exception
-// for a Darwin TUN: it matches only TCP/UDP destination port 53 on the TUN
-// inbound, so arbitrary UDP sessions are not treated as DNS.
 type DNSCapture struct {
 	Mode        DNSCaptureMode `json:"mode"`
 	InboundTags []string       `json:"inbound_tags"`
-}
-
-type MACBinding struct {
-	Address       string `json:"address"`
-	TProxyTag     string `json:"tproxy_tag"`
-	DNSInboundTag string `json:"dns_inbound_tag"`
 }
 
 type DNSPath struct {
@@ -195,13 +181,8 @@ func addGeoSet(result *[]GeoRuleSet, seen map[string]bool, seedDirectory, baseUR
 func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoRuleSets []GeoRuleSet, stateDirectory string) map[string]any {
 	profiles := indexDNSProfiles(intent.DNSProfiles)
 	routes := indexRoutes(intent.Routes)
-	macIndex := map[string]MACBinding{}
-	for _, binding := range target.MACBindings {
-		macIndex[binding.Address] = binding
-	}
 
 	inbounds := append([]any{}, target.Inbounds...)
-	dnsInboundTags := append([]string{}, target.DNSInboundTags...)
 	sniffInboundTags := append([]string{}, target.SniffInboundTags...)
 	for _, proxy := range intent.LocalProxies {
 		if !proxy.Enabled {
@@ -236,22 +217,25 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		"server_port": intent.Bootstrap.ServerPort,
 	}}
 	for _, path := range dnsPaths {
-		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path))
+		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path, intent.Bootstrap.Strategy))
 	}
 
 	routeRules := make([]any, 0, 2+len(intent.Rules))
 	capture := target.DNSCapture
 	if capture.Mode == "" && len(capture.InboundTags) == 0 && len(target.DNSInboundTags) > 0 {
-		capture.Mode = DNSCaptureInboundHijack
-		capture.InboundTags = append([]string{}, target.DNSInboundTags...)
+		capture = DNSCapture{Mode: DNSCaptureInboundHijack, InboundTags: append([]string{}, target.DNSInboundTags...)}
 	}
-	dnsInboundTags = append([]string{}, capture.InboundTags...)
-	if capture.Mode == DNSCaptureInboundHijack && len(dnsInboundTags) > 0 {
-		routeRules = append(routeRules, map[string]any{"inbound": dnsInboundTags, "action": "hijack-dns"})
-	} else if capture.Mode == DNSCaptureTUNPort53Hijack && len(dnsInboundTags) > 0 {
-		routeRules = append(routeRules, map[string]any{
-			"inbound": dnsInboundTags, "network": []string{"tcp", "udp"}, "port": []string{"53"}, "action": "hijack-dns",
-		})
+	switch capture.Mode {
+	case DNSCaptureInboundHijack:
+		if len(capture.InboundTags) > 0 {
+			routeRules = append(routeRules, map[string]any{"inbound": capture.InboundTags, "action": "hijack-dns"})
+		}
+	case DNSCaptureTUNPort53Hijack:
+		if len(capture.InboundTags) > 0 {
+			routeRules = append(routeRules, map[string]any{
+				"inbound": capture.InboundTags, "network": []string{"tcp", "udp"}, "port": []string{"53"}, "action": "hijack-dns",
+			})
+		}
 	}
 	routeRules = append(routeRules, map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"})
 	dnsRules := []any{}
@@ -264,17 +248,16 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 			defaultRule = rule
 			continue
 		}
-		routeMatch := compileRuleMatch(rule, macIndex, false)
+		routeMatch := compileRuleMatch(rule, false)
 		routeMatch["action"] = "route"
 		routeMatch["outbound"] = routeTag(rule.Route)
 		routeRules = append(routeRules, routeMatch)
-		if dnsMatch := compileDNSMatch(rule, macIndex); len(dnsMatch) > 0 {
+		if dnsMatch := compileDNSMatch(rule); len(dnsMatch) > 0 {
 			if routes[rule.Route].Kind == "block" {
 				dnsMatch["action"] = "reject"
 			} else {
 				dnsMatch["action"] = "route"
 				dnsMatch["server"] = dnsPathTag(rule.DNSProfile, rule.Route)
-				dnsMatch["strategy"] = profiles[rule.DNSProfile].Strategy
 			}
 			dnsRules = append(dnsRules, dnsMatch)
 		}
@@ -299,7 +282,7 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		})
 	}
 	dnsOptions := map[string]any{
-		"servers": dnsServers, "rules": dnsRules, "final": finalDNS, "strategy": profiles[defaultRule.DNSProfile].Strategy,
+		"servers": dnsServers, "rules": dnsRules, "final": finalDNS,
 		"cache_capacity": intent.Main.DNSCacheCapacity, "reverse_mapping": true,
 	}
 	if intent.Main.DNSOptimisticCache {
@@ -548,13 +531,13 @@ func compileTLS(serverName string, insecure bool, fingerprint, publicKey, shortI
 	return clean(result)
 }
 
-func compileDNSPath(profile model.DNSProfile, route model.Route, path DNSPath) map[string]any {
+func compileDNSPath(profile model.DNSProfile, route model.Route, path DNSPath, domainResolverStrategy string) map[string]any {
 	result := map[string]any{"type": profile.Protocol, "tag": path.Tag, "server": profile.Server, "server_port": profile.ServerPort}
 	if route.Kind == "single" {
 		result["detour"] = routeTag(path.Route)
 	}
 	if _, err := netip.ParseAddr(profile.Server); err != nil {
-		result["domain_resolver"] = map[string]any{"server": "steer-dns-bootstrap", "strategy": profile.Strategy}
+		result["domain_resolver"] = map[string]any{"server": "steer-dns-bootstrap", "strategy": domainResolverStrategy}
 	}
 	if profile.Protocol == "tls" || profile.Protocol == "https" || profile.Protocol == "quic" || profile.Protocol == "h3" {
 		result["tls"] = map[string]any{"enabled": true, "server_name": profile.TLSServerName, "insecure": profile.Insecure}
@@ -565,7 +548,7 @@ func compileDNSPath(profile model.DNSProfile, route model.Route, path DNSPath) m
 	return clean(result)
 }
 
-func compileRuleMatch(rule model.Rule, macIndex map[string]MACBinding, dns bool) map[string]any {
+func compileRuleMatch(rule model.Rule, dns bool) map[string]any {
 	groups := []map[string]any{}
 	if len(rule.Inbound) > 0 {
 		values := make([]string, len(rule.Inbound))
@@ -575,16 +558,11 @@ func compileRuleMatch(rule model.Rule, macIndex map[string]MACBinding, dns bool)
 		groups = append(groups, map[string]any{"inbound": values})
 	}
 	if len(rule.SourceMACAddress) > 0 {
-		values := []string{}
-		for _, address := range rule.SourceMACAddress {
-			binding := macIndex[strings.ToLower(address)]
-			if dns {
-				values = append(values, binding.DNSInboundTag)
-			} else {
-				values = append(values, binding.TProxyTag)
-			}
+		values := make([]string, len(rule.SourceMACAddress))
+		for i, address := range rule.SourceMACAddress {
+			values[i] = strings.ToLower(address)
 		}
-		groups = append(groups, map[string]any{"inbound": values})
+		groups = append(groups, map[string]any{"source_mac_address": values})
 	}
 	if len(rule.DomainMatch) > 0 {
 		groups = append(groups, compileDomainGroup(rule.DomainMatch))
@@ -609,8 +587,8 @@ func compileRuleMatch(rule model.Rule, macIndex map[string]MACBinding, dns bool)
 	return combine(groups, "and")
 }
 
-func compileDNSMatch(rule model.Rule, macIndex map[string]MACBinding) map[string]any {
-	return compileRuleMatch(rule, macIndex, true)
+func compileDNSMatch(rule model.Rule) map[string]any {
+	return compileRuleMatch(rule, true)
 }
 
 func compileDomainGroup(expressions []string) map[string]any {

@@ -14,6 +14,7 @@ RUN apt-get update \
         procps \
         python3 \
         systemd \
+        systemd-resolved \
         systemd-sysv \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

@@ -10,9 +10,9 @@ go test -race ./...
 go vet ./...
 ```
 
-覆盖 schema 8、显式 schema 7→8 迁移、严格 JSON/UCI 解码、引用和前置链校验、确定性编译、Route 私有出站、DNS 路径、remote SRS/seed manifest、共享 Apply 生命周期、generation、订阅合并/Store、probe 测量，以及 OpenWrt 计划、nftables、激活、健康、日志和 UCI batch。
+覆盖 schema 9、显式 schema 8→9 DNS strategy 收敛迁移、严格 JSON/UCI 解码、引用和前置链校验、确定性编译、Route 私有出站、DNS 路径、remote SRS/seed manifest、共享 Apply 生命周期、generation、订阅合并/Store、probe 测量，以及 OpenWrt 计划、nftables、激活、健康、日志和 UCI batch。
 
-Linux 适配器测试覆盖主机与转发流量 plan、OUTPUT/PREROUTING DNS shim 与受保护的 wildcard listener、JSON 原子写入与 ETag 冲突、Linux source-MAC 拒绝、systemd/backend generation、Web bearer token/CSP/开关失败回滚、临时 probe 的 bypass mark 和静态 Linux 构建。
+Linux 适配器测试覆盖主机与转发流量 plan、OUTPUT/PREROUTING DNS shim 与受保护的 wildcard listener、1.14 原生 source-MAC、JSON 原子写入与 ETag 冲突、systemd/backend generation、Web bearer token/CSP/开关失败回滚、临时 probe 的 bypass mark 和静态 Linux 构建。
 
 ## LuCI 与静态边界
 
@@ -37,13 +37,13 @@ python3 tests/check-linux-packaging.py
 
 `tests/integration/run-openwrt-vm.sh` 只能运行在一次性 OpenWrt 25.12.5 x86/64 VM，并要求匹配版本的 sing-box、完整 SRS seed 和待测控制器已准备。脚本会改写 `/etc/config/steer`、`/run/steer`、nftables、策略路由和 procd，不能用于生产路由器。
 
-它覆盖公共 RPC 集、Geo catalog、代表配置校验、正常 Apply、LuCI UCI commit 触发、health/status、DNS/MAC 辅助层、fw4 reload、服务 restart/reload、非法字段 fail-fast、禁用和重新启用。编译器的详细结构由 Go 测试覆盖，不为测试重新公开 compile/plan/prepare 命令。
+它覆盖公共 RPC 集、Geo catalog、代表配置校验、正常 Apply、LuCI UCI commit 触发、health/status、DNS shim 与 1.14 原生 MAC 规则、fw4 reload、服务 restart/reload、非法字段 fail-fast、禁用和重新启用。编译器的详细结构由 Go 测试覆盖，不为测试重新公开 compile/plan/prepare 命令。
 
 ## Linux systemd 容器
 
 `tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器，不能用于生产主机。发布 CI 使用 `tests/integration/linux-system.Dockerfile` 构建固定 Debian 环境，挂载本次构建的 Steer、同次验证的 SRS seed 和校验过 SHA-256 的 sing-box 1.14.0-rc.1 musl 二进制。
 
-脚本建立 upstream/client 两个 netns，先验证隔离拓扑，再把默认路由切到无公网出口的 upstream。启用配置实际引用 `geosite:cn`，所以服务在 Pages 不可达时仍必须通过包内 `initial_path` 启动；随后覆盖主机和转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP53。DNS 请求使用不存在的原目标地址，只有经过 Steer redirect 和独立 DNS upstream 才能成功。它还确认 1053/1054 不能被直接当作 LAN resolver 访问，并覆盖服务重启、`nftables.service` 重启、禁用和重新启用。
+脚本建立 upstream/client 两个 netns，固定 client MAC 后先验证隔离拓扑，再把默认路由切到无公网出口的 upstream。启用配置实际引用 `geosite:cn` 和 native `source_mac_address`，所以服务在 Pages 不可达时仍必须通过包内 `initial_path` 启动；随后覆盖主机和转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP53。DNS 请求使用不存在的原目标地址，只有经过 Steer redirect 和独立 DNS upstream 才能成功；测试同时检查 nft DNS counter 增长，并确认 `steer0` 没有被注册为 systemd-resolved DNS route。它还确认 1053/1054 不能被直接当作 LAN resolver 访问，并覆盖服务重启、`nftables.service` 重启、禁用和重新启用。
 
 ## 发布前完整检查
 

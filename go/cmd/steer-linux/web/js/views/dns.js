@@ -23,7 +23,6 @@
         const protocol = ui.select(Object.entries(PROTOCOL_LABEL).map(([v, l]) => [v, l]), draft.protocol, (v) => { draft.protocol = v; });
         const server = ui.input({ value: draft.server || '', placeholder: 'dns.example.com 或 IP' });
         const port = ui.input({ type: 'number', value: draft.server_port || '', placeholder: '53 / 853 / 443' });
-        const strategy = ui.select([['prefer_ipv4', 'prefer_ipv4'], ['prefer_ipv6', 'prefer_ipv6'], ['ipv4_only', 'ipv4_only'], ['ipv6_only', 'ipv6_only']], draft.strategy || 'prefer_ipv4', (v) => { draft.strategy = v; });
         const path = ui.input({ value: draft.path || '', placeholder: '/dns-query' });
         const tlsName = ui.input({ value: draft.tls_server_name || '', placeholder: 'dns.example.com' });
         const insecure = ui.toggle(draft.insecure, (v) => { draft.insecure = v; });
@@ -32,7 +31,7 @@
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '上游'), [
             ui.field('名称', name),
             ui.field('启用', enabled),
-            h('div', { class: 'field--row' }, [ui.field('协议', protocol), ui.field('地址策略', strategy)]),
+            ui.field('协议', protocol),
             h('div', { class: 'field--row' }, [ui.field('服务器', server), ui.field('端口', port)]),
             ui.field('HTTP 路径', path, 'DoH / DoH3 使用'),
             ui.field('TLS 服务器名', tlsName, 'DoT / DoH / DoQ / DoH3 使用'),
@@ -46,7 +45,6 @@
             draft.name = name.value.trim();
             draft.server = server.value.trim();
             draft.server_port = Number(port.value);
-            draft.strategy = strategy.value;
             draft.path = path.value.trim() || undefined;
             draft.tls_server_name = tlsName.value.trim() || undefined;
             for (const key of Object.keys(draft)) if (draft[key] == null) delete draft[key];
@@ -71,13 +69,12 @@
       ui.beginRender(root);
       const intent = S.store.intent;
       const table = h('table', { class: 'table' }, [
-        h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '服务器', '地址策略', '规则引用', '操作'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '服务器', '规则引用', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, intent.dns_profiles.map((p) => h('tr', { class: p.enabled === false ? 'is-disabled' : null }, [
           h('td', {}, ui.toggle(p.enabled, (v) => { p.enabled = v; S.store.touch(); })),
           h('td', {}, h('div', {}, h('strong', {}, p.name || p.id), h('div', { class: 'mono' }, p.id))),
           h('td', {}, h('span', { class: 'badge badge--dns' }, PROTOCOL_LABEL[p.protocol] || p.protocol)),
           h('td', { class: 'mono' }, `${p.server}:${p.server_port}${p.path ? p.path : ''}`),
-          h('td', { class: 'mono' }, p.strategy),
           h('td', { class: 'mono num' }, String(refCount(intent, p.id))),
           h('td', {}, h('div', { class: 'row-actions' }, [
             h('button', { class: 'btn btn--sm', onclick: () => openEditor(p) }, '编辑'),
@@ -93,8 +90,8 @@
 
       root.append(
         ui.viewHead('DNS Profile', '每个实际使用的 (规则, Profile) 拥有独立传输路径；被规则引用后不可悬空', [
-          h('button', { class: 'btn btn--primary', onclick: () => openEditor({ id: S.uid('dns'), enabled: true, name: '', protocol: 'udp', server: '', server_port: 53, strategy: 'prefer_ipv4' }) }, '添加 Profile')
-        ]),
+		  h('button', { class: 'btn btn--primary', onclick: () => openEditor({ id: S.uid('dns'), enabled: true, name: '', protocol: 'udp', server: '', server_port: 53 }) }, '添加 Profile')
+		]),
         intent.dns_profiles.length
           ? h('section', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table))
           : h('div', { class: 'empty' }, '还没有 DNS Profile')

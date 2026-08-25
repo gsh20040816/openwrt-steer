@@ -17,12 +17,12 @@ func validIntent() model.Intent {
 		Main:        model.Main{ID: "main", SchemaVersion: model.SchemaVersion, Enabled: false, LogLevel: "warn", ProbeDirectURL: "https://direct.example/", ProbeProxyURL: "https://proxy.example/", SpeedtestProxyURL: "https://speed.example/"},
 		Bootstrap:   model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Routes:      []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "block", Enabled: true, Kind: "block"}},
-		DNSProfiles: []model.DNSProfile{{ID: "public", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"}},
+		DNSProfiles: []model.DNSProfile{{ID: "public", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53}},
 		Rules:       []model.Rule{{ID: "default", Enabled: true, Default: true, DNSProfile: "public", Route: "direct"}},
 	}
 }
 
-func TestIntentStoreMigratesSchema7Atomically(t *testing.T) {
+func TestIntentStoreMigratesSchema8Atomically(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	store := IntentStore{Path: path}
 	if _, err := store.Save(validIntent(), ""); err != nil {
@@ -32,19 +32,19 @@ func TestIntentStoreMigratesSchema7Atomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"schema_version": 8`), []byte(`"schema_version": 7`), 1)
+	content = bytes.Replace(content, []byte(`"schema_version": 9`), []byte(`"schema_version": 8`), 1)
 	profileStart := bytes.Index(content, []byte(`"dns_profiles"`))
-	strategyMarker := []byte(`"strategy": "prefer_ipv4"`)
-	strategyStart := bytes.Index(content[profileStart:], strategyMarker)
-	if profileStart < 0 || strategyStart < 0 {
+	serverPortMarker := []byte(`"server_port": 53`)
+	serverPortStart := bytes.Index(content[profileStart:], serverPortMarker)
+	if profileStart < 0 || serverPortStart < 0 {
 		t.Fatalf("cannot locate DNS profile in %s", content)
 	}
-	insertAt := profileStart + strategyStart + len(strategyMarker)
-	content = append(content[:insertAt], append([]byte(",\n      \"cache_persist\": true,\n      \"optimistic_cache\": true"), content[insertAt:]...)...)
+	insertAt := profileStart + serverPortStart + len(serverPortMarker)
+	content = append(content[:insertAt], append([]byte(",\n      \"strategy\": \"ipv6_only\""), content[insertAt:]...)...)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := store.MigrateSchema7()
+	changed, err := store.MigrateSchema8()
 	if err != nil || !changed {
 		t.Fatalf("migration failed: changed=%v err=%v", changed, err)
 	}
@@ -56,8 +56,8 @@ func TestIntentStoreMigratesSchema7Atomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(migrated, []byte(`"cache_persist"`)) || bytes.Contains(migrated, []byte(`"optimistic_cache"`)) {
-		t.Fatalf("removed profile fields remain: %s", migrated)
+	if bytes.Contains(migrated, []byte(`"strategy": "ipv6_only"`)) {
+		t.Fatalf("removed profile strategy remains: %s", migrated)
 	}
 }
 
@@ -85,20 +85,12 @@ func TestIntentStoreRoundTripAndRevisionConflict(t *testing.T) {
 	}
 }
 
-func TestLinuxValidationRejectsSourceMAC(t *testing.T) {
+func TestLinuxValidationAcceptsNativeSourceMAC(t *testing.T) {
 	value := validIntent()
-	value.Rules = append(value.Rules, model.Rule{ID: "mac", Enabled: true, SourceMACAddress: []string{"02:00:00:00:00:10"}, DNSProfile: "public", Route: "direct"})
+	macRule := model.Rule{ID: "mac", Enabled: true, SourceMACAddress: []string{"02:00:00:00:00:10"}, DNSProfile: "public", Route: "direct"}
+	value.Rules = append(value.Rules[:len(value.Rules)-1], macRule, value.Rules[len(value.Rules)-1])
 	validation := Validate(value)
-	if validation.OK {
-		t.Fatal("source MAC rule was accepted on Linux")
-	}
-	found := false
-	for _, issue := range validation.Errors {
-		if issue.Code == "PLATFORM_UNSUPPORTED_SOURCE_MAC" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("missing explicit source MAC platform error: %#v", validation.Errors)
+	if !validation.OK {
+		t.Fatalf("sing-box 1.14 native source MAC rule was rejected on Linux: %#v", validation.Errors)
 	}
 }

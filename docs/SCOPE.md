@@ -6,7 +6,7 @@
 
 以下内容已经实现并在 0.4 alpha 期间冻结：
 
-- schema 8 Canonical Intent：主配置、Bootstrap、节点、订阅、逻辑路由、DNS Profile、本地代理和规则；
+- schema 9 Canonical Intent：主配置、Bootstrap、节点、订阅、逻辑路由、DNS Profile、本地代理和规则；
 - 严格解码：UCI 适配器拒绝未知 section/option 和 scalar/list 形态错误；Canonical JSON codec 拒绝未知字段与尾随数据；
 - 全局 ID、启用引用、协议参数、端口、URL、唯一 Direct、唯一 Default 等语义校验；
 - first-match 规则，同字段 OR、不同字段 AND，Default 决定最终 DNS 和业务路由；
@@ -22,10 +22,10 @@
 
 OpenWrt 适配器当前拥有：
 
-- UCI schema 8 codec、显式 schema 7→8 窄迁移和 UCI 订阅节点持久化；
+- UCI schema 9 codec、显式 schema 8→9 DNS strategy 收敛迁移和 UCI 订阅节点持久化；
 - sing-box TUN `auto_route`/`auto_redirect` 入站；
-- 传统 TCP/UDP 53 DNS 捕获和源 MAC TProxy 辅助层；
-- nftables、双栈策略路由、固定 mark/table/priority/NFQUEUE 资源；
+- 传统 TCP/UDP 53 DNS 捕获和 sing-box 原生 `source_mac_address` 规则；
+- nftables DNS shim、固定 TUN mark/table/priority/NFQUEUE 资源；
 - procd 生命周期、开机私有 `_start` 钩子、本地健康检查；
 - 包内完整 SRS seed、manifest 精确 selector 校验与 sing-box remote rule-set；
 - `/run/steer` generation、`/var/lib/steer` 日志和订阅状态；

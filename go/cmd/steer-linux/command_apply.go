@@ -135,7 +135,7 @@ func runMigrate(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("migrate accepts flags only")
 	}
-	changed, err := (linuxplatform.IntentStore{Path: *configPath}).MigrateSchema7()
+	changed, err := (linuxplatform.IntentStore{Path: *configPath}).MigrateSchema8()
 	if err != nil {
 		return err
 	}

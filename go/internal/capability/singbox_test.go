@@ -3,33 +3,22 @@ package capability
 
 import "testing"
 
-func TestParseSupportedBuild(t *testing.T) {
-	report := Parse("sing-box version 1.14.0-rc.1\n\nEnvironment: go1.27 linux/amd64\nTags: with_quic,with_utls\n", []string{"tun", "dns_quic", "with_utls"})
+func TestParseBuildAndTags(t *testing.T) {
+	report := Parse("sing-box version 1.14.0-rc.1\n\nEnvironment: go1.26 linux/amd64\nTags: with_quic,with_utls\n", []string{"tun", "dns_quic", "with_utls"})
 	if !report.OK || report.Version != "1.14.0-rc.1" {
 		t.Fatalf("unexpected report: %#v", report)
 	}
 }
 
-func TestParseRejectsVersionAndMissingTag(t *testing.T) {
+func TestParseRejectsMissingTagButDoesNotPinVersion(t *testing.T) {
 	report := Parse("sing-box version 1.14.0-beta.1\nTags: with_quic\n", []string{"with_utls"})
-	if report.OK || len(report.Errors) != 2 {
+	if report.OK || len(report.Errors) != 1 {
 		t.Fatalf("unexpected report: %#v", report)
 	}
-	for _, version := range []string{"1.13.99", "1.14.0-alpha.50", "1.14.0-beta.1", "1.15.0", "2.0.0"} {
-		if supportedVersion(version) {
-			t.Fatalf("unsupported version accepted: %s", version)
+	for _, version := range []string{"1.13.99", "1.14.0-alpha.50", "1.14.0-beta.1", "1.14.0-rc.1", "1.15.0", "2.0.0"} {
+		output := "sing-box version " + version + "\nTags: with_quic,with_utls\n"
+		if report := Parse(output, nil); !report.OK || report.Version != version {
+			t.Fatalf("version was incorrectly rejected before native config check: %s: %#v", version, report)
 		}
-	}
-	for _, version := range []string{"1.14.0-beta.2", "1.14.0-rc.1", "1.14.0", "1.14.9"} {
-		if !supportedVersion(version) {
-			t.Fatalf("supported version rejected: %s", version)
-		}
-	}
-}
-
-func TestParseRejectsUnknownCapability(t *testing.T) {
-	report := Parse("sing-box version 1.14.0-rc.1\nTags: with_quic\n", []string{"made_up"})
-	if report.OK || len(report.Errors) != 1 || report.Errors[0] != "unknown runtime capability made_up" {
-		t.Fatalf("unknown capability was not rejected: %#v", report)
 	}
 }

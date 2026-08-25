@@ -64,7 +64,7 @@ func (store IntentStore) Save(value model.Intent, expectedRevision string) (stri
 	return revision(content), nil
 }
 
-func (store IntentStore) MigrateSchema7() (bool, error) {
+func (store IntentStore) MigrateSchema8() (bool, error) {
 	path := store.normalizedPath()
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -84,11 +84,11 @@ func (store IntentStore) MigrateSchema7() (bool, error) {
 			return false, err
 		}
 		return false, nil
-	case 7:
+	case 8:
 	default:
 		return false, fmt.Errorf("cannot migrate canonical intent schema %d", header.Main.SchemaVersion)
 	}
-	value, err := model.MigrateJSON7(content)
+	value, err := model.MigrateJSON8(content)
 	if err != nil {
 		return false, err
 	}

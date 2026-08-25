@@ -90,6 +90,7 @@ ip netns exec steer-upstream ip -6 route add default via fd76::1
 ip netns add steer-client
 ip link add st-client type veth peer name client0
 ip link set client0 netns steer-client
+ip netns exec steer-client ip link set dev client0 address 02:00:00:00:00:77
 ip address add 10.77.0.1/24 dev st-client
 ip -6 address add fd77::1/64 dev st-client nodad
 ip link set st-client up
@@ -207,12 +208,30 @@ expect_dns() {
 	[ "$result" = "$expected" ] || fail "$namespace DNS $transport via $server returned $result"
 }
 
+chain_packets() {
+	nft -j list chain inet steer "$1" \
+		| jq '[.nftables[].rule.expr[]?.counter.packets?] | add // 0'
+}
+
 wait_healthy
 ip link show dev steer0 >/dev/null
 nft list table inet steer >/dev/null
+grep -Fq '"dns_mode": "disabled"' /run/steer/current/sing-box.json || fail "TUN native DNS ownership was not disabled"
 grep -Fq '"initial_path"' /run/steer/current/sing-box.json || fail "compiled Geo rule-set has no initial_path"
 grep -Fq '"type": "remote"' /run/steer/current/sing-box.json || fail "compiled Geo rule-set is not remote"
+mac_rule_count=$(grep -c '"source_mac_address"' /run/steer/current/sing-box.json)
+[ "$mac_rule_count" -ge 2 ] || fail "native source MAC rule was not projected to route and DNS"
+grep -Fq '02:00:00:00:00:77' /run/steer/current/sing-box.json || fail "native source MAC address was not preserved"
 [ -s /var/lib/steer/cache.db ] || fail "sing-box cache database was not created"
+
+systemctl is-active --quiet systemd-resolved || fail "systemd-resolved is not active"
+if resolvectl dns steer0 | grep -Eq ':[[:space:]]+[^[:space:]]'; then
+	fail "steer0 was registered with systemd-resolved DNS servers"
+fi
+if resolvectl domain steer0 | grep -Eq ':[[:space:]]+[^[:space:]]'; then
+	fail "steer0 was registered with systemd-resolved domains"
+fi
+resolvectl default-route steer0 | grep -Eq ':[[:space:]]+no$' || fail "steer0 became a systemd-resolved default route"
 
 curl --fail --silent --show-error --max-time 5 http://11.77.0.2:18080/ >/dev/null
 curl --fail --silent --show-error --max-time 5 'http://[2001:4860:77::2]:18080/' >/dev/null
@@ -223,11 +242,17 @@ expect_udp host 6 2001:4860:77::2
 expect_udp steer-client 4 11.77.0.2
 expect_udp steer-client 6 2001:4860:77::2
 
+host_dns_packets_before=$(chain_packets dns_output)
 expect_dns host "" 11.77.0.99 steer.test 11.77.0.2
+host_dns_packets_after=$(chain_packets dns_output)
+[ "$host_dns_packets_after" -gt "$host_dns_packets_before" ] || fail "host DNS did not traverse Steer's DNS output shim"
 expect_dns host +tcp 11.77.0.99 steer.test 11.77.0.2
 expect_dns host "" 2001:4860:77::99 steer.test 11.77.0.2
 expect_dns host +tcp 2001:4860:77::99 steer.test 11.77.0.2
+client_dns_packets_before=$(chain_packets dns_prerouting)
 expect_dns steer-client "" 11.77.0.99 steer.test 11.77.0.2
+client_dns_packets_after=$(chain_packets dns_prerouting)
+[ "$client_dns_packets_after" -gt "$client_dns_packets_before" ] || fail "forwarded DNS did not traverse Steer's DNS prerouting shim"
 expect_dns steer-client +tcp 11.77.0.99 steer.test 11.77.0.2
 expect_dns steer-client "" 2001:4860:77::99 steer.test 11.77.0.2
 expect_dns steer-client +tcp 2001:4860:77::99 steer.test 11.77.0.2

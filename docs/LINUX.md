@@ -4,15 +4,15 @@ Linux 第一版面向 systemd 发行版，覆盖 Linux 主机以及由该主机�
 
 ## 范围
 
-- 配置：严格 Canonical JSON schema 8 的用户 Intent 位于 `/etc/steer/config.json`；没有第二份 Linux platform settings。
-- 数据面：sing-box `>=1.14.0-beta.2,<1.15.0`、TUN `auto_route + strict_route + auto_redirect`。
-- DNS：sing-box IPv4/IPv6 wildcard DNS inbound 分别监听 1053/1054，加 nftables `OUTPUT`/`PREROUTING` TCP/UDP 53 shim；`input` 链只允许 DNAT/REDIRECT 后的请求进入 listener，直接访问主机 1053/1054 会被拒绝。VM/Docker 的传统 DNS 请求也进入 Steer。
+- 配置：严格 Canonical JSON schema 9 的用户 Intent 位于 `/etc/steer/config.json`；没有第二份 Linux platform settings。
+- 数据面：无版本锁定的 sing-box 提供 TUN `auto_route + strict_route + auto_redirect`；Apply 用 native config check 判断当前构建是否支持所用字段，源 MAC 使用被接受时的 `source_mac_address` 原生匹配。
+- DNS：sing-box IPv4/IPv6 wildcard DNS inbound 分别监听 1053/1054，加 nftables `OUTPUT`/`PREROUTING` TCP/UDP 53 shim；TUN 显式使用 `dns_mode: disabled`，不会注册 systemd-resolved link DNS 或创建第二套 DNS hijack。`input` 链只允许 DNAT/REDIRECT 后的请求进入 listener，直接访问主机 1053/1054 会被拒绝。VM/Docker 的传统 DNS 请求也进入 Steer。不能把整个 TUN 直接接到 `hijack-dns`，否则 UDP 源端口复用可能把后续非 DNS 流量粘进 DNS 会话。
 - 生命周期：systemd `steer.service`，`_run` 完成准备后直接 exec sing-box；`cleanup` 由 `ExecStopPost` 调用。`steer.service` 是 `nftables.service` 的 `PartOf`，正常重启 nftables 时会在其后重启并重建 Steer 数据面。
 - 管理：统一 CLI `steer` 和只监听 loopback 的 `steer web`。
 - 订阅：systemd timer 更新 JSON 配置，不自动 Apply；更新失败或 HTTP 200 但没有有效节点时保留旧配置。
 - Geo：发行归档携带完整的 Loyalsoldier-compatible SRS seed 与 manifest；Steer 精确校验 selector，sing-box 使用 remote rule-set 后台更新。
 
-Linux 第一版明确不提供非 systemd、通用 LAN 网关配置向导、源 MAC、多用户权限分离、远程 Web、NetworkManager/systemd-resolved 深度集成、DIRECT kernel bypass、Clash API、实时连接图和 macOS GUI。Linux TUN 不使用 workstation-only 的接口白名单；主机转发的 VM/Docker 公网流量随主机规则进入代理，私有/链路本地目的地址仍按平台排除规则处理。
+Linux 第一版明确不提供非 systemd、通用 LAN 网关配置向导、多用户权限分离、远程 Web、NetworkManager/systemd-resolved 深度集成、DIRECT kernel bypass、Clash API、实时连接图和 macOS GUI。Linux TUN 不使用 workstation-only 的接口白名单；主机转发的 VM/Docker 公网流量随主机规则进入代理，私有/链路本地目的地址仍按平台排除规则处理。
 
 ## 通用发行产物与安装
 

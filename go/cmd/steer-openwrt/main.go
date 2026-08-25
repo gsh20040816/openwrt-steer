@@ -92,8 +92,8 @@ func runApply(args []string) error {
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
-	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
+	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
 	nftBinary := flags.String("nft", "/usr/sbin/nft", "nft binary")
 	initScript := flags.String("init", "/etc/init.d/steer", "procd init script")
 	if err := flags.Parse(args); err != nil {
@@ -388,7 +388,7 @@ func runMigrate(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("migrate accepts flags only")
 	}
-	changed, err := openwrt.MigrateSchema7(context.Background(), *configPath)
+	changed, err := openwrt.MigrateSchema8(context.Background(), *configPath)
 	if err != nil {
 		return err
 	}
@@ -401,7 +401,6 @@ func runMigrate(args []string) error {
 
 func runCleanup(args []string) error {
 	flags := flag.NewFlagSet("cleanup", flag.ContinueOnError)
-	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
 	nftBinary := flags.String("nft", "/usr/sbin/nft", "nft binary")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -409,11 +408,7 @@ func runCleanup(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("cleanup accepts flags only")
 	}
-	var plan openwrt.Plan
-	if err := readJSON(filepath.Join(*runDirectory, "current", "platform.json"), &plan); err != nil {
-		return err
-	}
-	return openwrt.CleanupPlatform(context.Background(), openwrt.ExecRunner{}, plan, *nftBinary)
+	return openwrt.CleanupPlatform(context.Background(), openwrt.ExecRunner{}, *nftBinary)
 }
 
 func writeApplyRecord(runDirectory string, record coreapply.Record) error {

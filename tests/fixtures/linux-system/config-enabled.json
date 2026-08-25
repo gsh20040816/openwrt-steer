@@ -1,7 +1,7 @@
 {
   "main": {
     "id": "main",
-    "schema_version": 8,
+    "schema_version": 9,
     "enabled": true,
     "log_level": "debug",
     "probe_direct": "https://direct.example/",
@@ -25,11 +25,12 @@
     {"id": "block", "enabled": true, "kind": "block"}
   ],
   "dns_profiles": [
-    {"id": "test", "enabled": true, "protocol": "udp", "server": "11.77.0.2", "server_port": 53, "strategy": "prefer_ipv4"}
+    {"id": "test", "enabled": true, "protocol": "udp", "server": "11.77.0.2", "server_port": 53}
   ],
   "local_proxies": [],
   "rules": [
     {"id": "geo-cn", "enabled": true, "default": false, "dns_profile": "test", "route": "direct", "domain_match": ["geosite:cn"]},
+    {"id": "client-mac", "enabled": true, "default": false, "dns_profile": "test", "route": "direct", "domain_match": ["domain:steer.test"], "source_mac_address": ["02:00:00:00:00:77"]},
     {"id": "default", "enabled": true, "default": true, "dns_profile": "test", "route": "direct"}
   ]
 }

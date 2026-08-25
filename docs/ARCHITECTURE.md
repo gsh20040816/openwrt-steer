@@ -5,7 +5,7 @@ Steer 采用“共享意图核心 + 平台适配器”。共享编译器生成�
 ## 代码边界
 
 ```text
-go/internal/intent                 Canonical Intent、schema 8 校验、严格 JSON codec、7→8 迁移
+go/internal/intent                 Canonical Intent、schema 9 校验、严格 JSON codec、8→9 迁移
 go/internal/compiler               确定性 sing-box 最终配置编译
 go/internal/apply                  同步 Apply 编排和结果合同
 go/internal/generation             平台中立 generation 文件
@@ -53,20 +53,21 @@ Linux JSON ──严格解码───┼→ Canonical Intent → Validate → C
 
 ## OpenWrt 数据面
 
-主路径由 sing-box TUN 的 `auto_route`、`strict_route` 和 `auto_redirect` 接管。平台适配器补充两项数据面能力：
+主路径由 sing-box TUN 的 `auto_route`、`strict_route` 和 `auto_redirect` 接管。平台适配器补充一项数据面能力：
 
 - nftables 把传统 TCP/UDP 53 送入专用 sing-box DNS 入口；
-- 源 MAC 条件使用专用双栈 TProxy/DNS 入口和策略路由。
 
-TUN 名称、地址、table、priority、mark、NFQUEUE 和平台端口都属于 `platform/openwrt`，不出现在 Canonical Intent。特殊非全球地址在进入用户规则前排除，路由器本机 UDP/123 明确直连。
+源 MAC 条件由 sing-box 1.14 的 `source_mac_address` route/DNS rule 原生匹配，不再创建专用 TProxy/DNS 入口或策略路由。DNS 仍必须先由 nftables 按 TCP/UDP 53 送入专用 inbound，不能把整个 TUN 直接接到 `hijack-dns`：两个平台的 TUN 都显式设置 `dns_mode: disabled`，避免 sing-box 另行接管接口 DNS 或安装第二套 DNS hijack。sing-box 的 UDP 会话可能因源端口复用把后续 STUN/普通 UDP 粘进 DNS 会话。TUN 名称、地址、table、priority、mark、NFQUEUE 和 DNS 端口都属于 `platform/openwrt`，不出现在 Canonical Intent。特殊非全球地址在进入用户规则前排除，路由器本机 UDP/123 明确直连。
 
 ## Linux 数据面
 
-Linux 第一版承诺 systemd 主机及其 VM/Docker 转发的公网流量，不提供通用 LAN 网关配置向导、源 MAC 或多用户策略。平台使用与 OpenWrt 相同的 sing-box TUN 主路径，且不设置 `include_interface` 限制；传统 TCP/UDP 53 请求通过 `OUTPUT` 和 `PREROUTING` shim 进入 IPv4/IPv6 loopback DNS inbound，TUN 自身、标记为 Steer 内部出口的连接和本机目的地址直接放行。Linux 不改 NetworkManager、`/etc/resolv.conf` 或 systemd-resolved 配置，也不生成 MAC 策略路由。
+Linux 第一版承诺 systemd 主机及其 VM/Docker 转发的公网流量。平台使用与 OpenWrt 相同的 sing-box TUN 主路径，且不设置 `include_interface` 限制；传统 TCP/UDP 53 请求通过 `OUTPUT` 和 `PREROUTING` shim 进入 IPv4/IPv6 loopback DNS inbound，源 MAC 条件由 sing-box 1.14 邻居解析原生匹配，TUN 自身、标记为 Steer 内部出口的连接和本机目的地址直接放行。Linux 不改 NetworkManager、`/etc/resolv.conf` 或 systemd-resolved 配置，也不生成 MAC 策略路由。
 
 `platform/linux` 固定自己的 TUN、DNS、table、priority、mark 和 NFQUEUE 资源；这些只保存在 generation 内部的 `platform.json`，不进入 Canonical Intent，也不存在用户可编辑的 `/etc/steer/platform.json`。Geo category 是共享 Intent 语义；两个 adapter 都使用包内 `/usr/share/steer/geodata-seed`。`internal/geodata` 以严格 manifest 精确解析 selector，并在切换运行态前校验所需 SRS 的普通文件类型、大小和 SHA-256。
 
 编译器为用到的 Geo selector 生成 sing-box remote binary rule-set：包内 SRS 是 `initial_path`，Pages 上同名 SRS 是 `url`，更新周期为 1 天。显式 direct HTTP client 避免 Geo 下载受用户代理路由影响；`/var/lib/steer/cache.db` 由 sing-box 保存 remote rule-set cache。首次启动不依赖网络，远端更新失败只记录在 sing-box 日志中，不改变已通过 seed 启动的 Apply 结果。
+
+Steer 不写全局 `dns.strategy`，也不写 DNS rule action 的 query-level `strategy`，客户端 A/AAAA 查询保持透明。DNS server 本身使用域名时，启动该 transport 所需的 `domain_resolver.strategy` 来自 `bootstrap.strategy`；route 默认域名解析器使用同一内部解析策略。schema 9 删除了 `dns_profile.strategy`。
 
 ## Apply
 

@@ -1,6 +1,8 @@
 /src/
 /pkg/
 /steer/
+/*.tar.zst
+/geodata-seed/
 /*.tar.gz
 /*.pkg.tar.*
 /*.src.tar.*

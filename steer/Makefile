@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
-PKG_VERSION:=0.7.0_alpha1
+PKG_VERSION:=0.7.1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -25,8 +25,7 @@ define Package/steer
   TITLE:=Intent-driven transparent proxy controller for OpenWrt
   URL:=https://github.com/gsh20040816/steer
 	DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +firewall4 +ip \
-	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun
-  EXTRA_DEPENDS:=sing-box (>=1.14.0_beta2), sing-box (<1.15.0)
+	+kmod-nft-queue +kmod-nft-tproxy +kmod-tun +sing-box
   PROVIDES:=steer-openwrt
   CONFLICTS:=steer-openwrt
   REPLACES:=steer-openwrt
@@ -60,7 +59,7 @@ mkdir -p /etc/crontabs
 grep -Fqx "$$cron_line" "$$cron_file" 2>/dev/null || echo "$$cron_line" >> "$$cron_file"
 /etc/init.d/cron restart
 
-# Switch the schema 8 intent through Steer's verified generation
+# Switch the schema 9 intent through Steer's verified generation
 # transaction. PKG_UPGRADE must not leak into the init calls made by Apply.
 apply_output="$$(PKG_UPGRADE=0 /usr/sbin/steer apply 2>&1)" || {
 	echo "$$apply_output" >&2
