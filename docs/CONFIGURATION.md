@@ -176,4 +176,4 @@ steer probe --kind speedtest --route <route-id> --download
 
 ## 版本与升级
 
-0.8.0-alpha.1 只在正常运行路径接受 schema 9。OpenWrt 包安装脚本会显式执行一次 schema 8→9 迁移；Arch 包升级脚本调用同一 Linux 迁移命令；通用 Linux 归档用户在替换服务前运行 `steer migrate --config /etc/steer/config.json`。迁移删除所有 `dns_profile.strategy`，不设置替代的客户端 DNS 地址族策略；`bootstrap.strategy` 保持不变并只服务内部域名解析。schema 7 及更早配置不再支持迁移。旧版本遗留的 `/var/lib/steer/rollback.uci` 仍会被删除。
+0.8.0-alpha.2 只在正常运行路径接受 schema 9。OpenWrt 包安装脚本会显式执行一次 schema 8→9 迁移；Arch 包升级脚本调用同一 Linux 迁移命令；通用 Linux 归档用户在替换服务前运行 `steer migrate --config /etc/steer/config.json`。迁移删除所有 `dns_profile.strategy`，不设置替代的客户端 DNS 地址族策略；`bootstrap.strategy` 保持不变并只服务内部域名解析。schema 7 及更早配置不再支持迁移。旧版本遗留的 `/var/lib/steer/rollback.uci` 仍会被删除。

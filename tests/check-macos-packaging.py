@@ -84,6 +84,14 @@ for fragment in (
     if fragment not in BUNDLER:
         fail(f"bundle script is missing: {fragment}")
 
+helper_sign = BUNDLER.index('codesign --force --sign - --timestamp=none "$installer_directory/steer-macos"')
+payload_hash = BUNDLER.index("\t\t> PAYLOAD-SHA256SUMS")
+app_sign = BUNDLER.index('codesign --force --sign - --timestamp=none "$app"')
+if not helper_sign < payload_hash < app_sign:
+    fail("embedded executables must be signed before payload checksums and the App must be signed last")
+if 'codesign --force --deep --sign - --timestamp=none "$app"' in BUNDLER:
+    fail("final App signing must not recursively mutate already-hashed embedded executables")
+
 for fragment in (
     'helper_payload="$script_dir/steer-macos"',
     'sing_box_payload="$script_dir/sing-box"',

@@ -148,6 +148,13 @@ if grep -Eq '\$\((MARKETING_VERSION|CURRENT_PROJECT_VERSION)\)' "$app/Contents/I
 	exit 1
 fi
 
+# Sign every embedded executable before hashing the installer payload. Signing
+# changes Mach-O bytes, so checksums generated earlier would make every first
+# install fail before it can write any system component.
+codesign --force --sign - --timestamp=none "$installer_directory/steer-macos"
+codesign --force --sign - --timestamp=none "$installer_directory/sing-box"
+codesign --force --sign - --timestamp=none "$app/Contents/MacOS/SteerApp"
+
 (
 	cd "$installer_directory"
 	shasum -a 256 \
@@ -166,10 +173,7 @@ if find "$app" -type f \( -name '*.dat' -o -name '*.go' -o -name '*.key' -o -nam
 	exit 1
 fi
 
-codesign --force --sign - --timestamp=none "$installer_directory/steer-macos"
-codesign --force --sign - --timestamp=none "$installer_directory/sing-box"
-codesign --force --sign - --timestamp=none "$app/Contents/MacOS/SteerApp"
-codesign --force --deep --sign - --timestamp=none "$app"
+codesign --force --sign - --timestamp=none "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
 mkdir -p "$output_directory"
