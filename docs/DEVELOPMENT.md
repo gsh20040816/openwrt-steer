@@ -62,7 +62,7 @@ git diff --check
 公开 CLI 只有：
 
 ```text
-version validate apply health status probe subscription geo-catalog migrate cleanup
+version validate apply health status probe subscription geo-catalog cleanup
 ```
 
 `_start` 仅供 init 脚本使用，不属于公共接口。不得重新公开 compile、plan、prepare、capabilities 或 rollback。RPC 只包装用户/界面需要的公共操作；状态对象固定为 `healthy + last_apply`，合法性由 validate 单独返回。

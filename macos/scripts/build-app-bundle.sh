@@ -82,6 +82,18 @@ for binary in "$app_binary" "$helper_binary" "$sing_box_binary"; do
 	}
 done
 
+app_build_version="$(xcrun vtool -show-build "$app_binary")"
+app_minos="$(printf '%s\n' "$app_build_version" | awk '$1 == "minos" {print $2; exit}')"
+app_sdk="$(printf '%s\n' "$app_build_version" | awk '$1 == "sdk" {print $2; exit}')"
+[ "$app_minos" = "13.0" ] || {
+	printf 'SteerApp deployment target must be macOS 13.0, found %s\n' "$app_minos" >&2
+	exit 1
+}
+[ "${app_sdk%%.*}" = "26" ] || {
+	printf 'SteerApp must be linked against the macOS 26 SDK, found %s\n' "$app_sdk" >&2
+	exit 1
+}
+
 helper_version="$($helper_binary version)"
 [ "$helper_version" = "$version" ] || {
 	printf 'steer-macos version mismatch: expected %s, found %s\n' "$version" "$helper_version" >&2
@@ -201,6 +213,7 @@ Source tag: $source_tag
 Source revision: $source_revision
 Target architecture: $target_arch
 Minimum macOS: 13.0
+macOS SDK: $app_sdk
 Xcode: $xcode_version
 Swift: $swift_version
 Go: $go_version

@@ -162,13 +162,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-26
             arch: arm64
             goarch: arm64
-          - runner: macos-15-intel
+          - runner: macos-26-intel
             arch: x86_64
             goarch: amd64
     runs-on: ${{ matrix.runner }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -180,7 +182,9 @@ jobs:
           cache-dependency-path: go/go.sum
 
       - name: Confirm native architecture
-        run: test "$(uname -m)" = "${{ matrix.arch }}"
+        run: |
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          xcodebuild -version | grep -Fqx 'Xcode 26.6'
 
       - name: Test shared Go core and native macOS adapter
         working-directory: go
@@ -197,3 +201,6 @@ jobs:
           plutil -lint launchd/com.steer.steer.plist launchd/com.steer.steer.control.plist
           swift build -c debug --disable-sandbox
           swift build -c release --disable-sandbox
+          app_binary="$(swift build -c release --show-bin-path)/SteerApp"
+          test "$(xcrun vtool -show-build "$app_binary" | awk '$1 == "minos" {print $2; exit}')" = 13.0
+          test "$(xcrun vtool -show-build "$app_binary" | awk '$1 == "sdk" {print $2; exit}' | cut -d. -f1)" = 26

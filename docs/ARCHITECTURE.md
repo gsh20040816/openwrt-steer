@@ -5,7 +5,7 @@ Steer 采用“共享意图核心 + 平台适配器”。共享编译器生成�
 ## 代码边界
 
 ```text
-go/internal/intent                 Canonical Intent、schema 9 校验、严格 JSON codec、8→9 迁移
+go/internal/intent                 Canonical Intent、schema 9 校验与严格 JSON codec
 go/internal/compiler               确定性 sing-box 最终配置编译
 go/internal/apply                  同步 Apply 编排和结果合同
 go/internal/generation             平台中立 generation 文件

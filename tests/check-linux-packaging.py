@@ -41,9 +41,23 @@ for retired in (
     ROOT / "go/cmd/steer/main.go",
     ROOT / "scripts/collect-release-artifacts.sh",
     ROOT / "packaging/archlinux/geoview",
+    ROOT / "packaging/archlinux/steer/steer.install",
+    ROOT / "go/internal/intent/migrate.go",
+    ROOT / "go/internal/intent/migrate_test.go",
+    ROOT / "go/internal/platform/openwrt/migrate.go",
+    ROOT / "go/internal/platform/openwrt/migrate_test.go",
 ):
     if retired.exists():
         fail(f"retired path still exists: {retired.relative_to(ROOT)}")
+
+for path in (
+    ROOT / "go/cmd/steer-openwrt/main.go",
+    ROOT / "go/cmd/steer-linux/commands.go",
+    ROOT / "go/cmd/steer-linux/command_apply.go",
+):
+    content = path.read_text()
+    if '"migrate"' in content or "runMigrate" in content or "MigrateSchema8" in content:
+        fail(f"retired schema migration command remains in {path.relative_to(ROOT)}")
 
 main_lines = (ROOT / "go/cmd/steer-linux/main.go").read_text().splitlines()
 if len(main_lines) >= 100:
@@ -130,10 +144,18 @@ for required in (
 for required in (
     "steer-geodata.tar.zst::https://gsh20040816.github.io/steer/geodata/latest/steer-geodata.tar.zst",
     "go run ./cmd/steer-geodata-build verify",
-    "install=steer.install",
+    'rm -rf -- "$srcdir/geodata-seed"',
+    'mkdir -p "$srcdir/geodata-seed"',
 ):
     if required not in arch_pkgbuild:
-        fail(f"Arch steer package is missing Geo seed or migration contract: {required}")
+        fail(f"Arch steer package is missing an idempotent Geo seed contract: {required}")
+if "install=steer.install" in arch_pkgbuild or (ROOT / "packaging/archlinux/steer/steer.install").exists():
+    fail("Arch steer package retained the removed schema migration hook")
+clear_seed = arch_pkgbuild.index('rm -rf -- "$srcdir/geodata-seed"')
+create_seed = arch_pkgbuild.index('mkdir -p "$srcdir/geodata-seed"')
+extract_seed = arch_pkgbuild.index('bsdtar -xf "$srcdir/steer-geodata.tar.zst"')
+if not clear_seed < create_seed < extract_seed:
+    fail("Arch prepare must replace stale Geo seed before extracting the current archive")
 if "  'sing-box'\n" not in arch_pkgbuild or "sing-box>=1.14" in arch_pkgbuild or "sing-box<1.15" in arch_pkgbuild:
     fail("Arch steer must depend only on the virtual sing-box provider; native config check decides compatibility")
 if "\tdepends = sing-box\n" not in arch_srcinfo:

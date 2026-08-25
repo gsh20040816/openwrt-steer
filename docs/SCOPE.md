@@ -22,7 +22,7 @@
 
 OpenWrt 适配器当前拥有：
 
-- UCI schema 9 codec、显式 schema 8→9 DNS strategy 收敛迁移和 UCI 订阅节点持久化；
+- UCI schema 9 codec 和 UCI 订阅节点持久化；
 - sing-box TUN `auto_route`/`auto_redirect` 入站；
 - 传统 TCP/UDP 53 DNS 捕获和 sing-box 原生 `source_mac_address` 规则；
 - nftables DNS shim、固定 TUN mark/table/priority/NFQUEUE 资源；

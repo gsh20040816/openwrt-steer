@@ -63,22 +63,22 @@ if "$(PKG_INSTALL_DIR)/usr/bin/steer-openwrt $(1)/usr/sbin/steer" not in makefil
 if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc:
     fail("retired steer-openwrt CLI name is still user-visible")
 
-if '/usr/sbin/steer migrate --config "$$config"' not in makefile:
-    fail("steer package must run the explicit schema 8 to 9 migration")
 for retired_migration in (
+    '/usr/sbin/steer migrate --config "$$config"',
     "for option in probe_direct probe_proxy speedtest_proxy",
     "uci set steer.main.schema_version='7'",
     "_connect_speedtest _download_speedtest",
     "/var/lib/steer/logs/speedtests",
+    "/var/lib/steer/rollback.uci",
 ):
     if retired_migration in makefile:
-        fail(f"package retained expired alpha migration: {retired_migration}")
+        fail(f"package retained removed migration behavior: {retired_migration}")
 if "PKG_NAME:=steer" not in makefile or "define Package/steer" not in makefile:
     fail("the OpenWrt controller package must be named steer")
-if "PKG_VERSION:=0.8.0_alpha2\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
-	fail("steer package version must be the APK-safe 0.8.0_alpha2-r1 prerelease")
-if "PKG_VERSION:=0.8.0_alpha2\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
-	fail("LuCI packages must use the APK-safe 0.8.0_alpha2-r1 prerelease")
+if "PKG_VERSION:=0.8.0\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
+	fail("steer package version must be 0.8.0-r1")
+if "PKG_VERSION:=0.8.0\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
+	fail("LuCI packages must use 0.8.0-r1")
 if "github.com/gsh20040816/steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
     fail("steer must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
@@ -97,9 +97,6 @@ if "subscription_update" not in rpc or "subscription_update" not in acl:
 for removed_contract in ("steer rollback", "steer plan", "method: 'rollback'", "method: 'plan'"):
     if removed_contract in rpc:
         fail(f"LuCI RPC retained removed public contract: {removed_contract}")
-if "rm -f /var/lib/steer/rollback.uci" not in makefile:
-    fail("the removed rollback state file must be cleaned during upgrade")
-
 if "$(CURDIR)/../generated/geodata-seed" not in makefile or "$(1)/usr/share/steer" not in makefile:
     fail("steer package does not own the verified SRS seed")
 for retired_package in (ROOT / "steer-geodata", ROOT / "geoview"):

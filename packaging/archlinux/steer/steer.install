@@ -1,9 +1,0 @@
-post_install() {
-  if [[ -f /etc/steer/config.json ]]; then
-    /usr/bin/steer migrate --config /etc/steer/config.json
-  fi
-}
-
-post_upgrade() {
-  post_install
-}

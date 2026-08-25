@@ -15,14 +15,17 @@ import (
 )
 
 func (backend *Backend) launchDaemonLoaded(ctx context.Context) (bool, error) {
-	output, err := backend.runner.Output(ctx, backend.options.LaunchctlBinary, "print", "system/"+backend.options.LaunchDaemonLabel)
+	_, err := backend.runner.Output(ctx, backend.options.LaunchctlBinary, "print", "system/"+backend.options.LaunchDaemonLabel)
 	if err != nil {
 		// launchctl uses a non-zero exit status for an unloaded label. The next
 		// bootstrap operation remains the authoritative error if launchctl itself
 		// is unavailable or permissions are insufficient.
 		return false, nil
 	}
-	return launchdOutputIsRunning(string(output)) || strings.Contains(string(output), "state = waiting"), nil
+	// A successful print means launchd still owns the label even when its
+	// process has exited and the state is "not running". Such a label must be
+	// booted out before bootstrap; otherwise launchctl reports EIO (exit 5).
+	return true, nil
 }
 
 func (backend *Backend) stopLaunchDaemon(ctx context.Context) error {

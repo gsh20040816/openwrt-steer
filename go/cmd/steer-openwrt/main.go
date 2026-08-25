@@ -55,8 +55,6 @@ func run(args []string) error {
 		return runSubscription(args[1:])
 	case "geo-catalog":
 		return runGeoCatalog(args[1:])
-	case "migrate":
-		return runMigrate(args[1:])
 	case "cleanup":
 		return runCleanup(args[1:])
 	case "_start":
@@ -379,26 +377,6 @@ func runGeoCatalog(args []string) error {
 	return nil
 }
 
-func runMigrate(args []string) error {
-	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return errors.New("migrate accepts flags only")
-	}
-	changed, err := openwrt.MigrateSchema8(context.Background(), *configPath)
-	if err != nil {
-		return err
-	}
-	writeJSON(struct {
-		OK      bool `json:"ok"`
-		Changed bool `json:"changed"`
-	}{true, changed})
-	return nil
-}
-
 func runCleanup(args []string) error {
 	flags := flag.NewFlagSet("cleanup", flag.ContinueOnError)
 	nftBinary := flags.String("nft", "/usr/sbin/nft", "nft binary")
@@ -477,5 +455,5 @@ func writeJSON(value any) {
 }
 
 func usage() error {
-	return errors.New("usage: steer version|validate|apply|health|status|probe|subscription|geo-catalog|migrate|cleanup [flags]")
+	return errors.New("usage: steer version|validate|apply|health|status|probe|subscription|geo-catalog|cleanup [flags]")
 }

@@ -391,12 +391,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-26
             arch: arm64
             goarch: arm64
             upstream_arch: arm64
             sing_box_sha256: 0c57457917ad529da4af939a3da5e0ad1cfa639c140dd3de7b6248aef2170bcd
-          - runner: macos-15-intel
+          - runner: macos-26-intel
             arch: x86_64
             goarch: amd64
             upstream_arch: amd64
@@ -404,6 +404,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       STEER_VERSION: ${{ needs.source-gate.outputs.version }}
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
       - name: Check out tagged source
@@ -420,6 +421,7 @@ jobs:
       - name: Confirm native runner and record toolchains
         run: |
           test "$(uname -m)" = "${{ matrix.arch }}"
+          xcodebuild -version | grep -Fqx 'Xcode 26.6'
           xcodebuild -version
           swift --version
           go version
@@ -506,6 +508,8 @@ jobs:
           marketing_version="${STEER_VERSION%%-*}"
           test "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" = "$marketing_version"
           test "$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")" = 13.0
+          test "$(xcrun vtool -show-build "$app/Contents/MacOS/SteerApp" | awk '$1 == "minos" {print $2; exit}')" = 13.0
+          test "$(xcrun vtool -show-build "$app/Contents/MacOS/SteerApp" | awk '$1 == "sdk" {print $2; exit}' | cut -d. -f1)" = 26
           test "$(lipo -archs "$app/Contents/MacOS/SteerApp")" = '${{ matrix.arch }}'
           test "$(lipo -archs "$app/Contents/Resources/Installer/steer-macos")" = '${{ matrix.arch }}'
           test "$(lipo -archs "$app/Contents/Resources/Installer/sing-box")" = '${{ matrix.arch }}'
@@ -614,9 +618,9 @@ jobs:
             echo "macOS arm64 sing-box archive SHA256: $SING_BOX_DARWIN_ARM64_SHA256"
             echo "macOS x86_64 sing-box archive SHA256: $SING_BOX_DARWIN_AMD64_SHA256"
             echo "macOS arm64 toolchains:"
-            grep -E '^(Xcode|Swift|Go): ' "$macos_arm64_dist/BUILD-METADATA.txt"
+            grep -E '^(macOS SDK|Xcode|Swift|Go): ' "$macos_arm64_dist/BUILD-METADATA.txt"
             echo "macOS x86_64 toolchains:"
-            grep -E '^(Xcode|Swift|Go): ' "$macos_x86_64_dist/BUILD-METADATA.txt"
+            grep -E '^(macOS SDK|Xcode|Swift|Go): ' "$macos_x86_64_dist/BUILD-METADATA.txt"
           } > "$release_dir/BUILD-METADATA.txt"
 
           for pattern in \

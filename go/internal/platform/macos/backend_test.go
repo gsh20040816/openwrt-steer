@@ -12,7 +12,10 @@ import (
 )
 
 type launchdFakeRunner struct {
-	loaded bool
+	loaded         bool
+	running        bool
+	bootoutCalls   int
+	bootstrapCalls int
 }
 
 func (runner *launchdFakeRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -26,15 +29,46 @@ func (runner *launchdFakeRunner) Output(_ context.Context, name string, args ...
 		if !runner.loaded {
 			return nil, fmt.Errorf("label is unloaded")
 		}
+		if !runner.running {
+			return []byte("state = not running\nlast exit code = 1\n"), nil
+		}
 		return []byte("state = running\npid = 42\n"), nil
 	case name == "/test/launchctl" && len(args) >= 2 && args[0] == "bootout":
+		runner.bootoutCalls++
 		runner.loaded = false
+		runner.running = false
 		return nil, nil
 	case name == "/test/launchctl" && len(args) >= 3 && args[0] == "bootstrap":
+		runner.bootstrapCalls++
+		if runner.loaded {
+			return nil, fmt.Errorf("label is already loaded")
+		}
 		runner.loaded = true
+		runner.running = true
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("unexpected command: %s", command)
+	}
+}
+
+func TestBackendBootsOutRegisteredInactiveLaunchDaemon(t *testing.T) {
+	root := t.TempDir()
+	value := validIntent()
+	runner := &launchdFakeRunner{loaded: true, running: false}
+	backend := NewBackend(runner, value, BackendOptions{
+		RunDirectory: root + "/run", StateDirectory: root + "/state", SingBoxBinary: "/test/sing-box",
+		LaunchctlBinary: "/test/launchctl", LaunchDaemonLabel: DefaultLaunchDaemonLabel,
+		LaunchDaemonPlist: root + "/steer.plist", CheckTUN: func([]string) error { return nil },
+	})
+	candidate, err := backend.Prepare(context.Background(), value, compiler.Compile(value, backend.CompilerOptions()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Activate(context.Background(), candidate); err != nil {
+		t.Fatal(err)
+	}
+	if runner.bootoutCalls != 1 || runner.bootstrapCalls != 1 || !runner.loaded || !runner.running {
+		t.Fatalf("unexpected launchd lifecycle: %#v", runner)
 	}
 }
 

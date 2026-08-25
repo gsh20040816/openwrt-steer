@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本为 **0.7.1**，当前预览版本为 **0.8.0-alpha.2**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst；macOS 提供 arm64/x86_64 原生 DMG、SwiftUI GUI、一次授权安装的 root control daemon 和 sing-box TUN 后端，无需 Apple Developer Program。
+当前稳定版本为 **0.8.0**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst；macOS 提供 arm64/x86_64 原生 DMG、SwiftUI GUI、一次授权安装的 root control daemon 和 sing-box TUN 后端，无需 Apple Developer Program。
 
 ## 已实现能力
 
@@ -48,11 +48,10 @@ steer status
 steer probe --kind direct
 steer subscription status
 steer geo-catalog --kind geosite
-steer migrate
 steer cleanup
 ```
 
-公共命令固定为 `version validate apply health status probe subscription geo-catalog migrate cleanup`。编译器中间结果和平台计划属于内部接口，不通过 CLI 或 RPC 暴露。
+公共命令固定为 `version validate apply health status probe subscription geo-catalog cleanup`。编译器中间结果和平台计划属于内部接口，不通过 CLI 或 RPC 暴露。
 
 Linux 源码 target 是 `cmd/steer-linux`，安装后的产品命令统一为 `steer`，并提供 loopback Web 控制面：
 

@@ -11,8 +11,7 @@ Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SR
 5. 控制器只依赖无版本的 `sing-box` 提供者；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求用户指定兼容版本/构建。当前 CI 发布构建和系统验收固定使用官方 `1.14.0-rc.1` 作为验证基线，不构成运行时依赖约束。
 6. master 不构建或保存正式发布包。tag 必须指向 `origin/master` 的祖先，且同一 `head_sha` 已有成功的 master CI push run；随后在同一个 tag workflow/run 内重新构建、验收、attest 并发布所有资产。预发布 tag 创建 GitHub prerelease，但不替换稳定 OpenWrt 软件源。
 
-当前稳定版本是 `v0.7.1`。
-当前预览版本是 `v0.8.0-alpha.2`；OpenWrt APK 将同一版本规范化为 `0.8.0_alpha2`，Arch `pkgver` 使用 `0.8.0alpha2`，Git tag、Linux 与 macOS 构件保留公开 SemVer 拼写。
+当前稳定版本是 `v0.8.0`。OpenWrt APK 与 Arch `pkgver` 同为 `0.8.0`，Git tag、Linux 与 macOS 构件使用相同的公开 SemVer 版本。
 
 ## Geo SRS
 
@@ -44,13 +43,13 @@ Pages 只保存当前版本，不承诺历史 seed 或可重复取得任意旧�
 
 ## OpenWrt
 
-`v0.8.0-alpha.2` 面向 OpenWrt 25.12.5 x86/64：
+`v0.8.0` 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.8.0_alpha2-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
-| `luci-app-steer` | `0.8.0_alpha2-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.8.0_alpha2-r1` | 简体中文翻译 |
+| `steer` | `0.8.0-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
+| `luci-app-steer` | `0.8.0-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.8.0-r1` | 简体中文翻译 |
 | `sing-box` | `1.14.0_rc1-r0` | SagerNet 官方 x86_64 APK，经内容核验后改用 Steer 仓库密钥签名 |
 
 Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签后比较除签名记录外的 APK 元数据，再用仓库公钥验证安装包。软件源的四个 APK 与 `packages.adb` 使用同一 Steer P-256 信任根；私钥只来自 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY`，不得进入源码、构件、Release 或 Pages。
@@ -68,7 +67,7 @@ Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签�
 /run/steer                           generation、current、last_apply、锁
 ```
 
-安装后脚本显式执行唯一的 schema 8→9 迁移，维护订阅 cron，再运行正常 `steer apply`。迁移删除旧 DNS profile strategy 并提升 schema，不设置替代的客户端 DNS 地址族策略；非法或非 schema 8/9 配置会立即失败。包仍通过 `PROVIDES`、`CONFLICTS` 和 `REPLACES` 原子替换历史 `steer-openwrt` 包名，但源码中不保留兼容实现。
+安装后脚本维护订阅 cron，再运行正常 `steer apply`。正式版只接受 schema 9，旧 schema 配置会立即失败，不再携带版本迁移命令或安装 hook。包仍通过 `PROVIDES`、`CONFLICTS` 和 `REPLACES` 原子替换历史 `steer-openwrt` 包名，但源码中不保留兼容实现。
 
 ### 稳定软件源
 
@@ -126,8 +125,8 @@ steer-linux-<arch>/
 GitHub Release 提供两个由对应原生 runner 构建的 DMG：
 
 ```text
-steer-macos-arm64.dmg       # macos-14 / arm64
-steer-macos-x86_64.dmg      # macos-15-intel / x86_64
+steer-macos-arm64.dmg       # macos-26 / arm64 / Xcode 26.6
+steer-macos-x86_64.dmg      # macos-26-intel / x86_64 / Xcode 26.6
 ```
 
 Swift GUI 不交叉编译。每个 job 构建 release Swift package 和同架构 `steer-macos`，下载 SagerNet 官方 `sing-box 1.14.0-rc.1` Darwin archive并严格校验固定 SHA，然后调用唯一的 `macos/scripts/build-app-bundle.sh`。DMG 内固定包含：
@@ -150,7 +149,7 @@ Steer.app/
         └── LICENSES/{Steer-GPL-3.0.txt,sing-box-GPL-3.0.txt}
 ```
 
-`Info.plist` 在组装时写入真实版本、纯数字 build number、`CFBundleExecutable=SteerApp`、`CFBundleIdentifier=com.steer.steer` 与 `LSMinimumSystemVersion=13.0`，不得残留 Xcode build setting。构建会检查 Mach-O 单一架构、权限、helper validate/parse-nodes、sing-box version/tags/revision、Geo manifest、禁止文件，并先 ad-hoc 签嵌套二进制再签 App。项目没有 Developer ID，`Notarization: none`；DMG 与 App 不得宣传为 notarized，Gatekeeper 首次手动确认属于预期行为。
+`Info.plist` 在组装时写入真实版本、纯数字 build number、`CFBundleExecutable=SteerApp`、`CFBundleIdentifier=com.steer.steer` 与 `LSMinimumSystemVersion=13.0`，不得残留 Xcode build setting。Swift GUI 固定由 Xcode 26.6/macOS 26 SDK 构建，同时保持最低部署目标 13.0；构建会检查 SDK、deployment target、Mach-O 单一架构、权限、helper validate/parse-nodes、sing-box version/tags/revision、Geo manifest、禁止文件，并先 ad-hoc 签嵌套二进制再签 App。项目没有 Developer ID，`Notarization: none`；DMG 与 App 不得宣传为 notarized，Gatekeeper 首次手动确认属于预期行为。
 
 正式 App 的 embedded installer 只从 `Bundle.resources/Installer` 读取普通、非 symlink、带 SHA 清单的 payload，不依赖 PATH，也不现场编译。首次安装输入一次管理员密码，安装 root-owned helper/sing-box、运行 LaunchDaemon 和 `com.steer.steer.control`。后者只在 `/var/run/steer/control.sock` 接受经过 peer credential 校验的 `save`/`apply` 请求，因此日常 GUI 写操作不再重复授权；升级保留用户 config 与 mutable run/state。
 
@@ -172,11 +171,10 @@ GitHub Release 是 macOS 原始构件的唯一来源。Homebrew Cask 只能在�
 packaging/archlinux/steer/
 ├── PKGBUILD
 ├── .SRCINFO
-├── steer.install
 └── .gitignore
 ```
 
-配方从固定 `_commit` 构建 Steer，并下载 Pages 当前 Geo bundle；`prepare()` 使用同一 Go verifier 完整校验 seed。Arch 依赖声明使用虚拟包名 `sing-box`，以兼容官方包和 Arch Linux CN 的 `sing-box-alpha`（后者提供 `sing-box` 但不提供可用于 pacman 版本比较的 versioned provides）；Steer 在 Apply 时通过实际二进制的 native config check 和 build tags 判断能力，不满足时要求指定兼容版本/构建。其他运行依赖是 systemd、nftables、iproute2 和 ca-certificates。安装/升级 hook 自动执行 schema 8→9 迁移，但不启用服务、不 Apply 配置，也不生成 Web token。
+配方从固定 `_commit` 构建 Steer，并下载 Pages 当前 Geo bundle；`prepare()` 每次先清理旧的 `$srcdir/geodata-seed`，再展开并用同一 Go verifier 完整校验 seed，因此重复运行 `makepkg` 不会因目录已存在而失败，也不会混入旧 seed。Arch 依赖声明使用虚拟包名 `sing-box`，以兼容官方包和 Arch Linux CN 的 `sing-box-alpha`（后者提供 `sing-box` 但不提供可用于 pacman 版本比较的 versioned provides）；Steer 在 Apply 时通过实际二进制的 native config check 和 build tags 判断能力，不满足时要求指定兼容版本/构建。其他运行依赖是 systemd、nftables、iproute2 和 ca-certificates。正式版没有配置迁移 install hook，不启用服务、不 Apply 配置，也不生成 Web token。
 
 `PKGBUILD` 是唯一手工维护的配方，`.SRCINFO` 必须由 `makepkg --printsrcinfo` 生成。更新时：
 

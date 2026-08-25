@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
-PKG_VERSION:=0.8.0_alpha2
+PKG_VERSION:=0.8.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -46,11 +46,6 @@ define Package/steer/postinst
 
 config=/etc/config/steer
 [ -f "$$config" ] || exit 0
-/usr/sbin/steer migrate --config "$$config" >/dev/null
-
-# The rollback interface was removed before the cross-platform alpha. Delete
-# its single legacy state file instead of carrying an inactive migration path.
-rm -f /var/lib/steer/rollback.uci
 
 cron_file=/etc/crontabs/root
 cron_line='*/15 * * * * /usr/sbin/steer subscription update 2>&1 | logger -t steer-subscription'
@@ -59,8 +54,8 @@ mkdir -p /etc/crontabs
 grep -Fqx "$$cron_line" "$$cron_file" 2>/dev/null || echo "$$cron_line" >> "$$cron_file"
 /etc/init.d/cron restart
 
-# Switch the schema 9 intent through Steer's verified generation
-# transaction. PKG_UPGRADE must not leak into the init calls made by Apply.
+# Switch the schema 9 intent through Steer's verified generation transaction.
+# PKG_UPGRADE must not leak into the init calls made by Apply.
 apply_output="$$(PKG_UPGRADE=0 /usr/sbin/steer apply 2>&1)" || {
 	echo "$$apply_output" >&2
 	exit 1

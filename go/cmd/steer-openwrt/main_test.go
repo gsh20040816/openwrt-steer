@@ -99,12 +99,12 @@ func TestProbeParsesRouteAndRejectsAmbiguousTargets(t *testing.T) {
 
 func TestUsageExposesOnlyFrozenPublicCommands(t *testing.T) {
 	message := usage().Error()
-	for _, command := range []string{"version", "validate", "apply", "health", "status", "probe", "subscription", "geo-catalog", "migrate", "cleanup"} {
+	for _, command := range []string{"version", "validate", "apply", "health", "status", "probe", "subscription", "geo-catalog", "cleanup"} {
 		if !strings.Contains(message, command) {
 			t.Fatalf("public command %q is missing from usage: %s", command, message)
 		}
 	}
-	for _, removed := range []string{"compile", "plan", "prepare", "capabilities", "rollback", "_start"} {
+	for _, removed := range []string{"compile", "plan", "prepare", "capabilities", "rollback", "migrate", "_start"} {
 		if strings.Contains(message, removed) {
 			t.Fatalf("non-public command %q leaked into usage: %s", removed, message)
 		}

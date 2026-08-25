@@ -35,7 +35,6 @@ sudo install -m 600 web.example.json /etc/steer/web.json
 sudo install -d -m 755 /usr/share/steer/geodata-seed
 sudo cp -a geodata-seed/. /usr/share/steer/geodata-seed/
 sudo install -m 644 systemd/*.service systemd/*.timer /etc/systemd/system/
-sudo steer migrate --config /etc/steer/config.json
 sudoedit /etc/steer/web.json
 sudo steer web-token  # 输出配置中的 token，粘贴到 Web 登录页
 systemctl daemon-reload

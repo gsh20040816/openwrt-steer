@@ -126,26 +126,6 @@ func runService(args []string) error {
 	return syscall.Exec(*singBoxPath, []string{filepath.Base(*singBoxPath), "run", "-c", filepath.Join(*runDirectory, "current", "sing-box.json")}, os.Environ())
 }
 
-func runMigrate(args []string) error {
-	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return errors.New("migrate accepts flags only")
-	}
-	changed, err := (linuxplatform.IntentStore{Path: *configPath}).MigrateSchema8()
-	if err != nil {
-		return err
-	}
-	writeJSON(struct {
-		OK      bool `json:"ok"`
-		Changed bool `json:"changed"`
-	}{true, changed})
-	return nil
-}
-
 func runHealth(args []string) error {
 	flags := flag.NewFlagSet("health", flag.ContinueOnError)
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
