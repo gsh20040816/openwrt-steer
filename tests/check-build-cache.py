@@ -40,6 +40,8 @@ for fragment in (
     "name: Test macOS (${{ matrix.arch }})",
     "runner: macos-14",
     "runner: macos-15-intel",
+    "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+    "go-version-file: go/go.mod",
     "go test -race ./...",
     "go vet ./...",
     "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build",
