@@ -34,7 +34,7 @@ if [ "$sing_box_path" != "$runtime_binary" ]; then
 	install -m 0755 "$sing_box_path" "$runtime_binary"
 fi
 install -m 0644 "$repository_root/macos/launchd/com.steer.steer.plist" "$plist_path"
-plutil -replace ProgramArguments.11 -string "$runtime_binary" "$plist_path"
+plutil -lint "$plist_path" >/dev/null
 chown root:wheel "$helper_directory/steer-macos" "$runtime_binary" "$plist_path"
 chmod 0755 "$helper_directory/steer-macos" "$runtime_binary"
 chmod 0644 "$plist_path"

@@ -45,6 +45,7 @@ def main() -> None:
     assert 'command -v sing-box' in installer
     assert 'runtime_binary="$helper_directory/sing-box"' in installer
     assert '/usr/local/libexec/steer/sing-box' in launchd
+    assert 'plutil -replace ProgramArguments' not in installer
     assert 'SMAppService.agent' in agent
     assert '.executable(name: "SteerApp"' in package
     assert "SteerNetwork" not in package
