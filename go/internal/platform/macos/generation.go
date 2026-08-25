@@ -111,7 +111,11 @@ func (paths Paths) Publish(prepared PreparedGeneration) error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(paths.Root, "current.json"), encoded)
+	// current.json contains only generation identifiers and a directory name.
+	// Keep it world-readable so the unprivileged GUI can report status without
+	// requesting administrator authorization; generated sing-box configs remain
+	// private under the root-owned runtime directory.
+	return atomicWriteMode(filepath.Join(paths.Root, "current.json"), encoded, 0o644)
 }
 
 func (paths Paths) LoadCurrent() (CurrentGeneration, error) {

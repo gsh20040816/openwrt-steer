@@ -23,9 +23,25 @@ func TestRunVersion(t *testing.T) {
 }
 
 func TestRunRequiresExplicitPaths(t *testing.T) {
-	for _, args := range [][]string{{"validate"}, {"compile"}, {"compile", "--config", "config.json"}, {"prepare", "--config", "config.json"}} {
+	for _, args := range [][]string{{"validate", "unexpected"}, {"compile", "unexpected"}, {"prepare", "unexpected"}, {"parse-nodes"}} {
 		if err := run(args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 			t.Fatalf("expected explicit path error for %v", args)
+		}
+	}
+}
+
+func TestRunParseNodes(t *testing.T) {
+	inputPath := filepath.Join(t.TempDir(), "nodes.txt")
+	if err := os.WriteFile(inputPath, []byte("socks://user:pass@127.0.0.1:1080#Local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := run([]string{"parse-nodes", "--input", inputPath}, &output, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"nodes"`, `"name": "Local"`, `"type": "socks"`} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("parsed node output is missing %s:\n%s", expected, output.String())
 		}
 	}
 }

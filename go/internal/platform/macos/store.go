@@ -161,6 +161,10 @@ func contentRevision(content []byte) string {
 }
 
 func atomicWrite(path string, content []byte) error {
+	return atomicWriteMode(path, content, 0o600)
+}
+
+func atomicWriteMode(path string, content []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -170,7 +174,7 @@ func atomicWrite(path string, content []byte) error {
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := temporary.Chmod(mode); err != nil {
 		temporary.Close()
 		return err
 	}

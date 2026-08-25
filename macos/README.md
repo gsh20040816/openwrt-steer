@@ -4,13 +4,16 @@ macOS 的正式产品由 SwiftUI GUI 前端和 LaunchDaemon 后端组成：
 
 ```text
 SteerApp
-  └── config / validate / apply / status
-             ↓ administrator authorization
+  ├── read config / validate / status（无授权弹窗）
+  └── save / apply
+             ↓ administrator authorization（写操作）
 steer-macos helper
   └── launchd lifecycle → external sing-box → Darwin TUN
 ```
 
 GUI 与 OpenWrt LuCI、Linux Web 同级：它编辑同一份 Canonical Intent，并调用平台后端完成校验、保存、Apply 和状态读取。GUI 不包含代理数据面，也不复制 Go 核心语义。
+
+日常配置使用原生字段编辑器：基础设置覆盖 Main、探测、DNS 缓存与 Bootstrap；节点、路由、DNS Profile、本地代理、规则和订阅分别使用原生 Form。内部 Canonical ID 由 GUI 管理，不出现在普通列表或弹窗；完整 JSON 仅保留为侧栏“高级”区域的兜底入口。全局 Enable 开关变化会立即保存并 Apply，失败时恢复原状态。
 
 当前源码入口：
 
@@ -45,7 +48,7 @@ swift build --disable-sandbox
 swift run SteerApp
 ```
 
-GUI 通过 macOS 管理员授权访问 `/Library/Application Support/Steer/config/config.json` 和已安装的 helper。安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，并把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，确保 GUI、CLI 与 LaunchDaemon 使用同一份不可由普通用户替换的运行时。
+安装器把配置设为 `root:admin 0640`，并公开不含密钥的 generation 摘要，因此 GUI 启动、刷新状态和 Validate 不需要管理员授权；只有 Save 和 Apply 请求一次 macOS 管理员授权。安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，并把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，确保 GUI、CLI 与 LaunchDaemon 使用同一份不可由普通用户替换的运行时。
 
 ## TUN、DNS 和 Geo
 

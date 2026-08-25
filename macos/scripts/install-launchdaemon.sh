@@ -15,6 +15,7 @@ repository_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
 helper_directory="/usr/local/libexec/steer"
 runtime_binary="$helper_directory/sing-box"
 plist_path="/Library/LaunchDaemons/com.steer.steer.plist"
+support_directory="/Library/Application Support/Steer"
 sing_box_path="$(command -v sing-box || true)"
 
 [ -n "$sing_box_path" ] || {
@@ -22,12 +23,25 @@ sing_box_path="$(command -v sing-box || true)"
 	exit 1
 }
 
-install -d -m 0755 "$helper_directory"
-install -d -m 0750 "/Library/Application Support/Steer/config" \
-	"/Library/Application Support/Steer/run" \
-	"/Library/Application Support/Steer/state" \
-	"/Library/Application Support/Steer/geodata-seed" \
+install -d -o root -g wheel -m 0755 "$helper_directory"
+install -d -o root -g admin -m 0750 "$support_directory" \
+	"$support_directory/config" \
+	"$support_directory/run" \
+	"$support_directory/state" \
+	"$support_directory/geodata-seed" \
 	"/Library/Logs/Steer"
+
+# The GUI runs as the signed-in administrator. It may read the canonical
+# configuration and sanitized generation pointer without prompting, while
+# save/apply operations still require administrator authorization.
+if [ -f "$support_directory/config/config.json" ]; then
+	chown root:admin "$support_directory/config/config.json"
+	chmod 0640 "$support_directory/config/config.json"
+fi
+if [ -f "$support_directory/run/current.json" ]; then
+	chown root:wheel "$support_directory/run/current.json"
+	chmod 0644 "$support_directory/run/current.json"
+fi
 
 (cd "$repository_root/go" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$helper_directory/steer-macos" ./cmd/steer-macos)
 if [ "$sing_box_path" != "$runtime_binary" ]; then

@@ -5,9 +5,9 @@ macOS 由两个正式组成部分构成：SwiftUI GUI 是用户前端，root Lau
 ```text
 Steer GUI
   ├── 编辑 Canonical Intent
-  ├── Validate / Save / Apply
-  └── Status / Diagnostics
-             ↓ macOS 管理员授权
+  ├── Read / Validate / Status（无授权弹窗）
+  └── Save / Apply
+             ↓ macOS 管理员授权（写操作）
 /usr/local/libexec/steer/steer-macos
              ↓ launchctl bootstrap
 root LaunchDaemon: steer-macos _run
@@ -23,13 +23,16 @@ Darwin utun + auto_route
 
 `macos/SteerApp` 是 macOS 的正式配置与运维前端，不是代理运行时，也不维护第二份配置语义。它直接面向系统安装的 `steer-macos` helper：
 
-- Overview：启用状态、当前 generation、健康状态和 Apply；
-- Configuration：读取、保存和编辑 Canonical JSON；
-- Nodes、Routes、DNS、Rules、Subscriptions、Local Proxies：编辑同一份 draft collection；
-- Diagnostics：显示共享校验结果和 LaunchDaemon 后端状态；
-- Settings：显示系统配置、Geo 目录和授权边界。
+- 总览：启用状态、当前 generation、执行模型、配置规模和 Apply；
+- 基础设置：用原生字段编辑 Main、探测 URL、DNS 缓存和 Bootstrap DNS；
+- 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
+- Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；
+- 诊断：显示共享校验结果和 LaunchDaemon 后端状态；
+- 系统：显示运行时、系统路径和授权边界。
 
-读取系统配置、Save、Apply 和 Status 使用 macOS 标准管理员授权。Validate 可直接调用 helper 校验临时 draft。GUI 不直接写运行 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
+全局 Enable 只出现在总览和菜单栏；开关变化后立即保存并 Apply，失败时恢复原状态。
+
+读取系统配置、Status 和 Validate 不请求管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取；只有 Save 和 Apply 使用 macOS 标准管理员授权。GUI 不直接写运行 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
 
 系统配置的唯一真相仍是：
 

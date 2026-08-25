@@ -22,6 +22,7 @@ import (
 	"github.com/gsh20040816/steer/go/internal/compiler"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	macosplatform "github.com/gsh20040816/steer/go/internal/platform/macos"
+	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
 var version = "development"
@@ -55,6 +56,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runValidate(args[1:], stdout)
 	case "compile":
 		return runCompile(args[1:], stdout)
+	case "parse-nodes":
+		return runParseNodes(args[1:], stdout)
 	case "prepare":
 		return runPrepare(args[1:], stdout)
 	case "apply":
@@ -70,6 +73,33 @@ func run(args []string, stdout, stderr io.Writer) error {
 	default:
 		return usage()
 	}
+}
+
+func runParseNodes(args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("parse-nodes", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	inputPath := flags.String("input", "", "file containing one proxy URI per line")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		return errors.New("parse-nodes requires --input")
+	}
+	content, err := os.ReadFile(*inputPath)
+	if err != nil {
+		return fmt.Errorf("read node import: %w", err)
+	}
+	parsed, err := subscription.ParseList(string(content))
+	if err != nil {
+		return err
+	}
+	if len(parsed.Nodes) == 0 {
+		return fmt.Errorf("node import contained no valid nodes (%d skipped)", parsed.Skipped)
+	}
+	return writeJSON(stdout, struct {
+		Nodes   []model.Node `json:"nodes"`
+		Skipped int          `json:"skipped"`
+	}{Nodes: parsed.Nodes, Skipped: parsed.Skipped})
 }
 
 func runValidate(args []string, stdout io.Writer) error {

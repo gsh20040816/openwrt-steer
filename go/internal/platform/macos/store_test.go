@@ -93,4 +93,11 @@ func TestPreparePublishAndLoadCurrentGeneration(t *testing.T) {
 	if current.GenerationID != prepared.Metadata.GenerationID || current.Directory != filepath.Base(prepared.Directory) {
 		t.Fatalf("published generation mismatch: %#v %#v", current, prepared.Metadata)
 	}
+	info, err := os.Stat(filepath.Join(paths.Root, "current.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("current generation mode = %o, want 644", info.Mode().Perm())
+	}
 }
