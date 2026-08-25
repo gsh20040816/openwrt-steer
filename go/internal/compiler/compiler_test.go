@@ -161,6 +161,29 @@ func TestCompileKeepsDedicatedDNSHijackBoundary(t *testing.T) {
 	}
 }
 
+func TestCompileTUNPort53DNSCaptureIsExplicit(t *testing.T) {
+	options := testOptions()
+	options.Target.DNSInboundTags = nil
+	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureTUNPort53Hijack, InboundTags: []string{"steer-tun"}}
+	bundle := Compile(representativeIntent(), options)
+	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	first := rules[0].(map[string]any)
+	if first["action"] != "hijack-dns" || !strings.Contains(string(mustJSON(first)), `"port":[53]`) {
+		t.Fatalf("TUN port-53 capture was not explicit: %#v", first)
+	}
+}
+
+func TestCompileDNSCaptureNoneDoesNotInventHijack(t *testing.T) {
+	options := testOptions()
+	options.Target.DNSInboundTags = nil
+	options.Target.DNSCapture = DNSCapture{Mode: DNSCaptureNone, InboundTags: []string{"steer-dns"}}
+	bundle := Compile(representativeIntent(), options)
+	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	if strings.Contains(string(mustJSON(rules)), `"action":"hijack-dns"`) {
+		t.Fatalf("DNS capture none emitted hijack-dns: %#v", rules)
+	}
+}
+
 func mustJSON(value any) []byte {
 	encoded, err := json.Marshal(value)
 	if err != nil {

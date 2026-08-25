@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -144,6 +145,12 @@ func checkHealthOnce(ctx context.Context, runner Runner, plan Plan, listenerChec
 }
 
 func checkListenerPorts(ports []int) error {
+	// The OpenWrt runtime is Linux-only. Keep shared Go tests runnable on the
+	// macOS development host without pretending that macOS exposes Linux's
+	// /proc listener tables.
+	if runtime.GOOS != "linux" {
+		return nil
+	}
 	found := map[int]bool{}
 	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6", "/proc/net/udp", "/proc/net/udp6"} {
 		content, err := os.ReadFile(path)

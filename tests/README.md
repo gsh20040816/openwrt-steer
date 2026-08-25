@@ -1,6 +1,6 @@
 # 测试说明
 
-测试按共享核心、OpenWrt/Linux 适配器、LuCI 和目标系统正常路径分层。当前范围不包含故障注入矩阵。
+测试按共享核心、OpenWrt/Linux/macOS 适配器、LuCI/Linux Web/macOS GUI 和目标系统正常路径分层。当前范围不包含故障注入矩阵。
 
 ## Go
 
@@ -14,6 +14,8 @@ go vet ./...
 
 Linux 适配器测试覆盖主机与转发流量 plan、OUTPUT/PREROUTING DNS shim 与受保护的 wildcard listener、1.14 原生 source-MAC、JSON 原子写入与 ETag 冲突、systemd/backend generation、Web bearer token/CSP/开关失败回滚、临时 probe 的 bypass mark 和静态 Linux 构建。
 
+macOS 适配器测试覆盖 Darwin TUN plan、TUN port-53 capture、JSON store、generation、launchd backend 和平台限制；`check-macos-contract.py` 约束 SwiftUI GUI 直接面向 helper，并确保旧数据面实验路径不会重新进入仓库。
+
 ## LuCI 与静态边界
 
 ```sh
@@ -25,6 +27,8 @@ python3 tests/check-luci-i18n.py
 python3 tests/check-package-boundaries.py
 python3 tests/check-build-cache.py
 python3 tests/check-linux-packaging.py
+python3 tests/check-macos-contract.py
+python3 tests/check-macos-packaging.py
 ```
 
 - `share_url_test.js`：代理 URI 的解析和告警；
@@ -63,4 +67,4 @@ sh -n tests/integration/run-linux-system.sh
 git diff --check
 ```
 
-官方 SDK 构建、Linux 通用归档和 Linux systemd 容器验收共同构成最终门禁；只有同一 commit 的 master 构建成功后才允许打发布 tag。
+master/PR CI 只运行正确性验证与 smoke build。只有 tag commit 已进入 master 且同一 SHA 的 master CI push run 成功后才允许发布；OpenWrt SDK、Linux 归档/systemd 验收、原生 macOS DMG、attestation 和发布全部在同一次 tag workflow 中完成。

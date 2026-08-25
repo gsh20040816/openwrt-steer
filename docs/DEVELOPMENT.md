@@ -9,8 +9,11 @@ go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
 go/internal/{subscription,probe,capability}     共享服务
 go/internal/platform/openwrt                    OpenWrt 适配器
 go/internal/platform/linux                      Linux systemd 主机/转发流量适配器
+go/internal/platform/macos                      macOS launchd/Darwin TUN 适配器
 go/cmd/steer-openwrt                            OpenWrt CLI 源码 target
 go/cmd/steer-linux                              Linux CLI/Web
+go/cmd/steer-macos                              macOS helper/LaunchDaemon 入口
+macos/SteerApp                                  macOS SwiftUI 前端
 go/cmd/steer-geodata-build                      CI SRS 生成与完整 seed 校验工具
 linux                                           Linux 通用发行资产与 systemd unit
 luci-app-steer                                  LuCI、RPC、ACL、翻译
@@ -74,13 +77,13 @@ Linux 适配器与上游发行资产已经建立，后续修改必须保持：
 4. sing-box、nftables、iproute2 和 ca-certificates 由系统包管理器提供，geoview 只存在于 CI 生成器的构建依赖中；
 5. tag 发布只复用同一 master commit 已验证的 OpenWrt 与 Linux 产物，不重新编译。
 
-macOS 在 Linux 接口稳定后开始，允许使用 launchd、utun/pf 和不同权限模型，但不得改变共享规则、路由、DNS 或订阅语义。
+macOS 使用 launchd、Darwin utun 和管理员授权；SwiftUI GUI 与 LuCI、Linux Web 同为平台前端。GUI 不得复制共享规则、路由、DNS、订阅、Validate 或 Apply 语义。
 
 ## 目标系统验收与发布门
 
 `tests/integration/run-openwrt-vm.sh` 只能运行在一次性 OpenWrt 25.12.5 x86/64 VM。它会替换 UCI、运行目录、nftables 和 procd，并覆盖公开 RPC、正常 Apply/reload/restart、DNS shim、1.14 原生 MAC 规则、禁用/重新启用及非法配置 fail-fast。
 
-`tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器。CI 使用固定 Debian 基础镜像、校验过 SHA-256 的 sing-box 1.14.0-rc.1 musl 产物和该次 master 构建解析的 SRS seed，在独立 netns 中覆盖主机与转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP DNS、listener 访问限制、禁用/启用、服务重启和 nftables 重启恢复。Linux 的 systemd、nftables、端口与 netns 断言只属于平台验收，不进入共享核心测试。
+`tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器。tag release workflow 使用固定 Debian 基础镜像、校验过 SHA-256 的 sing-box 1.14.0-rc.1 musl 产物和该次 run 解析的 SRS seed，在独立 netns 中覆盖主机与转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP DNS、listener 访问限制、禁用/启用、服务重启和 nftables 重启恢复。Linux 的 systemd、nftables、端口与 netns 断言只属于平台验收，不进入共享核心测试。
 
 发布门：
 

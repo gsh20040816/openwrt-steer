@@ -33,10 +33,27 @@ type Options struct {
 // Target contains sing-box-native fragments selected by one platform adapter.
 // It deliberately contains no nftables, routing-table or service-manager plan.
 type Target struct {
-	Inbounds             []any    `json:"inbounds"`
-	DNSInboundTags       []string `json:"dns_inbound_tags"`
-	SniffInboundTags     []string `json:"sniff_inbound_tags"`
-	RequiredCapabilities []string `json:"required_capabilities"`
+	Inbounds             []any      `json:"inbounds"`
+	DNSInboundTags       []string   `json:"dns_inbound_tags"`
+	DNSCapture           DNSCapture `json:"dns_capture"`
+	SniffInboundTags     []string   `json:"sniff_inbound_tags"`
+	RequiredCapabilities []string   `json:"required_capabilities"`
+}
+
+// DNSCaptureMode makes the ownership boundary for DNS traffic explicit. A
+// dedicated DNS inbound has already classified its traffic; Darwin TUN capture
+// must additionally restrict hijacking to TCP/UDP destination port 53.
+type DNSCaptureMode string
+
+const (
+	DNSCaptureNone            DNSCaptureMode = "none"
+	DNSCaptureInboundHijack   DNSCaptureMode = "inbound_hijack"
+	DNSCaptureTUNPort53Hijack DNSCaptureMode = "tun_port53_hijack"
+)
+
+type DNSCapture struct {
+	Mode        DNSCaptureMode `json:"mode"`
+	InboundTags []string       `json:"inbound_tags"`
 }
 
 type DNSPath struct {
@@ -166,7 +183,6 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 	routes := indexRoutes(intent.Routes)
 
 	inbounds := append([]any{}, target.Inbounds...)
-	dnsInboundTags := append([]string{}, target.DNSInboundTags...)
 	sniffInboundTags := append([]string{}, target.SniffInboundTags...)
 	for _, proxy := range intent.LocalProxies {
 		if !proxy.Enabled {
@@ -204,10 +220,24 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path, intent.Bootstrap.Strategy))
 	}
 
-	routeRules := []any{
-		map[string]any{"inbound": dnsInboundTags, "action": "hijack-dns"},
-		map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"},
+	routeRules := make([]any, 0, 2+len(intent.Rules))
+	capture := target.DNSCapture
+	if capture.Mode == "" && len(capture.InboundTags) == 0 && len(target.DNSInboundTags) > 0 {
+		capture = DNSCapture{Mode: DNSCaptureInboundHijack, InboundTags: append([]string{}, target.DNSInboundTags...)}
 	}
+	switch capture.Mode {
+	case DNSCaptureInboundHijack:
+		if len(capture.InboundTags) > 0 {
+			routeRules = append(routeRules, map[string]any{"inbound": capture.InboundTags, "action": "hijack-dns"})
+		}
+	case DNSCaptureTUNPort53Hijack:
+		if len(capture.InboundTags) > 0 {
+			routeRules = append(routeRules, map[string]any{
+				"inbound": capture.InboundTags, "network": []string{"tcp", "udp"}, "port": []uint16{53}, "action": "hijack-dns",
+			})
+		}
+	}
+	routeRules = append(routeRules, map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"})
 	dnsRules := []any{}
 	var defaultRule model.Rule
 	for _, rule := range intent.Rules {

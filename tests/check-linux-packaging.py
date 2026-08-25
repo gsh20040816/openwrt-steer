@@ -84,9 +84,8 @@ for bundled in ("sing-box", "geoview", "geosite.dat", "geoip.dat"):
         fail(f"Linux collector bundles external resource: {bundled}")
 
 workflow = (ROOT / ".github/workflows/release.yml").read_text()
-publish = (ROOT / ".github/workflows/publish.yml").read_text()
 for required in (
-    "needs: verify",
+    "needs: source-gate",
     "Generic Linux x86_64 and aarch64",
     'CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build',
     "./scripts/collect-linux-artifacts.sh",
@@ -98,7 +97,7 @@ for required in (
     if required not in workflow:
         fail(f"release workflow is missing: {required}")
 for archive in ("steer-linux-x86_64.tar.zst", "steer-linux-aarch64.tar.zst"):
-    if archive not in workflow or archive not in publish:
+    if workflow.count(archive) < 2:
         fail(f"release pipeline does not enforce archive: {archive}")
 for distro_tool in ("makepkg", "dpkg-buildpackage", "rpmbuild"):
     if distro_tool in workflow:

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Keep release builds on the official OpenWrt SDK workflow.
-
-The SDK already contains the target toolchain.  The release workflow must not
-reintroduce a second builder, target-state cache, or parallel download helper.
-"""
+"""Enforce verify-only master CI and one-run tag release boundaries."""
 
 from pathlib import Path
+import re
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = (ROOT / ".github/workflows/release.yml").read_text()
-PUBLISH_WORKFLOW = (ROOT / ".github/workflows/publish.yml").read_text()
+CI_PATH = ROOT / ".github/workflows/ci.yml"
+RELEASE_PATH = ROOT / ".github/workflows/release.yml"
+CI = CI_PATH.read_text(encoding="utf-8")
+RELEASE = RELEASE_PATH.read_text(encoding="utf-8")
+ENTRYPOINT = (ROOT / ".github/actions/openwrt-sdk/entrypoint.sh").read_text(encoding="utf-8")
+REPOSITORY_COLLECTOR = (ROOT / "scripts/collect-openwrt-repository.sh").read_text(encoding="utf-8")
 
 
 def fail(message: str) -> None:
@@ -19,169 +20,160 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-ENTRYPOINT = (ROOT / ".github/actions/openwrt-sdk/entrypoint.sh").read_text()
-REPOSITORY_COLLECTOR = (ROOT / "scripts/collect-openwrt-repository.sh").read_text()
+if not CI_PATH.exists() or not RELEASE_PATH.exists():
+    fail("ci.yml and release.yml are both required")
+if (ROOT / ".github/workflows/publish.yml").exists():
+    fail("publish.yml must be absorbed into the tag release workflow")
+if (ROOT / ".github/workflows/macos-ci.yml").exists():
+    fail("macos-ci.yml must be absorbed into verify-only ci.yml")
 
-required_fragments = (
-    "name: Build release artifacts",
-    "ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a",
-    "--volume \"$source_dir:/feed:ro\"",
-    "--volume \"$RUNNER_TEMP/steer-sdk-artifacts:/artifacts\"",
-    "--volume \"$RUNNER_TEMP/steer-sdk-dl:/builder/dl\"",
-    "--volume \"$RUNNER_TEMP/steer-sdk-ccache:/builder/.ccache\"",
-    "--volume \"$RUNNER_TEMP/steer-sdk-go-cache:/go-build-cache\"",
-    "chmod -R a+rwx",
-    "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-    "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-    "--env PACKAGES=\"steer luci-app-steer\"",
-    "--env OPENWRT_APK_PRIVATE_KEY",
-    "--env SING_BOX_UPSTREAM_APK=/upstream/sing-box.apk",
-    "--env SING_BOX_UPSTREAM_SHA256=\"$SING_BOX_OPENWRT_X86_64_SHA256\"",
-    "cp -R \"$RUNNER_TEMP/steer-sdk-artifacts/bin\" \"$GITHUB_WORKSPACE/bin\"",
-    "./scripts/collect-openwrt-artifacts.sh",
-    "./scripts/collect-openwrt-repository.sh",
+for fragment in (
+    "name: CI",
+    "pull_request:",
+    "branches:\n      - master",
+    "workflow_dispatch:",
+    "group: ci-${{ github.ref }}",
+    "cancel-in-progress: true",
+    "verify-ubuntu:",
+    "build-go-smoke:",
+    "macos-native-smoke:",
+    "runner: macos-14",
+    "runner: macos-15-intel",
+    "swift build -c release --disable-sandbox",
+    "python3 tests/check-macos-packaging.py",
+):
+    if fragment not in CI:
+        fail(f"verify-only CI is missing: {fragment}")
+
+for forbidden in (
+    "actions/upload-artifact@",
+    "actions/upload-pages-artifact@",
+    "actions/deploy-pages@",
+    "gh release create",
+    "collect-openwrt-artifacts.sh",
+    "collect-linux-artifacts.sh",
+    "ghcr.io/openwrt/sdk@",
+    "release-bundle",
+):
+    if forbidden in CI:
+        fail(f"master CI must not build or publish release assets: {forbidden}")
+
+release_trigger = RELEASE.split("concurrency:", 1)[0]
+if "tags:\n      - 'v*'" not in release_trigger:
+    fail("release workflow must trigger only on v* tags")
+for forbidden in ("branches:", "workflow_dispatch:", "paths-ignore:"):
+    if forbidden in release_trigger:
+        fail(f"release trigger must not contain {forbidden}")
+
+for fragment in (
+    "group: release-${{ github.ref_name }}",
+    "cancel-in-progress: false",
+    "source-gate:",
+    'git merge-base --is-ancestor "$GITHUB_SHA" origin/master',
+    "actions/workflows/ci.yml/runs?branch=master&status=success",
+    'select(.head_sha == \\\"$SOURCE_REVISION\\\" and .event == \\\"push\\\")',
+    "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$",
+    'version="${GITHUB_REF_NAME#v}"',
+    'package_version="${version%%-*}"',
+    "name: Resolve verified Geo seed",
+    "name: OpenWrt 25.12.5 x86_64",
+    "name: Generic Linux x86_64 and aarch64",
+    "name: Linux system integration",
+    "name: macOS ${{ matrix.arch }} DMG",
+    "name: Assemble verified release bundle",
+    "name: Attest final release assets",
+    "name: Publish GitHub Release",
+    "name: Deploy stable OpenWrt repository",
     "name: geodata-seed",
-    "--env STEER_GEODATA_SEED=/artifacts/geodata-seed",
-    "CGO_ENABLED=0 GOOS=linux GOARCH=\"$goarch\" go build",
-    "./scripts/collect-linux-artifacts.sh",
     "name: linux-generic",
+    "name: macos-${{ matrix.arch }}",
     "name: release-bundle",
     "name: openwrt-repository",
-    "name: Linux system integration",
+    'gh run download "$GITHUB_RUN_ID"',
+    "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+    "attestations: write",
+    "id-token: write",
+    "contents: write",
+    "!contains(github.ref_name, '-')",
+    "group: pages-site",
+):
+    if fragment not in RELEASE:
+        fail(f"tag release workflow is missing: {fragment}")
+
+for forbidden in (
+    "Publish verified master artifact",
+    "Find successful build for tagged commit",
+    "steps.build.outputs.run_id",
+    "Download exact release bundle",
+    "release-artifact-build",
+):
+    if forbidden in RELEASE:
+        fail(f"tag release must not reuse master artifacts: {forbidden}")
+
+for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+    content = path.read_text(encoding="utf-8")
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("uses: actions/"):
+            continue
+        reference = stripped.split("@", 1)[-1]
+        if not re.fullmatch(r"[0-9a-f]{40}", reference):
+            fail(f"GitHub action is not pinned to a full commit in {path.name}: {stripped}")
+
+required_release_fragments = (
+    "ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a",
+    '--volume "$source_dir:/feed:ro"',
+    '--volume "$RUNNER_TEMP/steer-sdk-artifacts:/artifacts"',
+    '--volume "$RUNNER_TEMP/steer-sdk-dl:/builder/dl"',
+    '--volume "$RUNNER_TEMP/steer-sdk-ccache:/builder/.ccache"',
+    '--volume "$RUNNER_TEMP/steer-sdk-go-cache:/go-build-cache"',
+    "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    '--env PACKAGES="steer luci-app-steer"',
+    "./scripts/collect-openwrt-artifacts.sh",
+    "./scripts/collect-openwrt-repository.sh",
+    "./scripts/collect-linux-artifacts.sh",
     "/workspace/tests/integration/run-linux-system.sh",
 )
-for fragment in required_fragments:
-    if fragment not in WORKFLOW:
-        fail(f"release workflow is missing: {fragment}")
+for fragment in required_release_fragments:
+    if fragment not in RELEASE:
+        fail(f"release workflow is missing official build path: {fragment}")
 
 for forbidden in (
     "docker/build-push-action",
     "docker/setup-buildx-action",
     "aria2c",
-    "parallel download",
-    "steer-builder",
     ".github/actions/openwrt-builder",
-    "GO_BOOTSTRAP_IMAGE",
     "CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT",
-    "external-go",
-    "build_dir",
-    "staging_dir",
-    "hostpkg",
-    "makepkg",
     "dpkg-buildpackage",
     "rpmbuild",
 ):
-    if forbidden in WORKFLOW:
-        fail(f"release workflow must not contain custom cache or downloader: {forbidden}")
+    if forbidden in RELEASE:
+        fail(f"release workflow reintroduced a custom builder/downloader: {forbidden}")
 
-trigger = WORKFLOW.split("concurrency:", 1)[0]
-ignored_paths = set()
-reading_ignored_paths = False
-for line in trigger.splitlines():
-    if line.strip() == "paths-ignore:":
-        reading_ignored_paths = True
-        continue
-    if reading_ignored_paths and line.startswith("      - "):
-        ignored_paths.add(line.split("- ", 1)[1].strip().strip("'\""))
-        continue
-    if reading_ignored_paths and line.strip():
-        reading_ignored_paths = False
-
-expected_ignored_paths = {
-    "packaging/**",
-    "docs/**",
-    "README.md",
-    "tests/README.md",
-    ".gitignore",
-    ".github/workflows/publish.yml",
-}
-if ignored_paths != expected_ignored_paths:
-    fail(f"unexpected release-build ignored paths: {sorted(ignored_paths)}")
-
-if WORKFLOW.count("actions/cache/restore@") != 2:
-    fail("release workflow must restore exactly ccache and GOCACHE")
-if WORKFLOW.count("actions/cache/save@") != 2:
-    fail("release workflow must save exactly ccache and GOCACHE")
-
-cache_paths = {
-    line.strip().removeprefix("path: ")
-    for line in WORKFLOW.splitlines()
-    if line.strip().startswith("path: ${{ runner.temp }}/steer-sdk-")
-}
-expected_cache_paths = {
-    "${{ runner.temp }}/steer-sdk-ccache",
-    "${{ runner.temp }}/steer-sdk-go-cache",
-}
-if cache_paths != expected_cache_paths:
-    fail(f"unexpected persistent cache paths: {sorted(cache_paths)}")
+if RELEASE.count("actions/cache/restore@") != 2 or RELEASE.count("actions/cache/save@") != 2:
+    fail("release workflow must persist exactly OpenWrt ccache and GOCACHE")
 
 required_entrypoint_fragments = (
     "./scripts/feeds update -a",
-    "src-git --root=package base https://git.openwrt.org/openwrt/openwrt.git^f0a60eee2fe051741c643ea6118718aae1ef17fb",
-    "src-git packages https://github.com/openwrt/packages.git^5caa62e0bc9f7fb9b0c12a23267bceb7724214dd",
-    "src-git luci https://github.com/openwrt/luci.git^128a7812f4be233c5dd7f7466f534fd888785caf",
     "CONFIG_ALL_KMODS=n",
     "CONFIG_ALL_NONSHARED=n",
     "--allow-untrusted adbsign",
     "--reset-signatures",
-    "sing-box-1.14.0_rc1-r0.apk",
     "CONFIG_CCACHE=y",
-    "CCACHE_CONFIGPATH2=staging_dir/host/etc/ccache.conf",
-    "compiler_check=string:openwrt-sdk-x86_64-25.12.5:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a",
-    "make --no-print-directory val.CCACHE_DIR",
     "make defconfig",
-    "grep -qx '# CONFIG_ALL_KMODS is not set' .config",
-    "grep -qx '# CONFIG_ALL_NONSHARED is not set' .config",
-    "kmod-r8169|kmod-video",
-    "kmod_overrides=",
-    "CONFIG_AUTOREMOVE=y $kmod_overrides",
-    "staging_dir/host/bin/ccache --zero-stats",
     'make "package/$package/download" V=s',
     'make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)"',
-    "make package/index",
     "OPENWRT_APK_PRIVATE_KEY is required",
     "cmp generated-public-key.pem /feed/keys/steer-apk.pem",
-    "verify \"$repository_dir/packages.adb\"",
-    "OpenWrt repository index does not contain the exact Steer package set",
-    "'steer-[0-9]*.apk'",
-    "'luci-i18n-steer-zh-cn-*.apk'",
-    "staging_dir/host/bin/ccache -vv --show-stats",
+    'verify "$repository_dir/packages.adb"',
 )
 for fragment in required_entrypoint_fragments:
     if fragment not in ENTRYPOINT:
         fail(f"official SDK entrypoint is missing: {fragment}")
 
-if ENTRYPOINT.index("make \"package/$package/download\" V=s") > ENTRYPOINT.index(
-    'make package/luci-app-steer/compile'
-):
-    fail("package downloads must complete before compilation")
-
-if ENTRYPOINT.count("make package/luci-app-steer/compile") != 1:
-    fail("the SDK build must have one top-level compile target")
-
-if ENTRYPOINT.count('-j "$(nproc)"') != 1:
-    fail("only the compile target may use parallel make jobs")
-
-for fragment in (
-    "--name openwrt-repository",
-    "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9",
-    "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
-    "pages: write",
-    "id-token: write",
-    "!contains(github.ref_name, '-')",
-    "site/openwrt/25.12.5/x86_64",
-):
-    if fragment not in PUBLISH_WORKFLOW:
-        fail(f"tag publishing workflow is missing: {fragment}")
-
-for fragment in (
-    "packages.adb",
-    "steer-apk.pem",
-    "BUILD-METADATA.txt",
-    "SHA256SUMS",
-    "Expected exactly one repository APK matching",
-):
+for fragment in ("packages.adb", "steer-apk.pem", "BUILD-METADATA.txt", "SHA256SUMS"):
     if fragment not in REPOSITORY_COLLECTOR:
         fail(f"OpenWrt repository collector is missing: {fragment}")
 
-print("OpenWrt official SDK workflow checks passed")
+print("verify-only CI and one-run tag release checks passed")

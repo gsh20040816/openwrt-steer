@@ -31,11 +31,17 @@ OpenWrt 适配器当前拥有：
 - `/run/steer` generation、`/var/lib/steer` 日志和订阅状态；
 - LuCI、ucode RPC、ACL、OpenWrt 包和 cron 订阅调度。
 
-这些是 OpenWrt 实现，不得反向污染共享 Intent。Linux 当前使用 JSON 配置与 systemd；macOS 仍可使用 JSON 配置与 launchd/pf。只要共享语义和 Apply 生命周期一致，平台目录、网络接管方式、权限模型和服务管理器可以不同。
+这些是 OpenWrt 实现，不得反向污染共享 Intent。Linux 使用 JSON 配置、systemd 和 loopback Web；macOS 使用 JSON 配置、SwiftUI GUI、launchd 和 sing-box TUN。只要共享语义和 Apply 生命周期一致，平台目录、前端形式、网络接管方式、权限模型和服务管理器可以不同。
+
+macOS 适配器当前拥有：
+
+- Canonical JSON 配置、Darwin TUN `auto_route` 和显式 TCP/UDP 53 capture；
+- root LaunchDaemon、generation、Geo seed、Apply/health/status/cleanup；
+- SwiftUI GUI 配置与运维前端。GUI 与 LuCI、Linux Web 同级，只调用平台后端，不承载数据面。
 
 ## 当前不做
 
-- macOS 的实际网络接管、安装包和 UI；Linux 的发行版安装包仍不在范围内，但 systemd/loopback Web 源码适配器已实现；
+- macOS 的签名发布包与自动化真机流量矩阵；Linux 的发行版安装包仍不在范围内；
 - 自动/人工回滚、配置历史、启动时选择旧 generation；
 - 节点故障转移、健康调度、隐藏 fallback；
 - 资源所有权协商或与第三方代理栈共存；
@@ -49,4 +55,4 @@ OpenWrt 适配器当前拥有：
 
 - `v0.4.0-alpha.1` 起功能边界硬冻结；共享接口进入候选冻结。
 - `v0.4.0` 起进入稳定版本线；`0.4.x` 只接受正常使用缺陷、安全问题和必要依赖适配，不增加公共功能。
-- 共享核心与 OpenWrt 功能边界保持冻结；后续跨平台实现从 Linux 适配器开始，macOS 排在 Linux 之后。
+- 共享核心与 OpenWrt 功能边界保持冻结；Linux 与 macOS 适配器在各自平台边界内演进。

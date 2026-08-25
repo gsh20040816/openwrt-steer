@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-ubuntu:
+    name: Verify source on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Check source and packaging contracts
+        run: |
+          python3 tests/check-luci-i18n.py
+          python3 tests/check-package-boundaries.py
+          python3 tests/check-build-cache.py
+          python3 tests/check-linux-packaging.py
+          python3 tests/check-macos-contract.py
+          python3 tests/check-macos-packaging.py
+
+      - name: Check JavaScript and web interactions
+        run: |
+          node tests/node/share_url_test.js
+          node tests/node/luci_view_test.js
+          node tests/node/steer_helper_test.js
+          node tests/node/linux_web_test.js
+
+      - name: Check shared Go core and platform adapters
+        working-directory: go
+        run: |
+          go test -race ./...
+          go vet ./...
+
+      - name: Lint shell and property lists
+        run: |
+          sh -n macos/scripts/install-launchdaemon.sh
+          sh -n macos/scripts/install-embedded-payload.sh
+          sh -n macos/scripts/build-app-bundle.sh
+          sh -n tests/integration/run-openwrt-vm.sh
+          sh -n tests/integration/run-linux-system.sh
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+          for path in Path("macos").rglob("*.plist"):
+              with path.open("rb") as source:
+                  plistlib.load(source)
+          PY
+
+  build-go-smoke:
+    name: Build Go platform commands
+    needs: verify-ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Compile OpenWrt, Linux, and macOS commands without archiving
+        working-directory: go
+        run: |
+          CGO_ENABLED=0 go build ./cmd/steer-openwrt
+          CGO_ENABLED=0 go build ./cmd/steer-linux
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./cmd/steer-macos
+
+  macos-native-smoke:
+    name: Native Swift (${{ matrix.arch }})
+    needs: verify-ubuntu
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Confirm native architecture
+        run: test "$(uname -m)" = "${{ matrix.arch }}"
+      - name: Build Swift package in debug and release modes
+        working-directory: macos
+        run: |
+          plutil -lint launchd/com.steer.steer.plist launchd/com.steer.steer.control.plist
+          swift build -c debug --disable-sandbox
+          swift build -c release --disable-sandbox

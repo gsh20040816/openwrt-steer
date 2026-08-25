@@ -1,0 +1,150 @@
+# macOS 开发基线
+
+macOS 由两个正式组成部分构成：SwiftUI GUI 是用户前端，root LaunchDaemon + 外部 sing-box 是运行后端。GUI 与 OpenWrt LuCI、Linux Web 处于同一层，只负责配置、操作和状态展示，不承载代理数据面。
+
+```text
+Steer GUI
+  ├── 编辑 Canonical Intent
+  ├── Read / Validate / Status（无授权弹窗）
+  ├── 首次“安装系统组件”
+  │          ↓ 一次 macOS 管理员授权
+  └── Save / Apply（后续免密）
+             ↓ /var/run/steer/control.sock
+root LaunchDaemon: steer-macos _control
+             ↓ 仅允许 save / apply
+/usr/local/libexec/steer/steer-macos
+             ↓ launchctl bootstrap
+root LaunchDaemon: steer-macos _run
+             ↓ exec
+sing-box run -c current/sing-box.json
+             ↓
+Darwin utun + auto_route
+```
+
+这条路径不要求 Apple Developer Program 或付费签名。sing-box 的 TUN inbound 官方支持 macOS；`auto_redirect` 是 Linux 路径，macOS 不使用它。[sing-box Tun](https://sing-box.sagernet.org/configuration/inbound/tun/)
+
+## GUI 前端
+
+`macos/SteerApp` 是 macOS 的正式配置与运维前端，不是代理运行时，也不维护第二份配置语义。它直接面向系统安装的 `steer-macos` helper：
+
+- 总览：启用状态、当前 generation、执行模型、配置规模和 Apply；
+- 基础设置：用原生字段编辑 Main、探测 URL、DNS 缓存和 Bootstrap DNS；
+- 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
+- Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；
+- 诊断：显示共享校验结果和 LaunchDaemon 后端状态；
+- 系统：显示运行时、系统路径和授权边界。
+
+全局 Enable 只出现在总览和菜单栏；开关变化后立即保存并 Apply，失败时恢复原状态。
+
+读取系统配置、Status 和 Validate 不请求管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save 和 Apply 通过常驻 `com.steer.steer.control` root LaunchDaemon 的受限 Unix socket IPC 完成，不再重复请求密码。
+
+control daemon 只接受 schema 固定、大小受限的 `save`/`apply` JSON 请求，不提供 shell、路径或可执行文件参数。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
+
+系统配置的唯一真相仍是：
+
+```text
+/Library/Application Support/Steer/config/config.json
+```
+
+## DNS 路径
+
+macOS 不复制 Linux 的 nftables `PREROUTING`/`OUTPUT` shim，也不引入 SmartDNS。DNS 由同一份 sing-box DNS Router 处理，Steer 在 TUN inbound 上只对明确的 TCP/UDP 目标端口 53 生成 `hijack-dns` 规则：
+
+```text
+应用 / 系统 resolver
+        ↓
+macOS utun
+        ↓
+sing-box route: inbound=steer-tun, tcp/udp, port=53
+        ↓
+sing-box DNS Router
+        ↓
+DNS Profile → Route / outbound
+```
+
+这不会把普通 UDP session 当成 DNS。DNS Profile、缓存、detour 和上游协议继续由 sing-box 内部实现。
+
+## Go macOS adapter
+
+`go/internal/platform/macos` 负责：
+
+- Darwin TUN plan：地址、MTU、`auto_route` 和非全球地址排除；`198.18.0.0/15` 包含 system stack 自身的 IPv4 对端，不能加入排除表；
+- 显式 TCP/UDP 53 DNS capture；
+- sing-box version/capability/check；
+- generation prepare/publish；
+- launchd stop/bootstrap；
+- utun 地址和 LaunchDaemon health；
+- atomic Apply record、status 和 cleanup。
+
+默认运行目录为：
+
+```text
+/Library/Application Support/Steer/config/config.json
+/Library/Application Support/Steer/run/
+/Library/Application Support/Steer/state/
+/Library/Application Support/Steer/geodata-seed/manifest.json
+/Library/Application Support/Steer/geodata-seed/rules/*.srs
+```
+
+`_run` 只供 LaunchDaemon 使用。它在冷启动时准备 current generation，然后直接 `exec` sing-box，不成为第二个 supervisor。
+
+## Release 安装
+
+稳定或预发布 tag 在两个原生 GitHub macOS runner 上分别构建：
+
+```text
+steer-macos-arm64.dmg
+steer-macos-x86_64.dmg
+```
+
+DMG 内的 `Steer.app` 包含同架构 Swift GUI、`steer-macos`、SagerNet 官方 sing-box、两个 LaunchDaemon plist、完整 Geo seed、许可证和 embedded installer。构建过程严格校验上游 archive SHA、Mach-O 架构、版本/tags/revision、Geo manifest、helper validate/parse-nodes、bundle 布局与可执行权限，然后对嵌套二进制和 App 做 ad-hoc 签名并运行 `codesign --verify --deep --strict`。
+
+项目目前没有付费 Apple Developer/Developer ID，因此 DMG **没有公证**。ad-hoc 签名只保证 bundle 在构建后未被意外改写，不能让 Gatekeeper 自动放行。用户流程是：
+
+1. 从 GitHub Release 下载与本机架构匹配的 DMG，并校验 `SHA256SUMS`；可选运行 `gh attestation verify steer-macos-arm64.dmg -R gsh20040816/steer`。
+2. 把 `Steer.app` 拖入 `/Applications`，按 macOS 的“未认证开发者”流程手动确认首次打开。
+3. 在“系统”页点击“安装系统组件”，输入一次管理员密码。
+4. 后续从 GUI 保存、Apply、启停和升级配置时不再重复输入密码。
+
+artifact attestation 证明文件来自对应 tag workflow，但不会替代 Developer ID 或 notarization，也不会自动改变 Gatekeeper 判断。
+
+## 源码开发安装
+
+先安装 sing-box，再安装 helper 和 LaunchDaemon：
+
+```sh
+brew install sing-box
+sudo macos/scripts/install-launchdaemon.sh
+```
+
+开发安装器把 `command -v sing-box` 选中的构件复制到 root-owned `/usr/local/libexec/steer/sing-box`，并安装运行 LaunchDaemon 与常驻 control LaunchDaemon。它只服务源码开发；正式 App 使用 `Contents/Resources/Installer` 的固定 payload，不依赖 PATH，也不在用户机器上运行 `go build`。
+
+构建 GUI：
+
+```sh
+cd macos
+swift build --disable-sandbox
+swift run SteerApp
+```
+
+也可以直接使用 helper：
+
+```sh
+sudo /usr/local/libexec/steer/steer-macos validate
+sudo /usr/local/libexec/steer/steer-macos apply
+sudo /usr/local/libexec/steer/steer-macos health
+sudo /usr/local/libexec/steer/steer-macos status
+```
+
+## 限制
+
+当前 macOS 目标明确不支持：
+
+- `source_mac_address`；
+- Linux `auto_redirect`、nftables、pf；
+- SmartDNS 独立进程；
+- 应用自带 DoH/DoQ 的明文查询识别。
+
+Geo 表达式可以使用。正式 DMG 内置与当前 tag workflow 匹配并完整验证的 `geodata-seed/`；Geo 转换在 CI/release 阶段完成，目标机不安装 geoview，也不读取 DAT。
+
+当前分发不声称 Developer ID 签名或 notarization；如果未来取得签名凭据，可以在不改变 embedded payload、control IPC 和 canonical 配置语义的前提下加入正式签名与公证。

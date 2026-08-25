@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.steer.steer</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/steer/steer-macos</string>
+		<string>_run</string>
+		<string>--config</string>
+		<string>/Library/Application Support/Steer/config/config.json</string>
+		<string>--run-dir</string>
+		<string>/Library/Application Support/Steer/run</string>
+		<string>--state-dir</string>
+		<string>/Library/Application Support/Steer/state</string>
+		<string>--geodata</string>
+		<string>/Library/Application Support/Steer/geodata-seed</string>
+		<string>--sing-box</string>
+		<string>/usr/local/libexec/steer/sing-box</string>
+		<string>--launchctl</string>
+		<string>/bin/launchctl</string>
+		<string>--label</string>
+		<string>com.steer.steer</string>
+		<string>--launchd-plist</string>
+		<string>/Library/LaunchDaemons/com.steer.steer.plist</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<false/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>StandardOutPath</key>
+	<string>/Library/Logs/Steer/sing-box.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Library/Logs/Steer/sing-box.error.log</string>
+</dict>
+</plist>

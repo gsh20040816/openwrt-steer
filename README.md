@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本为 **0.7.1**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；macOS 尚未提供适配器。
+当前稳定版本为 **0.7.1**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst；macOS 提供 arm64/x86_64 原生 DMG、SwiftUI GUI、一次授权安装的 root control daemon 和 sing-box TUN 后端，无需 Apple Developer Program。
 
 ## 已实现能力
 
@@ -14,6 +14,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
 - OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、1.14 原生源 MAC 规则和最小 DNS nftables shim。
 - Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、主机与 VM/Docker DNS 的双栈 nft shim、受保护的 wildcard DNS listener、nftables 重启联动、systemd 服务和 loopback Web API/UI。
+- macOS SwiftUI GUI 与 LuCI、Linux Web 同为平台前端，直接编辑 Canonical Intent；首次安装系统组件需要一次管理员授权，之后 Save/Apply 通过 peer-credential 保护的受限 root IPC 免密完成，数据面由独立 LaunchDaemon 和 sing-box TUN 承担。
 - CI 将 Loyalsoldier GeoSite/GeoIP 转换为完整 SRS seed；设备以 seed 离线启动，并由 sing-box 每 24 小时后台检查 Pages `latest`。
 
 ## 明确边界
@@ -34,6 +35,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - [打包与发布](docs/PACKAGING.md)
 - [测试说明](tests/README.md)
 - [Linux 适配器](docs/LINUX.md)
+- [macOS GUI 与 LaunchDaemon 适配器](docs/MACOS.md)
 
 ## 公共 CLI
 
@@ -62,6 +64,8 @@ steer subscription status
 ```
 
 GitHub Release 提供 `steer-linux-x86_64.tar.zst` 和 `steer-linux-aarch64.tar.zst`，内含包构建时验证过的 SRS seed，不捆绑 sing-box、geoview 或 DAT 数据库。主仓库不构建 deb、rpm、Arch 等发行版包；发行版维护者应从 source tag 构建并安装为 `/usr/bin/steer`。
+
+macOS Release 提供 `steer-macos-arm64.dmg` 和 `steer-macos-x86_64.dmg`。App 内置同架构 helper、经固定 SHA 校验的官方 sing-box、Geo seed 与首次安装器；当前采用 ad-hoc 签名且未公证，因此首次打开仍需按 macOS 未认证开发者流程手动确认。Release DMG 与 `SHA256SUMS` 提供 GitHub artifact attestation，但 attestation 不替代 Developer ID 或 Gatekeeper 放行。
 
 ## OpenWrt 软件源
 

@@ -14,9 +14,12 @@ go/internal/probe                  HTTP/TLS 测量和报告
 go/internal/capability             sing-box 版本/build-tag 能力检查
 go/internal/platform/openwrt       OpenWrt 网络、服务、UCI、Geo 和日志适配
 go/internal/platform/linux         systemd、TUN、DNS nft shim、JSON 和 Linux 状态适配
+go/internal/platform/macos         launchd、Darwin TUN、JSON 和 macOS 状态适配
 go/internal/platform/openwrt/uci   严格 UCI 语法解析
 go/cmd/steer-openwrt               OpenWrt CLI 源码 target
 go/cmd/steer-linux                 Linux CLI 和 loopback Web 控制面
+go/cmd/steer-macos                 macOS helper 和 LaunchDaemon 入口
+macos/SteerApp                     macOS SwiftUI 配置与运维前端
 go/internal/geodata                包内 SRS seed manifest 与文件完整性校验
 ```
 
@@ -27,6 +30,7 @@ go/internal/geodata                包内 SRS seed manifest 与文件完整性�
 ```text
 OpenWrt UCI ──严格解码──┐
 Linux JSON ──严格解码───┼→ Canonical Intent → Validate → Compiler
+macOS GUI/JSON ──────────┤
                        │                         │
                        └─────────────────────────┘
                                                    ↓
@@ -83,7 +87,7 @@ Linux 的 Apply、配置写入和订阅变更共用一把 operation lock；Apply
 
 候选预检查失败发生在运行态变更前。`current` 在候选进程启动前发布，供 procd 读取。切换后的失败返回错误并保留现场；没有自动恢复、旧配置备份或 rollback 接口。禁用走单独的 `Disable`，停止服务并删除运行资源。
 
-开机时 OpenWrt 由 procd 通过非公开 `_start` 钩子执行校验、编译、Prepare 和平台激活；Linux 由 systemd 执行非公开 `_run`，必要时准备冷启动 generation，然后直接 `exec` sing-box。两个钩子都不是公共 CLI，也不构成第二套配置语义。
+开机时 OpenWrt 由 procd 通过非公开 `_start` 钩子执行校验、编译、Prepare 和平台激活；Linux 由 systemd、macOS 由 LaunchDaemon 执行非公开 `_run`，必要时准备冷启动 generation，然后直接 `exec` sing-box。这些钩子都不是公共 CLI，也不构成第二套配置语义。macOS SwiftUI GUI 与 LuCI、Linux Web 一样，只通过平台后端读写 Canonical Intent 和触发公共生命周期。
 
 ## Generation 与状态
 
