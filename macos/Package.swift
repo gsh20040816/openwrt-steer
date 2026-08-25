@@ -19,7 +19,7 @@ let package = Package(
         .target(
             name: "SteerAgent",
             path: "SteerAgent",
-            exclude: ["com.gsh20040816.steer.agent.plist"]
+            exclude: ["com.steer.steer.agent.plist"]
         ),
     ]
 )

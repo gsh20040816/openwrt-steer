@@ -51,5 +51,5 @@ jobs:
       - name: Build Swift package without signing
         working-directory: macos
         run: |
-          plutil -lint launchd/com.gsh20040816.steer.plist
+          plutil -lint launchd/com.steer.steer.plist
           swift build --disable-sandbox

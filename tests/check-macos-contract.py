@@ -17,11 +17,13 @@ def main() -> None:
     macos_backend = read("go/internal/platform/macos/backend.go")
     macos_validate = read("go/internal/platform/macos/validate.go")
     macos_cli = read("go/cmd/steer-macos/main.go")
-    launchd = read("macos/launchd/com.gsh20040816.steer.plist")
+    launchd = read("macos/launchd/com.steer.steer.plist")
     installer = read("macos/scripts/install-launchdaemon.sh")
     package = read("macos/Package.swift")
     agent = read("macos/SteerAgent/AgentController.swift")
+    agent_plist = read("macos/SteerAgent/com.steer.steer.agent.plist")
     app = read("macos/SteerApp/SteerApp.swift")
+    app_info = read("macos/SteerApp/Info.plist")
     state = read("macos/SteerApp/AppState.swift")
     content = read("macos/SteerApp/ContentView.swift")
 
@@ -34,7 +36,12 @@ def main() -> None:
     assert 'PLATFORM_UNSUPPORTED_GEO_TOOLCHAIN' not in macos_validate
     assert 'case "apply"' in macos_cli
     assert 'case "_run"' in macos_cli
-    assert 'com.gsh20040816.steer' in launchd
+    assert 'com.steer.steer' in launchd
+    assert 'com.steer.steer.agent' in agent_plist
+    assert '<string>com.steer.steer</string>' in app_info
+    legacy_identifier = "com." + "gsh20040816.steer"
+    assert legacy_identifier not in launchd
+    assert legacy_identifier not in agent
     assert 'command -v sing-box' in installer
     assert 'SMAppService.agent' in agent
     assert '.executable(name: "SteerApp"' in package

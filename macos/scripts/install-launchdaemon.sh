@@ -13,7 +13,7 @@ fi
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repository_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
 helper_directory="/usr/local/libexec/steer"
-plist_path="/Library/LaunchDaemons/com.gsh20040816.steer.plist"
+plist_path="/Library/LaunchDaemons/com.steer.steer.plist"
 sing_box_path="$(command -v sing-box || true)"
 
 [ -n "$sing_box_path" ] || {
@@ -29,12 +29,12 @@ install -d -m 0750 "/Library/Application Support/Steer/config" \
 	"/Library/Logs/Steer"
 
 (cd "$repository_root/go" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$helper_directory/steer-macos" ./cmd/steer-macos)
-install -m 0644 "$repository_root/macos/launchd/com.gsh20040816.steer.plist" "$plist_path"
+install -m 0644 "$repository_root/macos/launchd/com.steer.steer.plist" "$plist_path"
 plutil -replace ProgramArguments.11 -string "$sing_box_path" "$plist_path"
 chown root:wheel "$helper_directory/steer-macos" "$plist_path"
 chmod 0755 "$helper_directory/steer-macos"
 chmod 0644 "$plist_path"
 
-launchctl bootout system/com.gsh20040816.steer 2>/dev/null || true
+launchctl bootout system/com.steer.steer 2>/dev/null || true
 launchctl bootstrap system "$plist_path"
 printf '%s\n' "Installed Steer LaunchDaemon with sing-box at $sing_box_path"

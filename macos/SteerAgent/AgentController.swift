@@ -10,7 +10,7 @@ public final class AgentController: ObservableObject {
 
     private let service: SMAppService
 
-    public init(plistName: String = "com.gsh20040816.steer.agent.plist") {
+    public init(plistName: String = "com.steer.steer.agent.plist") {
         service = SMAppService.agent(plistName: plistName)
         status = service.status
     }

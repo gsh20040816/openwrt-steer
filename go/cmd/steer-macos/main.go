@@ -33,7 +33,7 @@ const (
 	defaultSingBoxBinary  = "/opt/homebrew/bin/sing-box"
 	defaultGeoDataDir     = "/Library/Application Support/Steer/geodata-seed"
 	defaultLaunchctl      = "/bin/launchctl"
-	defaultLaunchDaemon   = "/Library/LaunchDaemons/com.gsh20040816.steer.plist"
+	defaultLaunchDaemon   = "/Library/LaunchDaemons/com.steer.steer.plist"
 )
 
 func main() {

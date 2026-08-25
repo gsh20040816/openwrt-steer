@@ -18,7 +18,7 @@ import (
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
-const DefaultLaunchDaemonLabel = "com.gsh20040816.steer"
+const DefaultLaunchDaemonLabel = "com.steer.steer"
 
 type BackendOptions struct {
 	RunDirectory      string

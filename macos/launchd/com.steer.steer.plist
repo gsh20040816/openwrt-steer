@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.gsh20040816.steer</string>
+	<string>com.steer.steer</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/local/libexec/steer/steer-macos</string>
@@ -21,9 +21,9 @@
 		<string>--launchctl</string>
 		<string>/bin/launchctl</string>
 		<string>--label</string>
-		<string>com.gsh20040816.steer</string>
+		<string>com.steer.steer</string>
 		<string>--launchd-plist</string>
-		<string>/Library/LaunchDaemons/com.gsh20040816.steer.plist</string>
+		<string>/Library/LaunchDaemons/com.steer.steer.plist</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

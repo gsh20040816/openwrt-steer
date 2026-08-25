@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.gsh20040816.steer.agent</string>
+	<string>com.steer.steer.agent</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>$(STEER_AGENT_EXECUTABLE)</string>
