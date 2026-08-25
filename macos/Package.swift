@@ -7,19 +7,13 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "SteerApp", targets: ["SteerApp"]),
-        .library(name: "SteerAgent", targets: ["SteerAgent"]),
     ],
     targets: [
         .executableTarget(
             name: "SteerApp",
-            dependencies: ["SteerAgent"],
+            dependencies: [],
             path: "SteerApp",
             exclude: ["Info.plist"]
-        ),
-        .target(
-            name: "SteerAgent",
-            path: "SteerAgent",
-            exclude: ["com.steer.steer.agent.plist"]
         ),
     ]
 )

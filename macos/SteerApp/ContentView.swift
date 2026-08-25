@@ -724,6 +724,35 @@ struct SystemView: View {
 
     var body: some View {
         List {
+            Section("系统组件") {
+                LabeledContent("安装状态") {
+                    Label(
+                        model.systemComponentsUpdateAvailable ? "可更新" : (model.systemComponentsInstalled ? "已安装" : "未安装"),
+                        systemImage: model.systemComponentsUpdateAvailable
+                            ? "arrow.down.circle.fill"
+                            : (model.systemComponentsInstalled ? "checkmark.seal.fill" : "shippingbox")
+                    )
+                    .foregroundStyle(model.systemComponentsInstalled && !model.systemComponentsUpdateAvailable ? .green : .orange)
+                }
+                if model.systemComponentsUpdateAvailable, model.embeddedInstallerAvailable {
+                    Button("更新系统组件…") { model.installSystemComponents() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isBusy)
+                    Text("更新会再次请求一次管理员密码；用户配置和运行状态目录会保留。")
+                        .foregroundStyle(.secondary)
+                } else if !model.systemComponentsInstalled {
+                    if model.embeddedInstallerAvailable {
+                        Button("安装系统组件…") { model.installSystemComponents() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.isBusy)
+                        Text("首次安装会请求一次管理员密码，并安装 root control daemon、运行 helper、sing-box 与 Geo seed。")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("当前源码开发构建没有内置 payload，请运行 macos/scripts/install-launchdaemon.sh。")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             Section("版本与运行时") {
                 LabeledContent("Canonical schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
                 LabeledContent("Backend", value: "steer-macos \(model.versions.helper)")
@@ -736,9 +765,10 @@ struct SystemView: View {
                 pathRow("状态目录", "/Library/Application Support/Steer/state")
                 pathRow("Geo Seed", "/Library/Application Support/Steer/geodata-seed")
                 pathRow("日志", "/Library/Logs/Steer")
+                pathRow("控制 IPC", "/var/run/steer/control.sock")
             }
             Section("授权") {
-                Text("启动、刷新状态与校验无需授权；只有保存和应用配置时才通过 macOS 管理员授权调用 root-owned steer-macos helper。")
+                Text("首次安装系统组件需要一次 macOS 管理员授权。之后保存和应用只通过 root control daemon 的受限 Unix socket IPC；服务会同时校验 socket 权限与调用者的 admin 组凭据，不执行任意命令。")
                     .foregroundStyle(.secondary)
             }
         }

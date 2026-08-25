@@ -20,6 +20,7 @@ import (
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	macosplatform "github.com/gsh20040816/steer/go/internal/platform/macos"
 	"github.com/gsh20040816/steer/go/internal/subscription"
@@ -58,6 +59,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runCompile(args[1:], stdout)
 	case "parse-nodes":
 		return runParseNodes(args[1:], stdout)
+	case "verify-geodata":
+		return runVerifyGeoData(args[1:])
 	case "prepare":
 		return runPrepare(args[1:], stdout)
 	case "apply":
@@ -68,11 +71,31 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runStatus(args[1:], stdout)
 	case "cleanup":
 		return runCleanup(args[1:])
+	case "control":
+		return runControlClient(args[1:], stdout)
+	case "_control":
+		return runControlService(args[1:])
 	case "_run":
 		return runService(args[1:])
 	default:
 		return usage()
 	}
+}
+
+func runVerifyGeoData(args []string) error {
+	flags := flag.NewFlagSet("verify-geodata", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	directory := flags.String("directory", "", "verified geodata seed directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *directory == "" {
+		return errors.New("verify-geodata requires --directory")
+	}
+	if err := geodata.VerifyDirectory(*directory); err != nil {
+		return fmt.Errorf("verify geodata seed: %w", err)
+	}
+	return nil
 }
 
 func runParseNodes(args []string, stdout io.Writer) error {
@@ -339,5 +362,5 @@ func writeJSON(writer io.Writer, value any) error {
 }
 
 func usage() error {
-	return errors.New("usage: steer-macos {version|validate|compile|prepare|apply|health|status|cleanup|_run} [flags]")
+	return errors.New("usage: steer-macos {version|validate|compile|parse-nodes|verify-geodata|prepare|apply|health|status|cleanup|control|_control|_run} [flags]")
 }

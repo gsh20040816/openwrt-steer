@@ -6,8 +6,12 @@ macOS 由两个正式组成部分构成：SwiftUI GUI 是用户前端，root Lau
 Steer GUI
   ├── 编辑 Canonical Intent
   ├── Read / Validate / Status（无授权弹窗）
-  └── Save / Apply
-             ↓ macOS 管理员授权（写操作）
+  ├── 首次“安装系统组件”
+  │          ↓ 一次 macOS 管理员授权
+  └── Save / Apply（后续免密）
+             ↓ /var/run/steer/control.sock
+root LaunchDaemon: steer-macos _control
+             ↓ 仅允许 save / apply
 /usr/local/libexec/steer/steer-macos
              ↓ launchctl bootstrap
 root LaunchDaemon: steer-macos _run
@@ -32,7 +36,9 @@ Darwin utun + auto_route
 
 全局 Enable 只出现在总览和菜单栏；开关变化后立即保存并 Apply，失败时恢复原状态。
 
-读取系统配置、Status 和 Validate 不请求管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取；只有 Save 和 Apply 使用 macOS 标准管理员授权。GUI 不直接写运行 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
+读取系统配置、Status 和 Validate 不请求管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save 和 Apply 通过常驻 `com.steer.steer.control` root LaunchDaemon 的受限 Unix socket IPC 完成，不再重复请求密码。
+
+control daemon 只接受 schema 固定、大小受限的 `save`/`apply` JSON 请求，不提供 shell、路径或可执行文件参数。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
 
 系统配置的唯一真相仍是：
 
@@ -82,7 +88,27 @@ DNS Profile → Route / outbound
 
 `_run` 只供 LaunchDaemon 使用。它在冷启动时准备 current generation，然后直接 `exec` sing-box，不成为第二个 supervisor。
 
-## 安装和开发
+## Release 安装
+
+稳定或预发布 tag 在两个原生 GitHub macOS runner 上分别构建：
+
+```text
+steer-macos-arm64.dmg
+steer-macos-x86_64.dmg
+```
+
+DMG 内的 `Steer.app` 包含同架构 Swift GUI、`steer-macos`、SagerNet 官方 sing-box、两个 LaunchDaemon plist、完整 Geo seed、许可证和 embedded installer。构建过程严格校验上游 archive SHA、Mach-O 架构、版本/tags/revision、Geo manifest、helper validate/parse-nodes、bundle 布局与可执行权限，然后对嵌套二进制和 App 做 ad-hoc 签名并运行 `codesign --verify --deep --strict`。
+
+项目目前没有付费 Apple Developer/Developer ID，因此 DMG **没有公证**。ad-hoc 签名只保证 bundle 在构建后未被意外改写，不能让 Gatekeeper 自动放行。用户流程是：
+
+1. 从 GitHub Release 下载与本机架构匹配的 DMG，并校验 `SHA256SUMS`；可选运行 `gh attestation verify steer-macos-arm64.dmg -R gsh20040816/steer`。
+2. 把 `Steer.app` 拖入 `/Applications`，按 macOS 的“未认证开发者”流程手动确认首次打开。
+3. 在“系统”页点击“安装系统组件”，输入一次管理员密码。
+4. 后续从 GUI 保存、Apply、启停和升级配置时不再重复输入密码。
+
+artifact attestation 证明文件来自对应 tag workflow，但不会替代 Developer ID 或 notarization，也不会自动改变 Gatekeeper 判断。
+
+## 源码开发安装
 
 先安装 sing-box，再安装 helper 和 LaunchDaemon：
 
@@ -91,7 +117,7 @@ brew install sing-box
 sudo macos/scripts/install-launchdaemon.sh
 ```
 
-安装器把 `command -v sing-box` 选中的构件复制到 root-owned `/usr/local/libexec/steer/sing-box`；GUI、CLI 和 LaunchDaemon 都使用这份运行时，更新 sing-box 后需重新运行安装器。
+开发安装器把 `command -v sing-box` 选中的构件复制到 root-owned `/usr/local/libexec/steer/sing-box`，并安装运行 LaunchDaemon 与常驻 control LaunchDaemon。它只服务源码开发；正式 App 使用 `Contents/Resources/Installer` 的固定 payload，不依赖 PATH，也不在用户机器上运行 `go build`。
 
 构建 GUI：
 
@@ -119,4 +145,6 @@ sudo /usr/local/libexec/steer/steer-macos status
 - SmartDNS 独立进程；
 - 应用自带 DoH/DoQ 的明文查询识别。
 
-Geo 表达式可以使用。macOS 需要把与当前 master 构建匹配的 `geodata-seed/` 放入上述目录；Geo 转换在 CI/release 阶段完成，目标机不安装 geoview，也不读取 DAT。
+Geo 表达式可以使用。正式 DMG 内置与当前 tag workflow 匹配并完整验证的 `geodata-seed/`；Geo 转换在 CI/release 阶段完成，目标机不安装 geoview，也不读取 DAT。
+
+当前分发不声称 Developer ID 签名或 notarization；如果未来取得签名凭据，可以在不改变 embedded payload、control IPC 和 canonical 配置语义的前提下加入正式签名与公证。

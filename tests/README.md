@@ -27,6 +27,8 @@ python3 tests/check-luci-i18n.py
 python3 tests/check-package-boundaries.py
 python3 tests/check-build-cache.py
 python3 tests/check-linux-packaging.py
+python3 tests/check-macos-contract.py
+python3 tests/check-macos-packaging.py
 ```
 
 - `share_url_test.js`：代理 URI 的解析和告警；
@@ -65,4 +67,4 @@ sh -n tests/integration/run-linux-system.sh
 git diff --check
 ```
 
-官方 SDK 构建、Linux 通用归档和 Linux systemd 容器验收共同构成最终门禁；只有同一 commit 的 master 构建成功后才允许打发布 tag。
+master/PR CI 只运行正确性验证与 smoke build。只有 tag commit 已进入 master 且同一 SHA 的 master CI push run 成功后才允许发布；OpenWrt SDK、Linux 归档/systemd 验收、原生 macOS DMG、attestation 和发布全部在同一次 tag workflow 中完成。

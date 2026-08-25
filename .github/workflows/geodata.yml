@@ -108,25 +108,8 @@ jobs:
             git archive refs/remotes/origin/pages \
               | tar -xf - -C "$RUNNER_TEMP/site"
           else
-            run_id="$({
-              gh api --paginate \
-                "/repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=master&status=success&per_page=100" \
-                --jq '.workflow_runs[] | select(.event == "push") | .id'
-            } | head -n 1)"
-            [ -n "$run_id" ] || {
-              echo 'No generated Pages branch or successful OpenWrt repository artifact exists.' >&2
-              exit 1
-            }
-            gh run download "$run_id" \
-              --repo "$GITHUB_REPOSITORY" \
-              --name openwrt-repository \
-              --dir "$RUNNER_TEMP/openwrt-repository"
-            set -- $(find "$RUNNER_TEMP/openwrt-repository" -type f -name packages.adb)
-            [ "$#" -eq 1 ]
-            repository_dir="$(dirname "$1")"
-            mkdir -p "$RUNNER_TEMP/site/openwrt/25.12.5/x86_64"
-            cp "$repository_dir"/* "$RUNNER_TEMP/site/openwrt/25.12.5/x86_64/"
-            cp repository/index.html "$RUNNER_TEMP/site/index.html"
+            echo 'The generated Pages branch is required before publishing Geo updates.' >&2
+            exit 1
           fi
 
       - name: Replace current Geo subtree
@@ -165,7 +148,7 @@ jobs:
 
       - name: Upload GitHub Pages artifact
         if: steps.upstream.outputs.changed == 'true'
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9d
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:
           path: ${{ runner.temp }}/site
 

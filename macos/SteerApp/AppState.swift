@@ -114,6 +114,24 @@ struct RuntimeVersions {
     var singBox = "—"
 }
 
+struct SystemComponentsStatus: Sendable {
+    let installed: Bool
+    let embeddedInstallerAvailable: Bool
+    let updateAvailable: Bool
+}
+
+private struct ControlResponse: Decodable {
+    let schemaVersion: Int
+    let ok: Bool
+    let status: RuntimeStatus?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case ok, status, error
+    }
+}
+
 indirect enum JSONValue: Codable, Sendable {
     case object([String: JSONValue])
     case array([JSONValue])
@@ -159,7 +177,7 @@ enum BackendClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .helperUnavailable:
-            return "未找到 steer-macos helper；请先运行 macos/scripts/install-launchdaemon.sh。"
+            return "未安装 Steer 系统组件；请在“系统”页完成首次安装。"
         case .invalidResponse:
             return "steer-macos 返回了无法识别的响应。"
         case .validationFailed:
@@ -171,6 +189,8 @@ enum BackendClientError: LocalizedError {
 }
 
 protocol BackendClient: Sendable {
+    func componentStatus() async -> SystemComponentsStatus
+    func installSystemComponents() async throws
     func validate(document: String) async throws -> ValidationResult
     func loadConfiguration() async throws -> String
     func save(document: String) async throws
@@ -184,13 +204,48 @@ protocol BackendClient: Sendable {
 struct HelperBackendClient: BackendClient {
     private static let installedHelperPath = "/usr/local/libexec/steer/steer-macos"
     private static let configurationPath = "/Library/Application Support/Steer/config/config.json"
+    private static let controlPlistPath = "/Library/LaunchDaemons/com.steer.steer.control.plist"
+    private static let installedSingBoxPath = "/usr/local/libexec/steer/sing-box"
 
     private let validationHelperURL: URL
 
     init(helperURL: URL? = nil) {
         validationHelperURL = helperURL
-            ?? Bundle.main.url(forResource: "steer-macos", withExtension: nil)
+            ?? Self.embeddedInstallerResource("steer-macos")
             ?? URL(fileURLWithPath: Self.installedHelperPath)
+    }
+
+    func componentStatus() async -> SystemComponentsStatus {
+        let fileManager = FileManager.default
+        let installed = fileManager.isExecutableFile(atPath: Self.installedHelperPath)
+            && fileManager.isExecutableFile(atPath: Self.installedSingBoxPath)
+            && fileManager.fileExists(atPath: Self.controlPlistPath)
+        let embeddedHelper = Self.embeddedInstallerResource("steer-macos")
+        let installerAvailable = embeddedInstallerURL.map {
+            fileManager.isExecutableFile(atPath: $0.path)
+        } ?? false
+        var updateAvailable = false
+        if installed, let embeddedHelper,
+           fileManager.isExecutableFile(atPath: embeddedHelper.path) {
+            let installedHelper = URL(fileURLWithPath: Self.installedHelperPath)
+            if let installedVersion = try? await Self.execute(installedHelper, ["version"]),
+               let embeddedVersion = try? await Self.execute(embeddedHelper, ["version"]) {
+                updateAvailable = installedVersion.stdout != embeddedVersion.stdout
+            }
+        }
+        return SystemComponentsStatus(
+            installed: installed,
+            embeddedInstallerAvailable: installerAvailable,
+            updateAvailable: updateAvailable
+        )
+    }
+
+    func installSystemComponents() async throws {
+        guard let installer = embeddedInstallerURL,
+              FileManager.default.isExecutableFile(atPath: installer.path) else {
+            throw BackendClientError.processFailed("当前 App 不包含正式的系统组件 payload；源码开发请运行 macos/scripts/install-launchdaemon.sh。")
+        }
+        _ = try await Self.executePrivileged(Self.command([installer.path]))
     }
 
     func validate(document: String) async throws -> ValidationResult {
@@ -223,11 +278,11 @@ struct HelperBackendClient: BackendClient {
     func save(document: String) async throws {
         let validation = try await validate(document: document)
         guard validation.ok else { throw BackendClientError.validationFailed }
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
         try await withTemporaryDocument(document) { url in
-            _ = try await Self.executePrivileged(Self.command([
-                "/usr/bin/install", "-o", "root", "-g", "admin", "-m", "0640",
-                url.path, Self.configurationPath,
-            ]))
+            let result = try await Self.execute(helper, ["control", "--operation", "save", "--input", url.path])
+            _ = try Self.decodeControlResponse(result)
         }
     }
 
@@ -237,16 +292,9 @@ struct HelperBackendClient: BackendClient {
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
         try requireExecutable(helper)
         return try await withTemporaryDocument(document) { url in
-            let install = Self.command([
-                "/usr/bin/install", "-o", "root", "-g", "admin", "-m", "0640",
-                url.path, Self.configurationPath,
-            ])
-            let apply = Self.command([helper.path, "apply"]) + " >/dev/null"
-            let status = Self.command([helper.path, "status"])
-            let output = try await Self.executePrivileged("\(install) && \(apply) && \(status)")
-            guard let status = try? JSONDecoder().decode(RuntimeStatus.self, from: output) else {
-                throw BackendClientError.invalidResponse
-            }
+            let result = try await Self.execute(helper, ["control", "--operation", "apply", "--input", url.path])
+            let response = try Self.decodeControlResponse(result)
+            guard let status = response.status else { throw BackendClientError.invalidResponse }
             return status
         }
     }
@@ -263,6 +311,8 @@ struct HelperBackendClient: BackendClient {
 
     func logs() async throws -> String {
         let sources = [
+            ("control.error.log", "/Library/Logs/Steer/control.error.log"),
+            ("control.log", "/Library/Logs/Steer/control.log"),
             ("sing-box.error.log", "/Library/Logs/Steer/sing-box.error.log"),
             ("sing-box.log", "/Library/Logs/Steer/sing-box.log"),
         ]
@@ -314,6 +364,26 @@ struct HelperBackendClient: BackendClient {
         guard FileManager.default.isExecutableFile(atPath: url.path) else {
             throw BackendClientError.helperUnavailable
         }
+    }
+
+    private var embeddedInstallerURL: URL? {
+        Self.embeddedInstallerResource("install-embedded-payload.sh")
+    }
+
+    private static func embeddedInstallerResource(_ name: String) -> URL? {
+        Bundle.main.resourceURL?
+            .appendingPathComponent("Installer", isDirectory: true)
+            .appendingPathComponent(name, isDirectory: false)
+    }
+
+    private static func decodeControlResponse(_ result: ProcessResult) throws -> ControlResponse {
+        guard let response = try? JSONDecoder().decode(ControlResponse.self, from: result.stdout) else {
+            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        }
+        guard result.status == 0, response.schemaVersion == 1, response.ok else {
+            throw BackendClientError.processFailed(response.error ?? "Steer control service 拒绝了操作。")
+        }
+        return response
     }
 
     private func withTemporaryDocument<T>(
@@ -390,6 +460,9 @@ final class AppModel: ObservableObject {
     @Published var message = ""
     @Published var diagnosticsLog = ""
     @Published var versions = RuntimeVersions()
+    @Published var systemComponentsInstalled = false
+    @Published var embeddedInstallerAvailable = false
+    @Published var systemComponentsUpdateAvailable = false
 
     private let backend: BackendClient
 
@@ -454,11 +527,39 @@ final class AppModel: ObservableObject {
 
     func loadInitialState() {
         perform(message: "正在连接 Steer 后端…") {
+            let components = await self.backend.componentStatus()
+            self.systemComponentsInstalled = components.installed
+            self.embeddedInstallerAvailable = components.embeddedInstallerAvailable
+            self.systemComponentsUpdateAvailable = components.updateAvailable
+            guard components.installed else {
+                self.message = components.embeddedInstallerAvailable
+                    ? "尚未安装系统组件；请在“系统”页完成一次管理员授权安装"
+                    : "尚未安装系统组件；当前为源码开发构建"
+                return
+            }
             self.rawJSON = try await self.backend.loadConfiguration()
             self.runtime = try await self.backend.status()
             self.versions = try await self.backend.versions()
             self.isDirty = false
             self.message = self.runtime.healthy ? "Steer 运行正常" : "已连接后端，Steer 当前未运行"
+        }
+    }
+
+    func installSystemComponents() {
+        perform(message: "正在安装 Steer 系统组件；macOS 将请求一次管理员授权…") {
+            try await self.backend.installSystemComponents()
+            let components = await self.backend.componentStatus()
+            self.systemComponentsInstalled = components.installed
+            self.embeddedInstallerAvailable = components.embeddedInstallerAvailable
+            self.systemComponentsUpdateAvailable = components.updateAvailable
+            guard components.installed else {
+                throw BackendClientError.processFailed("安装器已结束，但系统组件验收未通过。")
+            }
+            self.rawJSON = try await self.backend.loadConfiguration()
+            self.runtime = try await self.backend.status()
+            self.versions = try await self.backend.versions()
+            self.isDirty = false
+            self.message = "系统组件安装完成；后续保存和应用不再请求管理员密码"
         }
     }
 

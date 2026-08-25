@@ -1,21 +1,12 @@
-name: Build release artifacts
+name: Build and publish tagged release
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - master
-    # These paths do not change APKs, Linux archives, or the release bundle.
-    paths-ignore:
-      - 'packaging/**'
-      - 'docs/**'
-      - 'README.md'
-      - 'tests/README.md'
-      - '.gitignore'
-      - '.github/workflows/publish.yml'
+    tags:
+      - 'v*'
 
 concurrency:
-  group: release-artifact-build
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -23,56 +14,67 @@ permissions:
   contents: read
 
 env:
-  STEER_VERSION: 0.7.1
-  # OpenWrt, Linux and the Git tag use the same stable public version.
   OPENWRT_RELEASE: 25.12.5
   OPENWRT_TARGET: x86/64
   SING_BOX_VERSION: 1.14.0-rc.1
+  SING_BOX_REVISION: 8dd67a1e49711ce8a9a884bef60a2139ef36446f
   SING_BOX_LINUX_AMD64_MUSL_SHA256: e057d850417b0f86b0da0c169adc552b7fd8b40012884435e9e7aaecf03aa9a8
   SING_BOX_OPENWRT_X86_64_SHA256: a1b2581ca4b823cda0e12e6cfafbe94c0ccd473b97d420de15045432f4b3b2f4
+  SING_BOX_DARWIN_ARM64_SHA256: 0c57457917ad529da4af939a3da5e0ad1cfa639c140dd3de7b6248aef2170bcd
+  SING_BOX_DARWIN_AMD64_SHA256: b0c45037c369616e744b8276bfc3be74f246d889531b73ca592a67c0e06bb432
 
 jobs:
-  verify:
-    name: Verify source
+  source-gate:
+    name: Verify tag source gate
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
-      - name: Check out source
+      - name: Check out tagged source and master history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
 
-      - name: Check Simplified Chinese coverage
-        run: python3 tests/check-luci-i18n.py
-
-      - name: Check package ownership boundaries
-        run: python3 tests/check-package-boundaries.py
-
-      - name: Check release workflow invariants
-        run: python3 tests/check-build-cache.py
-
-      - name: Check generic Linux packaging contract
-        run: python3 tests/check-linux-packaging.py
-
-      - name: Check share URL parser
-        run: node tests/node/share_url_test.js
-
-      - name: Check LuCI view regressions
-        run: node tests/node/luci_view_test.js
-
-      - name: Check LuCI apply and status interactions
-        run: node tests/node/steer_helper_test.js
-
-      - name: Check Linux web interactions
-        run: node tests/node/linux_web_test.js
-
-      - name: Check shared Go core and platform adapters
-        working-directory: go
+      - name: Verify tag ancestry and version consistency
+        id: version
         run: |
-          go test -race ./...
-          go vet ./...
+          git fetch --no-tags origin master:refs/remotes/origin/master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master || {
+            echo "Tag commit is not an ancestor of origin/master" >&2
+            exit 1
+          }
+          printf '%s\n' "$GITHUB_REF_NAME" \
+            | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+          version="${GITHUB_REF_NAME#v}"
+          package_version="${version%%-*}"
+          grep -Fqx "PKG_VERSION:=$package_version" steer/Makefile
+          grep -Fqx "PKG_VERSION:=$package_version" luci-app-steer/Makefile
+          grep -Fqx "pkgver=$package_version" packaging/archlinux/steer/PKGBUILD
+          grep -Fq "当前稳定版本为 **$package_version**" README.md
+          grep -Fq "当前稳定版本是 \`v$package_version\`" docs/PACKAGING.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Require a successful master CI push run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          run_id="$({
+            gh api --paginate \
+              "/repos/$REPOSITORY/actions/workflows/ci.yml/runs?branch=master&status=success&per_page=100" \
+              --jq ".workflow_runs[] | select(.head_sha == \"$SOURCE_REVISION\" and .event == \"push\") | .id"
+          } | head -n 1)"
+          [ -n "$run_id" ] || {
+            echo "No successful master CI push run found for $SOURCE_REVISION" >&2
+            exit 1
+          }
+          echo "Using successful master CI run $run_id"
 
   geodata:
     name: Resolve verified Geo seed
-    needs: verify
+    needs: source-gate
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.manifest.outputs.version }}
@@ -116,9 +118,11 @@ jobs:
   openwrt:
     name: OpenWrt 25.12.5 x86_64
     needs:
-      - verify
+      - source-gate
       - geodata
     runs-on: ubuntu-latest
+    env:
+      STEER_VERSION: ${{ needs.source-gate.outputs.version }}
 
     steps:
       - name: Check out source
@@ -278,9 +282,11 @@ jobs:
   linux:
     name: Generic Linux x86_64 and aarch64
     needs:
-      - verify
+      - source-gate
       - geodata
     runs-on: ubuntu-latest
+    env:
+      STEER_VERSION: ${{ needs.source-gate.outputs.version }}
 
     steps:
       - name: Check out source
@@ -365,9 +371,11 @@ jobs:
   linux-system:
     name: Linux system integration
     needs:
-      - verify
+      - source-gate
       - geodata
     runs-on: ubuntu-latest
+    env:
+      STEER_VERSION: ${{ needs.source-gate.outputs.version }}
     timeout-minutes: 20
 
     steps:
@@ -446,21 +454,166 @@ jobs:
           docker stop steer-linux-system >/dev/null 2>&1 || true
           docker container rm steer-linux-system >/dev/null 2>&1 || true
 
+  macos:
+    name: macOS ${{ matrix.arch }} DMG
+    needs:
+      - source-gate
+      - geodata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+            goarch: arm64
+            upstream_arch: arm64
+            sing_box_sha256: 0c57457917ad529da4af939a3da5e0ad1cfa639c140dd3de7b6248aef2170bcd
+          - runner: macos-15-intel
+            arch: x86_64
+            goarch: amd64
+            upstream_arch: amd64
+            sing_box_sha256: b0c45037c369616e744b8276bfc3be74f246d889531b73ca592a67c0e06bb432
+    runs-on: ${{ matrix.runner }}
+    env:
+      STEER_VERSION: ${{ needs.source-gate.outputs.version }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Confirm native runner and record toolchains
+        run: |
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          xcodebuild -version
+          swift --version
+          go version
+
+      - name: Download verified Geo seed from this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: geodata-seed
+          path: ${{ runner.temp }}/geodata-seed
+
+      - name: Build native Swift GUI and macOS helper
+        run: |
+          (
+            cd macos
+            swift build -c release --disable-sandbox
+            swift build -c release --show-bin-path > "$RUNNER_TEMP/swift-bin-path"
+          )
+          mkdir -p "$RUNNER_TEMP/steer-macos-binaries"
+          (
+            cd go
+            CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build \
+              -trimpath \
+              -ldflags "-s -w -X main.version=$STEER_VERSION" \
+              -o "$RUNNER_TEMP/steer-macos-binaries/steer-macos" \
+              ./cmd/steer-macos
+          )
+
+      - name: Download and verify official sing-box Darwin archive
+        run: |
+          archive="$RUNNER_TEMP/sing-box-darwin.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/sing-box-$SING_BOX_VERSION-darwin-${{ matrix.upstream_arch }}.tar.gz"
+          printf '%s  %s\n' '${{ matrix.sing_box_sha256 }}' "$archive" \
+            | shasum -a 256 -c
+          mkdir -p "$RUNNER_TEMP/sing-box-darwin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/sing-box-darwin"
+          set -- $(find "$RUNNER_TEMP/sing-box-darwin" -type f -name sing-box | sort)
+          [ "$#" -eq 1 ]
+          install -m 0755 "$1" "$RUNNER_TEMP/steer-macos-binaries/sing-box"
+          set -- $(find "$RUNNER_TEMP/sing-box-darwin" -type f -name 'LICENSE*' | sort)
+          [ "$#" -ge 1 ]
+          install -m 0644 "$1" "$RUNNER_TEMP/steer-macos-binaries/sing-box-LICENSE"
+
+      - name: Assemble, sign, and create native DMG
+        env:
+          STEER_APP_BINARY: ${{ runner.temp }}/steer-app-placeholder
+          STEER_HELPER_BINARY: ${{ runner.temp }}/steer-macos-binaries/steer-macos
+          STEER_SING_BOX_BINARY: ${{ runner.temp }}/steer-macos-binaries/sing-box
+          STEER_SING_BOX_LICENSE: ${{ runner.temp }}/steer-macos-binaries/sing-box-LICENSE
+          STEER_GEODATA_DIRECTORY: ${{ runner.temp }}/geodata-seed
+          STEER_OUTPUT_DIRECTORY: ${{ github.workspace }}/dist-macos
+          STEER_BUILD_NUMBER: ${{ github.run_number }}
+          STEER_TARGET_ARCH: ${{ matrix.arch }}
+          STEER_SOURCE_REVISION: ${{ github.sha }}
+          STEER_SOURCE_TAG: ${{ github.ref_name }}
+          STEER_SING_BOX_VERSION: ${{ env.SING_BOX_VERSION }}
+          STEER_SING_BOX_REVISION: ${{ env.SING_BOX_REVISION }}
+          STEER_SING_BOX_ARCHIVE_SHA256: ${{ matrix.sing_box_sha256 }}
+          STEER_GEO_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
+        run: |
+          export STEER_APP_BINARY="$(cat "$RUNNER_TEMP/swift-bin-path")/SteerApp"
+          export STEER_XCODE_VERSION="$(xcodebuild -version | tr '\n' ' ' | sed 's/ $//')"
+          export STEER_SWIFT_VERSION="$(swift --version | head -n 1)"
+          export STEER_GO_VERSION="$(go version)"
+          macos/scripts/build-app-bundle.sh
+
+      - name: Verify packaged DMG
+        run: |
+          cd dist-macos
+          shasum -a 256 -c SHA256SUMS
+          dmg="steer-macos-${{ matrix.arch }}.dmg"
+          mountpoint="$RUNNER_TEMP/steer-dmg-mount"
+          mkdir -p "$mountpoint"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mountpoint" "$dmg"
+          cleanup_mount() {
+            hdiutil detach "$mountpoint" >/dev/null 2>&1 || true
+          }
+          trap cleanup_mount EXIT
+          app="$mountpoint/Steer.app"
+          plutil -lint "$app/Contents/Info.plist"
+          test "$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")" = SteerApp
+          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = com.steer.steer
+          marketing_version="${STEER_VERSION%%-*}"
+          test "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" = "$marketing_version"
+          test "$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")" = 13.0
+          test "$(lipo -archs "$app/Contents/MacOS/SteerApp")" = '${{ matrix.arch }}'
+          test "$(lipo -archs "$app/Contents/Resources/Installer/steer-macos")" = '${{ matrix.arch }}'
+          test "$(lipo -archs "$app/Contents/Resources/Installer/sing-box")" = '${{ matrix.arch }}'
+          test -x "$app/Contents/MacOS/SteerApp"
+          test -x "$app/Contents/Resources/Installer/steer-macos"
+          test -x "$app/Contents/Resources/Installer/sing-box"
+          test -x "$app/Contents/Resources/Installer/install-embedded-payload.sh"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          if find "$app" -type f \( -name '*.dat' -o -name '*.go' -o -name '*.key' \) -print -quit | grep -q .; then
+            echo "DMG contains a forbidden source, key, or DAT file" >&2
+            exit 1
+          fi
+          hdiutil detach "$mountpoint"
+          trap - EXIT
+
+      - name: Upload native macOS DMG
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist-macos/
+          if-no-files-found: error
+          retention-days: 30
+
   bundle:
     name: Assemble verified release bundle
     needs:
+      - source-gate
       - geodata
       - openwrt
       - linux
       - linux-system
+      - macos
     runs-on: ubuntu-latest
+    env:
+      STEER_VERSION: ${{ needs.source-gate.outputs.version }}
 
     steps:
       - name: Download platform artifacts from this run
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p input/openwrt input/linux
+          mkdir -p input/openwrt input/linux input/macos-arm64 input/macos-x86_64
           gh run download "$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name openwrt-25.12.5-x86_64-packages \
@@ -469,6 +622,14 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --name linux-generic \
             --dir input/linux
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name macos-arm64 \
+            --dir input/macos-arm64
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name macos-x86_64 \
+            --dir input/macos-x86_64
 
       - name: Verify and assemble exact release assets
         run: |
@@ -478,25 +639,51 @@ jobs:
           set -- $(find input/linux -type f -name SHA256SUMS)
           [ "$#" -eq 1 ]
           linux_dist="$(dirname "$1")"
+          set -- $(find input/macos-arm64 -type f -name SHA256SUMS)
+          [ "$#" -eq 1 ]
+          macos_arm64_dist="$(dirname "$1")"
+          set -- $(find input/macos-x86_64 -type f -name SHA256SUMS)
+          [ "$#" -eq 1 ]
+          macos_x86_64_dist="$(dirname "$1")"
           (cd "$openwrt_dist" && sha256sum -c SHA256SUMS)
           (cd "$linux_dist" && sha256sum -c SHA256SUMS)
+          (cd "$macos_arm64_dist" && sha256sum -c SHA256SUMS)
+          (cd "$macos_x86_64_dist" && sha256sum -c SHA256SUMS)
           grep -Fqx "Source revision: $GITHUB_SHA" "$openwrt_dist/BUILD-METADATA.txt"
           grep -Fqx "Source revision: $GITHUB_SHA" "$linux_dist/BUILD-METADATA.txt"
+          grep -Fqx "Source revision: $GITHUB_SHA" "$macos_arm64_dist/BUILD-METADATA.txt"
+          grep -Fqx "Source revision: $GITHUB_SHA" "$macos_x86_64_dist/BUILD-METADATA.txt"
+          grep -Fqx "Source tag: $GITHUB_REF_NAME" "$macos_arm64_dist/BUILD-METADATA.txt"
+          grep -Fqx "Source tag: $GITHUB_REF_NAME" "$macos_x86_64_dist/BUILD-METADATA.txt"
 
           release_dir=release-artifact/dist
           mkdir -p "$release_dir"
           cp "$openwrt_dist"/*.apk "$release_dir/"
           cp "$linux_dist"/*.tar.zst "$release_dir/"
+          cp "$macos_arm64_dist"/steer-macos-arm64.dmg "$release_dir/"
+          cp "$macos_x86_64_dist"/steer-macos-x86_64.dmg "$release_dir/"
           {
             echo "Steer version: $STEER_VERSION"
+            echo "Source tag: $GITHUB_REF_NAME"
             echo "Source revision: $GITHUB_SHA"
             echo "OpenWrt release: $OPENWRT_RELEASE"
             echo "OpenWrt target: $OPENWRT_TARGET"
             echo "Geo data version: ${{ needs.geodata.outputs.version }}"
             echo "Geo manifest SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}"
             echo "sing-box version: $SING_BOX_VERSION"
+            echo "sing-box revision: $SING_BOX_REVISION"
             echo "Linux targets: x86_64 aarch64"
             echo "Linux build mode: CGO_ENABLED=0"
+            echo "macOS targets: arm64 x86_64"
+            echo "Minimum macOS: 13.0"
+            echo "macOS signing: ad-hoc"
+            echo "macOS notarization: none"
+            echo "macOS arm64 sing-box archive SHA256: $SING_BOX_DARWIN_ARM64_SHA256"
+            echo "macOS x86_64 sing-box archive SHA256: $SING_BOX_DARWIN_AMD64_SHA256"
+            echo "macOS arm64 toolchains:"
+            grep -E '^(Xcode|Swift|Go): ' "$macos_arm64_dist/BUILD-METADATA.txt"
+            echo "macOS x86_64 toolchains:"
+            grep -E '^(Xcode|Swift|Go): ' "$macos_x86_64_dist/BUILD-METADATA.txt"
           } > "$release_dir/BUILD-METADATA.txt"
 
           for pattern in \
@@ -505,7 +692,9 @@ jobs:
             'luci-app-steer-*.apk' \
             'luci-i18n-steer-zh-cn-*.apk' \
             'steer-linux-x86_64.tar.zst' \
-            'steer-linux-aarch64.tar.zst'; do
+            'steer-linux-aarch64.tar.zst' \
+            'steer-macos-arm64.dmg' \
+            'steer-macos-x86_64.dmg'; do
             set -- "$release_dir"/$pattern
             [ "$#" -eq 1 ] && [ -f "$1" ] || {
               echo "Expected exactly one release asset matching $pattern, found $#" >&2
@@ -514,7 +703,7 @@ jobs:
           done
           (
             cd "$release_dir"
-            sha256sum ./*.apk ./*.tar.zst BUILD-METADATA.txt > SHA256SUMS
+            sha256sum ./*.apk ./*.tar.zst ./*.dmg BUILD-METADATA.txt > SHA256SUMS
             sha256sum -c SHA256SUMS
           )
 
@@ -525,3 +714,179 @@ jobs:
           path: release-artifact/dist/
           if-no-files-found: error
           retention-days: 30
+
+  attestation:
+    name: Attest final release assets
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Download this run's release bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-bundle
+          path: release-artifact
+      - name: Verify final checksums
+        working-directory: release-artifact
+        run: sha256sum -c SHA256SUMS
+      - name: Create GitHub artifact attestations for macOS DMGs and checksums
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            release-artifact/steer-macos-arm64.dmg
+            release-artifact/steer-macos-x86_64.dmg
+            release-artifact/SHA256SUMS
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - source-gate
+      - bundle
+      - attestation
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download this run's release bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-bundle
+          path: release-artifact
+
+      - name: Verify release assets again
+        working-directory: release-artifact
+        env:
+          STEER_VERSION: ${{ needs.source-gate.outputs.version }}
+        run: |
+          sha256sum -c SHA256SUMS
+          grep -Fqx "Steer version: $STEER_VERSION" BUILD-METADATA.txt
+          grep -Fqx "Source tag: $GITHUB_REF_NAME" BUILD-METADATA.txt
+          grep -Fqx "Source revision: $GITHUB_SHA" BUILD-METADATA.txt
+          for pattern in \
+            'sing-box-*.apk' \
+            'steer-[0-9]*.apk' \
+            'luci-app-steer-*.apk' \
+            'luci-i18n-steer-zh-cn-*.apk' \
+            'steer-linux-x86_64.tar.zst' \
+            'steer-linux-aarch64.tar.zst' \
+            'steer-macos-arm64.dmg' \
+            'steer-macos-x86_64.dmg'; do
+            set -- $pattern
+            [ "$#" -eq 1 ] && [ -f "$1" ] || {
+              echo "Expected exactly one release asset matching $pattern, found $#" >&2
+              exit 1
+            }
+          done
+
+      - name: Create GitHub Release
+        working-directory: release-artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          release_flags=""
+          case "$RELEASE_TAG" in
+            *-*) release_flags="--prerelease" ;;
+          esac
+          gh release create "$RELEASE_TAG" ./* \
+            --repo "$REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            $release_flags \
+            --title "Steer $RELEASE_TAG"
+
+  pages:
+    name: Deploy stable OpenWrt repository
+    if: ${{ !contains(github.ref_name, '-') }}
+    needs:
+      - publish
+      - openwrt
+    concurrency:
+      group: pages-site
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source and Pages history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Download signed OpenWrt repository from this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: openwrt-repository
+          path: repository-artifact
+
+      - name: Verify signed OpenWrt repository
+        id: repository
+        run: |
+          set -- $(find repository-artifact -type f -name packages.adb)
+          [ "$#" -eq 1 ] || {
+            echo "Expected one packages.adb, found $#" >&2
+            exit 1
+          }
+          repository_dir="$(dirname "$1")"
+          (
+            cd "$repository_dir"
+            sha256sum -c SHA256SUMS
+            grep -Fqx "Source revision: $GITHUB_SHA" BUILD-METADATA.txt
+            openssl pkey -pubin -in steer-apk.pem -noout
+          )
+          echo "repository_dir=$repository_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare stable repository site
+        run: |
+          mkdir -p site
+          if git fetch origin refs/heads/pages:refs/remotes/origin/pages; then
+            git archive refs/remotes/origin/pages | tar -xf - -C site
+          fi
+          rm -rf site/openwrt/25.12.5/x86_64
+          mkdir -p site/openwrt/25.12.5/x86_64
+          cp "${{ steps.repository.outputs.repository_dir }}"/* site/openwrt/25.12.5/x86_64/
+          cp repository/index.html site/index.html
+          touch site/.nojekyll
+
+      - name: Publish one current generated branch commit
+        run: |
+          pages_repo="$RUNNER_TEMP/pages-repository"
+          mkdir -p "$pages_repo"
+          git -C "$pages_repo" init --initial-branch=pages
+          git -C "$pages_repo" config user.name github-actions[bot]
+          git -C "$pages_repo" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          auth_header="$(git config --get http.https://github.com/.extraheader)"
+          git -C "$pages_repo" config http.https://github.com/.extraheader "$auth_header"
+          git -C "$pages_repo" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          cp -R site/. "$pages_repo/"
+          git -C "$pages_repo" add --all
+          git -C "$pages_repo" commit -m "chore: publish current Pages state"
+          previous="$(git rev-parse --verify refs/remotes/origin/pages 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            git -C "$pages_repo" push \
+              --force-with-lease="refs/heads/pages:$previous" \
+              origin HEAD:pages
+          else
+            git -C "$pages_repo" push origin HEAD:pages
+          fi
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        with:
+          path: site
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128
