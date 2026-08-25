@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=steer
-PKG_VERSION:=0.7.0
+PKG_VERSION:=0.7.1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-3.0-or-later
@@ -59,7 +59,7 @@ mkdir -p /etc/crontabs
 grep -Fqx "$$cron_line" "$$cron_file" 2>/dev/null || echo "$$cron_line" >> "$$cron_file"
 /etc/init.d/cron restart
 
-# Switch the schema 8 intent through Steer's verified generation
+# Switch the schema 9 intent through Steer's verified generation
 # transaction. PKG_UPGRADE must not leak into the init calls made by Apply.
 apply_output="$$(PKG_UPGRADE=0 /usr/sbin/steer apply 2>&1)" || {
 	echo "$$apply_output" >&2

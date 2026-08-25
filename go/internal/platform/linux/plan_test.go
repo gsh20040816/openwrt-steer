@@ -24,6 +24,9 @@ func TestLinuxPlanCapturesHostAndForwardedTraffic(t *testing.T) {
 		t.Fatalf("Linux DNS listeners do not cover redirected IPv4 and IPv6 traffic: %#v %#v", dns4, dns6)
 	}
 	tun := target.Inbounds[0].(map[string]any)
+	if tun["dns_mode"] != "disabled" {
+		t.Fatalf("Linux TUN must leave DNS ownership to the dedicated shim: %#v", tun)
+	}
 	if _, restricted := tun["include_interface"]; restricted {
 		t.Fatal("Linux TUN unexpectedly restricts interception to a host interface")
 	}

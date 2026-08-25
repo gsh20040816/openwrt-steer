@@ -1,7 +1,7 @@
 {
   "main": {
     "id": "main",
-    "schema_version": 8,
+    "schema_version": 9,
     "enabled": false,
     "log_level": "warn",
     "probe_direct": "https://www.baidu.com/",
@@ -23,7 +23,7 @@
     {"id": "block", "enabled": true, "kind": "block"}
   ],
   "dns_profiles": [
-    {"id": "public", "enabled": true, "protocol": "udp", "server": "1.1.1.1", "server_port": 53, "strategy": "prefer_ipv4"}
+    {"id": "public", "enabled": true, "protocol": "udp", "server": "1.1.1.1", "server_port": 53}
   ],
   "local_proxies": [],
   "rules": [

@@ -18,7 +18,7 @@ func representativeIntent() model.Intent {
 		Bootstrap:    model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:        []model.Node{{ID: "node", Enabled: true, Type: "vless", Server: "node.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeTransport: model.NodeTransport{Flow: "xtls-rprx-vision", PacketEncoding: "xudp"}, NodeTLS: model.NodeTLS{TLSServerName: "www.example.com", RealityPublicKey: "fixture", RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome"}}},
 		Routes:       []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy", Enabled: true, Kind: "single", Node: "node"}, {ID: "block", Enabled: true, Kind: "block"}},
-		DNSProfiles:  []model.DNSProfile{{ID: "public", Enabled: true, Protocol: "https", Server: "1.1.1.1", ServerPort: 443, TLSServerName: "one.one.one.one", Path: "/dns-query", Strategy: "prefer_ipv4"}},
+		DNSProfiles:  []model.DNSProfile{{ID: "public", Enabled: true, Protocol: "https", Server: "1.1.1.1", ServerPort: 443, TLSServerName: "one.one.one.one", Path: "/dns-query"}},
 		LocalProxies: []model.LocalProxy{{ID: "local", Enabled: true, Protocol: "mixed", Listen: "127.0.0.1", ListenPort: 1090}},
 		Rules: []model.Rule{
 			{ID: "mac", Enabled: true, DNSProfile: "public", Route: "direct", SourceMACAddress: []string{"02:00:00:00:00:10"}},
@@ -32,7 +32,7 @@ func representativeIntent() model.Intent {
 func testOptions() Options {
 	return Options{StateDirectory: "/var/lib/steer", Target: Target{
 		Inbounds: []any{
-			map[string]any{"type": "tun", "tag": "steer-tun", "address": []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"}, "auto_route": true, "auto_redirect": true},
+			map[string]any{"type": "tun", "tag": "steer-tun", "address": []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"}, "dns_mode": "disabled", "auto_route": true, "auto_redirect": true},
 			map[string]any{"type": "direct", "tag": "steer-dns", "listen": "::", "listen_port": 1053},
 		},
 		DNSInboundTags:       []string{"steer-dns"},
@@ -72,6 +72,51 @@ func TestCompilePathIsolationAndProjection(t *testing.T) {
 	}
 	if !strings.Contains(string(encodedDNS), "steer-dns-public-via-proxy") {
 		t.Fatalf("proxy DNS path missing: %s", encodedDNS)
+	}
+	if strings.Contains(string(encodedDNS), `"strategy"`) {
+		t.Fatalf("DNS rules retained the deprecated route-action strategy: %s", encodedDNS)
+	}
+}
+
+func TestCompileUsesStrategyOnlyForInternalDomainResolution(t *testing.T) {
+	intent := representativeIntent()
+	intent.Bootstrap.Strategy = "prefer_ipv6"
+	intent.DNSProfiles = append(intent.DNSProfiles, model.DNSProfile{
+		ID: "hostname", Enabled: true, Protocol: "udp", Server: "resolver.example",
+		ServerPort: 53,
+	})
+	intent.Rules = append(intent.Rules[:len(intent.Rules)-1],
+		model.Rule{ID: "hostname", Enabled: true, DNSProfile: "hostname", Route: "direct", DomainMatch: []string{"domain:resolver.test"}},
+		intent.Rules[len(intent.Rules)-1],
+	)
+	bundle := Compile(intent, testOptions())
+	dns := bundle.SingBox["dns"].(map[string]any)
+	if dns["strategy"] != nil {
+		t.Fatalf("client DNS unexpectedly received a global address strategy: %#v", dns)
+	}
+	defaultResolver := bundle.SingBox["route"].(map[string]any)["default_domain_resolver"].(map[string]any)
+	if defaultResolver["strategy"] != "prefer_ipv6" {
+		t.Fatalf("route domain resolver lost bootstrap strategy: %#v", defaultResolver)
+	}
+	for _, raw := range dns["rules"].([]any) {
+		if rule := raw.(map[string]any); rule["strategy"] != nil {
+			t.Fatalf("DNS rule retained deprecated per-query strategy: %#v", rule)
+		}
+	}
+	foundResolver := false
+	for _, raw := range dns["servers"].([]any) {
+		server := raw.(map[string]any)
+		if server["tag"] != "steer-dns-hostname-via-direct" {
+			continue
+		}
+		resolver := server["domain_resolver"].(map[string]any)
+		if resolver["strategy"] != "prefer_ipv6" {
+			t.Fatalf("DNS server domain resolver lost its independent strategy: %#v", server)
+		}
+		foundResolver = true
+	}
+	if !foundResolver {
+		t.Fatal("hostname DNS server path was not compiled")
 	}
 }
 

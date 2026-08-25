@@ -13,7 +13,7 @@ func validIntent() Intent {
 		Bootstrap:   Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Nodes:       []Node{{ID: "proxy", Enabled: true, Type: "vless", Server: "proxy.example", ServerPort: 443, NodeCredentials: NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeTransport: NodeTransport{PacketEncoding: "xudp"}}},
 		Routes:      []Route{{ID: "direct", Enabled: true, Kind: "direct"}, {ID: "proxy_route", Enabled: true, Kind: "single", Node: "proxy"}, {ID: "block", Enabled: true, Kind: "block"}},
-		DNSProfiles: []DNSProfile{{ID: "dns", Enabled: true, Protocol: "https", Server: "1.1.1.1", ServerPort: 443, TLSServerName: "one.one.one.one", Path: "/dns-query", Strategy: "prefer_ipv4"}},
+		DNSProfiles: []DNSProfile{{ID: "dns", Enabled: true, Protocol: "https", Server: "1.1.1.1", ServerPort: 443, TLSServerName: "one.one.one.one", Path: "/dns-query"}},
 		Rules:       []Rule{{ID: "proxy_rule", Enabled: true, DNSProfile: "dns", Route: "proxy_route", DomainMatch: []string{"domain:example.com"}}, {ID: "default", Enabled: true, Default: true, DNSProfile: "dns", Route: "direct"}},
 	}
 }

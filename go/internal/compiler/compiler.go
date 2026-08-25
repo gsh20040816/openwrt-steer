@@ -201,7 +201,7 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		"server_port": intent.Bootstrap.ServerPort,
 	}}
 	for _, path := range dnsPaths {
-		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path))
+		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path, intent.Bootstrap.Strategy))
 	}
 
 	routeRules := []any{
@@ -228,7 +228,6 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 			} else {
 				dnsMatch["action"] = "route"
 				dnsMatch["server"] = dnsPathTag(rule.DNSProfile, rule.Route)
-				dnsMatch["strategy"] = profiles[rule.DNSProfile].Strategy
 			}
 			dnsRules = append(dnsRules, dnsMatch)
 		}
@@ -253,7 +252,7 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		})
 	}
 	dnsOptions := map[string]any{
-		"servers": dnsServers, "rules": dnsRules, "final": finalDNS, "strategy": profiles[defaultRule.DNSProfile].Strategy,
+		"servers": dnsServers, "rules": dnsRules, "final": finalDNS,
 		"cache_capacity": intent.Main.DNSCacheCapacity, "reverse_mapping": true,
 	}
 	if intent.Main.DNSOptimisticCache {
@@ -502,13 +501,13 @@ func compileTLS(serverName string, insecure bool, fingerprint, publicKey, shortI
 	return clean(result)
 }
 
-func compileDNSPath(profile model.DNSProfile, route model.Route, path DNSPath) map[string]any {
+func compileDNSPath(profile model.DNSProfile, route model.Route, path DNSPath, domainResolverStrategy string) map[string]any {
 	result := map[string]any{"type": profile.Protocol, "tag": path.Tag, "server": profile.Server, "server_port": profile.ServerPort}
 	if route.Kind == "single" {
 		result["detour"] = routeTag(path.Route)
 	}
 	if _, err := netip.ParseAddr(profile.Server); err != nil {
-		result["domain_resolver"] = map[string]any{"server": "steer-dns-bootstrap", "strategy": profile.Strategy}
+		result["domain_resolver"] = map[string]any{"server": "steer-dns-bootstrap", "strategy": domainResolverStrategy}
 	}
 	if profile.Protocol == "tls" || profile.Protocol == "https" || profile.Protocol == "quic" || profile.Protocol == "h3" {
 		result["tls"] = map[string]any{"enabled": true, "server_name": profile.TLSServerName, "insecure": profile.Insecure}

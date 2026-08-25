@@ -41,7 +41,7 @@ func Validate(intent Intent) Validation {
 	}
 
 	if intent.Main.SchemaVersion != SchemaVersion {
-		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 8 is supported")
+		err("UNSUPPORTED_SCHEMA", "steer", intent.Main.ID, "schema_version", "only schema 9 is supported")
 	}
 	if !validID.MatchString(intent.Main.ID) {
 		err("INVALID_ID", "steer", intent.Main.ID, "id", "invalid section ID")
@@ -517,9 +517,6 @@ func validateDNSProfile(value DNSProfile, err, warn issueFn) {
 	}
 	if oneOf(value.Protocol, "https", "h3") && value.Path != "" && !strings.HasPrefix(value.Path, "/") {
 		err("INVALID_DNS_PATH", "dns_profile", value.ID, "path", "DoH path must start with /")
-	}
-	if !validStrategy(value.Strategy) {
-		err("INVALID_DNS_STRATEGY", "dns_profile", value.ID, "strategy", "invalid DNS strategy")
 	}
 	if value.Insecure {
 		warn("INSECURE_TLS", "dns_profile", value.ID, "insecure", "DNS TLS certificate verification is disabled")

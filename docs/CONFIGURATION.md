@@ -1,12 +1,12 @@
 # 配置与使用
 
-当前公开配置是 schema 8。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 是严格 Canonical JSON 真相，不读取 UCI。Geo category 由包内 `/usr/share/steer/geodata-seed/manifest.json` 精确校验，不再配置 DAT 路径。
+当前公开配置是 schema 9。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 是严格 Canonical JSON 真相，不读取 UCI。Geo category 由包内 `/usr/share/steer/geodata-seed/manifest.json` 精确校验，不再配置 DAT 路径。
 
 ## 基本配置
 
 ```uci
 config steer 'main'
-	option schema_version '8'
+	option schema_version '9'
 	option enabled '1'
 	option log_level 'warn'
 	option dns_cache_capacity '4096'
@@ -79,10 +79,9 @@ config dns_profile 'secure_dns'
 	option server_port '443'
 	option tls_server_name 'one.one.one.one'
 	option path '/dns-query'
-	option strategy 'prefer_ipv4'
 ```
 
-协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。缓存容量、持久化与乐观缓存是全局设置；schema 8 不再提供无法精确表达的 profile 级缓存开关。
+协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。Steer 不设置全局 `dns.strategy`，普通客户端明确发出的 A/AAAA 查询保持透明；DNS server 使用域名时，其 `domain_resolver.strategy` 来自独立的 `bootstrap.strategy`。sing-box 1.14 已废弃 DNS rule action 的 query-level `strategy`，schema 9 删除了原 `dns_profile.strategy`，Steer 不再生成该字段。缓存容量、持久化与乐观缓存是全局设置。
 
 ## 规则
 
@@ -177,4 +176,4 @@ steer probe --kind speedtest --route <route-id> --download
 
 ## 版本与升级
 
-0.7 只在正常运行路径接受 schema 8。OpenWrt 包安装脚本会显式执行一次 schema 7→8 窄迁移；Arch 包升级脚本调用同一 Linux 迁移命令；通用 Linux 归档用户在替换服务前运行 `steer migrate --config /etc/steer/config.json`。迁移只删除从未生效的 DNS profile cache 字段并更新 schema 号，其他语义保持不变。旧版本遗留的 `/var/lib/steer/rollback.uci` 仍会被删除。
+0.7.1 只在正常运行路径接受 schema 9。OpenWrt 包安装脚本会显式执行一次 schema 8→9 迁移；Arch 包升级脚本调用同一 Linux 迁移命令；通用 Linux 归档用户在替换服务前运行 `steer migrate --config /etc/steer/config.json`。迁移删除所有 `dns_profile.strategy`，不设置替代的客户端 DNS 地址族策略；`bootstrap.strategy` 保持不变并只服务内部域名解析。schema 7 及更早配置不再支持迁移。旧版本遗留的 `/var/lib/steer/rollback.uci` 仍会被删除。

@@ -29,9 +29,6 @@ return view.extend({
 		o.rmempty = false; o.editable = true;
 		o = s.taboption('general', form.Value, 'server', _('Server')); o.rmempty = false; o.editable = true;
 		o = s.taboption('general', form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false; o.modalonly = true;
-		o = s.taboption('general', form.ListValue, 'strategy', _('Address strategy'));
-		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
-		o.default = 'prefer_ipv4'; o.rmempty = false; o.modalonly = true;
 		o = s.taboption('general', form.Value, 'path', _('HTTP path')); o.placeholder = '/dns-query'; o.modalonly = true; o.depends('protocol', 'https'); o.depends('protocol', 'h3');
 
 		o = s.taboption('tls', form.Value, 'tls_server_name', _('TLS server name')); o.modalonly = true;

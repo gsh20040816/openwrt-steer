@@ -64,7 +64,7 @@ if "$(1)/usr/sbin/steer-openwrt" in makefile or "/usr/sbin/steer-openwrt" in rpc
     fail("retired steer-openwrt CLI name is still user-visible")
 
 if '/usr/sbin/steer migrate --config "$$config"' not in makefile:
-    fail("steer package must run the explicit schema 7 to 8 migration")
+    fail("steer package must run the explicit schema 8 to 9 migration")
 for retired_migration in (
     "for option in probe_direct probe_proxy speedtest_proxy",
     "uci set steer.main.schema_version='7'",
@@ -75,10 +75,10 @@ for retired_migration in (
         fail(f"package retained expired alpha migration: {retired_migration}")
 if "PKG_NAME:=steer" not in makefile or "define Package/steer" not in makefile:
     fail("the OpenWrt controller package must be named steer")
-if "PKG_VERSION:=0.7.0\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
-	fail("steer package version must be the stable 0.7.0-r1 release")
-if "PKG_VERSION:=0.7.0\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
-	fail("LuCI packages must use the stable 0.7.0-r1 release")
+if "PKG_VERSION:=0.7.1\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
+	fail("steer package version must be the stable 0.7.1-r1 release")
+if "PKG_VERSION:=0.7.1\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
+	fail("LuCI packages must use the stable 0.7.1-r1 release")
 if "github.com/gsh20040816/steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
     fail("steer must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):
@@ -89,7 +89,7 @@ if "*/15 * * * * /usr/sbin/steer subscription update" not in makefile:
 if "[ -x /etc/init.d/cron ]" not in makefile:
     fail("subscription dispatcher must fail fast when BusyBox crond is unavailable")
 if "PKG_UPGRADE=0 /usr/sbin/steer apply" not in makefile:
-    fail("post-upgrade must switch the schema 8 intent through verified Apply")
+    fail("post-upgrade must switch the schema 9 intent through verified Apply")
 if "PKG_UPGRADE=0 /etc/init.d/steer start" in makefile:
     fail("post-upgrade must not leave an already-running sing-box instance unchanged")
 if "subscription_update" not in rpc or "subscription_update" not in acl:

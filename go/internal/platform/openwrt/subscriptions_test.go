@@ -282,7 +282,7 @@ func TestUpdateSubscriptionStillRejectsGlobalCandidateConflicts(t *testing.T) {
 
 func validSubscriptionConfig(subscriptionURL string) string {
 	return `config steer 'main'
-	option schema_version '8'
+	option schema_version '9'
 	option enabled '1'
 	option log_level 'warn'
 	option probe_direct 'https://www.baidu.com/'
@@ -305,7 +305,6 @@ config dns_profile 'resolver'
 	option protocol 'udp'
 	option server '1.1.1.1'
 	option server_port '53'
-	option strategy 'prefer_ipv4'
 
 config rule 'default'
 	option default '1'

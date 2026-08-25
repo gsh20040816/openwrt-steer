@@ -100,7 +100,7 @@
 
       if (!isCurrent()) return;
       root.append(
-        ui.viewHead('配置 · 高级', 'Canonical JSON 原文（schema 8）。结构化视图与本视图共享同一工作副本', [revBadge, dirtyBadge]),
+		ui.viewHead('配置 · 高级', 'Canonical JSON 原文（schema 9）。结构化视图与本视图共享同一工作副本', [revBadge, dirtyBadge]),
         h('section', { class: 'card' }, [
           h('div', { class: 'editor-actions' }, [
             h('button', { class: 'btn', onclick: validate }, '校验'),

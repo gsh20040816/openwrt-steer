@@ -13,11 +13,11 @@ import (
 	"github.com/gsh20040816/steer/go/internal/platform/openwrt/uci"
 )
 
-func MigrateSchema7(ctx context.Context, configPath string) (bool, error) {
-	return MigrateSchema7WithWriter(ctx, configPath, SystemUCIWriter(configPath))
+func MigrateSchema8(ctx context.Context, configPath string) (bool, error) {
+	return MigrateSchema8WithWriter(ctx, configPath, SystemUCIWriter(configPath))
 }
 
-func MigrateSchema7WithWriter(ctx context.Context, configPath string, writer UCIWriter) (bool, error) {
+func MigrateSchema8WithWriter(ctx context.Context, configPath string, writer UCIWriter) (bool, error) {
 	if writer == nil {
 		return false, fmt.Errorf("schema migration requires a UCI writer")
 	}
@@ -48,7 +48,7 @@ func MigrateSchema7WithWriter(ctx context.Context, configPath string, writer UCI
 			return false, err
 		}
 		return false, nil
-	case "7":
+	case "8":
 	default:
 		return false, fmt.Errorf("cannot migrate UCI schema %q", schema)
 	}
@@ -62,12 +62,9 @@ func MigrateSchema7WithWriter(ctx context.Context, configPath string, writer UCI
 		if section.Type != "dns_profile" {
 			continue
 		}
-		for _, option := range []string{"cache_persist", "optimistic_cache"} {
-			if _, exists := section.Options[option]; !exists {
-				continue
-			}
-			delete(section.Options, option)
-			fmt.Fprintf(&batch, "delete steer.%s.%s\n", section.ID, option)
+		if _, exists := section.Options["strategy"]; exists {
+			delete(section.Options, "strategy")
+			fmt.Fprintf(&batch, "delete steer.%s.strategy\n", section.ID)
 		}
 	}
 	value, err := decodeDocument(migrated)

@@ -1,7 +1,7 @@
 {
   "main": {
     "id": "main",
-    "schema_version": 8,
+    "schema_version": 9,
     "enabled": false,
     "log_level": "debug",
     "probe_direct": "https://direct.example/",
@@ -23,7 +23,7 @@
     {"id": "block", "enabled": true, "kind": "block"}
   ],
   "dns_profiles": [
-    {"id": "test", "enabled": true, "protocol": "udp", "server": "11.77.0.2", "server_port": 53, "strategy": "prefer_ipv4"}
+    {"id": "test", "enabled": true, "protocol": "udp", "server": "11.77.0.2", "server_port": 53}
   ],
   "local_proxies": [],
   "rules": [

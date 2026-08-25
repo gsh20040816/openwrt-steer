@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  STEER_VERSION: 0.7.0
+  STEER_VERSION: 0.7.1
   # OpenWrt, Linux and the Git tag use the same stable public version.
   OPENWRT_RELEASE: 25.12.5
   OPENWRT_TARGET: x86/64

@@ -74,14 +74,15 @@ ubus call luci.steer geodata_catalog > "$TEST_DIR/geodata-catalog.json"
 # validator. Native compilation is exercised by normal Apply below and by the
 # shared Go compiler tests; no engineering compiler command is public.
 /usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/m1-representative-valid/steer" > "$TEST_DIR/representative-validation.json"
-/usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/schema8-detour-valid/steer" > "$TEST_DIR/detour-validation.json"
+/usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/detour-valid/steer" > "$TEST_DIR/detour-validation.json"
 
 cp "$REPO_DIR/tests/fixtures/m1-openwrt-direct-valid/steer" /etc/config/steer
 
 # Package installation/boot establishes the procd service and its config
 # trigger before LuCI can edit an already running configuration.
-/usr/sbin/steer apply > "$TEST_DIR/initial-apply.json"
-[ "$(jsonfilter -q -i "$TEST_DIR/initial-apply.json" -e '@.ok')" = 'true' ]
+	/usr/sbin/steer apply > "$TEST_DIR/initial-apply.json"
+	[ "$(jsonfilter -q -i "$TEST_DIR/initial-apply.json" -e '@.ok')" = 'true' ]
+	grep -Fq '"dns_mode": "disabled"' /run/steer/current/sing-box.json
 grep -Fq '"initial_path"' /run/steer/current/sing-box.json
 grep -Fq '"type": "remote"' /run/steer/current/sing-box.json
 [ -s /var/lib/steer/cache.db ]
