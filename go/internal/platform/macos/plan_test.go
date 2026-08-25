@@ -45,7 +45,7 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 	}
 	bundle := compiler.Compile(value, NewPlan(value).CompilerOptions("/tmp/steer-state"))
 	encoded, _ := json.Marshal(bundle.SingBox["route"])
-	if !strings.Contains(string(encoded), `"action":"hijack-dns"`) || !strings.Contains(string(encoded), `"port":["53"]`) {
+	if !strings.Contains(string(encoded), `"action":"hijack-dns"`) || !strings.Contains(string(encoded), `"port":[53]`) {
 		t.Fatalf("macOS TUN DNS capture rule is missing: %s", encoded)
 	}
 	if strings.Contains(string(encoded), `"auto_redirect"`) {

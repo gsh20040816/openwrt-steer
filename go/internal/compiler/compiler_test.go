@@ -168,7 +168,7 @@ func TestCompileTUNPort53DNSCaptureIsExplicit(t *testing.T) {
 	bundle := Compile(representativeIntent(), options)
 	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
 	first := rules[0].(map[string]any)
-	if first["action"] != "hijack-dns" || !strings.Contains(string(mustJSON(first)), `"port":["53"]`) {
+	if first["action"] != "hijack-dns" || !strings.Contains(string(mustJSON(first)), `"port":[53]`) {
 		t.Fatalf("TUN port-53 capture was not explicit: %#v", first)
 	}
 }

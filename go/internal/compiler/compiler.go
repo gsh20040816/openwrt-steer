@@ -233,7 +233,7 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 	case DNSCaptureTUNPort53Hijack:
 		if len(capture.InboundTags) > 0 {
 			routeRules = append(routeRules, map[string]any{
-				"inbound": capture.InboundTags, "network": []string{"tcp", "udp"}, "port": []string{"53"}, "action": "hijack-dns",
+				"inbound": capture.InboundTags, "network": []string{"tcp", "udp"}, "port": []uint16{53}, "action": "hijack-dns",
 			})
 		}
 	}

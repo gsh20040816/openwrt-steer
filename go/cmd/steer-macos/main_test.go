@@ -60,7 +60,7 @@ func TestRunCompileEmitsMacOSTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{`"action": "hijack-dns"`, `"port": [
-            "53"
+            53
           ]`, `"auto_route": true`} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("compiled macOS output is missing %s:\n%s", expected, output.String())
