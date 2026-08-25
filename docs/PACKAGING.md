@@ -11,7 +11,7 @@ Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SR
 5. 控制器只依赖无版本的 `sing-box` 提供者；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求用户指定兼容版本/构建。当前 CI 发布构建和系统验收固定使用官方 `1.14.0-rc.1` 作为验证基线，不构成运行时依赖约束。
 6. master 不构建或保存正式发布包。tag 必须指向 `origin/master` 的祖先，且同一 `head_sha` 已有成功的 master CI push run；随后在同一个 tag workflow/run 内重新构建、验收、attest 并发布所有资产。预发布 tag 创建 GitHub prerelease，但不替换稳定 OpenWrt 软件源。
 
-当前稳定版本是 `v0.8.0`。OpenWrt APK 与 Arch `pkgver` 同为 `0.8.0`，Git tag、Linux 与 macOS 构件使用相同的公开 SemVer 版本。
+当前稳定版本是 `v0.8.1`。OpenWrt APK 与 Arch `pkgver` 同为 `0.8.1`，Git tag、Linux 与 macOS 构件使用相同的公开 SemVer 版本。
 
 ## Geo SRS
 
@@ -43,13 +43,13 @@ Pages 只保存当前版本，不承诺历史 seed 或可重复取得任意旧�
 
 ## OpenWrt
 
-`v0.8.0` 面向 OpenWrt 25.12.5 x86/64：
+`v0.8.1` 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.8.0-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
-| `luci-app-steer` | `0.8.0-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.8.0-r1` | 简体中文翻译 |
+| `steer` | `0.8.1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
+| `luci-app-steer` | `0.8.1-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.8.1-r1` | 简体中文翻译 |
 | `sing-box` | `1.14.0_rc1-r0` | SagerNet 官方 x86_64 APK，经内容核验后改用 Steer 仓库密钥签名 |
 
 Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签后比较除签名记录外的 APK 元数据，再用仓库公钥验证安装包。软件源的四个 APK 与 `packages.adb` 使用同一 Steer P-256 信任根；私钥只来自 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY`，不得进入源码、构件、Release 或 Pages。
@@ -143,6 +143,7 @@ Steer.app/
         │   ├── install-embedded-payload.sh
         │   ├── com.steer.steer.plist
         │   ├── com.steer.steer.control.plist
+        │   ├── com.steer.steer.subscription.plist
         │   ├── config.example.json
         │   └── PAYLOAD-SHA256SUMS
         ├── geodata-seed/{manifest.json,rules/...}
@@ -151,7 +152,7 @@ Steer.app/
 
 `Info.plist` 在组装时写入真实版本、纯数字 build number、`CFBundleExecutable=SteerApp`、`CFBundleIdentifier=com.steer.steer` 与 `LSMinimumSystemVersion=13.0`，不得残留 Xcode build setting。Swift GUI 固定由 Xcode 26.6/macOS 26 SDK 构建，同时保持最低部署目标 13.0；构建会检查 SDK、deployment target、Mach-O 单一架构、权限、helper validate/parse-nodes、sing-box version/tags/revision、Geo manifest、禁止文件，并先 ad-hoc 签嵌套二进制再签 App。项目没有 Developer ID，`Notarization: none`；DMG 与 App 不得宣传为 notarized，Gatekeeper 首次手动确认属于预期行为。
 
-正式 App 的 embedded installer 只从 `Bundle.resources/Installer` 读取普通、非 symlink、带 SHA 清单的 payload，不依赖 PATH，也不现场编译。首次安装输入一次管理员密码，安装 root-owned helper/sing-box、运行 LaunchDaemon 和 `com.steer.steer.control`。后者只在 `/var/run/steer/control.sock` 接受经过 peer credential 校验的 `save`/`apply` 请求，因此日常 GUI 写操作不再重复授权；升级保留用户 config 与 mutable run/state。
+正式 App 的 embedded installer 只从 `Bundle.resources/Installer` 读取普通、非 symlink、带 SHA 清单的 payload，不依赖 PATH，也不现场编译。首次安装输入一次管理员密码，安装 root-owned helper/sing-box、运行数据面、control 与订阅调度三个 LaunchDaemon。control 只在 `/var/run/steer/control.sock` 接受经过 peer credential 校验的 `save`、`apply` 和订阅更新/清理请求，因此日常 GUI 写操作不再重复授权；升级保留用户 config 与 mutable run/state。
 
 DMG 与最终 `SHA256SUMS` 使用 GitHub artifact attestation。验证示例：
 
@@ -223,10 +224,10 @@ python3 tests/check-build-cache.py
 python3 tests/check-linux-packaging.py
 python3 tests/check-macos-contract.py
 python3 tests/check-macos-packaging.py
-node tests/node/share_url_test.js
 node tests/node/luci_view_test.js
 node tests/node/steer_helper_test.js
 node tests/node/linux_web_test.js
+python3 tests/check-ui-contract.py
 sh -n tests/integration/run-openwrt-vm.sh
 sh -n tests/integration/run-linux-system.sh
 git diff --check

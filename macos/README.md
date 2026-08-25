@@ -6,9 +6,9 @@ macOS 的正式产品由 SwiftUI GUI 前端和 LaunchDaemon 后端组成：
 SteerApp
   ├── read config / validate / status（无授权弹窗）
   ├── 首次安装 embedded payload（一次管理员授权）
-  └── save / apply（后续免密）
+  └── save / apply / subscription update-clean（后续免密）
              ↓ /var/run/steer/control.sock
-steer-macos _control（root、仅允许 save/apply）
+steer-macos _control（root、仅允许固定配置与订阅操作）
              ↓
 steer-macos helper
   └── launchd lifecycle → external sing-box → Darwin TUN
@@ -22,7 +22,7 @@ GUI 与 OpenWrt LuCI、Linux Web 同级：它编辑同一份 Canonical Intent，
 
 - `SteerApp/`：SwiftUI 配置与运维前端；
 - `../go/internal/platform/macos/`：Darwin TUN、DNS port-53 capture、generation 和 launchd backend；
-- `launchd/`：运行 LaunchDaemon 与常驻 root control LaunchDaemon plist；
+- `launchd/`：运行、常驻 root control 与订阅调度 LaunchDaemon plist；
 - `scripts/build-app-bundle.sh`：唯一的 App/DMG 组装、验收和 ad-hoc 签名脚本；
 - `scripts/install-embedded-payload.sh`：正式 App 内置的固定 payload 安装器；
 - `scripts/install-launchdaemon.sh`：源码开发时构建 helper、发现 sing-box、安装并 bootstrap 服务；
@@ -37,7 +37,7 @@ steer-macos-arm64.dmg
 steer-macos-x86_64.dmg
 ```
 
-将 App 拖入 `/Applications` 后，首次在“系统”页安装系统组件并输入一次管理员密码。之后 GUI Save/Apply 经 `root:admin 0660` socket 和 Darwin peer credentials 保护的结构化 IPC 完成，不执行任意 shell 命令，也不再请求密码。
+将 App 拖入 `/Applications` 后，首次在“系统”页安装系统组件并输入一次管理员密码。之后 GUI Save/Apply 与订阅更新/清理经 `root:admin 0660` socket 和 Darwin peer credentials 保护的结构化 IPC 完成，不执行任意 shell 命令，也不再请求密码。
 
 当前只有 ad-hoc 签名，没有 Developer ID 和 notarization。用户仍需按 macOS 未认证开发者流程首次确认；GitHub artifact attestation 可验证来源，但不会让 Gatekeeper 自动放行。
 
@@ -66,7 +66,7 @@ swift build --disable-sandbox
 swift run SteerApp
 ```
 
-安装器把配置设为 `root:admin 0640`，并公开不含密钥的 generation 摘要，因此 GUI 启动、刷新状态和 Validate 不需要管理员授权。开发安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，并安装 `com.steer.steer.control`；后续 Save/Apply 与正式 App 使用同一受限免密 IPC。
+安装器把配置设为 `root:admin 0640`，并公开不含密钥的 generation 摘要，因此 GUI 启动、刷新状态、Validate、探测和 Geo catalog 不需要管理员授权。开发安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，并安装 control 与订阅调度服务；后续 Save/Apply 与订阅更新/清理和正式 App 使用同一受限免密 IPC。
 
 ## TUN、DNS 和 Geo
 

@@ -5,12 +5,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -36,13 +39,19 @@ const (
 type controlRequest struct {
 	SchemaVersion int    `json:"schema_version"`
 	Operation     string `json:"operation"`
-	Document      string `json:"document"`
+	Document      string `json:"document,omitempty"`
+	ID            string `json:"id,omitempty"`
+	NodeID        string `json:"node_id,omitempty"`
 }
 
 type controlResponse struct {
 	SchemaVersion int                   `json:"schema_version"`
 	OK            bool                  `json:"ok"`
+	Saved         bool                  `json:"saved"`
+	Applied       bool                  `json:"applied"`
+	Revision      string                `json:"revision,omitempty"`
 	Status        *macosplatform.Status `json:"status,omitempty"`
+	Payload       json.RawMessage       `json:"payload,omitempty"`
 	Error         string                `json:"error,omitempty"`
 }
 
@@ -62,17 +71,29 @@ func runControlClient(args []string, stdout io.Writer) error {
 	socketPath := flags.String("socket", defaultControlSocket, "root control service socket")
 	operation := flags.String("operation", "", "restricted operation: save or apply")
 	inputPath := flags.String("input", "", "canonical JSON input file")
+	id := flags.String("id", "", "subscription ID for a restricted subscription operation")
+	nodeID := flags.String("node", "", "stale node ID for a restricted subscription operation")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || (*operation != "save" && *operation != "apply") || *inputPath == "" {
-		return errors.New("control requires --operation save|apply and --input")
+	allowed := *operation == "save" || *operation == "apply" || *operation == "subscription-update" || *operation == "subscription-clean"
+	if flags.NArg() != 0 || !allowed {
+		return errors.New("control requires a supported restricted operation")
 	}
-	document, err := readLimitedFile(*inputPath, maxControlDocument)
-	if err != nil {
-		return fmt.Errorf("read control input: %w", err)
+	var document []byte
+	var err error
+	if *operation == "save" || *operation == "apply" {
+		if *inputPath == "" {
+			return errors.New("control save/apply requires --input")
+		}
+		document, err = readLimitedFile(*inputPath, maxControlDocument)
+		if err != nil {
+			return fmt.Errorf("read control input: %w", err)
+		}
+	} else if *id == "" || (*operation == "subscription-clean" && *nodeID == "") {
+		return errors.New("control subscription operation requires --id and clean also requires --node")
 	}
-	request := controlRequest{SchemaVersion: controlSchemaVersion, Operation: *operation, Document: string(document)}
+	request := controlRequest{SchemaVersion: controlSchemaVersion, Operation: *operation, Document: string(document), ID: *id, NodeID: *nodeID}
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -109,13 +130,17 @@ func runControlClient(args []string, stdout io.Writer) error {
 	if response.SchemaVersion != controlSchemaVersion {
 		return fmt.Errorf("unsupported control response schema %d", response.SchemaVersion)
 	}
+	writeErr := writeJSON(stdout, response)
+	if writeErr != nil {
+		return writeErr
+	}
 	if !response.OK {
 		if response.Error == "" {
 			response.Error = "control operation failed"
 		}
 		return errors.New(response.Error)
 	}
-	return writeJSON(stdout, response)
+	return nil
 }
 
 func runControlService(args []string) error {
@@ -200,8 +225,60 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = fmt.Sprintf("unsupported control request schema %d", request.SchemaVersion)
 		return response
 	}
-	if request.Operation != "save" && request.Operation != "apply" {
+	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" {
 		response.Error = "unsupported control operation"
+		return response
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.options.RunDirectory != "" {
+		lock, err := acquireLock(service.options.RunDirectory)
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		defer lock.Close()
+	}
+	if request.Operation == "subscription-update" {
+		snapshots, err := macosplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, service.configPath, service.options.StateDirectory, request.ID)
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		if err := setControlConfigurationPermissions(service.configPath, service.adminGID); err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		for _, snapshot := range snapshots {
+			if err := setControlStatePermissions(filepath.Join(service.options.StateDirectory, "subscriptions", snapshot.SubscriptionID+".json"), service.adminGID); err != nil {
+				response.Error = err.Error()
+				return response
+			}
+		}
+		response.Payload, _ = json.Marshal(struct {
+			Snapshots []macosplatform.SubscriptionSnapshot `json:"snapshots"`
+		}{snapshots})
+		response.OK = true
+		return response
+	}
+	if request.Operation == "subscription-clean" {
+		snapshot, err := macosplatform.CleanSubscriptionNode(service.configPath, service.options.StateDirectory, request.ID, request.NodeID)
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		if err := setControlConfigurationPermissions(service.configPath, service.adminGID); err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		if err := setControlStatePermissions(filepath.Join(service.options.StateDirectory, "subscriptions", snapshot.SubscriptionID+".json"), service.adminGID); err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		response.Payload, _ = json.Marshal(struct {
+			Snapshot macosplatform.SubscriptionSnapshot `json:"snapshot"`
+		}{snapshot})
+		response.OK = true
 		return response
 	}
 	if len(request.Document) == 0 || len(request.Document) > maxControlDocument {
@@ -218,8 +295,6 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = fmt.Sprintf("canonical configuration has %d validation error(s)", len(validation.Errors))
 		return response
 	}
-	service.mu.Lock()
-	defer service.mu.Unlock()
 	write := service.write
 	if write == nil {
 		write = writeControlConfiguration
@@ -228,6 +303,8 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = err.Error()
 		return response
 	}
+	response.Saved = true
+	response.Revision = controlRevision([]byte(request.Document))
 	if request.Operation == "apply" {
 		apply := service.apply
 		if apply == nil {
@@ -237,6 +314,7 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			response.Error = err.Error()
 			return response
 		}
+		response.Applied = true
 		readStatus := service.status
 		if readStatus == nil {
 			readStatus = func(options macosplatform.BackendOptions) macosplatform.Status {
@@ -250,8 +328,39 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 	return response
 }
 
+func controlRevision(content []byte) string {
+	sum := sha256.Sum256(content)
+	return "sha256-" + hex.EncodeToString(sum[:])
+}
+
+func setControlConfigurationPermissions(path string, adminGID int) error {
+	if err := os.Chown(path, 0, adminGID); err != nil {
+		return fmt.Errorf("set canonical configuration owner: %w", err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		return fmt.Errorf("set canonical configuration mode: %w", err)
+	}
+	return nil
+}
+
+func setControlStatePermissions(path string, adminGID int) error {
+	if err := os.Chown(filepath.Dir(path), 0, adminGID); err != nil {
+		return fmt.Errorf("set subscription state directory owner: %w", err)
+	}
+	if err := os.Chmod(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("set subscription state directory mode: %w", err)
+	}
+	if err := os.Chown(path, 0, adminGID); err != nil {
+		return fmt.Errorf("set subscription state owner: %w", err)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		return fmt.Errorf("set subscription state mode: %w", err)
+	}
+	return nil
+}
+
 func applyControlConfiguration(value model.Intent, options macosplatform.BackendOptions) error {
-	return runLockedApply(options.RunDirectory, func() (coreapply.Result, error) {
+	return runApplyOperation(options.RunDirectory, func() (coreapply.Result, error) {
 		backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, options)
 		return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 	}, io.Discard)

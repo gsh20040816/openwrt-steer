@@ -8,7 +8,7 @@
 'require ui';
 'require view';
 'require steer as steer';
-'require steer.share-url as shareUrl';
+'require steer.ui-spec as uiSpec';
 
 const manualNodeGroup = '_manual';
 
@@ -86,23 +86,79 @@ function collectRouteReferences(routes) {
 }
 
 function protocolLabel(value) {
+	return uiSpec.node_types.find((item) => item.value == value)?.label || value || null;
+}
+
+function nodeFieldLabel(field) {
 	const labels = {
-		socks: 'SOCKS',
-		http: 'HTTP CONNECT',
-		shadowsocks: 'Shadowsocks',
-		vmess: 'VMess',
-		vless: 'VLESS',
-		hysteria: 'Hysteria',
-		hysteria2: 'Hysteria2',
-		shadowtls: 'ShadowTLS',
-		tuic: 'TUIC',
-		anytls: 'AnyTLS',
-		naive: 'NaiveProxy',
-		ssh: 'SSH',
-		tor: 'Tor',
-		trojan: 'Trojan'
+		uuid: _('UUID'), username: _('Username'), password: _('Password'), method: 'Method', plugin: 'Plugin',
+		plugin_options: 'Plugin options', security: 'Security', alter_id: 'Alter ID', network: 'Network',
+		packet_encoding: _('UDP packet encoding'), flow: _('Flow'), transport: _('Transport'),
+		transport_path: 'Transport path', transport_host: 'Transport host', service_name: 'gRPC service name',
+		server_ports: _('Port hopping ranges'), hop_interval: _('Port hopping interval'), obfs_type: _('Obfuscation'),
+		obfs_password: _('Obfuscation password'), up_mbps: _('Upload Mbps'), down_mbps: _('Download Mbps'),
+		version: 'Version', congestion_control: 'Congestion control', udp_relay_mode: 'UDP relay mode',
+		udp_over_stream: 'UDP over stream', zero_rtt_handshake: '0-RTT handshake', heartbeat: 'Heartbeat',
+		quic: 'QUIC', quic_congestion_control: 'QUIC congestion control', insecure_concurrency: 'Insecure concurrency',
+		private_key: 'Private key', host_key: 'Host key', host_key_algorithms: 'Host key algorithms',
+		executable_path: 'Executable path', extra_args: 'Extra arguments', data_directory: 'Data directory',
+		tls_server_name: _('TLS server name'), insecure: _('Skip certificate verification'),
+		reality_public_key: _('REALITY public key'), reality_short_id: _('REALITY short ID'),
+		utls_fingerprint: _('uTLS fingerprint')
 	};
-	return labels[value] || value || null;
+	return labels[field.key] || field.label;
+}
+
+function nodeChoiceLabel(item) {
+	const labels = {
+		'': _('Default'), 'None': _('None'), 'Default': _('Default'),
+		'System default': _('System default')
+	};
+	return labels[item.label] || item.label;
+}
+
+function addGeneratedNodeField(section, field) {
+	let widget = form.Value;
+	if (field.control == 'boolean')
+		widget = form.Flag;
+	else if (field.control == 'select' || field.control == 'select-integer')
+		widget = form.ListValue;
+	else if (field.control == 'string-list')
+		widget = form.DynamicList;
+	else if (field.multiline)
+		widget = form.TextValue;
+
+	const option = section.taboption(field.section, widget, field.key, nodeFieldLabel(field));
+	option.modalonly = true;
+	if (field.control == 'password')
+		option.password = true;
+	if (field.control == 'integer')
+		option.datatype = 'uinteger';
+	if (field.multiline)
+		option.rows = 6;
+	if (field.placeholder)
+		option.placeholder = field.placeholder;
+	if (field.default !== undefined)
+		option.default = typeof(field.default) == 'boolean' ? (field.default ? '1' : '0') : String(field.default);
+	(field.options || []).forEach((item) => option.value(item.value, nodeChoiceLabel(item)));
+
+	if (field.when) {
+		field.types.forEach((type) => field.when.values.forEach((value) => {
+			option.depends({ type: type, [field.when.field]: value });
+		}));
+	}
+	else {
+		field.types.forEach((type) => option.depends('type', type));
+	}
+	if ((field.required_types || []).length) {
+		option.validate = function(sectionId, value) {
+			const type = uci.get('steer', sectionId, 'type');
+			if (field.required_types.includes(type) && (value == null || value === '' || (Array.isArray(value) && !value.length)))
+				return _('%s is required for %s nodes.').format(nodeFieldLabel(field), protocolLabel(type));
+			return true;
+		};
+	}
+	return option;
 }
 
 function selectedNodeGroup(groups) {
@@ -180,42 +236,6 @@ function renderSubscriptionStatus(result) {
 			})
 		]) : E('p', {}, _('No subscriptions configured.'))
 	]);
-}
-
-function importErrorText(error) {
-	const detail = error?.detail ? ' (%s)'.format(error.detail) : '';
-	const messages = {
-		EMPTY_URL: _('Paste one share URL.'),
-		INVALID_URL: _('The share URL is malformed.'),
-		INVALID_ENCODING: _('The share URL contains invalid percent encoding.'),
-		INVALID_BASE64: _('The share URL contains invalid Base64.'),
-		INVALID_CREDENTIAL: _('The share URL contains invalid credentials.'),
-		INVALID_VMESS_JSON: _('The VMess Base64 payload is not valid JSON.'),
-		UNSUPPORTED_SCHEME: _('This share URL protocol is not supported.'),
-		MISSING_CREDENTIAL: _('The share URL does not contain credentials.'),
-		INVALID_HOST: _('The share URL contains an invalid server address.'),
-		INVALID_AUTHORITY: _('The share URL contains an invalid server and port.'),
-		IPV6_BRACKETS_REQUIRED: _('An IPv6 server address must be enclosed in brackets.'),
-		INVALID_PORT: _('The share URL contains an invalid port or port range.'),
-		UNSUPPORTED_PATH: _('This share URL uses an unsupported path.'),
-		CONFLICTING_PARAMETER: _('The share URL contains conflicting parameter aliases.'),
-		INVALID_BOOLEAN: _('The share URL contains an invalid boolean parameter.'),
-		INVALID_INTEGER: _('The share URL contains an invalid positive integer.'),
-		UNSUPPORTED_PARAMETER: _('The share URL contains a parameter that Steer cannot preserve.'),
-		REQUIRED_PARAMETER: _('The share URL is missing a required parameter.'),
-		UNSUPPORTED_TRANSPORT: _('Steer cannot preserve this transport type.'),
-		UNSUPPORTED_HEADER: _('Steer cannot preserve this transport header.'),
-		UNSUPPORTED_ENCRYPTION: _('Steer cannot preserve this VLESS encryption mode.'),
-		UNSUPPORTED_SECURITY: _('Steer cannot preserve this security mode.'),
-		UNSUPPORTED_FLOW: _('Steer cannot preserve this VLESS flow.'),
-		UNSUPPORTED_PACKET_ENCODING: _('Steer cannot preserve this UDP packet encoding.'),
-		UNSUPPORTED_HYSTERIA2_OBFS: _('Steer currently supports only Hysteria2 Salamander obfuscation.'),
-		INVALID_VLESS_UUID: _('The VLESS credential is not a UUID.'),
-		PARAMETER_REQUIRES_REALITY: _('This parameter requires REALITY security.'),
-		PARAMETER_REQUIRES_TLS: _('This parameter requires TLS or REALITY security.'),
-		PARAMETER_REQUIRES_OBFS: _('This parameter requires Hysteria2 obfuscation.')
-	};
-	return (messages[error?.code] || _('The share URL could not be parsed.')) + detail;
 }
 
 function previewFacts(node) {
@@ -400,63 +420,60 @@ function showImportDialog() {
 
 	const review = function(ev) {
 		ev.preventDefault();
-		let parsed;
-		try {
-			parsed = shareUrl.parse(input.value);
-		}
-		catch (error) {
-			preview.replaceChildren(E('div', { 'class': 'alert-message danger' }, importErrorText(error)));
-			return;
-		}
-
-		input.value = '';
-		const node = parsed.node;
-		const nameInput = E('input', {
-			'class': 'cbi-input-text',
-			'value': node.name,
-			'autocomplete': 'off'
+		preview.replaceChildren(E('p', { 'class': 'spinning' }, _('Parsing and validating nodes…')));
+		return steer.importNodes(input.value).then((parsed) => {
+			const nodes = parsed?.nodes || [];
+			if (!nodes.length)
+				throw new Error(parsed?.error || _('No valid node was returned.'));
+			input.value = '';
+			const nameInput = nodes.length == 1 ? E('input', {
+				'class': 'cbi-input-text', 'value': nodes[0].name, 'autocomplete': 'off'
+			}) : null;
+			const save = function(saveEvent) {
+				saveEvent.preventDefault();
+				if (nameInput)
+					nodes[0].name = nameInput.value.trim() || nodes[0].name;
+				nodes.forEach((node) => {
+					const id = nextManualNodeID();
+					uci.add('steer', 'node', id);
+					Object.keys(node).filter((option) => option != 'id' && !option.startsWith('source_') && option != 'pinned_stale').forEach((option) => {
+						let value = node[option];
+						if (typeof(value) == 'boolean')
+							value = value ? '1' : '0';
+						else if (typeof(value) == 'number')
+							value = String(value);
+						uci.set('steer', id, option, value);
+					});
+				});
+				saveEvent.currentTarget.disabled = true;
+				return uci.save().then(() => {
+					ui.hideModal();
+					window.location.href = L.url('admin/services/steer/nodes');
+				}).catch((error) => {
+					saveEvent.currentTarget.disabled = false;
+					ui.addNotification(_('Node import failed'), E('p', {}, String(error)), 'danger');
+				});
+			};
+			preview.replaceChildren(E('div', {}, [
+				E('h4', {}, _('%d node(s) ready to import').format(nodes.length)),
+				parsed.skipped ? E('p', { 'class': 'alert-message warning' }, _('%d invalid node(s) were skipped.').format(parsed.skipped)) : '',
+				nameInput ? E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, _('Name')),
+					E('div', { 'class': 'cbi-value-field' }, nameInput)
+				]) : '',
+				E('dl', { 'class': 'steer-status__facts' }, previewFacts(nodes[0]).map((fact) =>
+					E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, String(fact[1])) ]))),
+				E('div', { 'class': 'right' }, E('button', {
+					'class': 'cbi-button cbi-button-positive', click: save
+				}, _('Add to pending changes')))
+			]));
+		}).catch((error) => {
+			preview.replaceChildren(E('div', { 'class': 'alert-message danger' }, String(error)));
 		});
-		const warnings = (parsed.warnings || []).map((warning) =>
-			E('li', {}, _('Ignored compatibility-only parameter: %s').format(warning.detail)));
-
-		const save = function(saveEvent) {
-			saveEvent.preventDefault();
-			node.name = nameInput.value.trim() || node.name;
-			const id = nextManualNodeID();
-			uci.add('steer', 'node', id);
-			Object.keys(node).forEach((option) => uci.set('steer', id, option, node[option]));
-			saveEvent.currentTarget.disabled = true;
-			return uci.save().then(() => {
-				ui.hideModal();
-				window.location.href = L.url('admin/services/steer/nodes');
-			}).catch((error) => {
-				saveEvent.currentTarget.disabled = false;
-				ui.addNotification(_('Node import failed'), E('p', {}, String(error)), 'danger');
-			});
-		};
-
-		preview.replaceChildren(E('div', {}, [
-			E('h4', {}, _('Review imported node')),
-			...(warnings.length ? [ E('div', { 'class': 'alert-message warning' }, [
-				E('strong', {}, _('Review parser warnings')),
-				E('ul', {}, warnings)
-			]) ] : []),
-			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('Name')),
-				E('div', { 'class': 'cbi-value-field' }, nameInput)
-			]),
-			E('dl', { 'class': 'steer-status__facts' }, previewFacts(node).map((fact) =>
-				E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, String(fact[1])) ]))),
-			E('p', {}, _('Unsupported transport or security fields stop the import instead of being silently discarded.')),
-			E('div', { 'class': 'right' }, E('button', {
-				'class': 'cbi-button cbi-button-positive',
-				click: save
-			}, _('Add to pending changes')))
-		]));
 	};
 
 	ui.showModal(_('Import proxy node'), [
-		E('p', {}, _('Paste exactly one share URL. Credentials are hidden from the preview and are stored only after you confirm.')),
+		E('p', {}, _('Paste one or more share URLs, or a Base64-wrapped list. Credentials are hidden from the preview and stored only after confirmation.')),
 		input,
 		preview,
 		E('div', { 'class': 'right' }, [
@@ -486,10 +503,28 @@ return view.extend({
 		const enabledNodeIds = nodes.filter((node) => nodeGroupID(node) == activeNodeGroup && node.enabled != '0')
 			.map((node) => node['.name']);
 		const summaryOnly = activeNodeGroup != manualNodeGroup;
+		const page = (window.location.pathname || '').split('/').pop();
 		steer.loadStyle();
 
-		m = new form.Map('steer', _('Nodes & Routes'));
+		m = new form.Map('steer', page == 'routes' ? _('Routes') : (page == 'subscriptions' ? _('Node subscriptions') : _('Proxy nodes')));
 
+		if (page == 'subscriptions') {
+			s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
+			steer.configureNamedSection(s);
+			s.addremove = true;
+			s.nodescriptions = true;
+			s.addbtntitle = _('Add subscription');
+			s.sectiontitle = function(sectionId) {
+				return uci.get('steer', sectionId, 'name') || uci.get('steer', sectionId, 'url') || _('Unnamed');
+			};
+			o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
+			o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
+			o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
+			o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = '6h'; o.modalonly = true;
+			return m.render().then((formNode) => E([], [ renderSubscriptionStatus(data?.[1]), formNode ]));
+		}
+
+		if (page == 'routes') {
 		s = m.section(form.GridSection, 'route', _('Routes'));
 		steer.configureNamedSection(s);
 		s.addremove = true;
@@ -508,11 +543,9 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.option(form.ListValue, 'kind', _('Kind'));
-		o.value('direct', _('Direct'));
-		o.value('block', _('Block'));
-		if (nodeReferences.length)
-			o.value('single', _('Single node'));
-		else
+		uiSpec.route_kinds.filter((item) => item.value != 'single' || nodeReferences.length).forEach((item) =>
+			o.value(item.value, item.value == 'direct' ? _('Direct') : (item.value == 'block' ? _('Block') : _('Single node'))));
+		if (!nodeReferences.length)
 			o.description = _('Create a proxy node before adding a single-node route.');
 		o.rmempty = false;
 		o.editable = true;
@@ -560,6 +593,8 @@ return view.extend({
 		o.write = function() {};
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget); };
+			return m.render();
+		}
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
 		steer.configureNamedSection(s);
@@ -575,8 +610,10 @@ return view.extend({
 			return uci.get('steer', sectionId, 'name') || _('Unnamed');
 		};
 		s.tab('general', _('Connection'));
-		s.tab('tls', _('TLS / REALITY'));
 		s.tab('protocol', _('Protocol'));
+		s.tab('transport', _('Transport'));
+		s.tab('tls', _('TLS / REALITY'));
+		s.tab('advanced', _('Advanced'));
 
 		o = s.taboption('general', form.Flag, 'enabled', _('Enabled'));
 		o.default = '1';
@@ -603,20 +640,7 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.taboption('general', form.ListValue, 'type', _('Protocol'));
-		o.value('socks', 'SOCKS');
-		o.value('http', 'HTTP CONNECT');
-		o.value('shadowsocks', 'Shadowsocks');
-		o.value('vmess', 'VMess');
-		o.value('vless', 'VLESS');
-		o.value('hysteria', 'Hysteria');
-		o.value('hysteria2', 'Hysteria2');
-		o.value('shadowtls', 'ShadowTLS');
-		o.value('tuic', 'TUIC');
-		o.value('anytls', 'AnyTLS');
-		o.value('naive', 'NaiveProxy');
-		o.value('ssh', 'SSH');
-		o.value('tor', 'Tor');
-		o.value('trojan', 'Trojan');
+		uiSpec.node_types.forEach((item) => o.value(item.value, protocolLabel(item.value)));
 		o.rmempty = false;
 		o.editable = !summaryOnly;
 		o.textvalue = function(sectionId) {
@@ -626,222 +650,20 @@ return view.extend({
 		o = s.taboption('general', form.Value, 'server', _('Server'));
 		o.rmempty = false;
 		o.editable = !summaryOnly;
+		uiSpec.node_types.filter((item) => item.value != 'tor').forEach((item) => o.depends('type', item.value));
 
 		o = s.taboption('general', form.Value, 'server_port', _('Port'));
 		o.datatype = 'port';
 		o.rmempty = false;
 		o.editable = !summaryOnly;
+		uiSpec.node_types.filter((item) => item.value != 'tor').forEach((item) => o.depends('type', item.value));
 
-		o = s.taboption('protocol', form.Value, 'uuid', _('UUID'));
-		o.modalonly = true;
-		o.depends('type', 'vless');
-		o.depends('type', 'vmess');
-		o.depends('type', 'tuic');
-
-		o = s.taboption('protocol', form.Value, 'username', _('Username'));
-		o.modalonly = true;
-		o.depends('type', 'socks');
-		o.depends('type', 'http');
-		o.depends('type', 'naive');
-		o.depends('type', 'ssh');
-
-		o = s.taboption('protocol', form.Value, 'method', 'Method');
-		o.modalonly = true;
-		o.depends('type', 'shadowsocks');
-
-		o = s.taboption('protocol', form.Value, 'plugin', 'Plugin');
-		o.modalonly = true;
-		o.depends('type', 'shadowsocks');
-
-		o = s.taboption('protocol', form.Value, 'plugin_options', 'Plugin options');
-		o.modalonly = true;
-		o.depends('type', 'shadowsocks');
-
-		o = s.taboption('protocol', form.ListValue, 'security', 'Security');
-		o.value('', _('Default'));
-		o.value('auto', 'auto');
-		o.value('none', 'none');
-		o.value('zero', 'zero');
-		o.value('aes-128-gcm', 'aes-128-gcm');
-		o.value('chacha20-poly1305', 'chacha20-poly1305');
-		o.depends('type', 'vmess');
-
-		o = s.taboption('protocol', form.Value, 'alter_id', 'Alter ID');
-		o.datatype = 'uinteger';
-		o.modalonly = true;
-		o.depends('type', 'vmess');
-
-		o = s.taboption('protocol', form.ListValue, 'transport', _('Transport'));
-		o.value('tcp', 'TCP');
-		o.value('ws', 'WebSocket');
-		o.value('grpc', 'gRPC');
-		o.value('http', 'HTTP');
-		o.value('quic', 'QUIC');
-		o.modalonly = true;
-		o.depends('type', 'vmess');
-		o.depends('type', 'vless');
-		o.depends('type', 'trojan');
-
-		o = s.taboption('protocol', form.Value, 'transport_path', 'Transport path');
-		o.modalonly = true;
-		o.depends('transport', 'ws');
-		o.depends('transport', 'http');
-
-		o = s.taboption('protocol', form.Value, 'transport_host', 'Transport host');
-		o.modalonly = true;
-		o.depends('transport', 'ws');
-		o.depends('transport', 'http');
-
-		o = s.taboption('protocol', form.Value, 'service_name', 'gRPC service name');
-		o.modalonly = true;
-		o.depends('transport', 'grpc');
-
-		o = s.taboption('protocol', form.ListValue, 'flow', _('Flow'));
-		o.modalonly = true;
-		o.value('', _('None'));
-		o.value('xtls-rprx-vision', 'XTLS Vision');
-		o.depends('type', 'vless');
-
-		o = s.taboption('protocol', form.ListValue, 'packet_encoding', _('UDP packet encoding'));
-		o.modalonly = true;
-		o.value('xudp', 'XUDP');
-		o.value('packetaddr', 'PacketAddr');
-		o.depends('type', 'vless');
-
-		o = s.taboption('protocol', form.Value, 'password', _('Password'));
-		o.password = true;
-		o.modalonly = true;
-		o.depends('type', 'hysteria2');
-		o.depends('type', 'trojan');
-		o.depends('type', 'shadowsocks');
-		o.depends('type', 'http');
-		o.depends('type', 'anytls');
-		o.depends('type', 'shadowtls');
-		o.depends('type', 'tuic');
-		o.depends('type', 'hysteria');
-		o.depends('type', 'naive');
-		o.depends('type', 'ssh');
-
-		o = s.taboption('protocol', form.DynamicList, 'server_ports', _('Port hopping ranges'));
-		o.placeholder = '20000:21000';
-		o.modalonly = true;
-		o.depends('type', 'hysteria2');
-
-		o = s.taboption('protocol', form.Value, 'hop_interval', _('Port hopping interval'));
-		o.placeholder = '30s';
-		o.modalonly = true;
-		o.depends('type', 'hysteria2');
-
-		o = s.taboption('protocol', form.ListValue, 'obfs_type', _('Obfuscation'));
-		o.modalonly = true;
-		o.value('', _('None'));
-		o.value('salamander', 'Salamander');
-		o.depends('type', 'hysteria2');
-
-		o = s.taboption('protocol', form.Value, 'obfs_password', _('Obfuscation password'));
-		o.password = true;
-		o.modalonly = true;
-		o.depends('obfs_type', 'salamander');
-
-		o = s.taboption('protocol', form.Value, 'up_mbps', _('Upload Mbps'));
-		o.datatype = 'uinteger';
-		o.modalonly = true;
-		o.depends('type', 'hysteria2');
-
-		o = s.taboption('protocol', form.Value, 'down_mbps', _('Download Mbps'));
-		o.datatype = 'uinteger';
-		o.modalonly = true;
-		o.depends('type', 'hysteria2');
-		o.depends('type', 'hysteria');
-
-		o = s.taboption('protocol', form.ListValue, 'version', 'Version');
-		o.value('1', '1'); o.value('2', '2'); o.value('3', '3');
-		o.modalonly = true;
-		o.depends('type', 'shadowtls');
-
-		o = s.taboption('protocol', form.ListValue, 'congestion_control', 'Congestion control');
-		o.value('', _('Default')); o.value('cubic', 'cubic'); o.value('new_reno', 'new_reno'); o.value('bbr', 'bbr');
-		o.modalonly = true;
-		o.depends('type', 'tuic');
-
-		o = s.taboption('protocol', form.ListValue, 'udp_relay_mode', 'UDP relay mode');
-		o.value('', _('Default')); o.value('native', 'native'); o.value('quic', 'quic');
-		o.modalonly = true;
-		o.depends('type', 'tuic');
-
-		o = s.taboption('protocol', form.Flag, 'udp_over_stream', 'UDP over stream');
-		o.modalonly = true;
-		o.depends('type', 'tuic');
-
-		o = s.taboption('protocol', form.Flag, 'zero_rtt_handshake', '0-RTT handshake');
-		o.modalonly = true;
-		o.depends('type', 'tuic');
-
-		o = s.taboption('protocol', form.Value, 'heartbeat', 'Heartbeat');
-		o.modalonly = true;
-		o.depends('type', 'tuic');
-
-		o = s.taboption('protocol', form.Flag, 'quic', 'QUIC');
-		o.modalonly = true;
-		o.depends('type', 'naive');
-
-		o = s.taboption('protocol', form.ListValue, 'quic_congestion_control', 'QUIC congestion control');
-		o.value('', _('Default')); o.value('bbr', 'bbr'); o.value('bbr2', 'bbr2'); o.value('cubic', 'cubic'); o.value('reno', 'reno');
-		o.modalonly = true;
-		o.depends('type', 'naive');
-
-		o = s.taboption('protocol', form.Value, 'insecure_concurrency', 'Insecure concurrency');
-		o.datatype = 'uinteger';
-		o.modalonly = true;
-		o.depends('type', 'naive');
-
-		o = s.taboption('protocol', form.Value, 'private_key', 'Private key');
-		o.modalonly = true;
-		o.depends('type', 'ssh');
-
-		o = s.taboption('protocol', form.Value, 'host_key', 'Host key');
-		o.modalonly = true;
-		o.depends('type', 'ssh');
-
-		o = s.taboption('protocol', form.DynamicList, 'host_key_algorithms', 'Host key algorithms');
-		o.modalonly = true;
-		o.depends('type', 'ssh');
-
-		o = s.taboption('protocol', form.Value, 'executable_path', 'Executable path');
-		o.modalonly = true;
-		o.depends('type', 'tor');
-
-		o = s.taboption('protocol', form.DynamicList, 'extra_args', 'Extra arguments');
-		o.modalonly = true;
-		o.depends('type', 'tor');
-
-		o = s.taboption('protocol', form.Value, 'data_directory', 'Data directory');
-		o.modalonly = true;
-		o.depends('type', 'tor');
-
-		o = s.taboption('tls', form.Value, 'tls_server_name', _('TLS server name'));
-		o.modalonly = true;
-
-		o = s.taboption('tls', form.Flag, 'insecure', _('Skip certificate verification'));
-		o.default = '0';
-		o.modalonly = true;
-
-		o = s.taboption('tls', form.Value, 'reality_public_key', _('REALITY public key'));
-		o.modalonly = true;
-		o.depends('type', 'vless');
-
-		o = s.taboption('tls', form.Value, 'reality_short_id', _('REALITY short ID'));
-		o.modalonly = true;
-		o.depends('type', 'vless');
-
-		o = s.taboption('tls', form.Value, 'utls_fingerprint', _('uTLS fingerprint'));
-		o.placeholder = 'chrome';
-		o.modalonly = true;
-		o.depends('type', 'vless');
-		o.depends('type', 'trojan');
+		uiSpec.node_fields
+			.filter((field) => ![ 'enabled', 'name', 'server', 'server_port' ].includes(field.key))
+			.forEach((field) => addGeneratedNodeField(s, field));
 
 		return m.render().then((formNode) => {
-			const contents = [ renderSubscriptionStatus(data?.[1]), renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
+			const contents = [ renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
 			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds);
 			if (batchSpeedtests)
 				contents.push(batchSpeedtests);

@@ -13,7 +13,7 @@
   }
 
   const view = {
-    name: 'config',
+    name: 'advanced',
     async render(root) {
       const isCurrent = ui.beginRender(root);
       const [geosite, geoip] = await Promise.all([S.api.geodata('geosite'), S.api.geodata('geoip')]);
@@ -100,7 +100,7 @@
 
       if (!isCurrent()) return;
       root.append(
-		ui.viewHead('配置 · 高级', 'Canonical JSON 原文（schema 9）。结构化视图与本视图共享同一工作副本', [revBadge, dirtyBadge]),
+		ui.viewHead('高级配置', 'Canonical JSON 原文（schema 9）。结构化视图与本视图共享同一工作副本', [revBadge, dirtyBadge]),
         h('section', { class: 'card' }, [
           h('div', { class: 'editor-actions' }, [
             h('button', { class: 'btn', onclick: validate }, '校验'),
@@ -123,5 +123,5 @@
   };
 
   S.views = S.views || {};
-  S.views.config = view;
+  S.views.advanced = view;
 })();

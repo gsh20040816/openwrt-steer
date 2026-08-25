@@ -7,6 +7,7 @@
 'require uci';
 'require view';
 'require steer as steer';
+'require steer.ui-spec as uiSpec';
 
 return view.extend({
 	load: function() {
@@ -37,9 +38,7 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
-		o.value('mixed', _('Mixed (SOCKS + HTTP)'));
-		o.value('socks', 'SOCKS');
-		o.value('http', 'HTTP');
+		uiSpec.local_proxy_protocols.forEach((item) => o.value(item.value, item.value == 'mixed' ? _('Mixed (SOCKS + HTTP)') : item.label));
 		o.rmempty = false;
 		o.editable = true;
 

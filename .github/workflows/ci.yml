@@ -28,10 +28,10 @@ jobs:
           python3 tests/check-linux-packaging.py
           python3 tests/check-macos-contract.py
           python3 tests/check-macos-packaging.py
+          python3 tests/check-ui-contract.py
 
       - name: Check JavaScript and web interactions
         run: |
-          node tests/node/share_url_test.js
           node tests/node/luci_view_test.js
           node tests/node/steer_helper_test.js
           node tests/node/linux_web_test.js

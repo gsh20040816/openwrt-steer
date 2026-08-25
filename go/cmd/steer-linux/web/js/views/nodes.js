@@ -10,24 +10,21 @@
   let activeGroup = MANUAL;
   const rowButtons = new Map(); /* nodeId -> {conn, down} */
 
-  const PROTOCOL_LABEL = {
-    socks: 'SOCKS', http: 'HTTP CONNECT', shadowsocks: 'Shadowsocks', vmess: 'VMess', vless: 'VLESS',
-    trojan: 'Trojan', hysteria: 'Hysteria', hysteria2: 'Hysteria2', shadowtls: 'ShadowTLS', tuic: 'TUIC',
-    anytls: 'AnyTLS', naive: 'NaiveProxy', ssh: 'SSH', tor: 'Tor'
+  const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.node_types.map((item) => [item.value, item.label]));
+  const FIELD_LABEL = {
+    uuid: 'UUID', username: '用户名', password: '密码', method: '加密方法', plugin: '插件', plugin_options: '插件参数',
+    security: '加密', alter_id: 'Alter ID', network: 'Network', packet_encoding: 'UDP 包编码', flow: 'Flow',
+    transport: '传输', transport_path: '传输路径', transport_host: '传输主机', service_name: 'gRPC 服务名',
+    server_ports: '端口跳跃区间', hop_interval: '跳跃间隔', obfs_type: '混淆', obfs_password: '混淆密码',
+    up_mbps: '上行 Mbps', down_mbps: '下行 Mbps', version: '版本', congestion_control: '拥塞控制',
+    udp_relay_mode: 'UDP 中继', udp_over_stream: 'UDP over stream', zero_rtt_handshake: '0-RTT 握手', heartbeat: '心跳',
+    quic: 'QUIC', quic_congestion_control: 'QUIC 拥塞控制', insecure_concurrency: '不安全并发', private_key: '私钥',
+    host_key: 'Host key', host_key_algorithms: 'Host key algorithms', executable_path: '可执行文件', extra_args: '额外参数',
+    data_directory: '数据目录', tls_server_name: 'TLS 服务器名', utls_fingerprint: 'uTLS 指纹',
+    insecure: '跳过证书校验', reality_public_key: 'REALITY 公钥', reality_short_id: 'REALITY Short ID'
   };
-  /* 协议字段规格：kind = text | password | number | select | chips | toggle */
-  const SPEC = {
-    shadowsocks: [['method', '加密方法'], ['password', '密码', 'password'], ['plugin', '插件'], ['plugin_options', '插件参数']],
-    vmess: [['uuid', 'UUID'], ['security', '加密', 'select', ['', 'auto', 'none', 'zero', 'aes-128-gcm', 'chacha20-poly1305']], ['alter_id', 'Alter ID', 'number'], ['transport', '传输', 'select', ['tcp', 'ws', 'grpc', 'http', 'quic']], ['transport_path', '传输路径'], ['transport_host', '传输主机'], ['service_name', 'gRPC 服务名'], ['tls_server_name', 'TLS 服务器名'], ['utls_fingerprint', 'uTLS 指纹'], ['insecure', '跳过证书校验', 'toggle']],
-    vless: [['uuid', 'UUID'], ['flow', 'Flow', 'select', ['', 'xtls-rprx-vision']], ['packet_encoding', 'UDP 包编码', 'select', ['', 'xudp', 'packetaddr']], ['tls_server_name', 'TLS 服务器名'], ['reality_public_key', 'REALITY 公钥'], ['reality_short_id', 'REALITY Short ID'], ['utls_fingerprint', 'uTLS 指纹'], ['insecure', '跳过证书校验', 'toggle']],
-    trojan: [['password', '密码', 'password'], ['tls_server_name', 'TLS 服务器名'], ['utls_fingerprint', 'uTLS 指纹'], ['insecure', '跳过证书校验', 'toggle']],
-    hysteria2: [['password', '密码', 'password'], ['server_ports', '端口跳跃区间', 'chips'], ['hop_interval', '跳跃间隔'], ['obfs_type', '混淆', 'select', ['', 'salamander']], ['obfs_password', '混淆密码', 'password'], ['up_mbps', '上行 Mbps', 'number'], ['down_mbps', '下行 Mbps', 'number'], ['tls_server_name', 'TLS 服务器名'], ['insecure', '跳过证书校验', 'toggle']],
-    hysteria: [['password', '密码', 'password'], ['up_mbps', '上行 Mbps', 'number'], ['down_mbps', '下行 Mbps', 'number'], ['tls_server_name', 'TLS 服务器名'], ['insecure', '跳过证书校验', 'toggle']],
-    tuic: [['uuid', 'UUID'], ['password', '密码', 'password'], ['congestion_control', '拥塞控制', 'select', ['', 'cubic', 'new_reno', 'bbr']], ['udp_relay_mode', 'UDP 中继', 'select', ['', 'native', 'quic']], ['udp_over_stream', 'UDP over stream', 'toggle'], ['zero_rtt_handshake', '0-RTT 握手', 'toggle'], ['heartbeat', '心跳'], ['tls_server_name', 'TLS 服务器名'], ['insecure', '跳过证书校验', 'toggle']],
-    naive: [['username', '用户名'], ['password', '密码', 'password'], ['quic', 'QUIC', 'toggle'], ['quic_congestion_control', 'QUIC 拥塞控制', 'select', ['', 'bbr', 'bbr2', 'cubic', 'reno']], ['insecure_concurrency', '不安全并发', 'number'], ['tls_server_name', 'TLS 服务器名'], ['insecure', '跳过证书校验', 'toggle']],
-    socks: [['username', '用户名'], ['password', '密码', 'password']],
-    http: [['username', '用户名'], ['password', '密码', 'password'], ['tls_server_name', 'TLS 服务器名'], ['insecure', '跳过证书校验', 'toggle']]
-  };
+  const NODE_OPTION_KEYS = new Set(S.uiSpec.node_fields.map((field) => field.key));
+  function fieldsFor(type) { return S.uiSpec.node_fields.filter((field) => field.types.includes(type)); }
 
   function groupOf(node) { return node.source_subscription || MANUAL; }
   function groups(intent) {
@@ -48,6 +45,10 @@
 
   function testButton(label, download, nodeId) {
     const btn = h('button', { class: 'btn btn--sm', title: label, onclick: async () => {
+      if (S.store.dirty) {
+        ui.toast('请先保存或放弃工作副本修改，再测试节点', 'warn');
+        return;
+      }
       btn.disabled = true;
       btn.classList.add('spinning');
       btn.textContent = '测试中…';
@@ -84,6 +85,10 @@
   }
 
   async function runBatch(ids, download, button, title) {
+    if (S.store.dirty) {
+      ui.toast('请先保存或放弃工作副本修改，再批量测试节点', 'warn');
+      return;
+    }
     const rows = ids.map((id) => rowButtons.get(id)).filter(Boolean);
     rows.forEach((pair) => { pair.conn.disabled = true; pair.down.disabled = true; });
     let cursor = 0, succeeded = 0;
@@ -174,32 +179,39 @@
         const draft = JSON.parse(JSON.stringify(node));
         const name = ui.input({ value: draft.name || '', placeholder: '节点名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const typeSel = ui.select(Object.keys(PROTOCOL_LABEL).map((t) => [t, PROTOCOL_LABEL[t]]), draft.type, (v) => { draft.type = v; rebuildSpec(); });
+        const typeSel = ui.select(S.uiSpec.node_types.map((item) => [item.value, item.label]), draft.type, (v) => { draft.type = v; rebuildSpec(); });
         const server = ui.input({ value: draft.server || '', placeholder: 'example.com 或 IP' });
         const port = ui.input({ type: 'number', value: draft.server_port || '', placeholder: '443' });
+        const endpoint = h('div', { class: 'field--row' });
         const specBox = h('div', {});
 
-        function specControl(key, spec) {
-          const kind = spec[2] || 'text';
-          if (kind === 'toggle') return ui.toggleRow(spec[1], !!draft[key], (v) => { draft[key] = v; });
-          if (kind === 'chips') return ui.chips(asList(draft[key]), { onchange: (v) => { draft[key] = v; } });
-          if (kind === 'select') return ui.select(spec[3].map((v) => [v, v || '（默认）']), draft[key] ?? '', (v) => { draft[key] = v; });
-          if (kind === 'number') return ui.input({ type: 'number', value: draft[key] ?? '', oninput: (e) => { draft[key] = e.target.value === '' ? undefined : Number(e.target.value); } });
+        function specControl(field) {
+          const key = field.key;
+          if (field.control === 'boolean') return ui.toggleRow(FIELD_LABEL[key] || field.label, !!draft[key], (v) => { draft[key] = v; });
+          if (field.control === 'string-list') return ui.chips(asList(draft[key]), { placeholder: field.placeholder || '', onchange: (v) => { draft[key] = v; } });
+          if (field.control === 'select' || field.control === 'select-integer') return ui.select(
+            field.options.map((item) => [item.value, item.label]), String(draft[key] ?? field.default ?? ''),
+            (v) => { draft[key] = field.control === 'select-integer' && v !== '' ? Number(v) : v; rebuildSpec(); }
+          );
+          if (field.control === 'integer') return ui.input({ type: 'number', value: draft[key] ?? '', placeholder: field.placeholder || '', oninput: (e) => { draft[key] = e.target.value === '' ? undefined : Number(e.target.value); } });
           return ui.input({
-            type: kind === 'password' ? 'password' : 'text', value: draft[key] ?? '',
-            placeholder: '', oninput: (e) => { draft[key] = e.target.value; }
+            type: field.control === 'password' ? 'password' : 'text', value: draft[key] ?? '',
+            placeholder: field.placeholder || '', oninput: (e) => { draft[key] = e.target.value; }
           });
         }
 
         function rebuildSpec() {
           specBox.replaceChildren();
-          const spec = SPEC[draft.type];
-          if (!spec) {
-            specBox.append(h('div', { class: 'field__hint' }, '该协议暂无结构化表单；请在“配置 · 高级”中编辑完整 JSON。'));
-            return;
-          }
-          for (const [key, label] of spec) {
-            specBox.append(ui.field(label, specControl(key, spec.find((s) => s[0] === key)), spec[2] === 'password' ? '留空 = 保留已保存值' : null));
+          endpoint.replaceChildren();
+          endpoint.hidden = draft.type === 'tor';
+          if (draft.type !== 'tor') endpoint.append(ui.field('服务器', server), ui.field('端口', port));
+          for (const field of fieldsFor(draft.type).filter((candidate) => !['enabled', 'name', 'server', 'server_port'].includes(candidate.key))) {
+            if (field.when && !field.when.values.includes(String(draft[field.when.field] ?? ''))) continue;
+            specBox.append(ui.field(
+              FIELD_LABEL[field.key] || field.label,
+              specControl(field),
+              field.sensitive ? '敏感字段；留空表示不设置' : null
+            ));
           }
         }
         rebuildSpec();
@@ -207,8 +219,8 @@
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '基本信息'), [
             ui.field('名称', name), ui.field('启用', enabled),
-            ui.field('协议', typeSel, '切换协议会重置协议参数区'),
-            h('div', { class: 'field--row' }, [ui.field('服务器', server), ui.field('端口', port)])
+            ui.field('协议', typeSel, '协议字段来自共享 UI 规格'),
+            endpoint
           ]),
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '协议参数'), specBox)
         );
@@ -217,12 +229,19 @@
           submit() {
             const trim = (v) => String(v ?? '').trim();
             if (!trim(name.value)) { ui.toast('名称不能为空', 'err'); return false; }
-            if (!trim(server.value)) { ui.toast('服务器不能为空', 'err'); return false; }
-            const p = Number(port.value);
-            if (!port.value || p < 1 || p > 65535) { ui.toast('端口必须是 1–65535', 'err'); return false; }
             draft.name = trim(name.value);
-            draft.server = trim(server.value);
-            draft.server_port = p;
+            if (draft.type === 'tor') {
+              delete draft.server;
+              delete draft.server_port;
+            } else {
+              if (!trim(server.value)) { ui.toast('服务器不能为空', 'err'); return false; }
+              const p = Number(port.value);
+              if (!port.value || p < 1 || p > 65535) { ui.toast('端口必须是 1–65535', 'err'); return false; }
+              draft.server = trim(server.value);
+              draft.server_port = p;
+            }
+            const allowed = new Set(fieldsFor(draft.type).map((field) => field.key));
+            for (const key of NODE_OPTION_KEYS) if (!allowed.has(key)) delete draft[key];
             for (const key of Object.keys(draft)) {
               if (draft[key] === '' || draft[key] == null) delete draft[key];
             }

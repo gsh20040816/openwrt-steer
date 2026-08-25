@@ -40,6 +40,7 @@ script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repository_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
 runtime_plist="$repository_root/macos/launchd/com.steer.steer.plist"
 control_plist="$repository_root/macos/launchd/com.steer.steer.control.plist"
+subscription_plist="$repository_root/macos/launchd/com.steer.steer.subscription.plist"
 embedded_installer="$repository_root/macos/scripts/install-embedded-payload.sh"
 config_example="$repository_root/linux/config.example.json"
 steer_license="$repository_root/LICENSE"
@@ -58,6 +59,7 @@ for input in \
 	"$sing_box_license" \
 	"$runtime_plist" \
 	"$control_plist" \
+	"$subscription_plist" \
 	"$embedded_installer" \
 	"$config_example" \
 	"$steer_license" \
@@ -125,6 +127,7 @@ install -m 0755 "$sing_box_binary" "$installer_directory/sing-box"
 install -m 0755 "$embedded_installer" "$installer_directory/install-embedded-payload.sh"
 install -m 0644 "$runtime_plist" "$installer_directory/com.steer.steer.plist"
 install -m 0644 "$control_plist" "$installer_directory/com.steer.steer.control.plist"
+install -m 0644 "$subscription_plist" "$installer_directory/com.steer.steer.subscription.plist"
 install -m 0644 "$config_example" "$installer_directory/config.example.json"
 install -m 0644 "$steer_license" "$licenses_directory/Steer-GPL-3.0.txt"
 install -m 0644 "$sing_box_license" "$licenses_directory/sing-box-GPL-3.0.txt"
@@ -175,6 +178,7 @@ codesign --force --sign - --timestamp=none "$app/Contents/MacOS/SteerApp"
 		install-embedded-payload.sh \
 		com.steer.steer.plist \
 		com.steer.steer.control.plist \
+		com.steer.steer.subscription.plist \
 		config.example.json \
 		> PAYLOAD-SHA256SUMS
 	shasum -a 256 -c PAYLOAD-SHA256SUMS

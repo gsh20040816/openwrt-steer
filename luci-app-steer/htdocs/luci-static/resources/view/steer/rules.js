@@ -7,6 +7,7 @@
 'require uci';
 'require view';
 'require steer as steer';
+'require steer.ui-spec as uiSpec';
 
 function asList(value) {
 	if (value == null)
@@ -51,7 +52,7 @@ function currentLine(value, cursor) {
 
 function editorSuggestions(kind, value, catalog) {
 	const query = String(value || '').trim().toLowerCase();
-	const prefixes = kind == 'domain' ? [ 'full:', 'domain:', 'regexp:', 'geosite:' ] : [ 'geoip:' ];
+	const prefixes = kind == 'domain' ? uiSpec.domain_prefixes : uiSpec.ip_prefixes;
 	const geoPrefix = kind == 'domain' ? 'geosite:' : 'geoip:';
 	if (query.startsWith(geoPrefix)) {
 		const needle = query.slice(geoPrefix.length);
@@ -335,12 +336,11 @@ return view.extend({
 
 		o = s.taboption('match', form.MultiValue, 'network', _('Network'));
 		o.modalonly = true;
-		o.value('tcp', 'TCP');
-		o.value('udp', 'UDP');
+		uiSpec.rule_networks.forEach((item) => o.value(item.value, item.label));
 
 		o = s.taboption('match', form.MultiValue, 'protocol', _('Detected protocol'));
 		o.modalonly = true;
-		[ 'tls', 'http', 'quic', 'dns', 'stun', 'bittorrent', 'dtls', 'ssh', 'rdp', 'ntp' ].forEach((value) => o.value(value, value));
+		uiSpec.rule_protocols.forEach((item) => o.value(item.value, item.label));
 
 		o = s.taboption('match', form.DynamicList, 'port', _('Destination ports'));
 		o.modalonly = true;

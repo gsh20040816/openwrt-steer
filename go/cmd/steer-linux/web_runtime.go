@@ -41,6 +41,24 @@ func (app webApplication) handleRuntime(writer http.ResponseWriter, request *htt
 	writeWebJSON(writer, app.runtimeInfo(request.Context()))
 }
 
+func (app webApplication) handleLogs(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.Header().Set("Allow", http.MethodGet)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	runner := app.Runner
+	if runner == nil {
+		runner = linuxplatform.ExecRunner{}
+	}
+	output, err := runner.Output(request.Context(), "/usr/bin/journalctl", "-u", "steer.service", "-n", "200", "--no-pager", "--output=short-iso")
+	if err != nil {
+		writeWebError(writer, err, http.StatusUnprocessableEntity)
+		return
+	}
+	writeWebJSON(writer, map[string]any{"output": string(output)})
+}
+
 func (app webApplication) runtimeInfo(ctx context.Context) runtimeInfo {
 	info := runtimeInfo{
 		Steer:           version,

@@ -3,7 +3,7 @@
 
 'use strict';
 
-import { popen } from 'fs';
+import { mkdtemp, open, popen, rmdir, unlink } from 'fs';
 
 function shellquote(value) {
 	if (value == null)
@@ -30,6 +30,34 @@ function command_json(command) {
 	return result;
 }
 
+function command_json_input(arguments, input) {
+	const directory = mkdtemp('/tmp/steer-import-XXXXXX');
+	if (!directory)
+		return { ok: false, error: '无法创建私有导入目录' };
+	const output = directory + '/result.json';
+	const process = popen([ '/usr/sbin/steer', ...arguments, '--output', output ], 'w');
+	if (!process) {
+		rmdir(directory);
+		return { ok: false, error: '无法启动 Steer 节点解析器' };
+	}
+	process.write(input || '');
+	const status = process.close();
+	const file = open(output, 'r');
+	const content = file ? (file.read('all') || '') : '';
+	if (file)
+		file.close();
+	unlink(output);
+	rmdir(directory);
+	if (status != 0)
+		return { ok: false, status, error: '节点分享链接解析失败' };
+	try {
+		return json(content);
+	}
+	catch (error) {
+		return { ok: false, status, error: trim(content) || `${error}` };
+	}
+}
+
 const methods = {
 	status: {
 		call: function() {
@@ -39,6 +67,26 @@ const methods = {
 	validate: {
 		call: function() {
 			return command_json('/usr/sbin/steer validate');
+		}
+	},
+	intent: {
+		call: function() {
+			return command_json('/usr/sbin/steer _export-intent');
+		}
+	},
+	runtime: {
+		call: function() {
+			return command_json('/usr/sbin/steer _runtime');
+		}
+	},
+	logs: {
+		call: function() {
+			const process = popen([ '/sbin/logread', '-e', 'steer' ], 'r');
+			if (!process)
+				return { ok: false, error: '无法读取系统日志' };
+			const output = process.read('all') || '';
+			const status = process.close();
+			return { ok: status == 0, output, error: status == 0 ? null : 'logread 执行失败' };
 		}
 	},
 	geodata_catalog: {
@@ -106,6 +154,15 @@ const methods = {
 			if (kind != 'direct' && kind != 'proxy' && kind != 'speedtest')
 				return { ok: false, error: '测试类型必须是 direct、proxy 或 speedtest' };
 			return command_json('/usr/sbin/steer probe --kind ' + kind);
+		}
+	},
+	node_import: {
+		args: { document: '' },
+		call: function(request) {
+			const document = request?.args?.document;
+			if (!document)
+				return { ok: false, error: '缺少节点分享链接' };
+			return command_json_input([ '_parse-nodes' ], document);
 		}
 	}
 };

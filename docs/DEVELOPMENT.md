@@ -2,11 +2,14 @@
 
 当前任务是保持共享语义冻结，同时分别收敛 OpenWrt 与 Linux 平台实现及其发布门。修改必须落在正确责任层，不通过兼容桥保留旧目录、旧 CLI 或旧状态结构，也不得把 systemd、nftables 等平台概念放入共享核心。
 
+三端前端的新增与重构还必须遵守 [原生前端与共享控制面开发约束](UI_DEVELOPMENT.md)：保留 LuCI、Linux Web 和 SwiftUI 原生呈现，但协议字段、能力、操作结果和控制语义只能有一份共享规格。
+
 ## 仓库结构
 
 ```text
 go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
 go/internal/{subscription,probe,capability}     共享服务
+go/internal/uispec                              三端前端构建期共享规格
 go/internal/platform/openwrt                    OpenWrt 适配器
 go/internal/platform/linux                      Linux systemd 主机/转发流量适配器
 go/internal/platform/macos                      macOS launchd/Darwin TUN 适配器
@@ -34,7 +37,6 @@ go test -race ./...
 go vet ./...
 
 cd ..
-node tests/node/share_url_test.js
 node tests/node/luci_view_test.js
 node tests/node/steer_helper_test.js
 node tests/node/linux_web_test.js
@@ -42,6 +44,7 @@ python3 tests/check-luci-i18n.py
 python3 tests/check-package-boundaries.py
 python3 tests/check-build-cache.py
 python3 tests/check-linux-packaging.py
+python3 tests/check-ui-contract.py
 git diff --check
 ```
 
@@ -78,6 +81,8 @@ Linux 适配器与上游发行资产已经建立，后续修改必须保持：
 5. `v*` tag workflow 从 tag 源码构建 OpenWrt、Linux 与 macOS 正式产物，不复用其他 run 的构件。
 
 macOS 使用 launchd、Darwin utun 和管理员授权；SwiftUI GUI 与 LuCI、Linux Web 同为平台前端。GUI 不得复制共享规则、路由、DNS、订阅、Validate 或 Apply 语义。
+
+平台 UI 文件可以包含原生布局和控件绑定，不得包含独立维护的协议矩阵或完整校验 switch。构建生成文件必须来自 `internal/uispec`，并由 UI contract 检查保证三端一致。
 
 ## 目标系统验收与发布门
 

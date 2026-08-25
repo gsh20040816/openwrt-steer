@@ -7,17 +7,22 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	"github.com/gsh20040816/steer/go/internal/platform/openwrt"
+	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
 var version = "development"
@@ -57,11 +62,104 @@ func run(args []string) error {
 		return runGeoCatalog(args[1:])
 	case "cleanup":
 		return runCleanup(args[1:])
+	case "_parse-nodes":
+		return runParseNodes(args[1:])
+	case "_export-intent":
+		return runExportIntent(args[1:])
+	case "_runtime":
+		return runRuntime(args[1:])
 	case "_start":
 		return runServiceStart(args[1:])
 	default:
 		return usage()
 	}
+}
+
+func runExportIntent(args []string) error {
+	flags := flag.NewFlagSet("_export-intent", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("_export-intent accepts flags only")
+	}
+	value, decodeValidation := loadIntent(*configPath)
+	if !decodeValidation.OK {
+		writeJSON(decodeValidation)
+		return errors.New("configuration decode failed")
+	}
+	writeJSON(value)
+	return nil
+}
+
+func runRuntime(args []string) error {
+	flags := flag.NewFlagSet("_runtime", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	seedDirectory := flags.String("geodata", "/usr/share/steer/geodata-seed", "package Geo seed")
+	singBoxBinary := flags.String("sing-box", "/usr/bin/sing-box", "sing-box executable")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("_runtime accepts flags only")
+	}
+	result := map[string]any{"steer": version, "canonical_schema": model.SchemaVersion}
+	if output, err := exec.Command(*singBoxBinary, "version", "--name").CombinedOutput(); err == nil {
+		result["sing_box"] = strings.TrimSpace(string(output))
+	} else {
+		result["sing_box_error"] = strings.TrimSpace(string(output))
+	}
+	if manifest, err := geodata.ReadManifest(*seedDirectory); err == nil {
+		result["geodata"] = map[string]any{"version": manifest.Upstream.Version, "rule_count": len(manifest.Rules)}
+	} else {
+		result["geodata_error"] = err.Error()
+	}
+	writeJSON(result)
+	return nil
+}
+
+func runParseNodes(args []string) error {
+	flags := flag.NewFlagSet("_parse-nodes", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	outputPath := flags.String("output", "", "private JSON result path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *outputPath == "" || !filepath.IsAbs(*outputPath) {
+		return errors.New("_parse-nodes requires an absolute --output path")
+	}
+	content, err := io.ReadAll(io.LimitReader(os.Stdin, (16<<20)+1))
+	if err != nil {
+		return fmt.Errorf("read node import: %w", err)
+	}
+	if len(content) > 16<<20 {
+		return errors.New("node import exceeds 16 MiB")
+	}
+	parsed, err := subscription.ParseList(string(content))
+	if err != nil {
+		return err
+	}
+	if len(parsed.Nodes) == 0 {
+		return fmt.Errorf("node import contained no valid nodes (%d skipped)", parsed.Skipped)
+	}
+	encoded, err := json.Marshal(struct {
+		Nodes   []model.Node `json:"nodes"`
+		Skipped int          `json:"skipped"`
+	}{Nodes: parsed.Nodes, Skipped: parsed.Skipped})
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(*outputPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create private node import result: %w", err)
+	}
+	defer file.Close()
+	if _, err := file.Write(append(encoded, '\n')); err != nil {
+		return fmt.Errorf("write private node import result: %w", err)
+	}
+	return nil
 }
 
 func runValidate(args []string) error {

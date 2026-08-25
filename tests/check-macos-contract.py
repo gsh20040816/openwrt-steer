@@ -21,6 +21,7 @@ def main() -> None:
     control_peer = read("go/cmd/steer-macos/control_peer_darwin.go")
     launchd = read("macos/launchd/com.steer.steer.plist")
     control_launchd = read("macos/launchd/com.steer.steer.control.plist")
+    subscription_launchd = read("macos/launchd/com.steer.steer.subscription.plist")
     installer = read("macos/scripts/install-launchdaemon.sh")
     embedded_installer = read("macos/scripts/install-embedded-payload.sh")
     package = read("macos/Package.swift")
@@ -40,12 +41,17 @@ def main() -> None:
     assert 'PLATFORM_UNSUPPORTED_GEO_TOOLCHAIN' not in macos_validate
     assert 'case "apply"' in macos_cli
     assert 'case "parse-nodes"' in macos_cli
+    assert 'case "probe"' in macos_cli
+    assert 'case "geo-catalog"' in macos_cli
+    assert 'case "subscription"' in macos_cli
     assert 'case "verify-geodata"' in macos_cli
     assert 'case "control"' in macos_cli
     assert 'case "_control"' in macos_cli
     assert 'case "_run"' in macos_cli
     assert 'com.steer.steer' in launchd
     assert 'com.steer.steer.control' in control_launchd
+    assert 'com.steer.steer.subscription' in subscription_launchd
+    assert '<key>StartInterval</key>' in subscription_launchd
     assert '<string>_control</string>' in control_launchd
     assert '<string>/var/run/steer/control.sock</string>' in control_launchd
     assert '<key>KeepAlive</key>' in control_launchd and '<true/>' in control_launchd
@@ -83,6 +89,11 @@ def main() -> None:
     assert 'func setEnabledAndApply' in state
     assert 'deletionBlockReason' in state and '.alert(' in content
     assert 'NodeImportSheet' in editors and 'parseNodes(document:' in state
+    assert 'SharedNodeDraftForm' in editors and 'SteerUISpec.nodeFields' in editors
+    assert 'func probe(kind:' in state
+    assert 'func subscriptionStatuses()' in state
+    assert 'func updateSubscription(id:' in state
+    assert 'func geoCatalog(kind:' in state
     assert 'HelperBackendClient' in state
     assert 'with administrator privileges' in state
     assert '["control", "--operation", "save", "--input", url.path]' in state
@@ -101,6 +112,8 @@ def main() -> None:
     assert 'chmod 0644 "$support_directory/run/current.json"' in installer
     assert 'atomicWriteMode(filepath.Join(paths.Root, "current.json"), encoded, 0o644)' in read("go/internal/platform/macos/generation.go")
     assert 'request.Operation != "save" && request.Operation != "apply"' in control
+    assert 'request.Operation != "subscription-update"' in control
+    assert 'request.Operation != "subscription-clean"' in control
     assert 'decoder.DisallowUnknownFields()' in control
     assert 'maxControlDocument' in control and 'maxControlMessage' in control
     assert 'authorizedControlPeer' in control

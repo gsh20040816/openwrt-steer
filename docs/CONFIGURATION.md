@@ -176,4 +176,4 @@ steer probe --kind speedtest --route <route-id> --download
 
 ## 版本与升级
 
-0.8.0 只接受 schema 9。Linux、OpenWrt 和发行版包均不再提供旧 schema 迁移命令或安装 hook；旧版本配置必须在安装 0.8.0 前完成转换，否则 Validate/Apply 会明确失败。`bootstrap.strategy` 只服务内部域名解析，DNS Profile 不再包含客户端地址族 strategy。
+0.8.0 及更高版本只接受 schema 9。Linux、OpenWrt 和发行版包均不再提供旧 schema 迁移命令或安装 hook；旧版本配置必须在升级前完成转换，否则 Validate/Apply 会明确失败。`bootstrap.strategy` 只服务内部域名解析，DNS Profile 不再包含客户端地址族 strategy。

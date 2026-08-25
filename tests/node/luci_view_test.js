@@ -16,6 +16,7 @@ if (typeof String.prototype.format != 'function') {
 }
 
 const root = path.resolve(__dirname, '../..');
+const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 
 function element(tag, attributes, children) {
 	if (Array.isArray(tag)) {
@@ -224,7 +225,6 @@ function createEnvironment(sections) {
 	const ui = {
 		addNotification: (title, body, level) => notifications.push({ title, body, level })
 	};
-	const shareUrl = {};
 	const window = { location: {
 		pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '', reloadCount: 0,
 		reload: function() { this.reloadCount++; }
@@ -232,7 +232,7 @@ function createEnvironment(sections) {
 	const translate = (value) => String(value);
 
 	const environment = {
-		form, uci, view, steer, ui, shareUrl, window, maps, translate,
+		form, uci, view, steer, ui, window, maps, translate,
 		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, cleanSubscriptionCalls, notifications,
 		cleanSubscriptionResult: { ok: true }
 	};
@@ -260,6 +260,7 @@ async function renderRules(sections, catalog = {}) {
 			uci: environment.uci,
 			view: environment.view,
 			steer: environment.steer,
+			uiSpec,
 			E: element,
 			_: environment.translate
 		}
@@ -268,8 +269,9 @@ async function renderRules(sections, catalog = {}) {
 	return environment;
 }
 
-async function renderNodes(sections, search = '', subscriptionStatus) {
+async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes') {
 	const environment = createEnvironment(sections);
+	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
 	environment.window.location.search = search;
 	const view = loadView(
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js',
@@ -279,7 +281,7 @@ async function renderNodes(sections, search = '', subscriptionStatus) {
 			ui: environment.ui,
 			view: environment.view,
 			steer: environment.steer,
-			shareUrl: environment.shareUrl,
+			uiSpec,
 			window: environment.window,
 			E: element,
 			_: environment.translate
@@ -298,6 +300,7 @@ async function renderDns(sections) {
 			uci: environment.uci,
 			view: environment.view,
 			steer: environment.steer,
+			uiSpec,
 			E: element,
 			_: environment.translate
 		}
@@ -315,6 +318,7 @@ async function renderLocalProxies(sections) {
 			uci: environment.uci,
 			view: environment.view,
 			steer: environment.steer,
+			uiSpec,
 			E: element,
 			_: environment.translate
 		}
@@ -323,8 +327,9 @@ async function renderLocalProxies(sections) {
 	return environment;
 }
 
-async function renderOverview(sections) {
+async function renderOverview(sections, page = 'general') {
 	const environment = createEnvironment(sections);
+	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
 	const view = loadView(
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js',
 		{
@@ -333,6 +338,8 @@ async function renderOverview(sections) {
 			ui: environment.ui,
 			view: environment.view,
 			steer: environment.steer,
+			uiSpec,
+			window: environment.window,
 			E: element,
 			_: environment.translate
 		}
@@ -465,7 +472,7 @@ async function main() {
 			{ '.name': 'direct', kind: 'direct' },
 			{ '.name': 'block', kind: 'block' }
 		]
-	});
+	}, '', undefined, 'routes');
 	options = allOptions(environment);
 	assertNamedIds(environment, 'Nodes and routes');
 	const emptyKind = options.find((option) => option.name == 'kind');
@@ -476,7 +483,7 @@ async function main() {
 	environment = await renderNodes({
 		node: [],
 		route: [ { '.name': 'broken', kind: 'single', node: 'missing_node' } ]
-	});
+	}, '', undefined, 'routes');
 	options = allOptions(environment);
 	const missingNode = options.find((option) => option.name == 'node');
 	assert.ok(missingNode, 'A dangling route node must remain visible for repair');
@@ -489,7 +496,7 @@ async function main() {
 		'DNS profiles expose exactly the six M1 transports');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertNamedIds(environment, 'Local proxies');
-	environment = await renderNodes({
+	const groupedFixture = {
 		node: [
 			{ '.name': 'cfg_manual', name: 'Manual' },
 			{ '.name': 'jdub_0123456789ab', name: 'Subscribed', source_subscription: 'jdub' }
@@ -499,10 +506,12 @@ async function main() {
 			{ '.name': 'route_jp', kind: 'single', node: 'cfg_manual' }
 		],
 		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
-	});
+	};
+	environment = await renderNodes(groupedFixture);
 	const groupedNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
 	assert.ok(groupedNodes && groupedNodes.addremove === true && groupedNodes.filter('cfg_manual') && !groupedNodes.filter('jdub_0123456789ab'),
 		'The default node group shows only manually added nodes');
+	environment = await renderNodes(groupedFixture, '', undefined, 'routes');
 	const groupedPicker = environment.maps[0].sections.flatMap((section) => section.options)
 		.find((option) => option.name == 'node');
 	assert.ok(groupedPicker && groupedPicker.type == 'RichListValue' && groupedPicker.values.some((value) => value[2]?.includes('Jdub')),
@@ -579,7 +588,7 @@ async function main() {
 		node: [ { '.name': 'jdub_stale', name: 'Stale', source_subscription: 'jdub' } ],
 		route: [],
 		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
-	}, '', { subscriptions: [ { id: 'jdub', name: 'Jdub', node_count: 1, stale_node_ids: [ 'jdub_stale' ] } ] });
+	}, '', { subscriptions: [ { id: 'jdub', name: 'Jdub', node_count: 1, stale_node_ids: [ 'jdub_stale' ] } ] }, 'subscriptions');
 	const removeStale = findElements(environment.rendered,
 		(node) => node.tag == 'button' && node.children?.[0] == 'Remove jdub_stale')[0];
 	assert.ok(removeStale, 'Subscription status exposes cleanup only for stale nodes');
@@ -596,16 +605,18 @@ async function main() {
 	await removeStale.attributes.click();
 	assert.equal(environment.window.location.reloadCount, 1,
 		'Successful stale cleanup reloads the current subscription view');
-	environment = await renderOverview({ subscription: [] });
+	environment = await renderOverview({ subscription: [] }, 'general');
 	const probeOptions = [ 'probe_direct', 'probe_proxy', 'speedtest_proxy' ].map((name) =>
 		allOptions(environment).find((option) => option.name == name));
 	assert.ok(probeOptions.every((option) => option?.type == 'Value' && option.rmempty === false),
 		'Schema 7 probe URLs are required scalar fields');
+	environment = await renderNodes({ subscription: [], node: [], route: [] }, '', { subscriptions: [] }, 'subscriptions');
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
 		'Subscriptions require an explicit stable UCI section ID');
 	assert.equal(typeof subscriptionSection.handleAdd, 'function',
 		'Subscription creation validates the stricter Steer ID syntax');
+	environment = await renderOverview({}, 'diagnostics');
 	const overviewTestButtons = findElements(environment.rendered,
 		(node) => node.tag == 'button' && typeof node.attributes?.click == 'function');
 	assert.equal(overviewTestButtons.length, 3,

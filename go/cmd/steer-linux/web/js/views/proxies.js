@@ -18,7 +18,7 @@
         const draft = JSON.parse(JSON.stringify(proxy));
         const name = ui.input({ value: draft.name || '', placeholder: '端点名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const protocol = ui.select([['socks', 'SOCKS'], ['http', 'HTTP CONNECT']], draft.protocol, (v) => { draft.protocol = v; });
+        const protocol = ui.select(S.uiSpec.local_proxy_protocols.map((item) => [item.value, item.label]), draft.protocol, (v) => { draft.protocol = v; });
         const listen = ui.input({ value: draft.listen || '', placeholder: '127.0.0.1' });
         const port = ui.input({ type: 'number', value: draft.listen_port || '', placeholder: '1080' });
         const username = ui.input({ value: draft.username || '', placeholder: '（可选）' });

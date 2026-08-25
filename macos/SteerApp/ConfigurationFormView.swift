@@ -11,10 +11,9 @@ struct ConfigurationFormView: View {
                 Section("运行") {
                     LabeledContent("Canonical schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
                     Picker("日志级别", selection: stringBinding("main", "log_level", defaultValue: "warn")) {
-                        Text("Error").tag("error")
-                        Text("Warning").tag("warn")
-                        Text("Info").tag("info")
-                        Text("Debug").tag("debug")
+                        ForEach(SteerUISpec.contract.logLevels) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
                 }
 
@@ -38,16 +37,16 @@ struct ConfigurationFormView: View {
 
                 Section("Bootstrap DNS") {
                     Picker("协议", selection: stringBinding("bootstrap", "protocol", required: true, defaultValue: "udp")) {
-                        Text("UDP").tag("udp")
-                        Text("TCP").tag("tcp")
+                        ForEach(SteerUISpec.contract.bootstrapProtocols) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
                     TextField("服务器", text: stringBinding("bootstrap", "server", required: true), prompt: Text("1.1.1.1"))
                     TextField("端口", value: intBinding("bootstrap", "server_port", defaultValue: 53), format: .number)
                     Picker("地址策略", selection: stringBinding("bootstrap", "strategy", required: true, defaultValue: "prefer_ipv4")) {
-                        Text("优先 IPv4").tag("prefer_ipv4")
-                        Text("优先 IPv6").tag("prefer_ipv6")
-                        Text("仅 IPv4").tag("ipv4_only")
-                        Text("仅 IPv6").tag("ipv6_only")
+                        ForEach(SteerUISpec.contract.bootstrapStrategies) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
                     Text("Bootstrap 服务器必须填写 IP 地址，避免解析环路。")
                         .font(.caption)

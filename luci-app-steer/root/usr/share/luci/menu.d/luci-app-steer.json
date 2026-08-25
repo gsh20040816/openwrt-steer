@@ -2,52 +2,82 @@
 	"admin/services/steer": {
 		"title": "Steer",
 		"order": 15,
-		"action": {
-			"type": "firstchild"
-		},
-		"depends": {
-			"acl": [ "luci-app-steer" ],
-			"uci": { "steer": true }
-		}
+		"action": { "type": "firstchild" },
+		"depends": { "acl": [ "luci-app-steer" ], "uci": { "steer": true } }
 	},
-	"admin/services/steer/overview": {
+	"admin/services/steer/status": {
+		"title": "Status",
+		"order": 10,
+		"action": { "type": "firstchild" }
+	},
+	"admin/services/steer/status/overview": {
 		"title": "Overview",
 		"order": 10,
-		"action": {
-			"type": "view",
-			"path": "steer/overview"
-		}
+		"action": { "type": "view", "path": "steer/overview" }
 	},
-	"admin/services/steer/rules": {
-		"title": "Rules",
+	"admin/services/steer/configuration": {
+		"title": "Configuration",
 		"order": 20,
-		"action": {
-			"type": "view",
-			"path": "steer/rules"
-		}
+		"action": { "type": "firstchild" }
 	},
-	"admin/services/steer/dns": {
-		"title": "DNS",
-		"order": 50,
-		"action": {
-			"type": "view",
-			"path": "steer/dns"
-		}
+	"admin/services/steer/configuration/general": {
+		"title": "General",
+		"order": 10,
+		"action": { "type": "view", "path": "steer/overview" }
 	},
-	"admin/services/steer/local-proxies": {
-		"title": "Local Proxies",
+	"admin/services/steer/configuration/nodes": {
+		"title": "Nodes",
+		"order": 20,
+		"action": { "type": "view", "path": "steer/nodes" }
+	},
+	"admin/services/steer/configuration/routes": {
+		"title": "Routes",
 		"order": 30,
-		"action": {
-			"type": "view",
-			"path": "steer/local-proxies"
-		}
+		"action": { "type": "view", "path": "steer/nodes" }
 	},
-	"admin/services/steer/nodes": {
-		"title": "Nodes & Routes",
+	"admin/services/steer/configuration/dns": {
+		"title": "DNS Profiles",
+		"order": 40,
+		"action": { "type": "view", "path": "steer/dns" }
+	},
+	"admin/services/steer/configuration/proxies": {
+		"title": "Local Proxies",
+		"order": 50,
+		"action": { "type": "view", "path": "steer/local-proxies" }
+	},
+	"admin/services/steer/configuration/rules": {
+		"title": "Rules",
 		"order": 60,
-		"action": {
-			"type": "view",
-			"path": "steer/nodes"
-		}
+		"action": { "type": "view", "path": "steer/rules" }
+	},
+	"admin/services/steer/services": {
+		"title": "Services",
+		"order": 30,
+		"action": { "type": "firstchild" }
+	},
+	"admin/services/steer/services/subscriptions": {
+		"title": "Subscriptions",
+		"order": 10,
+		"action": { "type": "view", "path": "steer/nodes" }
+	},
+	"admin/services/steer/services/diagnostics": {
+		"title": "Diagnostics",
+		"order": 20,
+		"action": { "type": "view", "path": "steer/overview" }
+	},
+	"admin/services/steer/services/system": {
+		"title": "System",
+		"order": 30,
+		"action": { "type": "view", "path": "steer/system" }
+	},
+	"admin/services/steer/advanced": {
+		"title": "Advanced",
+		"order": 40,
+		"action": { "type": "firstchild" }
+	},
+	"admin/services/steer/advanced/configuration": {
+		"title": "Canonical Preview",
+		"order": 10,
+		"action": { "type": "view", "path": "steer/advanced" }
 	}
 }

@@ -15,8 +15,8 @@
     return catalogPromise;
   }
 
-  const NETWORKS = ['tcp', 'udp'];
-  const PROTOCOLS = ['tls', 'http', 'quic', 'dns', 'stun', 'bittorrent', 'dtls', 'ssh', 'rdp', 'ntp'];
+  const NETWORKS = S.uiSpec.rule_networks.map((item) => item.value);
+  const PROTOCOLS = S.uiSpec.rule_protocols.map((item) => item.value);
 
   function routeLabel(intent, id) {
     const r = intent.routes.find((x) => x.id === id);

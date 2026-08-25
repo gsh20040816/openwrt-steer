@@ -28,26 +28,19 @@
     return routeTokens.get(root) === token;
   }
 
-  const NAV = [
-    { label: '总览', items: [['overview', 'gauge', '总览']] },
-    {
-      label: '配置', items: [
-        ['nodes', 'server', '节点'],
-        ['routes', 'route', '路由'],
-        ['dns', 'globe', 'DNS Profile'],
-        ['proxies', 'plug', '本地代理'],
-        ['rules', 'list', '规则']
-      ]
-    },
-    {
-      label: '运维', items: [
-        ['subscriptions', 'refresh', '订阅'],
-        ['diagnostics', 'activity', '诊断'],
-        ['system', 'sliders', '系统'],
-        ['config', 'braces', '配置 · 高级']
-      ]
-    }
-  ];
+  const GROUP_LABEL = { status: '状态', configuration: '配置', services: '服务', advanced: '高级' };
+  const VIEW_LABEL = {
+    overview: '总览', general: '基础设置', nodes: '节点', routes: '路由', dns: 'DNS Profile', proxies: '本地代理',
+    rules: '规则', subscriptions: '订阅', diagnostics: '诊断', system: '系统', advanced: '高级配置'
+  };
+  const VIEW_ICON = {
+    overview: 'gauge', general: 'sliders', nodes: 'server', routes: 'route', dns: 'globe', proxies: 'plug', rules: 'list',
+    subscriptions: 'refresh', diagnostics: 'activity', system: 'sliders', advanced: 'braces'
+  };
+  const NAV = S.uiSpec.navigation.map((group) => ({
+    label: GROUP_LABEL[group.key] || group.label,
+    items: group.items.map((item) => [item.key, VIEW_ICON[item.key], VIEW_LABEL[item.key] || item.label])
+  }));
 
   /* ---------- 侧栏 ---------- */
   function renderShell(router) {
@@ -385,7 +378,7 @@
     const status = h('div', { class: 'match-editor__status' });
     const wrap = h('div', { class: 'match-editor' }, ta, list, status);
 
-    const prefixes = kind === 'domain' ? ['full:', 'domain:', 'regexp:', 'geosite:'] : ['geoip:'];
+    const prefixes = kind === 'domain' ? S.uiSpec.domain_prefixes : S.uiSpec.ip_prefixes;
     const geoPrefix = kind === 'domain' ? 'geosite:' : 'geoip:';
     let matches = [];
     let active = 0;

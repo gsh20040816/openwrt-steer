@@ -6,6 +6,7 @@
 'require ui';
 'require view';
 'require steer as steer';
+'require steer.ui-spec as uiSpec';
 
 function testResult(report, kind) {
 	const result = report?.results?.[0];
@@ -73,7 +74,12 @@ return view.extend({
 		let m, s, o;
 		const status = data[1];
 		const validation = data[2];
+		const page = (window.location.pathname || '').split('/').pop();
 		steer.loadStyle();
+		if (page == 'overview')
+			return E([], [ steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1') ]);
+		if (page == 'diagnostics')
+			return E([], [ steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1'), renderOverviewTests() ]);
 
 		m = new form.Map('steer', _('Steer'));
 		s = m.section(form.NamedSection, 'main', 'steer', _('Traffic steering'));
@@ -86,7 +92,7 @@ return view.extend({
 		o.description = _('A disabled configuration stops Steer and removes its runtime resources when applied.');
 
 		o = s.taboption('general', form.ListValue, 'log_level', _('Log level'));
-		[ 'error', 'warn', 'info', 'debug' ].forEach((level) => o.value(level, level));
+		uiSpec.log_levels.forEach((item) => o.value(item.value, item.label));
 		o.default = 'warn';
 
 		o = s.taboption('dns', form.Value, 'dns_cache_capacity', _('Cache capacity'));
@@ -118,38 +124,14 @@ return view.extend({
 
 		s = m.section(form.NamedSection, 'bootstrap', 'bootstrap', _('Bootstrap DNS'));
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
-		o.value('udp', 'UDP'); o.value('tcp', 'TCP'); o.rmempty = false;
+		uiSpec.bootstrap_protocols.forEach((item) => o.value(item.value, item.label)); o.rmempty = false;
 		o = s.option(form.Value, 'server', _('Server IP')); o.datatype = 'ipaddr'; o.rmempty = false;
 		o = s.option(form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false;
 		o = s.option(form.ListValue, 'strategy', _('Address strategy'));
-		[ 'prefer_ipv4', 'prefer_ipv6', 'ipv4_only', 'ipv6_only' ].forEach((value) => o.value(value, value));
+		uiSpec.bootstrap_strategies.forEach((item) => o.value(item.value, item.label));
 		o.rmempty = false;
 
-		s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
-		s.anonymous = false;
-		s.addremove = true;
-		s.nodescriptions = true;
-		s.addbtntitle = _('Add subscription');
-		s.sectiontitle = function(sectionId) {
-			return uci.get('steer', sectionId, 'name') || uci.get('steer', sectionId, 'url') || _('Unnamed');
-		};
-		s.handleAdd = function(ev, sectionId) {
-			if (!/^[a-z][a-z0-9_]{0,31}$/.test(sectionId)) {
-				ui.addNotification(_('Invalid subscription ID'), E('p', {}, _('Use 1–32 lowercase characters beginning with a letter.')), 'danger');
-				return;
-			}
-			this.map.data.add(this.uciconfig || this.map.config, this.sectiontype, sectionId);
-			return this.map.save(null, true);
-		};
-		o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
-		o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
-		o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
-		o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = '6h'; o.modalonly = true;
-
-		return m.render().then((formNode) => E([], [
-			steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1'),
-			renderOverviewTests(), formNode
-		]));
+		return m.render();
 	},
 
 	handleSaveApply: function(ev, mode) { return steer.apply(this, ev, mode); }

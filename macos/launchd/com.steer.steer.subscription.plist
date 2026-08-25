@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.steer.steer.subscription</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/steer/steer-macos</string>
+		<string>subscription</string>
+		<string>update</string>
+		<string>--config</string>
+		<string>/Library/Application Support/Steer/config/config.json</string>
+		<string>--state-dir</string>
+		<string>/Library/Application Support/Steer/state</string>
+		<string>--run-dir</string>
+		<string>/Library/Application Support/Steer/run</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StartInterval</key>
+	<integer>900</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardOutPath</key>
+	<string>/Library/Logs/Steer/subscription.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Library/Logs/Steer/subscription.error.log</string>
+</dict>
+</plist>

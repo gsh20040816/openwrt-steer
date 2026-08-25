@@ -25,6 +25,13 @@ func runLockedApply(runDirectory string, operation func() (coreapply.Result, err
 		return err
 	}
 	defer lock.Close()
+	return runApplyOperation(runDirectory, operation, stdout)
+}
+
+// runApplyOperation records an Apply while the caller already owns the
+// cross-process operation lock. The control daemon uses this to keep saving
+// the canonical document and switching runtime state in one transaction.
+func runApplyOperation(runDirectory string, operation func() (coreapply.Result, error), stdout io.Writer) error {
 	result, err := operation()
 	if err != nil {
 		result.OK = false

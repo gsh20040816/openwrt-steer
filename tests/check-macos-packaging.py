@@ -20,6 +20,7 @@ for path in (
     ROOT / "macos/scripts/build-app-bundle.sh",
     ROOT / "macos/scripts/install-embedded-payload.sh",
     ROOT / "macos/launchd/com.steer.steer.control.plist",
+    ROOT / "macos/launchd/com.steer.steer.subscription.plist",
 ):
     if not path.exists():
         fail(f"missing required file: {path.relative_to(ROOT)}")
@@ -74,6 +75,7 @@ for fragment in (
     "verify-geodata --directory",
     "validate --config",
     "parse-nodes --input",
+    "com.steer.steer.subscription.plist",
     "lipo -archs",
     "xcrun vtool -show-build",
     "SteerApp must be linked against the macOS 26 SDK",
@@ -103,6 +105,7 @@ for fragment in (
     'helper_payload="$script_dir/steer-macos"',
     'sing_box_payload="$script_dir/sing-box"',
     'control_plist_payload="$script_dir/com.steer.steer.control.plist"',
+    'subscription_plist_payload="$script_dir/com.steer.steer.subscription.plist"',
     'geodata_payload="$resources_dir/geodata-seed"',
     "[ ! -L \"$1\" ]",
     "/usr/bin/shasum -a 256 -c PAYLOAD-SHA256SUMS",
@@ -111,6 +114,7 @@ for fragment in (
     "verify-geodata --directory",
     "/usr/local/libexec/steer",
     "/Library/LaunchDaemons/com.steer.steer.control.plist",
+    "/Library/LaunchDaemons/com.steer.steer.subscription.plist",
     "/var/run/steer",
     "-o root -g wheel -m 0755 \"$socket_directory\"",
     "-o root -g wheel -m 0755",
@@ -118,6 +122,7 @@ for fragment in (
     "if [ -f \"$support_directory/config/config.json\" ]",
     "launchctl bootout system/com.steer.steer.control",
     "launchctl bootstrap system \"$control_plist_path\"",
+    "launchctl bootstrap system \"$subscription_plist_path\"",
 ):
     if fragment not in INSTALLER:
         fail(f"embedded installer is missing: {fragment}")

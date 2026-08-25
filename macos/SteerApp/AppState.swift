@@ -62,7 +62,7 @@ extension JSONValue {
     }
 }
 
-struct RuntimeStatus: Decodable {
+struct RuntimeStatus: Decodable, Sendable {
     var healthy = false
     var generationID = ""
     var intentDigest = ""
@@ -114,6 +114,104 @@ struct RuntimeVersions {
     var singBox = "—"
 }
 
+struct ApplyOutcome: Sendable {
+    let status: RuntimeStatus
+    let saved: Bool
+    let applied: Bool
+    let revision: String
+    let error: String
+}
+
+struct ProbeResult: Decodable, Sendable {
+    let ok: Bool
+    let status: Int?
+    let firstByteMilliseconds: Int?
+    let connectMilliseconds: Int?
+    let tlsMilliseconds: Int?
+    let downloadedBytes: Int?
+    let downloadMilliseconds: Int?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, status, error
+        case firstByteMilliseconds = "first_byte_milliseconds"
+        case connectMilliseconds = "connect_milliseconds"
+        case tlsMilliseconds = "tls_milliseconds"
+        case downloadedBytes = "downloaded_bytes"
+        case downloadMilliseconds = "download_milliseconds"
+    }
+}
+
+struct ProbeReport: Decodable, Sendable {
+    let ok: Bool
+    let scope: String
+    let objectID: String?
+    let kind: String
+    let results: [ProbeResult]
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, scope, kind, results, error
+        case objectID = "object_id"
+    }
+
+    var summary: String {
+        guard let result = results.first(where: { $0.ok }) else { return error ?? results.first?.error ?? "失败" }
+        if let bytes = result.downloadedBytes, let milliseconds = result.downloadMilliseconds, milliseconds > 0 {
+            return String(format: "%.1f Mbps", Double(bytes) * 8 / Double(milliseconds) / 1000)
+        }
+        if let milliseconds = result.firstByteMilliseconds ?? result.tlsMilliseconds ?? result.connectMilliseconds {
+            return "\(milliseconds) ms"
+        }
+        return result.status.map { "HTTP \($0)" } ?? "成功"
+    }
+}
+
+struct SubscriptionRuntimeStatus: Decodable, Identifiable, Sendable {
+    let id: String
+    let name: String?
+    let url: String
+    let enabled: Bool
+    let updateInterval: String?
+    let fetchedAt: String?
+    let nodeCount: Int
+    let skipped: Int
+    let staleNodeIDs: [String]
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, url, enabled, skipped, error
+        case updateInterval = "update_interval"
+        case fetchedAt = "fetched_at"
+        case nodeCount = "node_count"
+        case staleNodeIDs = "stale_node_ids"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        url = try container.decode(String.self, forKey: .url)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        updateInterval = try container.decodeIfPresent(String.self, forKey: .updateInterval)
+        fetchedAt = try container.decodeIfPresent(String.self, forKey: .fetchedAt)
+        nodeCount = try container.decodeIfPresent(Int.self, forKey: .nodeCount) ?? 0
+        skipped = try container.decodeIfPresent(Int.self, forKey: .skipped) ?? 0
+        staleNodeIDs = try container.decodeIfPresent([String].self, forKey: .staleNodeIDs) ?? []
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+private struct SubscriptionStatusResponse: Decodable {
+    let ok: Bool
+    let subscriptions: [SubscriptionRuntimeStatus]
+}
+
+private struct GeoCatalogResponse: Decodable {
+    let kind: String
+    let names: [String]
+}
+
 struct SystemComponentsStatus: Sendable {
     let installed: Bool
     let embeddedInstallerAvailable: Bool
@@ -124,11 +222,15 @@ private struct ControlResponse: Decodable {
     let schemaVersion: Int
     let ok: Bool
     let status: RuntimeStatus?
+    let saved: Bool?
+    let applied: Bool?
+    let revision: String?
+    let payload: JSONValue?
     let error: String?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
-        case ok, status, error
+        case ok, status, saved, applied, revision, payload, error
     }
 }
 
@@ -194,17 +296,23 @@ protocol BackendClient: Sendable {
     func validate(document: String) async throws -> ValidationResult
     func loadConfiguration() async throws -> String
     func save(document: String) async throws
-    func apply(document: String) async throws -> RuntimeStatus
+    func apply(document: String) async throws -> ApplyOutcome
     func status() async throws -> RuntimeStatus
     func logs() async throws -> String
     func versions() async throws -> RuntimeVersions
     func parseNodes(document: String) async throws -> NodeImportResult
+    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport
+    func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus]
+    func updateSubscription(id: String) async throws
+    func cleanSubscription(id: String, nodeID: String) async throws
+    func geoCatalog(kind: String) async throws -> [String]
 }
 
 struct HelperBackendClient: BackendClient {
     private static let installedHelperPath = "/usr/local/libexec/steer/steer-macos"
     private static let configurationPath = "/Library/Application Support/Steer/config/config.json"
     private static let controlPlistPath = "/Library/LaunchDaemons/com.steer.steer.control.plist"
+    private static let subscriptionPlistPath = "/Library/LaunchDaemons/com.steer.steer.subscription.plist"
     private static let installedSingBoxPath = "/usr/local/libexec/steer/sing-box"
 
     private let validationHelperURL: URL
@@ -220,6 +328,7 @@ struct HelperBackendClient: BackendClient {
         let installed = fileManager.isExecutableFile(atPath: Self.installedHelperPath)
             && fileManager.isExecutableFile(atPath: Self.installedSingBoxPath)
             && fileManager.fileExists(atPath: Self.controlPlistPath)
+            && fileManager.fileExists(atPath: Self.subscriptionPlistPath)
         let embeddedHelper = Self.embeddedInstallerResource("steer-macos")
         let installerAvailable = embeddedInstallerURL.map {
             fileManager.isExecutableFile(atPath: $0.path)
@@ -282,11 +391,14 @@ struct HelperBackendClient: BackendClient {
         try requireExecutable(helper)
         try await withTemporaryDocument(document) { url in
             let result = try await Self.execute(helper, ["control", "--operation", "save", "--input", url.path])
-            _ = try Self.decodeControlResponse(result)
+            let response = try Self.decodeControlResponse(result)
+            guard response.ok, response.saved == true else {
+                throw BackendClientError.processFailed(response.error ?? "Steer control service 拒绝保存配置。")
+            }
         }
     }
 
-    func apply(document: String) async throws -> RuntimeStatus {
+    func apply(document: String) async throws -> ApplyOutcome {
         let validation = try await validate(document: document)
         guard validation.ok else { throw BackendClientError.validationFailed }
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
@@ -294,8 +406,19 @@ struct HelperBackendClient: BackendClient {
         return try await withTemporaryDocument(document) { url in
             let result = try await Self.execute(helper, ["control", "--operation", "apply", "--input", url.path])
             let response = try Self.decodeControlResponse(result)
-            guard let status = response.status else { throw BackendClientError.invalidResponse }
-            return status
+            if response.saved != true {
+                throw BackendClientError.processFailed(response.error ?? "配置未保存。")
+            }
+            let status: RuntimeStatus
+            if let responseStatus = response.status {
+                status = responseStatus
+            } else {
+                status = try await self.status()
+            }
+            return ApplyOutcome(
+                status: status, saved: true, applied: response.applied == true,
+                revision: response.revision ?? "", error: response.error ?? ""
+            )
         }
     }
 
@@ -315,6 +438,8 @@ struct HelperBackendClient: BackendClient {
             ("control.log", "/Library/Logs/Steer/control.log"),
             ("sing-box.error.log", "/Library/Logs/Steer/sing-box.error.log"),
             ("sing-box.log", "/Library/Logs/Steer/sing-box.log"),
+            ("subscription.error.log", "/Library/Logs/Steer/subscription.error.log"),
+            ("subscription.log", "/Library/Logs/Steer/subscription.log"),
         ]
         var sections: [String] = []
         for (name, path) in sources {
@@ -360,6 +485,56 @@ struct HelperBackendClient: BackendClient {
         }
     }
 
+    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        var arguments = ["probe", "--kind", kind]
+        if let nodeID { arguments += ["--node", nodeID] }
+        if let routeID { arguments += ["--route", routeID] }
+        if download { arguments.append("--download") }
+        let result = try await Self.execute(helper, arguments)
+        guard let report = try? JSONDecoder().decode(ProbeReport.self, from: result.stdout) else {
+            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        }
+        return report
+    }
+
+    func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let result = try await Self.execute(helper, ["subscription", "status"])
+        guard let response = try? JSONDecoder().decode(SubscriptionStatusResponse.self, from: result.stdout), response.ok else {
+            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        }
+        return response.subscriptions
+    }
+
+    func updateSubscription(id: String) async throws {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let result = try await Self.execute(helper, ["control", "--operation", "subscription-update", "--id", id])
+        let response = try Self.decodeControlResponse(result)
+        guard response.ok else { throw BackendClientError.processFailed(response.error ?? "订阅更新失败。") }
+    }
+
+    func cleanSubscription(id: String, nodeID: String) async throws {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let result = try await Self.execute(helper, ["control", "--operation", "subscription-clean", "--id", id, "--node", nodeID])
+        let response = try Self.decodeControlResponse(result)
+        guard response.ok else { throw BackendClientError.processFailed(response.error ?? "stale 节点清理失败。") }
+    }
+
+    func geoCatalog(kind: String) async throws -> [String] {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let result = try await Self.execute(helper, ["geo-catalog", "--kind", kind])
+        guard let response = try? JSONDecoder().decode(GeoCatalogResponse.self, from: result.stdout) else {
+            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        }
+        return response.names
+    }
+
     private func requireExecutable(_ url: URL) throws {
         guard FileManager.default.isExecutableFile(atPath: url.path) else {
             throw BackendClientError.helperUnavailable
@@ -380,8 +555,8 @@ struct HelperBackendClient: BackendClient {
         guard let response = try? JSONDecoder().decode(ControlResponse.self, from: result.stdout) else {
             throw result.status == 0 ? BackendClientError.invalidResponse : result.error
         }
-        guard result.status == 0, response.schemaVersion == 1, response.ok else {
-            throw BackendClientError.processFailed(response.error ?? "Steer control service 拒绝了操作。")
+        guard response.schemaVersion == 1 else {
+            throw BackendClientError.invalidResponse
         }
         return response
     }
@@ -463,6 +638,10 @@ final class AppModel: ObservableObject {
     @Published var systemComponentsInstalled = false
     @Published var embeddedInstallerAvailable = false
     @Published var systemComponentsUpdateAvailable = false
+    @Published var subscriptionRuntime: [SubscriptionRuntimeStatus] = []
+    @Published var probeSummaries: [String: String] = [:]
+    @Published var geositeNames: [String] = []
+    @Published var geoipNames: [String] = []
 
     private let backend: BackendClient
 
@@ -540,6 +719,9 @@ final class AppModel: ObservableObject {
             self.rawJSON = try await self.backend.loadConfiguration()
             self.runtime = try await self.backend.status()
             self.versions = try await self.backend.versions()
+            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
+            self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
+            self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
             self.isDirty = false
             self.message = self.runtime.healthy ? "Steer 运行正常" : "已连接后端，Steer 当前未运行"
         }
@@ -558,6 +740,9 @@ final class AppModel: ObservableObject {
             self.rawJSON = try await self.backend.loadConfiguration()
             self.runtime = try await self.backend.status()
             self.versions = try await self.backend.versions()
+            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
+            self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
+            self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
             self.isDirty = false
             self.message = "系统组件安装完成；后续保存和应用不再请求管理员密码"
         }
@@ -612,9 +797,14 @@ final class AppModel: ObservableObject {
 
     func apply() {
         perform(message: "正在保存并应用配置…") {
-            self.runtime = try await self.backend.apply(document: self.rawJSON)
-            self.isDirty = false
-            self.message = self.runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用"
+            let outcome = try await self.backend.apply(document: self.rawJSON)
+            self.runtime = outcome.status
+            self.isDirty = !outcome.saved
+            if outcome.saved && !outcome.applied {
+                self.message = "配置已保存，但 Apply 失败：\(outcome.error.isEmpty ? "运行态未切换" : outcome.error)"
+            } else {
+                self.message = self.runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用"
+            }
         }
     }
 
@@ -641,9 +831,18 @@ final class AppModel: ObservableObject {
         Task {
             defer { isBusy = false }
             do {
-                runtime = try await backend.apply(document: updatedDocument)
-                isDirty = false
-                message = enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源"
+                let outcome = try await backend.apply(document: updatedDocument)
+                runtime = outcome.status
+                if outcome.saved {
+                    isDirty = false
+                }
+                if outcome.applied {
+                    message = enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源"
+                } else if outcome.saved {
+                    message = "启用状态已保存，但 Apply 失败：\(outcome.error)"
+                } else {
+                    throw BackendClientError.processFailed(outcome.error)
+                }
             } catch {
                 rawJSON = previousDocument
                 isDirty = previousDirty
@@ -666,6 +865,54 @@ final class AppModel: ObservableObject {
             self.isDirty = false
             self.message = "已读取系统配置"
         }
+    }
+
+    func runProbe(kind: String, nodeID: String? = nil, routeID: String? = nil, download: Bool = false) {
+        let key = nodeID.map { "nodes:\($0):\(download ? "download" : "connect")" }
+            ?? routeID.map { "routes:\($0):\(download ? "download" : "connect")" }
+            ?? "overview:\(kind)"
+        perform(message: "正在运行探测…") {
+            let report = try await self.backend.probe(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
+            self.probeSummaries[key] = report.summary
+            self.message = report.ok ? "探测完成：\(report.summary)" : "探测失败：\(report.summary)"
+        }
+    }
+
+    func runAllNodeProbes(download: Bool) {
+        perform(message: download ? "正在批量下载测速…" : "正在批量连接测试…") {
+            let nodes = self.draftItems(for: "nodes").filter(\.enabled)
+            var succeeded = 0
+            for node in nodes {
+                let report = try await self.backend.probe(kind: "speedtest", nodeID: node.identifier, routeID: nil, download: download)
+                self.probeSummaries["nodes:\(node.identifier):\(download ? "download" : "connect")"] = report.summary
+                if report.ok { succeeded += 1 }
+            }
+            self.message = "批量测试完成：成功 \(succeeded)/\(nodes.count)"
+        }
+    }
+
+    func updateSubscription(_ id: String) {
+        perform(message: "正在更新订阅…") {
+            try await self.backend.updateSubscription(id: id)
+            self.rawJSON = try await self.backend.loadConfiguration()
+            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
+            self.isDirty = false
+            self.message = "订阅已更新；运行态未自动 Apply"
+        }
+    }
+
+    func cleanSubscriptionNode(subscriptionID: String, nodeID: String) {
+        perform(message: "正在清理 stale 节点…") {
+            try await self.backend.cleanSubscription(id: subscriptionID, nodeID: nodeID)
+            self.rawJSON = try await self.backend.loadConfiguration()
+            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
+            self.isDirty = false
+            self.message = "已清理 stale 节点 \(nodeID)"
+        }
+    }
+
+    func subscriptionStatus(_ id: String) -> SubscriptionRuntimeStatus? {
+        subscriptionRuntime.first { $0.id == id }
     }
 
     func draftItems(for key: String) -> [DraftItem] {

@@ -46,24 +46,14 @@ private struct SidebarView: View {
             get: { model.selectedPage },
             set: { if let page = $0 { model.selectedPage = page } }
         )) {
-            Section("状态") {
-                sidebarRow(.overview)
-            }
-            Section("配置") {
-                sidebarRow(.general)
-                sidebarRow(.nodes, count: model.itemCount(for: "nodes"))
-                sidebarRow(.routes, count: model.itemCount(for: "routes"))
-                sidebarRow(.dns, count: model.itemCount(for: "dns_profiles"))
-                sidebarRow(.proxies, count: model.itemCount(for: "local_proxies"))
-                sidebarRow(.rules, count: model.itemCount(for: "rules"))
-            }
-            Section("服务") {
-                sidebarRow(.subscriptions, count: model.itemCount(for: "subscriptions"))
-                sidebarRow(.diagnostics)
-                sidebarRow(.settings)
-            }
-            Section("高级") {
-                sidebarRow(.configuration)
+            ForEach(SteerUISpec.contract.navigation) { group in
+                Section(groupLabel(group.key, fallback: group.label)) {
+                    ForEach(group.items) { item in
+                        if let page = AppPage(contractKey: item.key) {
+                            sidebarRow(page, count: count(for: page))
+                        }
+                    }
+                }
             }
         }
         .listStyle(.sidebar)
@@ -101,6 +91,22 @@ private struct SidebarView: View {
             }
         }
         .tag(page)
+    }
+
+    private func count(for page: AppPage) -> Int? {
+        switch page {
+        case .nodes: return model.itemCount(for: "nodes")
+        case .routes: return model.itemCount(for: "routes")
+        case .dns: return model.itemCount(for: "dns_profiles")
+        case .proxies: return model.itemCount(for: "local_proxies")
+        case .rules: return model.itemCount(for: "rules")
+        case .subscriptions: return model.itemCount(for: "subscriptions")
+        default: return nil
+        }
+    }
+
+    private func groupLabel(_ key: String, fallback: String) -> String {
+        ["status": "状态", "configuration": "配置", "services": "服务", "advanced": "高级"][key] ?? fallback
     }
 }
 
@@ -417,6 +423,21 @@ struct DraftCollectionView: View {
                         Label("导入", systemImage: "square.and.arrow.down")
                     }
                     .disabled(model.isBusy)
+                    Menu("批量测速") {
+                        Button("批量连接测试") { model.runAllNodeProbes(download: false) }
+                        Button("批量下载测试") { model.runAllNodeProbes(download: true) }
+                    }
+                    .disabled(model.isBusy || model.isDirty || items.isEmpty)
+                }
+                if descriptor.key == "subscriptions", let selectedItem {
+                    Button("立即更新") { model.updateSubscription(selectedItem.identifier) }
+                        .disabled(model.isBusy || model.isDirty)
+                    if let stale = model.subscriptionStatus(selectedItem.identifier)?.staleNodeIDs.first {
+                        Button("清理 stale") {
+                            model.cleanSubscriptionNode(subscriptionID: selectedItem.identifier, nodeID: stale)
+                        }
+                        .disabled(model.isBusy || model.isDirty)
+                    }
                 }
                 Button { addItem() } label: {
                     Label(descriptor.addLabel, systemImage: "plus")
@@ -451,10 +472,15 @@ struct DraftCollectionView: View {
                 }
                 .width(min: 80, ideal: 110)
                 TableColumn("详情") { item in
-                    Text(item.detail.isEmpty ? "—" : item.detail)
-                        .font(.callout.monospaced())
-                        .lineLimit(1)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(runtimeDetail(item))
+                            .font(.callout.monospaced())
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary)
+                        if let result = probeSummary(item) {
+                            Text(result).font(.caption.monospaced()).foregroundStyle(.green)
+                        }
+                    }
                 }
                 TableColumn("顺序") { item in
                     HStack(spacing: 7) {
@@ -473,6 +499,27 @@ struct DraftCollectionView: View {
                 .width(78)
                 TableColumn("操作") { item in
                     HStack(spacing: 8) {
+                        if descriptor.key == "nodes" {
+                            Button { model.runProbe(kind: "speedtest", nodeID: item.identifier) } label: {
+                                Image(systemName: "network")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("连接测试")
+                            .disabled(model.isDirty)
+                        } else if descriptor.key == "routes", item.kind == "single" {
+                            Button { model.runProbe(kind: "speedtest", routeID: item.identifier) } label: {
+                                Image(systemName: "point.3.filled.connected.trianglepath.dotted")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("路由链测试")
+                            .disabled(model.isDirty)
+                        } else if descriptor.key == "subscriptions" {
+                            Button { model.updateSubscription(item.identifier) } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(model.isDirty)
+                        }
                         Button { edit(item) } label: {
                             Image(systemName: "square.and.pencil")
                         }
@@ -487,7 +534,7 @@ struct DraftCollectionView: View {
                         .disabled(item.subscriptionOwned)
                     }
                 }
-                .width(70)
+                .width(min: 70, ideal: 125)
             } rows: {
                 ForEach(items) { item in
                     TableRow(item)
@@ -640,6 +687,26 @@ struct DraftCollectionView: View {
         guard !isPinned(item), item.index < items.count - 1 else { return false }
         return !isPinned(items[item.index + 1])
     }
+
+    private func probeSummary(_ item: DraftItem) -> String? {
+        guard descriptor.key == "nodes" || descriptor.key == "routes" else { return nil }
+        let prefix = "\(descriptor.key):\(item.identifier):"
+        let connect = model.probeSummaries[prefix + "connect"]
+        let download = model.probeSummaries[prefix + "download"]
+        return [connect.map { "连接 \($0)" }, download.map { "下载 \($0)" }].compactMap { $0 }.joined(separator: " · ").nilIfEmpty
+    }
+
+    private func runtimeDetail(_ item: DraftItem) -> String {
+        guard descriptor.key == "subscriptions", let status = model.subscriptionStatus(item.identifier) else {
+            return item.detail.isEmpty ? "—" : item.detail
+        }
+        let fetched = status.fetchedAt ?? status.error ?? "未抓取"
+        return "\(status.nodeCount) 节点 · stale \(status.staleNodeIDs.count) · \(fetched)"
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 struct DiagnosticsView: View {
@@ -647,6 +714,16 @@ struct DiagnosticsView: View {
 
     var body: some View {
         List {
+            Section("连通性探测") {
+                HStack {
+                    Button("直连探测") { model.runProbe(kind: "direct") }
+                    Button("代理探测") { model.runProbe(kind: "proxy") }
+                    Button("下载测速") { model.runProbe(kind: "speedtest", download: true) }
+                }
+                LabeledContent("直连", value: model.probeSummaries["overview:direct"] ?? "未测试")
+                LabeledContent("代理", value: model.probeSummaries["overview:proxy"] ?? "未测试")
+                LabeledContent("下载", value: model.probeSummaries["overview:speedtest"] ?? "未测试")
+            }
             Section("配置校验") {
                 if let validation = model.validation {
                     LabeledContent("结果", value: validation.ok ? "通过" : "失败")
@@ -758,6 +835,8 @@ struct SystemView: View {
                 LabeledContent("Backend", value: "steer-macos \(model.versions.helper)")
                 LabeledContent("数据面", value: "sing-box \(model.versions.singBox) · TUN")
                 LabeledContent("LaunchDaemon", value: "com.steer.steer")
+                LabeledContent("GeoSite selectors", value: model.geositeNames.count.formatted())
+                LabeledContent("GeoIP categories", value: model.geoipNames.count.formatted())
             }
             Section("存储路径") {
                 pathRow("配置", "/Library/Application Support/Steer/config/config.json")
@@ -785,6 +864,23 @@ struct SystemView: View {
 }
 
 private extension AppPage {
+    init?(contractKey: String) {
+        switch contractKey {
+        case "overview": self = .overview
+        case "general": self = .general
+        case "nodes": self = .nodes
+        case "routes": self = .routes
+        case "dns": self = .dns
+        case "proxies": self = .proxies
+        case "rules": self = .rules
+        case "subscriptions": self = .subscriptions
+        case "diagnostics": self = .diagnostics
+        case "system": self = .settings
+        case "advanced": self = .configuration
+        default: return nil
+        }
+    }
+
     var navigationLabel: String {
         switch self {
         case .overview: return "总览"

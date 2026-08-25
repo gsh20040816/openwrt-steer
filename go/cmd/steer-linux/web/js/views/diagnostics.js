@@ -44,8 +44,11 @@
 
   const view = {
     name: 'diagnostics',
-    render(root) {
-      ui.beginRender(root);
+    async render(root) {
+      const isCurrent = ui.beginRender(root);
+      let logs = { output: '' };
+      try { logs = await S.api.logs(); } catch (error) { logs = { output: `日志读取失败：${error.message}` }; }
+      if (!isCurrent()) return;
       root.append(
         ui.viewHead('诊断', '探测经当前运行规则执行；裸节点/路由测速在“节点”与“路由”页内进行'),
         h('div', { class: 'grid-3' }, [
@@ -60,6 +63,10 @@
             h('button', { class: 'btn btn--sm', onclick: () => S.router('nodes') }, '前往节点测速 →'),
             h('button', { class: 'btn btn--sm', onclick: () => S.router('routes') }, '前往路由链测速 →')
           ])
+        ]),
+        h('section', { class: 'card' }, [
+          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'journalctl'), h('div', { class: 'card__title' }, '最近日志'))),
+          h('pre', { class: 'mono command-block diagnostics-log' }, logs.output || '当前没有日志输出')
         ])
       );
     }

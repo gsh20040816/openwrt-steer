@@ -42,6 +42,10 @@
 
   function routeTestButton(label, download, routeId) {
     const btn = h('button', { class: 'btn btn--sm', title: label, onclick: async () => {
+      if (S.store.dirty) {
+        ui.toast('请先保存或放弃工作副本修改，再测试路由', 'warn');
+        return;
+      }
       btn.disabled = true; btn.classList.add('spinning'); btn.textContent = '测试中…';
       try {
         const report = await S.api.speedtestRoute(routeId, download);
@@ -75,7 +79,7 @@
         const draft = JSON.parse(JSON.stringify(route));
         const name = ui.input({ value: draft.name || '', placeholder: '路由名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const kind = ui.select([['direct', 'Direct'], ['block', 'Block'], ['single', '单节点']], draft.kind, (v) => { draft.kind = v; });
+        const kind = ui.select(S.uiSpec.route_kinds.map((item) => [item.value, item.label]), draft.kind, (v) => { draft.kind = v; });
         const nodeOpts = intent.nodes.map((n) => [n.id, `${n.name || n.id}（${n.type}）`]);
         const nodeSel = ui.select(ui.selectWithMissing(nodeOpts, draft.node, '缺失节点'), draft.node ?? '', (v) => { draft.node = v; });
         const detourOpts = [['', '直连（无前置）'], ...intent.routes.filter((r) => r.kind === 'single').map((r) => [r.id, r.name || r.id])];

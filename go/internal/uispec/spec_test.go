@@ -1,0 +1,148 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package uispec
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	model "github.com/gsh20040816/steer/go/internal/intent"
+)
+
+func TestContractCoversEveryNodeType(t *testing.T) {
+	contract := ContractValue()
+	if contract.SchemaVersion != SchemaVersion || contract.CanonicalSchema != 9 {
+		t.Fatalf("unexpected schema contract: %#v", contract)
+	}
+	seen := map[string]bool{}
+	for _, nodeType := range contract.NodeTypes {
+		if seen[nodeType.Value] {
+			t.Fatalf("duplicate node type %q", nodeType.Value)
+		}
+		seen[nodeType.Value] = true
+		fields := contract.FieldsForNodeType(nodeType.Value)
+		if len(fields) == 0 {
+			t.Fatalf("node type %q has no UI fields", nodeType.Value)
+		}
+		keys := map[string]bool{}
+		for _, field := range fields {
+			if keys[field.Key] {
+				t.Fatalf("node type %q repeats field %q", nodeType.Value, field.Key)
+			}
+			keys[field.Key] = true
+		}
+		for _, required := range []string{"enabled", "name"} {
+			if !keys[required] {
+				t.Fatalf("node type %q misses %q", nodeType.Value, required)
+			}
+		}
+		if nodeType.Value == "tor" {
+			if keys["server"] || keys["server_port"] {
+				t.Fatalf("Tor must not expose a remote endpoint")
+			}
+		} else if !keys["server"] || !keys["server_port"] {
+			t.Fatalf("remote node type %q misses endpoint fields", nodeType.Value)
+		}
+	}
+	for _, expected := range nodeTypeValues() {
+		if !seen[expected] {
+			t.Fatalf("node type %q is absent", expected)
+		}
+	}
+}
+
+func TestPlatformCapabilitiesAreExplicit(t *testing.T) {
+	capabilities := ContractValue().PlatformCapabilities
+	for _, platform := range []string{"openwrt", "linux", "macos"} {
+		if _, exists := capabilities[platform]; !exists {
+			t.Fatalf("missing platform capability %q", platform)
+		}
+	}
+	if capabilities["macos"].SourceMAC {
+		t.Fatal("macOS must not advertise source-MAC support")
+	}
+}
+
+func TestNodeFieldsCoverCanonicalUserOptions(t *testing.T) {
+	canonical := map[string]bool{}
+	collectJSONFields(reflect.TypeOf(model.Node{}), canonical)
+	for _, internal := range []string{"id", "type", "source_subscription", "source_fingerprint", "pinned_stale"} {
+		delete(canonical, internal)
+	}
+	covered := map[string]bool{}
+	for _, field := range ContractValue().NodeFields {
+		covered[field.Key] = true
+	}
+	for key := range canonical {
+		if !covered[key] {
+			t.Errorf("canonical node field %q has no shared UI specification", key)
+		}
+	}
+}
+
+func TestRepresentativeNodeFromEveryGeneratedFormValidates(t *testing.T) {
+	uuid1 := "00000000-0000-4000-8000-000000000001"
+	uuid2 := "00000000-0000-4000-8000-000000000002"
+	cases := []model.Node{
+		{Type: "socks", Server: "proxy.example", ServerPort: 1080},
+		{Type: "http", Server: "proxy.example", ServerPort: 8080},
+		{Type: "shadowsocks", Server: "proxy.example", ServerPort: 8388, NodeCredentials: model.NodeCredentials{Password: "secret"}, NodeProtocol: model.NodeProtocol{Method: "aes-256-gcm"}},
+		{Type: "vmess", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: uuid1}, NodeProtocol: model.NodeProtocol{Security: "auto"}},
+		{Type: "vless", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: uuid1}, NodeTransport: model.NodeTransport{PacketEncoding: "xudp"}},
+		{Type: "trojan", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}, NodeTLS: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{Type: "hysteria", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}, NodeProtocol: model.NodeProtocol{UpMbps: 100, DownMbps: 100}, NodeTLS: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{Type: "hysteria2", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}, NodeTLS: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{Type: "shadowtls", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}, NodeProtocol: model.NodeProtocol{Version: 3}, NodeTLS: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{Type: "tuic", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: uuid2, Password: "secret"}, NodeTLS: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{Type: "anytls", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}, NodeTLS: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{Type: "naive", Server: "proxy.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Username: "user", Password: "secret"}, NodeTLS: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{Type: "ssh", Server: "proxy.example", ServerPort: 22, NodeCredentials: model.NodeCredentials{Username: "root", Password: "secret"}},
+		{Type: "tor", NodeProtocol: model.NodeProtocol{ExecutablePath: "/usr/local/bin/tor"}},
+	}
+	contract := ContractValue()
+	for index := range cases {
+		node := &cases[index]
+		node.ID, node.Name, node.Enabled = "node-"+node.Type, node.Type, true
+		t.Run(node.Type, func(t *testing.T) {
+			if validation := model.ValidateNode(*node); !validation.OK {
+				t.Fatalf("representative node is rejected: %#v", validation.Errors)
+			}
+			fields := map[string]bool{}
+			for _, field := range contract.FieldsForNodeType(node.Type) {
+				fields[field.Key] = true
+			}
+			encoded, err := json.Marshal(node)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document map[string]any
+			if err := json.Unmarshal(encoded, &document); err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range document {
+				if key == "id" || key == "type" || reflect.ValueOf(value).IsZero() {
+					continue
+				}
+				if !fields[key] {
+					t.Errorf("representative value %q is not editable from the generated form", key)
+				}
+			}
+		})
+	}
+}
+
+func collectJSONFields(value reflect.Type, fields map[string]bool) {
+	for index := 0; index < value.NumField(); index++ {
+		field := value.Field(index)
+		if field.Anonymous {
+			collectJSONFields(field.Type, fields)
+			continue
+		}
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if name != "" && name != "-" {
+			fields[name] = true
+		}
+	}
+}

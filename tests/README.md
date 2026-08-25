@@ -19,7 +19,6 @@ macOS 适配器测试覆盖 Darwin TUN plan、TUN port-53 capture、JSON store�
 ## LuCI 与静态边界
 
 ```sh
-node tests/node/share_url_test.js
 node tests/node/luci_view_test.js
 node tests/node/steer_helper_test.js
 node tests/node/linux_web_test.js
@@ -29,9 +28,10 @@ python3 tests/check-build-cache.py
 python3 tests/check-linux-packaging.py
 python3 tests/check-macos-contract.py
 python3 tests/check-macos-packaging.py
+python3 tests/check-ui-contract.py
 ```
 
-- `share_url_test.js`：代理 URI 的解析和告警；
+- `internal/subscription` Go 测试：三端共享的代理 URI、多行与 Base64 解析；
 - `luci_view_test.js`：表单语义、detour 可清空、节点/路由/概览测试按钮；
 - `steer_helper_test.js`：UCI commit 后的 Apply 观察、独立 validate、最小 status；
 - `linux_web_test.js`：Linux Web 开关保存失败与 revision conflict 的草稿回滚；
@@ -54,7 +54,6 @@ python3 tests/check-macos-packaging.py
 ```sh
 cd go && go test -race ./... && go vet ./...
 cd ..
-node tests/node/share_url_test.js
 node tests/node/luci_view_test.js
 node tests/node/steer_helper_test.js
 node tests/node/linux_web_test.js

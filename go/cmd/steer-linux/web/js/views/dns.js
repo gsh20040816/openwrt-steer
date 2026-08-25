@@ -6,7 +6,7 @@
   const { h } = S;
   const ui = S.ui;
 
-  const PROTOCOL_LABEL = { udp: 'UDP', tcp: 'TCP', tls: 'DoT', https: 'DoH', quic: 'DoQ', h3: 'DoH3' };
+  const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.dns_protocols.map((item) => [item.value, item.label]));
 
   function refCount(intent, profileId) {
     return intent.rules.filter((r) => r.dns_profile === profileId).length;
@@ -20,7 +20,7 @@
         const draft = JSON.parse(JSON.stringify(profile));
         const name = ui.input({ value: draft.name || '', placeholder: 'Profile 名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const protocol = ui.select(Object.entries(PROTOCOL_LABEL).map(([v, l]) => [v, l]), draft.protocol, (v) => { draft.protocol = v; });
+        const protocol = ui.select(S.uiSpec.dns_protocols.map((item) => [item.value, item.label]), draft.protocol, (v) => { draft.protocol = v; });
         const server = ui.input({ value: draft.server || '', placeholder: 'dns.example.com 或 IP' });
         const port = ui.input({ type: 'number', value: draft.server_port || '', placeholder: '53 / 853 / 443' });
         const path = ui.input({ value: draft.path || '', placeholder: '/dns-query' });

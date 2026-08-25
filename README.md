@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本为 **0.8.0**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst；macOS 提供 arm64/x86_64 原生 DMG、SwiftUI GUI、一次授权安装的 root control daemon 和 sing-box TUN 后端，无需 Apple Developer Program。
+当前稳定版本为 **0.8.1**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst；macOS 提供 arm64/x86_64 原生 DMG、SwiftUI GUI、一次授权安装的 root control daemon 和 sing-box TUN 后端，无需 Apple Developer Program。
 
 ## 已实现能力
 
@@ -15,6 +15,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、1.14 原生源 MAC 规则和最小 DNS nftables shim。
 - Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、主机与 VM/Docker DNS 的双栈 nft shim、受保护的 wildcard DNS listener、nftables 重启联动、systemd 服务和 loopback Web API/UI。
 - macOS SwiftUI GUI 与 LuCI、Linux Web 同为平台前端，直接编辑 Canonical Intent；首次安装系统组件需要一次管理员授权，之后 Save/Apply 通过 peer-credential 保护的受限 root IPC 免密完成，数据面由独立 LaunchDaemon 和 sing-box TUN 承担。
+- LuCI、Linux Web 和 macOS SwiftUI 保留平台原生交互，同时由生成的共享 UI 规格统一协议字段、枚举、能力声明和“状态 / 配置 / 服务 / 高级”信息层级。
 - CI 将 Loyalsoldier GeoSite/GeoIP 转换为完整 SRS seed；设备以 seed 离线启动，并由 sing-box 每 24 小时后台检查 Pages `latest`。
 
 ## 明确边界

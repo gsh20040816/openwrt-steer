@@ -8,6 +8,9 @@
 
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
 const callValidate = rpc.declare({ object: 'luci.steer', method: 'validate', expect: { '': {} } });
+const callIntent = rpc.declare({ object: 'luci.steer', method: 'intent', expect: { '': {} } });
+const callRuntime = rpc.declare({ object: 'luci.steer', method: 'runtime', expect: { '': {} } });
+const callLogs = rpc.declare({ object: 'luci.steer', method: 'logs', expect: { '': {} } });
 const callGeodataCatalog = rpc.declare({ object: 'luci.steer', method: 'geodata_catalog', expect: { '': {} } });
 const callSubscriptions = rpc.declare({ object: 'luci.steer', method: 'subscriptions', expect: { '': {} } });
 const callSubscriptionUpdate = rpc.declare({ object: 'luci.steer', method: 'subscription_update', params: [ 'id' ], expect: { '': {} } });
@@ -15,6 +18,7 @@ const callSubscriptionClean = rpc.declare({ object: 'luci.steer', method: 'subsc
 const callNodeSpeedtest = rpc.declare({ object: 'luci.steer', method: 'node_speedtest', params: [ 'node', 'download' ], expect: { '': {} } });
 const callRouteSpeedtest = rpc.declare({ object: 'luci.steer', method: 'route_speedtest', params: [ 'route', 'download' ], expect: { '': {} } });
 const callOverviewProbe = rpc.declare({ object: 'luci.steer', method: 'overview_probe', params: [ 'kind' ], expect: { '': {} } });
+const callNodeImport = rpc.declare({ object: 'luci.steer', method: 'node_import', params: [ 'document' ], expect: { '': {} } });
 const callUCICommit = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ], expect: { '': 0 } });
 const sectionIDPattern = /^[a-z][a-z0-9_]{0,31}$/;
 
@@ -53,6 +57,9 @@ return baseclass.extend({
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },
 	validate: function() { return L.resolveDefault(callValidate(), {}); },
+	intent: function() { return L.resolveDefault(callIntent(), {}); },
+	runtime: function() { return L.resolveDefault(callRuntime(), {}); },
+	logs: function() { return L.resolveDefault(callLogs(), {}); },
 	geodataCatalog: function() { return L.resolveDefault(callGeodataCatalog(), {}); },
 	subscriptions: function() { return L.resolveDefault(callSubscriptions(), {}); },
 	updateSubscription: function(id) { return callSubscriptionUpdate(id); },
@@ -60,6 +67,7 @@ return baseclass.extend({
 	speedtest: function(node, download) { return callNodeSpeedtest(node, download); },
 	routeSpeedtest: function(route, download) { return callRouteSpeedtest(route, download); },
 	overviewProbe: function(kind) { return callOverviewProbe(kind); },
+	importNodes: function(document) { return callNodeImport(document); },
 
 	configureNamedSection: function(section) {
 		section.anonymous = false;

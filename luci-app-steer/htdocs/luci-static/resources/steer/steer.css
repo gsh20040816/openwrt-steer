@@ -277,6 +277,17 @@
 	padding: .45rem .6rem;
 }
 
+.steer-canonical-preview {
+	max-height: 34rem;
+	overflow: auto;
+	padding: 1rem;
+	border: 1px solid var(--border-color-medium, #bbb);
+	border-radius: 4px;
+	background: var(--background-color-low, #f7f7f7);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 .steer-node-groups__item {
 	display: inline-flex;
 	flex: 0 0 auto;

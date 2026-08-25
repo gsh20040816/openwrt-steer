@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '../..');
+const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -77,6 +78,7 @@ function createEnvironment(save) {
   };
   let touchCount = 0;
   const S = {
+    uiSpec,
     h,
     icon: () => new Element('span'),
     asList: (value) => value || [],

@@ -5,6 +5,7 @@
 'require uci';
 'require view';
 'require steer as steer';
+'require steer.ui-spec as uiSpec';
 
 return view.extend({
 	load: function() { return uci.load('steer'); },
@@ -25,7 +26,7 @@ return view.extend({
 		o = s.taboption('general', form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 		o = s.taboption('general', form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
 		o = s.taboption('general', form.ListValue, 'protocol', _('Protocol'));
-		o.value('udp', 'UDP'); o.value('tcp', 'TCP'); o.value('tls', 'DoT'); o.value('https', 'DoH'); o.value('quic', 'DoQ'); o.value('h3', 'DoH3');
+		uiSpec.dns_protocols.forEach((item) => o.value(item.value, item.label));
 		o.rmempty = false; o.editable = true;
 		o = s.taboption('general', form.Value, 'server', _('Server')); o.rmempty = false; o.editable = true;
 		o = s.taboption('general', form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false; o.modalonly = true;

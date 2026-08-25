@@ -39,7 +39,7 @@ struct DraftItemEditor: View {
             Form {
                 switch target.key {
                 case "nodes":
-                    NodeDraftForm(object: $object)
+                    SharedNodeDraftForm(object: $object)
                 case "routes":
                     RouteDraftForm(
                         model: model,
@@ -116,29 +116,21 @@ struct DraftItemEditor: View {
         case "nodes":
             let type = draftString(value, "type")
             if type.isEmpty { return "请选择节点协议" }
-            if type != "tor" {
-                if draftString(value, "server").isEmpty { return "服务器不能为空" }
-                if !validPort(draftInt(value, "server_port")) { return "服务器端口必须是 1…65535" }
-            }
-            let required: [(String, String)]
-            switch type {
-            case "vmess", "vless", "tuic": required = [("uuid", "UUID")]
-            case "shadowsocks": required = [("method", "加密方法"), ("password", "密码")]
-            case "hysteria", "hysteria2", "trojan", "anytls", "naive": required = [("password", "密码")]
-            case "ssh":
-                if draftString(value, "username").isEmpty { return "SSH 用户名不能为空" }
-                if draftString(value, "password").isEmpty && draftString(value, "private_key").isEmpty {
-                    return "SSH 需要密码或私钥"
+            for field in SteerUISpec.nodeFields(for: type) where field.isRequired(for: type) {
+                let missing: Bool
+                switch field.control {
+                case "integer", "select-integer": missing = draftInt(value, field.key) == 0
+                case "string-list": missing = draftStringList(value, field.key).isEmpty
+                default: missing = draftString(value, field.key).isEmpty
                 }
-                required = []
-            default: required = []
+                if missing { return "\(field.label)不能为空" }
             }
-            if let missing = required.first(where: { draftString(value, $0.0).isEmpty }) {
-                return "\(missing.1)不能为空"
+            if type != "tor" && !validPort(draftInt(value, "server_port")) { return "服务器端口必须是 1…65535" }
+            if type == "ssh", draftString(value, "password").isEmpty && draftString(value, "private_key").isEmpty {
+                return "SSH 需要密码或私钥"
             }
-            if ["hysteria", "hysteria2", "trojan", "shadowtls", "tuic", "anytls", "naive"].contains(type),
-               draftString(value, "tls_server_name").isEmpty {
-                return "该协议需要 TLS 服务器名"
+            if type == "shadowtls", draftInt(value, "version") >= 2, draftString(value, "password").isEmpty {
+                return "ShadowTLS v2/v3 密码不能为空"
             }
         case "routes":
             let kind = draftString(value, "kind")
@@ -229,212 +221,108 @@ struct NodeImportSheet: View {
     }
 }
 
-private struct NodeDraftForm: View {
+// The controls remain native SwiftUI, while their field matrix, enum values,
+// conditional visibility and allowed-option set come from the generated Go
+// UI contract.
+private struct SharedNodeDraftForm: View {
     @Binding var object: [String: JSONValue]
 
-    private var type: String { draftString(object, "type") }
-    private var transport: String { draftString(object, "transport") }
-    private var supportsTLS: Bool {
-        ["http", "vmess", "hysteria", "vless", "hysteria2", "trojan", "shadowtls", "tuic", "anytls", "naive"].contains(type)
-    }
-    private var supportsTransport: Bool { ["vmess", "vless", "trojan"].contains(type) }
+    private var type: String { draftString(object, "type").isEmpty ? "vless" : draftString(object, "type") }
 
     var body: some View {
         Section("基本信息") {
-            Toggle("启用节点", isOn: boolBinding($object, "enabled", defaultValue: true))
-            TextField("名称", text: stringBinding($object, "name"), prompt: Text("例如 Tokyo Edge"))
             Picker("协议", selection: stringBinding($object, "type", required: true, defaultValue: "vless")) {
-                ForEach(Self.nodeTypes, id: \.value) { option in
+                ForEach(SteerUISpec.contract.nodeTypes) { option in
                     Text(option.label).tag(option.value)
                 }
             }
-            if type != "tor" {
-                TextField("服务器", text: stringBinding($object, "server", required: true), prompt: Text("example.com 或 IP"))
-                TextField("服务器端口", value: intBinding($object, "server_port", defaultValue: 443), format: .number)
-            }
+            fields(section: "general")
         }
-
-        Section("认证与协议") {
-            protocolFields
+        if hasVisibleFields(section: "protocol") {
+            Section("认证与协议") { fields(section: "protocol") }
         }
-
-        if supportsTransport {
-            Section("传输") {
-                Picker("传输类型", selection: stringBinding($object, "transport", defaultValue: "tcp")) {
-                    Text("TCP / Raw").tag("tcp")
-                    Text("WebSocket").tag("ws")
-                    Text("gRPC").tag("grpc")
-                    Text("HTTP").tag("http")
-                    Text("QUIC").tag("quic")
-                }
-                if ["ws", "http"].contains(transport) {
-                    TextField("路径", text: stringBinding($object, "transport_path"), prompt: Text("/path"))
-                    TextField("Host", text: stringBinding($object, "transport_host"), prompt: Text("example.com"))
-                }
-                if transport == "grpc" {
-                    TextField("Service name", text: stringBinding($object, "service_name"))
-                }
-            }
+        if hasVisibleFields(section: "transport") {
+            Section("传输") { fields(section: "transport") }
         }
-
-        if supportsTLS {
-            Section("TLS") {
-                TextField("TLS 服务器名", text: stringBinding($object, "tls_server_name"), prompt: Text("server.example.com"))
-                Picker("uTLS 指纹", selection: stringBinding($object, "utls_fingerprint")) {
-                    Text("系统默认").tag("")
-                    ForEach(["chrome", "firefox", "safari", "edge", "random"], id: \.self) { Text($0).tag($0) }
-                }
-                Toggle("跳过证书验证", isOn: boolBinding($object, "insecure"))
-                if type == "vless" {
-                    DisclosureGroup("Reality") {
-                        TextField("Public key", text: stringBinding($object, "reality_public_key"))
-                        TextField("Short ID", text: stringBinding($object, "reality_short_id"))
-                    }
-                }
-            }
+        if hasVisibleFields(section: "tls") {
+            Section("TLS / REALITY") { fields(section: "tls") }
         }
-
-        Section("高级协议参数") {
-            DisclosureGroup("可选字段") {
-                advancedProtocolFields
-            }
+        if hasVisibleFields(section: "advanced") {
+            Section("高级协议参数") { fields(section: "advanced") }
         }
     }
 
     @ViewBuilder
-    private var protocolFields: some View {
-        switch type {
-        case "socks", "http":
-            TextField("用户名", text: stringBinding($object, "username"))
-            SecureField("密码", text: stringBinding($object, "password"))
-        case "shadowsocks":
-            TextField("加密方法", text: stringBinding($object, "method", required: true), prompt: Text("2022-blake3-aes-128-gcm"))
-            SecureField("密码", text: stringBinding($object, "password", required: true))
-            Picker("插件", selection: stringBinding($object, "plugin")) {
-                Text("无").tag("")
-                Text("obfs-local").tag("obfs-local")
-                Text("v2ray-plugin").tag("v2ray-plugin")
+    private func fields(section: String) -> some View {
+        ForEach(SteerUISpec.nodeFields(for: type, section: section).filter(visible)) { field in
+            fieldControl(field)
+        }
+    }
+
+    @ViewBuilder
+    private func fieldControl(_ field: UIFieldSpec) -> some View {
+        let label = localizedLabel(field)
+        switch field.control {
+        case "boolean":
+            Toggle(label, isOn: boolBinding($object, field.key, defaultValue: field.defaultValue?.boolValue ?? false))
+        case "integer":
+            TextField(label, value: intBinding($object, field.key, defaultValue: Int(field.defaultValue?.numberValue ?? 0)), format: .number)
+        case "select":
+            Picker(label, selection: stringBinding($object, field.key, defaultValue: field.defaultValue?.stringValue ?? "")) {
+                ForEach(field.options) { option in Text(option.label).tag(option.value) }
             }
-            TextField("插件参数", text: stringBinding($object, "plugin_options"))
-        case "vmess":
-            TextField("UUID", text: stringBinding($object, "uuid", required: true))
-            Picker("Security", selection: stringBinding($object, "security", defaultValue: "auto")) {
-                ForEach(["auto", "none", "zero", "aes-128-gcm", "chacha20-poly1305", "aes-128-ctr"], id: \.self) { Text($0).tag($0) }
+        case "select-integer":
+            Picker(label, selection: intBinding($object, field.key, defaultValue: Int(field.defaultValue?.numberValue ?? 0))) {
+                ForEach(field.options) { option in Text(option.label).tag(Int(option.value) ?? 0) }
             }
-            TextField("Alter ID", value: intBinding($object, "alter_id"), format: .number)
-            Picker("Network", selection: stringBinding($object, "network")) {
-                Text("默认").tag("")
-                Text("TCP").tag("tcp")
-                Text("UDP").tag("udp")
-            }
-            Picker("Packet encoding", selection: stringBinding($object, "packet_encoding")) {
-                Text("默认").tag("")
-                Text("XUDP").tag("xudp")
-                Text("PacketAddr").tag("packetaddr")
-            }
-        case "hysteria":
-            SecureField("认证密码", text: stringBinding($object, "password", required: true))
-            bandwidthFields
-            TextField("端口范围", text: stringListBinding($object, "server_ports"), prompt: Text("20000:20100, 443"))
-            TextField("跳跃间隔", text: stringBinding($object, "hop_interval"), prompt: Text("30s"))
-            SecureField("混淆密码", text: stringBinding($object, "obfs_password"))
-        case "vless":
-            TextField("UUID", text: stringBinding($object, "uuid", required: true))
-            Picker("Flow", selection: stringBinding($object, "flow")) {
-                Text("无").tag("")
-                Text("XTLS Vision").tag("xtls-rprx-vision")
-            }
-            Picker("Packet encoding", selection: stringBinding($object, "packet_encoding")) {
-                Text("默认").tag("")
-                Text("XUDP").tag("xudp")
-                Text("PacketAddr").tag("packetaddr")
-            }
-        case "hysteria2":
-            SecureField("密码", text: stringBinding($object, "password", required: true))
-            TextField("端口范围", text: stringListBinding($object, "server_ports"), prompt: Text("20000:20100, 443"))
-            TextField("跳跃间隔", text: stringBinding($object, "hop_interval"), prompt: Text("30s"))
-            Picker("混淆", selection: stringBinding($object, "obfs_type")) {
-                Text("无").tag("")
-                Text("Salamander").tag("salamander")
-            }
-            SecureField("混淆密码", text: stringBinding($object, "obfs_password"))
-            bandwidthFields
-        case "trojan":
-            SecureField("密码", text: stringBinding($object, "password", required: true))
-        case "shadowtls":
-            Picker("版本", selection: intBinding($object, "version", defaultValue: 3)) {
-                Text("1").tag(1)
-                Text("2").tag(2)
-                Text("3").tag(3)
-            }
-            SecureField("密码", text: stringBinding($object, "password"))
-        case "tuic":
-            TextField("UUID", text: stringBinding($object, "uuid", required: true))
-            SecureField("密码", text: stringBinding($object, "password", required: true))
-            Picker("拥塞控制", selection: stringBinding($object, "congestion_control")) {
-                Text("默认").tag("")
-                ForEach(["cubic", "new_reno", "bbr"], id: \.self) { Text($0).tag($0) }
-            }
-            Picker("UDP relay", selection: stringBinding($object, "udp_relay_mode")) {
-                Text("默认").tag("")
-                Text("Native").tag("native")
-                Text("QUIC").tag("quic")
-            }
-            Toggle("UDP over stream", isOn: boolBinding($object, "udp_over_stream"))
-        case "anytls":
-            SecureField("密码", text: stringBinding($object, "password", required: true))
-        case "naive":
-            TextField("用户名", text: stringBinding($object, "username"))
-            SecureField("密码", text: stringBinding($object, "password", required: true))
-        case "ssh":
-            TextField("用户名", text: stringBinding($object, "username", required: true))
-            SecureField("密码", text: stringBinding($object, "password"))
-            LabeledContent("Private key") {
-                TextEditor(text: stringBinding($object, "private_key"))
+        case "string-list":
+            TextField(label, text: stringListBinding($object, field.key), prompt: prompt(field))
+        case "password" where field.multiline:
+            LabeledContent(label) {
+                TextEditor(text: stringBinding($object, field.key))
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 76)
             }
-            TextField("Host key", text: stringBinding($object, "host_key"))
-            TextField("Host key algorithms", text: stringListBinding($object, "host_key_algorithms"), prompt: Text("ssh-ed25519, rsa-sha2-512"))
-        case "tor":
-            TextField("可执行文件", text: stringBinding($object, "executable_path"), prompt: Text("/usr/local/bin/tor"))
-            TextField("数据目录", text: stringBinding($object, "data_directory"))
-            TextField("额外参数", text: stringListBinding($object, "extra_args"), prompt: Text("--SocksPort, 0"))
+        case "password":
+            SecureField(label, text: stringBinding($object, field.key, required: field.isRequired(for: type)))
         default:
-            Text("该协议没有必填的额外认证字段。")
-                .foregroundStyle(.secondary)
+            TextField(label, text: stringBinding($object, field.key, required: field.isRequired(for: type)), prompt: prompt(field))
         }
     }
 
-    @ViewBuilder
-    private var bandwidthFields: some View {
-        TextField("上传 Mbps", value: intBinding($object, "up_mbps"), format: .number)
-        TextField("下载 Mbps", value: intBinding($object, "down_mbps"), format: .number)
+    private func visible(_ field: UIFieldSpec) -> Bool {
+        guard let condition = field.when else { return true }
+        let current = draftString(object, condition.field)
+        if !current.isEmpty { return condition.values.contains(current) }
+        let fallback = SteerUISpec.nodeFields(for: type).first { $0.key == condition.field }?.defaultValue?.stringValue ?? ""
+        return condition.values.contains(fallback)
     }
 
-    @ViewBuilder
-    private var advancedProtocolFields: some View {
-        switch type {
-        case "tuic":
-            Toggle("Zero-RTT handshake", isOn: boolBinding($object, "zero_rtt_handshake"))
-            TextField("Heartbeat", text: stringBinding($object, "heartbeat"), prompt: Text("10s"))
-        case "naive":
-            Toggle("QUIC", isOn: boolBinding($object, "quic"))
-            TextField("QUIC congestion control", text: stringBinding($object, "quic_congestion_control"))
-            TextField("Insecure concurrency", value: intBinding($object, "insecure_concurrency"), format: .number)
-        default:
-            Text("当前协议没有其他高级字段。")
-                .foregroundStyle(.secondary)
-        }
+    private func hasVisibleFields(section: String) -> Bool {
+        SteerUISpec.nodeFields(for: type, section: section).contains(where: visible)
     }
 
-    private static let nodeTypes: [(value: String, label: String)] = [
-        ("vless", "VLESS"), ("vmess", "VMess"), ("trojan", "Trojan"),
-        ("hysteria2", "Hysteria2"), ("hysteria", "Hysteria"), ("tuic", "TUIC"),
-        ("shadowsocks", "Shadowsocks"), ("shadowtls", "ShadowTLS"),
-        ("anytls", "AnyTLS"), ("naive", "NaiveProxy"),
-        ("socks", "SOCKS"), ("http", "HTTP"), ("ssh", "SSH"), ("tor", "Tor"),
-    ]
+    private func prompt(_ field: UIFieldSpec) -> Text? {
+        field.placeholder.isEmpty ? nil : Text(field.placeholder)
+    }
+
+    private func localizedLabel(_ field: UIFieldSpec) -> String {
+        let labels = [
+            "enabled": "启用节点", "name": "名称", "server": "服务器", "server_port": "服务器端口",
+            "username": "用户名", "password": "密码", "method": "加密方法", "plugin": "插件", "plugin_options": "插件参数",
+            "security": "Security", "alter_id": "Alter ID", "network": "Network", "packet_encoding": "Packet encoding",
+            "flow": "Flow", "transport": "传输类型", "transport_path": "路径", "transport_host": "Host",
+            "service_name": "Service name", "server_ports": "端口范围", "hop_interval": "跳跃间隔", "obfs_type": "混淆",
+            "obfs_password": "混淆密码", "up_mbps": "上传 Mbps", "down_mbps": "下载 Mbps", "version": "版本",
+            "congestion_control": "拥塞控制", "udp_relay_mode": "UDP relay", "udp_over_stream": "UDP over stream",
+            "zero_rtt_handshake": "Zero-RTT handshake", "heartbeat": "Heartbeat", "quic_congestion_control": "QUIC congestion control",
+            "insecure_concurrency": "Insecure concurrency", "private_key": "Private key", "host_key": "Host key",
+            "host_key_algorithms": "Host key algorithms", "executable_path": "可执行文件", "extra_args": "额外参数",
+            "data_directory": "数据目录", "tls_server_name": "TLS 服务器名", "utls_fingerprint": "uTLS 指纹",
+            "insecure": "跳过证书验证", "reality_public_key": "REALITY Public key", "reality_short_id": "REALITY Short ID",
+        ]
+        return labels[field.key] ?? field.label
+    }
 }
 
 private struct RouteDraftForm: View {
@@ -452,9 +340,9 @@ private struct RouteDraftForm: View {
                 .disabled(originalKind == "direct")
             TextField("名称", text: stringBinding($object, "name"))
             Picker("类型", selection: stringBinding($object, "kind", required: true, defaultValue: "single")) {
-                Text("Direct").tag("direct")
-                Text("Block").tag("block")
-                Text("Single Route").tag("single")
+                ForEach(SteerUISpec.contract.routeKinds) { option in
+                    Text(option.label).tag(option.value)
+                }
             }
             .disabled(isSystemRoute)
             if isSystemRoute {
@@ -496,12 +384,9 @@ private struct DNSDraftForm: View {
             Toggle("启用 Profile", isOn: boolBinding($object, "enabled", defaultValue: true))
             TextField("名称", text: stringBinding($object, "name"))
             Picker("协议", selection: stringBinding($object, "protocol", required: true, defaultValue: "https")) {
-                Text("UDP").tag("udp")
-                Text("TCP").tag("tcp")
-                Text("DNS over TLS").tag("tls")
-                Text("DNS over HTTPS").tag("https")
-                Text("DNS over QUIC").tag("quic")
-                Text("DNS over HTTP/3").tag("h3")
+                ForEach(SteerUISpec.contract.dnsProtocols) { option in
+                    Text(option.label).tag(option.value)
+                }
             }
             TextField("服务器", text: stringBinding($object, "server", required: true), prompt: Text("1.1.1.1"))
             TextField("端口", value: intBinding($object, "server_port", defaultValue: 443), format: .number)
@@ -526,9 +411,9 @@ private struct LocalProxyDraftForm: View {
             Toggle("启用入口", isOn: boolBinding($object, "enabled", defaultValue: true))
             TextField("名称", text: stringBinding($object, "name"))
             Picker("协议", selection: stringBinding($object, "protocol", required: true, defaultValue: "mixed")) {
-                Text("Mixed (SOCKS + HTTP)").tag("mixed")
-                Text("SOCKS").tag("socks")
-                Text("HTTP").tag("http")
+                ForEach(SteerUISpec.contract.localProxyProtocols) { option in
+                    Text(option.label).tag(option.value)
+                }
             }
             TextField("监听地址", text: stringBinding($object, "listen", required: true), prompt: Text("127.0.0.1"))
             TextField("监听端口", value: intBinding($object, "listen_port", defaultValue: 1090), format: .number)
@@ -586,7 +471,21 @@ private struct RuleDraftForm: View {
         if !isDefault {
             Section("目标匹配") {
                 TextField("Domain match", text: stringListBinding($object, "domain_match"), prompt: Text("domain:example.com, geosite:cn"))
+                if !model.geositeNames.isEmpty {
+                    Menu("添加 GeoSite") {
+                        ForEach(model.geositeNames.prefix(100), id: \.self) { name in
+                            Button(name) { appendMatch("domain_match", value: "geosite:\(name)") }
+                        }
+                    }
+                }
                 TextField("IP match", text: stringListBinding($object, "ip_match"), prompt: Text("10.0.0.0/8, geoip:cn"))
+                if !model.geoipNames.isEmpty {
+                    Menu("添加 GeoIP") {
+                        ForEach(model.geoipNames.prefix(100), id: \.self) { name in
+                            Button(name) { appendMatch("ip_match", value: "geoip:\(name)") }
+                        }
+                    }
+                }
                 TextField("目标端口", text: intListBinding($object, "port"), prompt: Text("443, 8443"))
             }
             Section("来源匹配") {
@@ -602,11 +501,12 @@ private struct RuleDraftForm: View {
                 }
             }
             Section("连接条件") {
-                Toggle("TCP", isOn: membershipBinding($object, "network", "tcp"))
-                Toggle("UDP", isOn: membershipBinding($object, "network", "udp"))
+                ForEach(SteerUISpec.contract.ruleNetworks) { option in
+                    Toggle(option.label, isOn: membershipBinding($object, "network", option.value))
+                }
                 DisclosureGroup("嗅探协议") {
-                    ForEach(Self.sniffedProtocols, id: \.self) { value in
-                        Toggle(value.uppercased(), isOn: membershipBinding($object, "protocol", value))
+                    ForEach(SteerUISpec.contract.ruleProtocols) { option in
+                        Toggle(option.label, isOn: membershipBinding($object, "protocol", option.value))
                     }
                 }
             }
@@ -632,7 +532,12 @@ private struct RuleDraftForm: View {
         )
     }
 
-    private static let sniffedProtocols = ["tls", "http", "quic", "dns", "stun", "bittorrent", "dtls", "ssh", "rdp", "ntp"]
+    private func appendMatch(_ key: String, value: String) {
+        var values = draftStringList(object, key)
+        if !values.contains(value) { values.append(value) }
+        object[key] = .array(values.map(JSONValue.string))
+    }
+
 }
 
 private struct SubscriptionDraftForm: View {
@@ -827,7 +732,7 @@ private func normalizedObject(_ source: [String: JSONValue], key: String) -> [St
         object.removeValue(forKey: "server_port")
     }
     if key == "nodes" {
-        normalizeNodeOptions(&object)
+        normalizeNodeOptionsFromSpec(&object)
     }
     if key == "rules", draftBool(object, "default") {
         for field in ruleMatchKeys { object.removeValue(forKey: field) }
@@ -835,13 +740,13 @@ private func normalizedObject(_ source: [String: JSONValue], key: String) -> [St
     return object
 }
 
-private let nodeTLSFields: Set<String> = [
-    "tls_server_name", "insecure", "utls_fingerprint",
-]
-
-private let nodeTransportFields: Set<String> = [
-    "transport", "transport_path", "transport_host", "service_name",
-]
+private func normalizeNodeOptionsFromSpec(_ object: inout [String: JSONValue]) {
+    let type = draftString(object, "type")
+    let allowed = Set(SteerUISpec.nodeFields(for: type).map(\.key))
+    for field in nodeOptionFields where !allowed.contains(field) {
+        object.removeValue(forKey: field)
+    }
+}
 
 private let nodeOptionFields: Set<String> = [
     "uuid", "username", "password", "private_key", "host_key", "host_key_algorithms",
@@ -852,56 +757,3 @@ private let nodeOptionFields: Set<String> = [
     "obfs_type", "obfs_password", "up_mbps", "down_mbps", "executable_path", "extra_args", "data_directory",
     "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint",
 ]
-
-private func normalizeNodeOptions(_ object: inout [String: JSONValue]) {
-    let type = draftString(object, "type")
-    var allowed: Set<String> = []
-    switch type {
-    case "socks":
-        allowed = ["username", "password"]
-    case "http":
-        allowed = ["username", "password"]
-        allowed.formUnion(nodeTLSFields)
-    case "shadowsocks":
-        allowed = ["method", "password", "plugin", "plugin_options"]
-    case "vmess":
-        allowed = ["uuid", "security", "alter_id", "network", "packet_encoding"]
-        allowed.formUnion(nodeTransportFields)
-        allowed.formUnion(nodeTLSFields)
-    case "hysteria":
-        allowed = ["password", "server_ports", "hop_interval", "obfs_password", "up_mbps", "down_mbps"]
-        allowed.formUnion(nodeTLSFields)
-    case "vless":
-        allowed = ["uuid", "flow", "packet_encoding", "reality_public_key", "reality_short_id"]
-        allowed.formUnion(nodeTransportFields)
-        allowed.formUnion(nodeTLSFields)
-    case "hysteria2":
-        allowed = ["password", "server_ports", "hop_interval", "obfs_type", "obfs_password", "up_mbps", "down_mbps"]
-        allowed.formUnion(nodeTLSFields)
-    case "trojan":
-        allowed = ["password"]
-        allowed.formUnion(nodeTransportFields)
-        allowed.formUnion(nodeTLSFields)
-    case "shadowtls":
-        allowed = ["version", "password"]
-        allowed.formUnion(nodeTLSFields)
-    case "tuic":
-        allowed = ["uuid", "password", "congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat"]
-        allowed.formUnion(nodeTLSFields)
-    case "anytls":
-        allowed = ["password"]
-        allowed.formUnion(nodeTLSFields)
-    case "naive":
-        allowed = ["username", "password", "quic", "quic_congestion_control", "insecure_concurrency"]
-        allowed.formUnion(nodeTLSFields)
-    case "ssh":
-        allowed = ["username", "password", "private_key", "host_key", "host_key_algorithms"]
-    case "tor":
-        allowed = ["executable_path", "extra_args", "data_directory"]
-    default:
-        break
-    }
-    for field in nodeOptionFields where !allowed.contains(field) {
-        object.removeValue(forKey: field)
-    }
-}

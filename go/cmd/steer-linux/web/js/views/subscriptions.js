@@ -8,6 +8,32 @@
 
   let statuses = null;
 
+  function requestDelete(subscription) {
+    const intent = S.store.intent;
+    const owned = intent.nodes.filter((node) => node.source_subscription === subscription.id);
+    const ownedIDs = new Set(owned.map((node) => node.id));
+    const referenced = intent.routes.filter((route) => ownedIDs.has(route.node));
+    if (referenced.length) {
+      ui.toast(`不能删除：${referenced.length} 条路由仍引用该订阅节点`, 'err');
+      return;
+    }
+    ui.dialog({
+      title: `删除订阅 · ${subscription.name || subscription.id}`,
+      body: h('p', {}, `将从工作副本删除订阅和 ${owned.length} 个订阅节点。保存前可重新加载恢复。`),
+      actions: [
+        ['取消', null],
+        ['删除', (close) => {
+          intent.subscriptions = intent.subscriptions.filter((item) => item.id !== subscription.id);
+          intent.nodes = intent.nodes.filter((node) => node.source_subscription !== subscription.id);
+          S.store.touch();
+          ui.toast(`已删除 ${subscription.name || subscription.id} · 未保存`, 'warn');
+          close();
+          view.render(document.querySelector('#view'));
+        }, 'btn--danger']
+      ]
+    });
+  }
+
   function openEditor(sub) {
     const isNew = !sub;
     ui.drawer({
@@ -140,7 +166,12 @@
             h('td', { class: 'mono' }, s.fetched_at ? fmtTime(s.fetched_at) : h('span', { class: 'muted' }, s.error || '未抓取')),
             h('td', { class: 'mono num' }, String(s.node_count)),
             h('td', { class: 'mono num' }, s.stale_node_ids?.length ? h('span', { class: 'badge badge--stale' }, String(s.stale_node_ids.length)) : '0'),
-            h('td', {}, h('div', { class: 'row-actions row-actions--wrap' }, updateBtn, cleanupBtn, h('button', { class: 'btn btn--sm', onclick: () => openEditor(S.store.intent.subscriptions.find((x) => x.id === s.id)) }, '编辑')))
+            h('td', {}, h('div', { class: 'row-actions row-actions--wrap' }, [
+              updateBtn,
+              cleanupBtn,
+              h('button', { class: 'btn btn--sm', onclick: () => openEditor(S.store.intent.subscriptions.find((x) => x.id === s.id)) }, '编辑'),
+              h('button', { class: 'btn btn--sm btn--danger', onclick: () => requestDelete(s) }, '删除')
+            ]))
           ]);
         }))
       ]);

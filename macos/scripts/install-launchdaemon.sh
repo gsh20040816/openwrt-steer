@@ -16,6 +16,7 @@ helper_directory="/usr/local/libexec/steer"
 runtime_binary="$helper_directory/sing-box"
 plist_path="/Library/LaunchDaemons/com.steer.steer.plist"
 control_plist_path="/Library/LaunchDaemons/com.steer.steer.control.plist"
+subscription_plist_path="/Library/LaunchDaemons/com.steer.steer.subscription.plist"
 support_directory="/Library/Application Support/Steer"
 sing_box_path="$(command -v sing-box || true)"
 
@@ -51,17 +52,19 @@ if [ "$sing_box_path" != "$runtime_binary" ]; then
 fi
 install -m 0644 "$repository_root/macos/launchd/com.steer.steer.plist" "$plist_path"
 install -m 0644 "$repository_root/macos/launchd/com.steer.steer.control.plist" "$control_plist_path"
-plutil -lint "$plist_path" >/dev/null
-plutil -lint "$control_plist_path" >/dev/null
-chown root:wheel "$helper_directory/steer-macos" "$runtime_binary" "$plist_path" "$control_plist_path"
+install -m 0644 "$repository_root/macos/launchd/com.steer.steer.subscription.plist" "$subscription_plist_path"
+plutil -lint "$plist_path" "$control_plist_path" "$subscription_plist_path" >/dev/null
+chown root:wheel "$helper_directory/steer-macos" "$runtime_binary" "$plist_path" "$control_plist_path" "$subscription_plist_path"
 chmod 0755 "$helper_directory/steer-macos" "$runtime_binary"
-chmod 0644 "$plist_path" "$control_plist_path"
+chmod 0644 "$plist_path" "$control_plist_path" "$subscription_plist_path"
 
 launchctl bootout system/com.steer.steer 2>/dev/null || true
 launchctl bootout system/com.steer.steer.control 2>/dev/null || true
+launchctl bootout system/com.steer.steer.subscription 2>/dev/null || true
 remaining_checks=50
 while launchctl print system/com.steer.steer >/dev/null 2>&1 \
-	|| launchctl print system/com.steer.steer.control >/dev/null 2>&1; do
+	|| launchctl print system/com.steer.steer.control >/dev/null 2>&1 \
+	|| launchctl print system/com.steer.steer.subscription >/dev/null 2>&1; do
 	if [ "$remaining_checks" -le 0 ]; then
 		printf '%s\n' 'Timed out waiting for the previous Steer LaunchDaemons to stop.' >&2
 		exit 1
@@ -70,5 +73,6 @@ while launchctl print system/com.steer.steer >/dev/null 2>&1 \
 	sleep 0.1
 done
 launchctl bootstrap system "$control_plist_path"
+launchctl bootstrap system "$subscription_plist_path"
 launchctl bootstrap system "$plist_path"
 printf '%s\n' "Installed Steer LaunchDaemons with passwordless admin-group control IPC and a root-owned copy of $sing_box_path"

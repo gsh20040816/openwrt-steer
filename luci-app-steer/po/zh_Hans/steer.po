@@ -66,9 +66,6 @@ msgstr "地址策略"
 msgid "All conditions"
 msgstr "所有条件"
 
-msgid "An IPv6 server address must be enclosed in brackets."
-msgstr "IPv6 服务器地址必须放在方括号中。"
-
 msgid "Apply failed without a diagnostic message."
 msgstr "应用失败，且没有诊断信息。"
 
@@ -128,9 +125,6 @@ msgstr "凭据"
 
 msgid "Current state"
 msgstr "当前状态"
-
-msgid "DNS"
-msgstr "DNS"
 
 msgid "DNS cache"
 msgstr "DNS 缓存"
@@ -228,9 +222,6 @@ msgstr "代理连通性测试地址"
 msgid "Proxy speed-test URL"
 msgstr "代理测速地址"
 
-msgid "Ignored compatibility-only parameter: %s"
-msgstr "已忽略仅用于兼容的参数：%s"
-
 msgid "Import node"
 msgstr "导入节点"
 
@@ -303,9 +294,6 @@ msgstr "节点"
 msgid "Node import failed"
 msgstr "节点导入失败"
 
-msgid "Nodes & Routes"
-msgstr "节点与路由"
-
 msgid "Non-globally-reachable and local destinations bypass Steer before user rules. Router-originated UDP NTP on port 123 always goes direct. Traditional TCP and UDP DNS on port 53 enters the dedicated DNS shim."
 msgstr "非全球可达地址和本地目的地址会在用户规则之前绕过 Steer。路由器发起的 UDP 123 端口 NTP 始终直连，传统 TCP/UDP 53 端口 DNS 进入专用 DNS 辅助层。"
 
@@ -342,12 +330,6 @@ msgstr "解析并审查"
 msgid "Password"
 msgstr "密码"
 
-msgid "Paste exactly one share URL. Credentials are hidden from the preview and are stored only after you confirm."
-msgstr "请粘贴一个分享 URL。预览会隐藏凭据，只有确认后才会保存。"
-
-msgid "Paste one share URL."
-msgstr "请粘贴一个分享 URL。"
-
 msgid "Persistent cache"
 msgstr "持久化缓存"
 
@@ -381,12 +363,6 @@ msgstr "将共享 DNS 缓存持久化到 Steer 缓存数据库。"
 msgid "Serve recently expired DNS answers while refreshing them in the background."
 msgstr "在后台刷新时继续返回刚过期的 DNS 响应。"
 
-msgid "Review imported node"
-msgstr "审查导入节点"
-
-msgid "Review parser warnings"
-msgstr "检查解析警告"
-
 msgid "Route"
 msgstr "路由"
 
@@ -417,29 +393,8 @@ msgstr "跳过证书验证"
 msgid "Steer"
 msgstr "Steer"
 
-msgid "Steer cannot preserve this UDP packet encoding."
-msgstr "Steer 无法保留该 UDP 数据包编码。"
-
-msgid "Steer cannot preserve this VLESS encryption mode."
-msgstr "Steer 无法保留该 VLESS 加密模式。"
-
-msgid "Steer cannot preserve this VLESS flow."
-msgstr "Steer 无法保留该 VLESS flow。"
-
-msgid "Steer cannot preserve this security mode."
-msgstr "Steer 无法保留该安全模式。"
-
-msgid "Steer cannot preserve this transport header."
-msgstr "Steer 无法保留该传输头部。"
-
-msgid "Steer cannot preserve this transport type."
-msgstr "Steer 无法保留该传输类型。"
-
 msgid "Steer configuration applied."
 msgstr "Steer 配置已应用。"
-
-msgid "Steer currently supports only Hysteria2 Salamander obfuscation."
-msgstr "Steer 当前仅支持 Hysteria2 Salamander 混淆。"
 
 msgid "Steer is disabled"
 msgstr "Steer 已停用"
@@ -462,77 +417,14 @@ msgstr "TLS / REALITY"
 msgid "TLS server name"
 msgstr "TLS 服务器名称"
 
-msgid "The VLESS credential is not a UUID."
-msgstr "VLESS 凭据不是有效的 UUID。"
-
 msgid "The saved configuration is invalid"
 msgstr "已保存的配置无效"
-
-msgid "The share URL contains a parameter that Steer cannot preserve."
-msgstr "分享 URL 包含 Steer 无法保留的参数。"
-
-msgid "The share URL contains an invalid boolean parameter."
-msgstr "分享 URL 包含无效的布尔参数。"
-
-msgid "The share URL contains an invalid port or port range."
-msgstr "分享 URL 包含无效的端口或端口范围。"
-
-msgid "The share URL contains an invalid positive integer."
-msgstr "分享 URL 包含无效的正整数。"
-
-msgid "The share URL contains an invalid server address."
-msgstr "分享 URL 包含无效的服务器地址。"
-
-msgid "The share URL contains an invalid server and port."
-msgstr "分享 URL 包含无效的服务器和端口。"
-
-msgid "The share URL contains conflicting parameter aliases."
-msgstr "分享 URL 包含互相冲突的参数别名。"
-
-msgid "The share URL contains invalid percent encoding."
-msgstr "分享 URL 包含无效的百分号编码。"
-
-msgid "The share URL contains invalid Base64."
-msgstr "分享 URL 包含无效的 Base64。"
-
-msgid "The share URL contains invalid credentials."
-msgstr "分享 URL 包含无效的凭据。"
-
-msgid "The VMess Base64 payload is not valid JSON."
-msgstr "VMess Base64 内容不是有效的 JSON。"
-
-msgid "The share URL could not be parsed."
-msgstr "无法解析该分享 URL。"
-
-msgid "The share URL does not contain credentials."
-msgstr "分享 URL 中没有凭据。"
-
-msgid "The share URL is malformed."
-msgstr "分享 URL 格式错误。"
 
 msgid "Parse a standard proxy share URL in this browser. The URL is never sent to a Steer RPC or written to logs."
 msgstr "在浏览器中解析标准代理分享 URL。链接不会发送到 Steer RPC，也不会写入日志。"
 
-msgid "The share URL is missing a required parameter."
-msgstr "分享 URL 缺少必需参数。"
-
 msgid "The valid-name catalog is unavailable: %s"
 msgstr "合法名称目录不可用：%s"
-
-msgid "This parameter requires Hysteria2 obfuscation."
-msgstr "该参数要求启用 Hysteria2 混淆。"
-
-msgid "This parameter requires REALITY security."
-msgstr "该参数要求使用 REALITY 安全层。"
-
-msgid "This parameter requires TLS or REALITY security."
-msgstr "该参数要求使用 TLS 或 REALITY 安全层。"
-
-msgid "This share URL protocol is not supported."
-msgstr "不支持该分享 URL 协议。"
-
-msgid "This share URL uses an unsupported path."
-msgstr "该分享 URL 使用了不支持的路径。"
 
 msgid "Traffic steering"
 msgstr "流量分流"
@@ -554,9 +446,6 @@ msgstr "未知错误"
 
 msgid "Unnamed"
 msgstr "未命名"
-
-msgid "Unsupported transport or security fields stop the import instead of being silently discarded."
-msgstr "遇到不支持的传输或安全字段时会停止导入，不会静默丢弃。"
 
 msgid "Upload Mbps"
 msgstr "上传 Mbps"
@@ -623,9 +512,6 @@ msgstr "代理节点 — %s（%d）"
 
 msgid "Downloading and validating every node."
 msgstr "正在下载并验证全部节点。"
-
-msgid "Invalid subscription ID"
-msgstr "订阅 ID 无效"
 
 msgid "Invalid section ID"
 msgstr "配置项 ID 无效"
@@ -722,3 +608,69 @@ msgstr "开始测试"
 
 msgid "The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours."
 msgstr "将先通过所选单节点路由拨号。前置路由缺失、禁用、不是单节点或形成环时，Apply 会拒绝配置。"
+
+msgid "%d invalid node(s) were skipped."
+msgstr "已跳过 %d 个无效节点。"
+
+msgid "%d node(s) ready to import"
+msgstr "%d 个节点可以导入"
+
+msgid "Advanced"
+msgstr "高级"
+
+msgid "Canonical Intent preview"
+msgstr "Canonical Intent 预览"
+
+msgid "Canonical Preview"
+msgstr "Canonical 预览"
+
+msgid "Canonical schema"
+msgstr "Canonical schema"
+
+msgid "DNS Profiles"
+msgstr "DNS 配置"
+
+msgid "Diagnostics"
+msgstr "诊断"
+
+msgid "Last Apply"
+msgstr "最近一次 Apply"
+
+msgid "No Steer log entries were returned."
+msgstr "没有 Steer 日志。"
+
+msgid "No valid node was returned."
+msgstr "未返回有效节点。"
+
+msgid "OpenWrt keeps UCI as its only configuration source. This read-only Canonical preview shows exactly what the shared compiler receives."
+msgstr "OpenWrt 仍以 UCI 作为唯一配置源；此只读 Canonical 预览展示共享编译器实际收到的内容。"
+
+msgid "Parsing and validating nodes…"
+msgstr "正在解析并校验节点…"
+
+msgid "Paste one or more share URLs, or a Base64-wrapped list. Credentials are hidden from the preview and stored only after confirmation."
+msgstr "粘贴一个或多个分享链接，或 Base64 包装的列表。凭据不会显示在预览中，确认后才会保存。"
+
+msgid "Proxy nodes"
+msgstr "代理节点"
+
+msgid "Recent logs"
+msgstr "最近日志"
+
+msgid "Runtime"
+msgstr "运行时"
+
+msgid "Services"
+msgstr "服务"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Subscriptions"
+msgstr "订阅"
+
+msgid "%s is required for %s nodes."
+msgstr "%s 是 %s 节点的必填项。"
+
+msgid "System default"
+msgstr "系统默认"

@@ -8,12 +8,13 @@ Steer GUI
   ├── Read / Validate / Status（无授权弹窗）
   ├── 首次“安装系统组件”
   │          ↓ 一次 macOS 管理员授权
-  └── Save / Apply（后续免密）
+  └── Save / Apply / 订阅更新与清理（后续免密）
              ↓ /var/run/steer/control.sock
 root LaunchDaemon: steer-macos _control
-             ↓ 仅允许 save / apply
+             ↓ 仅允许固定的配置与订阅操作
 /usr/local/libexec/steer/steer-macos
-             ↓ launchctl bootstrap
+             ├── launchctl bootstrap → root LaunchDaemon: steer-macos _run
+             └── 每 15 分钟 → root LaunchDaemon: subscription update
 root LaunchDaemon: steer-macos _run
              ↓ exec
 sing-box run -c current/sing-box.json
@@ -31,14 +32,14 @@ Darwin utun + auto_route
 - 基础设置：用原生字段编辑 Main、探测 URL、DNS 缓存和 Bootstrap DNS；
 - 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
 - Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；
-- 诊断：显示共享校验结果和 LaunchDaemon 后端状态；
+- 诊断：显示共享校验结果、overview/node/route 探测、运行日志和 LaunchDaemon 后端状态；
 - 系统：显示运行时、系统路径和授权边界。
 
 全局 Enable 只出现在总览和菜单栏；开关变化后立即保存并 Apply，失败时恢复原状态。
 
-读取系统配置、Status 和 Validate 不请求管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save 和 Apply 通过常驻 `com.steer.steer.control` root LaunchDaemon 的受限 Unix socket IPC 完成，不再重复请求密码。
+读取系统配置、Status、Validate、探测和 Geo catalog 不请求管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save、Apply 和订阅更新/清理通过常驻 `com.steer.steer.control` root LaunchDaemon 的受限 Unix socket IPC 完成，不再重复请求密码。
 
-control daemon 只接受 schema 固定、大小受限的 `save`/`apply` JSON 请求，不提供 shell、路径或可执行文件参数。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
+control daemon 只接受 schema 固定、大小受限的 `save`、`apply`、`subscription-update` 和 `subscription-clean` JSON 请求，不提供 shell、路径或可执行文件参数。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
 
 系统配置的唯一真相仍是：
 
@@ -97,7 +98,7 @@ steer-macos-arm64.dmg
 steer-macos-x86_64.dmg
 ```
 
-DMG 内的 `Steer.app` 包含同架构 Swift GUI、`steer-macos`、SagerNet 官方 sing-box、两个 LaunchDaemon plist、完整 Geo seed、许可证和 embedded installer。构建过程严格校验上游 archive SHA、Mach-O 架构、版本/tags/revision、Geo manifest、helper validate/parse-nodes、bundle 布局与可执行权限，然后对嵌套二进制和 App 做 ad-hoc 签名并运行 `codesign --verify --deep --strict`。
+DMG 内的 `Steer.app` 包含同架构 Swift GUI、`steer-macos`、SagerNet 官方 sing-box、运行/control/订阅调度三个 LaunchDaemon plist、完整 Geo seed、许可证和 embedded installer。构建过程严格校验上游 archive SHA、Mach-O 架构、版本/tags/revision、Geo manifest、helper validate/parse-nodes、bundle 布局与可执行权限，然后对嵌套二进制和 App 做 ad-hoc 签名并运行 `codesign --verify --deep --strict`。
 
 项目目前没有付费 Apple Developer/Developer ID，因此 DMG **没有公证**。ad-hoc 签名只保证 bundle 在构建后未被意外改写，不能让 Gatekeeper 自动放行。用户流程是：
 
@@ -117,7 +118,7 @@ brew install sing-box
 sudo macos/scripts/install-launchdaemon.sh
 ```
 
-开发安装器把 `command -v sing-box` 选中的构件复制到 root-owned `/usr/local/libexec/steer/sing-box`，并安装运行 LaunchDaemon 与常驻 control LaunchDaemon。它只服务源码开发；正式 App 使用 `Contents/Resources/Installer` 的固定 payload，不依赖 PATH，也不在用户机器上运行 `go build`。
+开发安装器把 `command -v sing-box` 选中的构件复制到 root-owned `/usr/local/libexec/steer/sing-box`，并安装运行、常驻 control 与订阅调度三个 LaunchDaemon。它只服务源码开发；正式 App 使用 `Contents/Resources/Installer` 的固定 payload，不依赖 PATH，也不在用户机器上运行 `go build`。
 
 构建 GUI：
 

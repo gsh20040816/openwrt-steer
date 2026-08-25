@@ -4,7 +4,10 @@ package macos
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	model "github.com/gsh20040816/steer/go/internal/intent"
@@ -29,5 +32,28 @@ func TestIntentStoreSubscriptionNodeReplacement(t *testing.T) {
 	loaded, _, err := store.Load()
 	if err != nil || len(loaded.Nodes) != 1 || loaded.Nodes[0].ID != "new" {
 		t.Fatalf("subscription replacement failed: %#v %v", loaded.Nodes, err)
+	}
+}
+
+func TestConfiguredSubscriptionUpdatePersistsStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("socks://user:pass@127.0.0.1:1080#Imported\n"))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	stateDirectory := filepath.Join(root, "state")
+	value := validIntent()
+	value.Subscriptions = []model.Subscription{{ID: "public", Enabled: true, Name: "Public", URL: server.URL, UpdateInterval: "1h"}}
+	if _, err := (IntentStore{Paths: Paths{ConfigPath: configPath}}).Save(value, ""); err != nil {
+		t.Fatal(err)
+	}
+	snapshots, err := UpdateConfiguredSubscriptions(context.Background(), server.Client(), configPath, stateDirectory, "public")
+	if err != nil || len(snapshots) != 1 || len(snapshots[0].Nodes) != 1 {
+		t.Fatalf("unexpected subscription update: %#v %v", snapshots, err)
+	}
+	statuses, err := ReadSubscriptionStatus(configPath, stateDirectory)
+	if err != nil || len(statuses) != 1 || statuses[0].NodeCount != 1 || !strings.Contains(statuses[0].URL, "http") {
+		t.Fatalf("unexpected subscription status: %#v %v", statuses, err)
 	}
 }

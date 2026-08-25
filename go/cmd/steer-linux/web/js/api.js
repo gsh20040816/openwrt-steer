@@ -84,6 +84,7 @@
   const api = {
     async overview() { return (await request('/api/v1/overview')).data; },
     async runtime() { return (await request('/api/v1/runtime')).data; },
+    async logs() { return (await request('/api/v1/logs')).data; },
     config,
     putConfig,
     async validate(intent) {

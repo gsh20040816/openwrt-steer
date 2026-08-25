@@ -106,6 +106,7 @@ body {
 .import-title { margin: 8px 0 4px; }
 .import-warnings { margin: 4px 0 0; padding-left: 16px; }
 .command-block { margin: 6px 0 0; }
+.diagnostics-log { max-height: 360px; overflow: auto; white-space: pre-wrap; }
 
 /* ---------- 3. 外壳：侧栏 / 状态条 / 视图区 ---------- */
 .side {
