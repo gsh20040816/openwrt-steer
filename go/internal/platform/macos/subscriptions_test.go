@@ -11,7 +11,7 @@ import (
 )
 
 func TestIntentStoreSubscriptionNodeReplacement(t *testing.T) {
-	paths, err := NewPaths(filepath.Join(t.TempDir(), "group"))
+	paths, err := NewPaths(filepath.Join(t.TempDir(), "runtime"))
 	if err != nil {
 		t.Fatal(err)
 	}

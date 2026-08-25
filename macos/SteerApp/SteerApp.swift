@@ -12,6 +12,7 @@ struct SteerApp: App {
         WindowGroup("Steer") {
             ContentView(model: model)
                 .frame(minWidth: 960, minHeight: 640)
+                .task { model.loadInitialState() }
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -20,7 +21,11 @@ struct SteerApp: App {
             }
         }
         MenuBarExtra("Steer", systemImage: model.runtime.healthy ? "checkmark.shield" : "shield") {
-            Button(model.runtime.healthy ? "Disable" : "Enable") { model.toggleEnabled() }
+            Button(model.runtime.healthy ? "Disable" : "Enable") {
+                model.setEnabled(!model.runtime.healthy)
+                model.apply()
+            }
+            Button("Refresh status") { model.refreshStatus() }
             Divider()
             Button("Open Steer") { model.selectedPage = .overview }
             Button("Quit") { NSApplication.shared.terminate(nil) }

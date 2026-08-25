@@ -5,5 +5,4 @@
 /private/
 /*.private.*
 /macos/.build/
-/macos/build/
 /.sshcfg-*

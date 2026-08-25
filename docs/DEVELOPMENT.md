@@ -9,8 +9,11 @@ go/internal/{intent,compiler,apply,generation}  共享语义和生命周期
 go/internal/{subscription,probe,capability}     共享服务
 go/internal/platform/openwrt                    OpenWrt 适配器
 go/internal/platform/linux                      Linux systemd 主机/转发流量适配器
+go/internal/platform/macos                      macOS launchd/Darwin TUN 适配器
 go/cmd/steer-openwrt                            OpenWrt CLI 源码 target
 go/cmd/steer-linux                              Linux CLI/Web
+go/cmd/steer-macos                              macOS helper/LaunchDaemon 入口
+macos/SteerApp                                  macOS SwiftUI 前端
 go/cmd/steer-geodata-build                      CI SRS 生成与完整 seed 校验工具
 linux                                           Linux 通用发行资产与 systemd unit
 luci-app-steer                                  LuCI、RPC、ACL、翻译
@@ -74,7 +77,7 @@ Linux 适配器与上游发行资产已经建立，后续修改必须保持：
 4. sing-box、nftables、iproute2 和 ca-certificates 由系统包管理器提供，geoview 只存在于 CI 生成器的构建依赖中；
 5. tag 发布只复用同一 master commit 已验证的 OpenWrt 与 Linux 产物，不重新编译。
 
-macOS 在 Linux 接口稳定后开始，允许使用 launchd、utun/pf 和不同权限模型，但不得改变共享规则、路由、DNS 或订阅语义。
+macOS 使用 launchd、Darwin utun 和管理员授权；SwiftUI GUI 与 LuCI、Linux Web 同为平台前端。GUI 不得复制共享规则、路由、DNS、订阅、Validate 或 Apply 语义。
 
 ## 目标系统验收与发布门
 

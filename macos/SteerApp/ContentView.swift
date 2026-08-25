@@ -57,7 +57,7 @@ struct OverviewView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Toggle("Enabled", isOn: Binding(get: { model.runtime.healthy }, set: { _ in model.toggleEnabled() }))
+                Toggle("Enabled", isOn: Binding(get: { model.draftEnabled }, set: { model.setEnabled($0) }))
                     .toggleStyle(.switch)
             }
             HStack(spacing: 12) {
@@ -65,8 +65,10 @@ struct OverviewView: View {
                     .buttonStyle(.borderedProminent)
                 Button("Apply") { model.apply() }
                     .buttonStyle(.bordered)
-                    .disabled(model.isDirty == false)
+                Button("Refresh status") { model.refreshStatus() }
+                    .buttonStyle(.bordered)
             }
+            .disabled(model.isBusy)
             GroupBox("Runtime") {
                 LabeledContent("Healthy", value: model.runtime.healthy ? "Yes" : "No")
                 LabeledContent("Intent digest", value: model.runtime.intentDigest.isEmpty ? "—" : model.runtime.intentDigest)
@@ -88,12 +90,13 @@ struct ConfigurationView: View {
                 Spacer()
                 Button("Load draft") { model.loadDraft() }
                 Button("Save draft") { model.saveDraft() }
+                    .disabled(!model.isDirty)
                 Button("Validate") { model.validate() }
             }
             TextEditor(text: Binding(get: { model.rawJSON }, set: { model.rawJSON = $0; model.markDirty() }))
                 .font(.system(.body, design: .monospaced))
                 .border(.quaternary)
-            Text("字段级表单将逐页替换这里；Raw JSON 始终保留为导入导出和高级逃生口。")
+            Text("各配置页与 Raw JSON 编辑同一份 Canonical Intent；Raw JSON 同时作为导入、导出和高级编辑入口。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -145,7 +148,7 @@ struct DraftCollectionView: View {
             }
             .overlay {
                 if model.draftItems(for: key).isEmpty {
-                    Text("当前 draft 没有 (title)")
+                    Text("当前 draft 没有 \(title)")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -172,10 +175,11 @@ struct DiagnosticsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Section("Provider") {
-                LabeledContent("Packet Tunnel", value: "NetworkExtension pending")
-                LabeledContent("DNS Proxy", value: "NetworkExtension pending")
+            Section("Backend") {
+                LabeledContent("Service", value: "LaunchDaemon + sing-box TUN")
+                LabeledContent("Frontend", value: "Steer GUI")
                 LabeledContent("Generation", value: model.runtime.generationID.isEmpty ? "—" : model.runtime.generationID)
+                Button("Refresh status") { model.refreshStatus() }
             }
         }
     }
@@ -186,13 +190,13 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Lifecycle") {
-                Toggle("Start at login", isOn: .constant(false))
-                Toggle("Reconnect after network change", isOn: .constant(true))
-            }
             Section("Storage") {
-                LabeledContent("App Group", value: "Configured by signed target")
-                LabeledContent("Geo data", value: "Explicit toolchain required")
+                LabeledContent("Configuration", value: "/Library/Application Support/Steer/config/config.json")
+                LabeledContent("Geo data", value: "/Library/Application Support/Steer/geodata-seed")
+            }
+            Section("Authorization") {
+                Text("读取系统配置、保存、Apply 和状态检查通过 macOS 管理员授权调用已安装的 steer-macos helper。")
+                    .foregroundStyle(.secondary)
             }
             Section {
                 Text(model.message.isEmpty ? "—" : model.message)

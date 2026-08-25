@@ -2,7 +2,8 @@
 
 // steer-macos is the supported macOS control binary. It deliberately uses an
 // ordinary launchd LaunchDaemon and the external sing-box TUN runtime; it does
-// not require Apple Developer entitlements or NetworkExtension.
+// not require Apple Developer entitlements. The native GUI is a frontend for
+// this helper and never owns the packet-processing runtime.
 package main
 
 import (

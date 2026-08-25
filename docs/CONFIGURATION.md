@@ -1,6 +1,6 @@
 # 配置与使用
 
-当前公开配置是 schema 9。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 是严格 Canonical JSON 真相，不读取 UCI。Geo category 由包内 `/usr/share/steer/geodata-seed/manifest.json` 精确校验，不再配置 DAT 路径。
+当前公开配置是 schema 9。OpenWrt 的 `/etc/config/steer` 是唯一配置真相，LuCI 只编辑这份 UCI；Linux 的 `/etc/steer/config.json` 与 macOS 的 `/Library/Application Support/Steer/config/config.json` 是严格 Canonical JSON 真相。Linux Web 和 macOS GUI 都只编辑各自平台的这份配置，不维护第二套前端 schema。Geo category 由包内 manifest 精确校验，不再配置 DAT 路径。
 
 ## 基本配置
 

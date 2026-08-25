@@ -17,13 +17,13 @@ import (
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
-const AppGroupSchemaVersion = 1
+const RuntimeSchemaVersion = 1
 
 var ErrRevisionConflict = errors.New("configuration revision conflict")
 
 // Paths is the only filesystem layout known by the macOS adapter. The caller
-// must pass the resolved App Group container; this package never guesses a
-// user, home, or Unix system directory.
+// passes an explicit runtime root; this package never guesses a user or home
+// directory.
 type Paths struct {
 	Root                 string `json:"root"`
 	ConfigDirectory      string `json:"config_directory"`
@@ -35,11 +35,11 @@ type Paths struct {
 	LogsDirectory        string `json:"logs_directory"`
 }
 
-func NewPaths(appGroupRoot string) (Paths, error) {
-	if appGroupRoot == "" || !filepath.IsAbs(appGroupRoot) {
-		return Paths{}, errors.New("macOS App Group root must be an absolute path")
+func NewPaths(rootDirectory string) (Paths, error) {
+	if rootDirectory == "" || !filepath.IsAbs(rootDirectory) {
+		return Paths{}, errors.New("macOS runtime root must be an absolute path")
 	}
-	root := filepath.Clean(appGroupRoot)
+	root := filepath.Clean(rootDirectory)
 	configDirectory := filepath.Join(root, "config")
 	return Paths{
 		Root: root, ConfigDirectory: configDirectory,
@@ -58,7 +58,7 @@ func (paths Paths) Ensure() error {
 		paths.StatusDirectory, paths.LogsDirectory,
 	} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
-			return fmt.Errorf("create macOS App Group directory %s: %w", directory, err)
+			return fmt.Errorf("create macOS runtime directory %s: %w", directory, err)
 		}
 	}
 	return nil
@@ -114,7 +114,7 @@ type Status struct {
 }
 
 func DefaultStatus() Status {
-	return Status{SchemaVersion: AppGroupSchemaVersion}
+	return Status{SchemaVersion: RuntimeSchemaVersion}
 }
 
 func (paths Paths) LoadStatus() (Status, error) {
@@ -135,18 +135,18 @@ func (paths Paths) LoadStatus() (Status, error) {
 		}
 		return Status{}, fmt.Errorf("decode macOS status: %w", err)
 	}
-	if status.SchemaVersion != AppGroupSchemaVersion {
-		return Status{}, fmt.Errorf("macOS status requires schema %d, found %d", AppGroupSchemaVersion, status.SchemaVersion)
+	if status.SchemaVersion != RuntimeSchemaVersion {
+		return Status{}, fmt.Errorf("macOS status requires schema %d, found %d", RuntimeSchemaVersion, status.SchemaVersion)
 	}
 	return status, nil
 }
 
 func (paths Paths) SaveStatus(status Status) error {
 	if status.SchemaVersion == 0 {
-		status.SchemaVersion = AppGroupSchemaVersion
+		status.SchemaVersion = RuntimeSchemaVersion
 	}
-	if status.SchemaVersion != AppGroupSchemaVersion {
-		return fmt.Errorf("macOS status requires schema %d, found %d", AppGroupSchemaVersion, status.SchemaVersion)
+	if status.SchemaVersion != RuntimeSchemaVersion {
+		return fmt.Errorf("macOS status requires schema %d, found %d", RuntimeSchemaVersion, status.SchemaVersion)
 	}
 	encoded, err := json.MarshalIndent(status, "", "  ")
 	if err != nil {

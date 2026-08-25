@@ -14,7 +14,5 @@
 	<string>APPL</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
-	<key>AppGroupIdentifier</key>
-	<string>$(APP_GROUP_IDENTIFIER)</string>
 </dict>
 </plist>

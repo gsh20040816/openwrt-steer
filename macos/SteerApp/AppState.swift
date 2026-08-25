@@ -55,6 +55,13 @@ struct RuntimeStatus: Codable {
     var generationID = ""
     var intentDigest = ""
     var error = ""
+
+    enum CodingKeys: String, CodingKey {
+        case healthy
+        case generationID = "generation_id"
+        case intentDigest = "intent_digest"
+        case error
+    }
 }
 
 struct ValidationIssue: Codable, Identifiable {
@@ -78,25 +85,6 @@ struct ValidationResult: Codable {
     let ok: Bool
     let errors: [ValidationIssue]
     let warnings: [ValidationIssue]
-}
-
-struct ABIError: Codable {
-    let code: String
-    let message: String
-}
-
-struct ABIEnvelope: Codable {
-    let abiVersion: Int
-    let ok: Bool
-    let value: JSONValue?
-    let error: ABIError?
-
-    enum CodingKeys: String, CodingKey {
-        case abiVersion = "abi_version"
-        case ok
-        case value
-        case error
-    }
 }
 
 indirect enum JSONValue: Codable {
@@ -130,58 +118,170 @@ indirect enum JSONValue: Codable {
     }
 }
 
-enum CoreBridgeError: LocalizedError {
-    case notConfigured
+enum BackendClientError: LocalizedError {
+    case helperUnavailable
     case invalidResponse
+    case validationFailed
     case processFailed(String)
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured:
-            return "SteerCore bridge 尚未配置；请先把 steer-macos helper 放入 app bundle。"
+        case .helperUnavailable:
+            return "未找到 steer-macos helper；请先运行 macos/scripts/install-launchdaemon.sh。"
         case .invalidResponse:
-            return "SteerCore 返回了无法识别的 ABI envelope。"
+            return "steer-macos 返回了无法识别的响应。"
+        case .validationFailed:
+            return "配置校验失败，未保存也未 Apply。"
         case let .processFailed(message):
             return message
         }
     }
 }
 
-protocol CoreBridge: Sendable {
+protocol BackendClient: Sendable {
     func validate(document: String) async throws -> ValidationResult
+    func loadConfiguration() async throws -> String
+    func save(document: String) async throws
+    func apply(document: String) async throws -> RuntimeStatus
+    func status() async throws -> RuntimeStatus
 }
 
-struct UnconfiguredCoreBridge: CoreBridge {
-    func validate(document: String) async throws -> ValidationResult {
-        throw CoreBridgeError.notConfigured
+struct HelperBackendClient: BackendClient {
+    private static let installedHelperPath = "/usr/local/libexec/steer/steer-macos"
+    private static let configurationPath = "/Library/Application Support/Steer/config/config.json"
+
+    private let validationHelperURL: URL
+
+    init(helperURL: URL? = nil) {
+        validationHelperURL = helperURL
+            ?? Bundle.main.url(forResource: "steer-macos", withExtension: nil)
+            ?? URL(fileURLWithPath: Self.installedHelperPath)
     }
-}
-
-struct ProcessCoreBridge: CoreBridge {
-    let executableURL: URL
 
     func validate(document: String) async throws -> ValidationResult {
-        let executableURL = executableURL
-        return try await Task.detached {
-            let temporaryURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("steer-draft-\(UUID().uuidString).json")
-            try Data(document.utf8).write(to: temporaryURL, options: .atomic)
-            defer { try? FileManager.default.removeItem(at: temporaryURL) }
-
-            let process = Process()
-            let output = Pipe()
-            process.executableURL = executableURL
-            process.arguments = ["validate", "--config", temporaryURL.path]
-            process.standardOutput = output
-            process.standardError = Pipe()
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard let result = try? JSONDecoder().decode(ValidationResult.self, from: data) else {
-                throw CoreBridgeError.invalidResponse
+        try requireExecutable(validationHelperURL)
+        return try await withTemporaryDocument(document) { url in
+            let result = try await Self.execute(validationHelperURL, ["validate", "--config", url.path])
+            guard let validation = try? JSONDecoder().decode(ValidationResult.self, from: result.stdout) else {
+                throw result.error
             }
-            return result
+            return validation
+        }
+    }
+
+    func loadConfiguration() async throws -> String {
+        let output = try await Self.executePrivileged(Self.command([
+            "/bin/cat", Self.configurationPath,
+        ]))
+        guard let document = String(data: output, encoding: .utf8) else {
+            throw BackendClientError.invalidResponse
+        }
+        return document
+    }
+
+    func save(document: String) async throws {
+        let validation = try await validate(document: document)
+        guard validation.ok else { throw BackendClientError.validationFailed }
+        try await withTemporaryDocument(document) { url in
+            _ = try await Self.executePrivileged(Self.command([
+                "/usr/bin/install", "-m", "0600", url.path, Self.configurationPath,
+            ]))
+        }
+    }
+
+    func apply(document: String) async throws -> RuntimeStatus {
+        let validation = try await validate(document: document)
+        guard validation.ok else { throw BackendClientError.validationFailed }
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        return try await withTemporaryDocument(document) { url in
+            let install = Self.command(["/usr/bin/install", "-m", "0600", url.path, Self.configurationPath])
+            let apply = Self.command([helper.path, "apply"]) + " >/dev/null"
+            let status = Self.command([helper.path, "status"])
+            let output = try await Self.executePrivileged("\(install) && \(apply) && \(status)")
+            guard let status = try? JSONDecoder().decode(RuntimeStatus.self, from: output) else {
+                throw BackendClientError.invalidResponse
+            }
+            return status
+        }
+    }
+
+    func status() async throws -> RuntimeStatus {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let output = try await Self.executePrivileged(Self.command([helper.path, "status"]))
+        guard let status = try? JSONDecoder().decode(RuntimeStatus.self, from: output) else {
+            throw BackendClientError.invalidResponse
+        }
+        return status
+    }
+
+    private func requireExecutable(_ url: URL) throws {
+        guard FileManager.default.isExecutableFile(atPath: url.path) else {
+            throw BackendClientError.helperUnavailable
+        }
+    }
+
+    private func withTemporaryDocument<T>(
+        _ document: String,
+        operation: (URL) async throws -> T
+    ) async throws -> T {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("steer-draft-\(UUID().uuidString).json")
+        try Data(document.utf8).write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return try await operation(url)
+    }
+
+    private struct ProcessResult: Sendable {
+        let stdout: Data
+        let stderr: String
+        let status: Int32
+
+        var error: BackendClientError {
+            let message = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .processFailed(message.isEmpty ? "steer-macos 执行失败（退出码 \(status)）。" : message)
+        }
+    }
+
+    private static func execute(_ executable: URL, _ arguments: [String]) async throws -> ProcessResult {
+        try await Task.detached {
+            let process = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.executableURL = executable
+            process.arguments = arguments
+            process.standardOutput = stdout
+            process.standardError = stderr
+            try process.run()
+            let output = stdout.fileHandleForReading.readDataToEndOfFile()
+            let errorOutput = stderr.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return ProcessResult(
+                stdout: output,
+                stderr: String(decoding: errorOutput, as: UTF8.self),
+                status: process.terminationStatus
+            )
         }.value
+    }
+
+    private static func executePrivileged(_ shellCommand: String) async throws -> Data {
+        let result = try await execute(URL(fileURLWithPath: "/usr/bin/osascript"), [
+            "-e", "on run argv",
+            "-e", "do shell script (item 1 of argv) with administrator privileges",
+            "-e", "end run",
+            shellCommand,
+        ])
+        guard result.status == 0 else { throw result.error }
+        return result.stdout
+    }
+
+    private static func command(_ arguments: [String]) -> String {
+        arguments.map(shellQuote).joined(separator: " ")
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
@@ -195,18 +295,14 @@ final class AppModel: ObservableObject {
     @Published var isBusy = false
     @Published var message = ""
 
-    private let bridge: CoreBridge
-    private let appGroupIdentifier: String
+    private let backend: BackendClient
 
-    init(bridge: CoreBridge? = nil) {
-        if let bridge {
-            self.bridge = bridge
-        } else if let helper = Bundle.main.url(forResource: "steer-macos", withExtension: nil) {
-            self.bridge = ProcessCoreBridge(executableURL: helper)
-        } else {
-            self.bridge = UnconfiguredCoreBridge()
-        }
-        self.appGroupIdentifier = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String ?? ""
+    init(backend: BackendClient? = nil) {
+        self.backend = backend ?? HelperBackendClient()
+    }
+
+    var draftEnabled: Bool {
+        parseDraft()?.objectValue?["main"]?.objectValue?["enabled"]?.boolValue ?? false
     }
 
     func markDirty() {
@@ -214,68 +310,62 @@ final class AppModel: ObservableObject {
         message = "有未应用的 draft 修改"
     }
 
+    func loadInitialState() {
+        perform(message: "正在连接 Steer 后端…") {
+            self.rawJSON = try await self.backend.loadConfiguration()
+            self.runtime = try await self.backend.status()
+            self.isDirty = false
+            self.message = self.runtime.healthy ? "Steer 运行正常" : "已连接后端，Steer 当前未运行"
+        }
+    }
+
+    func refreshStatus() {
+        perform(message: "正在读取运行状态…") {
+            self.runtime = try await self.backend.status()
+            self.message = self.runtime.healthy ? "Steer 运行正常" : "Steer 当前未运行"
+        }
+    }
+
     func validate() {
-        guard !isBusy else { return }
-        isBusy = true
-        message = "正在校验…"
-        Task {
-            defer { isBusy = false }
-            do {
-                validation = try await bridge.validate(document: rawJSON)
-                message = validation?.ok == true ? "校验通过" : "校验发现问题"
-            } catch {
-                message = error.localizedDescription
-            }
+        perform(message: "正在校验…") {
+            self.validation = try await self.backend.validate(document: self.rawJSON)
+            self.message = self.validation?.ok == true ? "校验通过" : "校验发现问题"
         }
     }
 
     func apply() {
-        guard !isBusy else { return }
-        // Activation is intentionally separate from Save. The eventual
-        // coordinator will prepare a generation, activate both providers,
-        // wait for matching health, then publish current.json.
-        message = "Apply coordinator 尚未连接 NetworkExtension。"
+        perform(message: "正在保存并应用配置…") {
+            self.runtime = try await self.backend.apply(document: self.rawJSON)
+            self.isDirty = false
+            self.message = self.runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用"
+        }
     }
 
     func saveDraft() {
-        guard let container = appGroupContainer else {
-            message = "App Group 尚未配置，不能保存 draft。"
-            return
-        }
-        do {
-            let directory = container.appendingPathComponent("config", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try Data(rawJSON.utf8).write(to: directory.appendingPathComponent("config.json"), options: .atomic)
-            isDirty = false
-            message = "draft 已写入 App Group config。"
-        } catch {
-            message = "保存 draft 失败：\(error.localizedDescription)"
+        perform(message: "正在保存配置…") {
+            try await self.backend.save(document: self.rawJSON)
+            self.isDirty = false
+            self.message = "配置已保存；运行态未改变"
         }
     }
 
     func loadDraft() {
-        guard let container = appGroupContainer else {
-            message = "App Group 尚未配置，不能读取 draft。"
+        perform(message: "正在读取配置…") {
+            self.rawJSON = try await self.backend.loadConfiguration()
+            self.isDirty = false
+            self.message = "已读取系统配置"
+        }
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        guard var root = parseDraft()?.objectValue else {
+            message = "当前 draft 不是 JSON object，无法修改启用状态"
             return
         }
-        do {
-            let url = container.appendingPathComponent("config/config.json")
-            rawJSON = try String(contentsOf: url, encoding: .utf8)
-            isDirty = false
-            message = "已读取 App Group config。"
-        } catch {
-            message = "读取 draft 失败：\(error.localizedDescription)"
-        }
-    }
-
-    func toggleEnabled() {
-        markDirty()
-        message = "启用状态将在 Apply 时交给 NetworkExtension coordinator。"
-    }
-
-    private var appGroupContainer: URL? {
-        guard !appGroupIdentifier.isEmpty else { return nil }
-        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+        var main = root["main"]?.objectValue ?? [:]
+        main["enabled"] = .bool(enabled)
+        root["main"] = .object(main)
+        writeDraft(.object(root), context: "启用状态")
     }
 
     func draftItems(for key: String) -> [DraftItem] {
@@ -310,6 +400,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func perform(message pendingMessage: String, operation: @escaping () async throws -> Void) {
+        guard !isBusy else { return }
+        isBusy = true
+        message = pendingMessage
+        Task {
+            defer { isBusy = false }
+            do {
+                try await operation()
+            } catch {
+                message = error.localizedDescription
+            }
+        }
+    }
+
     private func parseDraft() -> JSONValue? {
         guard let data = rawJSON.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(JSONValue.self, from: data)
@@ -324,12 +428,16 @@ final class AppModel: ObservableObject {
         if case let .array(existing)? = root[key] { values = existing } else { values = [] }
         mutate(&values)
         root[key] = .array(values)
+        writeDraft(.object(root), context: key)
+    }
+
+    private func writeDraft(_ value: JSONValue, context: String) {
         do {
-            let data = try JSONEncoder.pretty.encode(JSONValue.object(root))
+            let data = try JSONEncoder.pretty.encode(value)
             rawJSON = String(decoding: data, as: UTF8.self)
             markDirty()
         } catch {
-            message = "写回 \(key) 失败：\(error.localizedDescription)"
+            message = "写回 \(context) 失败：\(error.localizedDescription)"
         }
     }
 
@@ -341,7 +449,7 @@ final class AppModel: ObservableObject {
         case "routes":
             return .object(["id": .string(id), "enabled": .bool(false), "kind": .string("direct")])
         case "dns_profiles":
-            return .object(["id": .string(id), "enabled": .bool(false), "protocol": .string("udp"), "server": .string("1.1.1.1"), "server_port": .number(53), "strategy": .string("prefer_ipv4")])
+            return .object(["id": .string(id), "enabled": .bool(false), "protocol": .string("udp"), "server": .string("1.1.1.1"), "server_port": .number(53)])
         case "subscriptions":
             return .object(["id": .string(id), "enabled": .bool(false), "url": .string("https://example.invalid/subscription")])
         case "local_proxies":

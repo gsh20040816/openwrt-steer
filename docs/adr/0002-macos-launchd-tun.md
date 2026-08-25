@@ -2,13 +2,13 @@
 
 ## 状态
 
-Accepted；supersedes the supported-runtime portion of ADR 0001。
+Accepted；这是 macOS 唯一受支持的数据面架构。
 
 ## 背景
 
-项目不购买 Apple Developer Program，因此 macOS 正式运行时不能依赖
-NetworkExtension entitlement、App Group provisioning profile 或付费签名。
-sing-box 已经提供 macOS TUN 和 `auto_route`，Steer 不需要重新实现数据面。
+项目不购买 Apple Developer Program。sing-box 已经提供 macOS TUN 和
+`auto_route`，Steer 不需要重新实现数据面。SwiftUI GUI 只作为配置与运维
+前端，数据面继续由 root LaunchDaemon 管理。
 
 ## 决策
 
@@ -52,7 +52,7 @@ LaunchDaemon 使用 `RunAtLoad=true`、`KeepAlive=false`。禁用时由 `cleanup
 
 ## 不做的事
 
-- 不把 Swift/NetworkExtension 放入正式 Apply 路径；
+- 不把 Swift GUI 放入数据面或 Apply 编译路径；
 - 不引入 SmartDNS；
 - 不让 macOS 复用 Linux 的 forwarded DNS PREROUTING 逻辑；
-- 不为没有 Apple entitlement 的 provider 做“看起来已启动”的健康报告。
+- 不让 GUI 绕过 helper 直接写 generation 或启动 sing-box。

@@ -2,7 +2,7 @@
 
 Steer 是一套严格、可解释的透明代理控制面。用户配置节点、逻辑路由、DNS Profile 和有序规则；共享 Go 核心负责 Canonical Intent、校验、编译、Apply 编排、订阅与测试，平台适配器负责网络资源和服务生命周期。
 
-当前稳定版本为 **0.7.1**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；`dev` 正在开发无需 Apple Developer Program 的 macOS LaunchDaemon + sing-box TUN 适配器。
+当前稳定版本为 **0.7.1**，公开配置为 **schema 9**。OpenWrt 25.12.5 x86/64 由主仓库提供 APK；Linux systemd 适配器提供 x86_64/aarch64 通用上游 tar.zst，覆盖主机及 VM/Docker 公网转发流量；`dev` 提供 SwiftUI GUI 前端和无需 Apple Developer Program 的 macOS LaunchDaemon + sing-box TUN 后端。
 
 ## 已实现能力
 
@@ -14,6 +14,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - 直连、当前代理、当前代理下载测速，以及裸节点和完整路由链测试。
 - OpenWrt UCI/LuCI、procd、sing-box TUN `auto_route`/`auto_redirect`、1.14 原生源 MAC 规则和最小 DNS nftables shim。
 - Linux systemd 适配器源码：Canonical JSON、sing-box TUN `auto_route`/`strict_route`/`auto_redirect`、主机与 VM/Docker DNS 的双栈 nft shim、受保护的 wildcard DNS listener、nftables 重启联动、systemd 服务和 loopback Web API/UI。
+- macOS SwiftUI GUI 与 LuCI、Linux Web 同为平台前端，直接编辑 Canonical Intent 并调用 `steer-macos` 完成 Validate、Save、Apply 和 Status；数据面由 root LaunchDaemon 和 sing-box TUN 承担。
 - CI 将 Loyalsoldier GeoSite/GeoIP 转换为完整 SRS seed；设备以 seed 离线启动，并由 sing-box 每 24 小时后台检查 Pages `latest`。
 
 ## 明确边界
@@ -34,7 +35,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 - [打包与发布](docs/PACKAGING.md)
 - [测试说明](tests/README.md)
 - [Linux 适配器](docs/LINUX.md)
-- [macOS LaunchDaemon 适配器](docs/MACOS.md)
+- [macOS GUI 与 LaunchDaemon 适配器](docs/MACOS.md)
 
 ## 公共 CLI
 

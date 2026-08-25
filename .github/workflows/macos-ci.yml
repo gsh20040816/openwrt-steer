@@ -30,7 +30,6 @@ jobs:
       - name: Check macOS source contracts
         run: |
           python3 tests/check-macos-contract.py
-          sh -n macos/scripts/build-steercore-xcframework.sh
           sh -n macos/scripts/install-launchdaemon.sh
       - name: Test shared Go core
         working-directory: go
@@ -43,7 +42,7 @@ jobs:
         run: go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/steer-macos" ./cmd/steer-macos
 
   native-source:
-    name: Unsigned native source build
+    name: Native GUI source build
     runs-on: macos-14
     needs: core
     steps:

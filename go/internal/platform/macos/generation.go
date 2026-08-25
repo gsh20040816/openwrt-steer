@@ -47,7 +47,7 @@ func Prepare(value model.Intent, paths Paths) (PreparedGeneration, error) {
 		}
 	}()
 	metadata := GenerationMetadata{
-		SchemaVersion: AppGroupSchemaVersion,
+		SchemaVersion: RuntimeSchemaVersion,
 		GenerationID:  compiled.IntentDigest,
 		IntentDigest:  compiled.IntentDigest,
 	}
@@ -98,11 +98,11 @@ func (paths Paths) Publish(prepared PreparedGeneration) error {
 	if err := unmarshalStrict(metadataContent, &metadata); err != nil {
 		return fmt.Errorf("decode macOS candidate metadata: %w", err)
 	}
-	if metadata.SchemaVersion != AppGroupSchemaVersion || metadata.GenerationID != prepared.Metadata.GenerationID || metadata.IntentDigest != prepared.Metadata.IntentDigest {
+	if metadata.SchemaVersion != RuntimeSchemaVersion || metadata.GenerationID != prepared.Metadata.GenerationID || metadata.IntentDigest != prepared.Metadata.IntentDigest {
 		return fmt.Errorf("macOS candidate metadata does not match the prepared generation")
 	}
 	current := CurrentGeneration{
-		SchemaVersion: AppGroupSchemaVersion,
+		SchemaVersion: RuntimeSchemaVersion,
 		GenerationID:  prepared.Metadata.GenerationID,
 		Directory:     filepath.Base(candidateDirectory),
 		IntentDigest:  prepared.Metadata.IntentDigest,
@@ -123,7 +123,7 @@ func (paths Paths) LoadCurrent() (CurrentGeneration, error) {
 	if err := unmarshalStrict(content, &current); err != nil {
 		return CurrentGeneration{}, fmt.Errorf("decode macOS current generation: %w", err)
 	}
-	if current.SchemaVersion != AppGroupSchemaVersion || current.GenerationID == "" || current.Directory == "" {
+	if current.SchemaVersion != RuntimeSchemaVersion || current.GenerationID == "" || current.Directory == "" {
 		return CurrentGeneration{}, fmt.Errorf("invalid macOS current generation contract")
 	}
 	return current, nil

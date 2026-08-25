@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package macos contains the launchd platform contract for the supported
-// macOS runtime. It deliberately has no Swift or NetworkExtension dependency:
-// launchd starts the external sing-box binary and this package owns only its
-// deterministic TUN plan.
+// macOS runtime. The Swift GUI remains a frontend: launchd starts the external
+// sing-box binary and this package owns only its deterministic TUN plan.
 package macos
 
 import (
@@ -43,14 +42,14 @@ func NewPlan(_ model.Intent) Plan {
 
 // CompilerTarget is the supported no-Apple-Developer runtime path. sing-box
 // owns the Darwin utun device and auto_route; macOS does not use Linux's
-// auto_redirect, nftables, pf, or a NetworkExtension provider. DNS is captured
-// inside the TUN only by an explicit TCP/UDP port-53 rule.
+// auto_redirect, nftables, or pf. DNS is captured inside the TUN only by an
+// explicit TCP/UDP port-53 rule.
 func (plan Plan) CompilerTarget() compiler.Target {
 	return compiler.Target{
 		Inbounds: []any{
 			map[string]any{
 				"type": "tun", "tag": "steer-tun", "address": plan.Resources.TunAddresses,
-				"mtu": TunMTU, "auto_route": true, "stack": "system",
+				"mtu": TunMTU, "dns_mode": "disabled", "auto_route": true, "stack": "system",
 				"route_exclude_address": append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...),
 			},
 		},

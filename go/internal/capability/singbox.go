@@ -19,7 +19,6 @@ var versionPattern = regexp.MustCompile(`(?m)^sing-box version ([0-9]+\.[0-9]+\.
 
 var knownCapabilities = map[string]bool{
 	"tun": true, "auto_route": true, "auto_redirect": true, "tproxy": true,
-	"network_extension": true, "dns_proxy": true,
 	"with_quic": true, "dns_quic": true, "with_utls": true,
 }
 

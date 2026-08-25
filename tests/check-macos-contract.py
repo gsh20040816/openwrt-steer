@@ -19,11 +19,8 @@ def main() -> None:
     macos_cli = read("go/cmd/steer-macos/main.go")
     launchd = read("macos/launchd/com.gsh20040816.steer.plist")
     installer = read("macos/scripts/install-launchdaemon.sh")
-    bridge = read("macos/bridge/go.mod")
-    bridge_source = read("macos/bridge/bridge.go")
-    root_mod = read("go/go.mod")
+    package = read("macos/Package.swift")
     agent = read("macos/SteerAgent/AgentController.swift")
-    build_script = read("macos/scripts/build-steercore-xcframework.sh")
     app = read("macos/SteerApp/SteerApp.swift")
     state = read("macos/SteerApp/AppState.swift")
     content = read("macos/SteerApp/ContentView.swift")
@@ -39,18 +36,44 @@ def main() -> None:
     assert 'case "_run"' in macos_cli
     assert 'com.gsh20040816.steer' in launchd
     assert 'command -v sing-box' in installer
-    assert 'v1.13.19' not in bridge
-    assert 'v1.14.0-rc.1' in build_script
-    assert 'github.com/sagernet/sing-box' not in root_mod
     assert 'SMAppService.agent' in agent
-    for symbol in ("SteerValidateJSON", "SteerCompileMacOS", "SteerPrepareMacOS", "SteerFreeString"):
-        assert symbol in bridge_source
-    assert "GOARCH=\"$arch\"" in build_script
-    assert "SteerCore.xcframework" in build_script
+    assert '.executable(name: "SteerApp"' in package
+    assert "SteerNetwork" not in package
     assert 'NavigationSplitView' in content
+    assert 'HelperBackendClient' in state
+    assert 'with administrator privileges' in state
+    assert '"apply"' in state and '"status"' in state
+    assert '/Library/Application Support/Steer/config/config.json' in state
     for page in ("Overview", "Configuration", "Nodes", "Routes", "DNS", "Rules", "Subscriptions", "Diagnostics", "Settings"):
         assert page in app or page in state or page in content
     assert "Local Proxies" in state
+
+    removed_paths = (
+        "macos/SteerNetwork",
+        "macos/SteerApp/NetworkExtensionController.swift",
+        "macos/SteerApp/SteerApp.entitlements",
+        "macos/bridge",
+        "macos/scripts/build-steercore-xcframework.sh",
+        "go/pkg/steermacos",
+        "go/internal/platform/macos/bridge.go",
+        "go/internal/platform/macos/dns.go",
+    )
+    for relative in removed_paths:
+        assert not (ROOT / relative).exists(), f"obsolete macOS runtime path remains: {relative}"
+
+    forbidden = ("NetworkExtension", "PacketTunnel", "DNSProxy", "network_extension", "dns_proxy", "App Group")
+    checked_paths = (
+        ROOT / "macos",
+        ROOT / "go/internal/platform/macos",
+        ROOT / "go/cmd/steer-macos",
+    )
+    for base in checked_paths:
+        for path in base.rglob("*"):
+            if not path.is_file() or ".build" in path.parts:
+                continue
+            content = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                assert token not in content, f"obsolete token {token!r} remains in {path.relative_to(ROOT)}"
     print("macOS source contracts passed")
 
 

@@ -87,7 +87,7 @@ func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compile
 		return generation.Candidate{}, err
 	}
 	metadata := GenerationMetadata{
-		SchemaVersion: AppGroupSchemaVersion,
+		SchemaVersion: RuntimeSchemaVersion,
 		GenerationID:  compiled.IntentDigest,
 		IntentDigest:  compiled.IntentDigest,
 	}
@@ -174,7 +174,7 @@ func readGenerationMetadata(directory string) (GenerationMetadata, error) {
 	if err := unmarshalStrict(content, &metadata); err != nil {
 		return GenerationMetadata{}, fmt.Errorf("decode macOS generation metadata: %w", err)
 	}
-	if metadata.SchemaVersion != AppGroupSchemaVersion || metadata.GenerationID == "" || metadata.IntentDigest == "" {
+	if metadata.SchemaVersion != RuntimeSchemaVersion || metadata.GenerationID == "" || metadata.IntentDigest == "" {
 		return GenerationMetadata{}, fmt.Errorf("invalid macOS generation metadata")
 	}
 	return metadata, nil

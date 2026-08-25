@@ -1,6 +1,6 @@
 # 测试说明
 
-测试按共享核心、OpenWrt/Linux 适配器、LuCI 和目标系统正常路径分层。当前范围不包含故障注入矩阵。
+测试按共享核心、OpenWrt/Linux/macOS 适配器、LuCI/Linux Web/macOS GUI 和目标系统正常路径分层。当前范围不包含故障注入矩阵。
 
 ## Go
 
@@ -13,6 +13,8 @@ go vet ./...
 覆盖 schema 9、显式 schema 8→9 DNS strategy 收敛迁移、严格 JSON/UCI 解码、引用和前置链校验、确定性编译、Route 私有出站、DNS 路径、remote SRS/seed manifest、共享 Apply 生命周期、generation、订阅合并/Store、probe 测量，以及 OpenWrt 计划、nftables、激活、健康、日志和 UCI batch。
 
 Linux 适配器测试覆盖主机与转发流量 plan、OUTPUT/PREROUTING DNS shim 与受保护的 wildcard listener、1.14 原生 source-MAC、JSON 原子写入与 ETag 冲突、systemd/backend generation、Web bearer token/CSP/开关失败回滚、临时 probe 的 bypass mark 和静态 Linux 构建。
+
+macOS 适配器测试覆盖 Darwin TUN plan、TUN port-53 capture、JSON store、generation、launchd backend 和平台限制；`check-macos-contract.py` 约束 SwiftUI GUI 直接面向 helper，并确保旧数据面实验路径不会重新进入仓库。
 
 ## LuCI 与静态边界
 

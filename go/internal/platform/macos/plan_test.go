@@ -24,6 +24,9 @@ func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
 	if tun["auto_route"] != true {
 		t.Fatal("macOS launchd runtime must let sing-box own auto_route")
 	}
+	if tun["dns_mode"] != "disabled" {
+		t.Fatal("macOS TUN must leave DNS ownership to the explicit port-53 rule")
+	}
 	if _, exists := tun["auto_redirect"]; exists {
 		t.Fatal("macOS target must not use Linux auto_redirect")
 	}
@@ -37,7 +40,7 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 		Main:        model.Main{ID: "main", SchemaVersion: model.SchemaVersion, LogLevel: "warn"},
 		Bootstrap:   model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Routes:      []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}},
-		DNSProfiles: []model.DNSProfile{{ID: "dns", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"}},
+		DNSProfiles: []model.DNSProfile{{ID: "dns", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53}},
 		Rules:       []model.Rule{{ID: "default", Enabled: true, Default: true, DNSProfile: "dns", Route: "direct"}},
 	}
 	bundle := compiler.Compile(value, NewPlan(value).CompilerOptions("/tmp/steer-state"))

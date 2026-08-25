@@ -9,21 +9,21 @@ import (
 	"testing"
 )
 
-func TestNewPathsRequiresAbsoluteAppGroupRoot(t *testing.T) {
+func TestNewPathsRequiresAbsoluteRuntimeRoot(t *testing.T) {
 	if _, err := NewPaths("relative"); err == nil {
-		t.Fatal("relative App Group root was accepted")
+		t.Fatal("relative runtime root was accepted")
 	}
-	paths, err := NewPaths(filepath.Join(t.TempDir(), "group.container"))
+	paths, err := NewPaths(filepath.Join(t.TempDir(), "runtime"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if paths.ConfigPath != filepath.Join(paths.Root, "config", "config.json") || paths.StatusPath != filepath.Join(paths.Root, "status", "current.json") {
-		t.Fatalf("unexpected App Group paths: %#v", paths)
+		t.Fatalf("unexpected runtime paths: %#v", paths)
 	}
 }
 
 func TestIntentStoreUsesRevisionGuard(t *testing.T) {
-	paths, err := NewPaths(filepath.Join(t.TempDir(), "group.container"))
+	paths, err := NewPaths(filepath.Join(t.TempDir(), "runtime"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestIntentStoreUsesRevisionGuard(t *testing.T) {
 }
 
 func TestStatusRoundTripRejectsUnknownFields(t *testing.T) {
-	paths, err := NewPaths(filepath.Join(t.TempDir(), "group.container"))
+	paths, err := NewPaths(filepath.Join(t.TempDir(), "runtime"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestStatusRoundTripRejectsUnknownFields(t *testing.T) {
 }
 
 func TestPreparePublishAndLoadCurrentGeneration(t *testing.T) {
-	paths, err := NewPaths(filepath.Join(t.TempDir(), "group.container"))
+	paths, err := NewPaths(filepath.Join(t.TempDir(), "runtime"))
 	if err != nil {
 		t.Fatal(err)
 	}
