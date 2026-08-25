@@ -17,7 +17,7 @@ pkgbase = steer
 	noextract = steer-geodata.tar.zst
 	backup = etc/steer/config.json
 	backup = etc/steer/web.json
-	source = steer::git+https://github.com/gsh20040816/steer.git#commit=dbfd6d17ce2f7883156a3835ce168234e538639f
+	source = steer::git+https://github.com/gsh20040816/steer.git#commit=0d4c921ec5f40dd09529f42cb1a84e40ad14d5cf
 	source = steer-geodata.tar.zst::https://gsh20040816.github.io/steer/geodata/latest/steer-geodata.tar.zst
 	sha256sums = SKIP
 	sha256sums = SKIP
