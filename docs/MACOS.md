@@ -88,6 +88,8 @@ brew install sing-box
 sudo macos/scripts/install-launchdaemon.sh
 ```
 
+安装器把 `command -v sing-box` 选中的构件复制到 root-owned `/usr/local/libexec/steer/sing-box`；GUI、CLI 和 LaunchDaemon 都使用这份运行时，更新 sing-box 后需重新运行安装器。
+
 构建 GUI：
 
 ```sh

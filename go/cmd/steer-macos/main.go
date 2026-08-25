@@ -30,7 +30,7 @@ const (
 	defaultRunDirectory   = "/Library/Application Support/Steer/run"
 	defaultStateDirectory = "/Library/Application Support/Steer/state"
 	defaultConfigPath     = "/Library/Application Support/Steer/config/config.json"
-	defaultSingBoxBinary  = "/opt/homebrew/bin/sing-box"
+	defaultSingBoxBinary  = "/usr/local/libexec/steer/sing-box"
 	defaultGeoDataDir     = "/Library/Application Support/Steer/geodata-seed"
 	defaultLaunchctl      = "/bin/launchctl"
 	defaultLaunchDaemon   = "/Library/LaunchDaemons/com.steer.steer.plist"

@@ -43,6 +43,8 @@ def main() -> None:
     assert legacy_identifier not in launchd
     assert legacy_identifier not in agent
     assert 'command -v sing-box' in installer
+    assert 'runtime_binary="$helper_directory/sing-box"' in installer
+    assert '/usr/local/libexec/steer/sing-box' in launchd
     assert 'SMAppService.agent' in agent
     assert '.executable(name: "SteerApp"' in package
     assert "SteerNetwork" not in package

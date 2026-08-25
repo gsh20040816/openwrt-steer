@@ -191,7 +191,7 @@ func normalizeBackendOptions(options BackendOptions) BackendOptions {
 		options.GeoDataDirectory = "/Library/Application Support/Steer/geodata-seed"
 	}
 	if options.SingBoxBinary == "" {
-		options.SingBoxBinary = "/opt/homebrew/bin/sing-box"
+		options.SingBoxBinary = "/usr/local/libexec/steer/sing-box"
 	}
 	if options.LaunchctlBinary == "" {
 		options.LaunchctlBinary = "/bin/launchctl"

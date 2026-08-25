@@ -45,7 +45,7 @@ swift build --disable-sandbox
 swift run SteerApp
 ```
 
-GUI 通过 macOS 管理员授权访问 `/Library/Application Support/Steer/config/config.json` 和已安装的 helper。安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀。
+GUI 通过 macOS 管理员授权访问 `/Library/Application Support/Steer/config/config.json` 和已安装的 helper。安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，并把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，确保 GUI、CLI 与 LaunchDaemon 使用同一份不可由普通用户替换的运行时。
 
 ## TUN、DNS 和 Geo
 
