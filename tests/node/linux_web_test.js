@@ -174,6 +174,7 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
     store: {
       intent,
       overview: options.overview || {},
+      runtime: options.runtime || {},
       revision: 'revision-1',
       dirty: false,
       pendingApply: options.pendingApply === true,
@@ -1674,6 +1675,69 @@ function testLocalProxyBlocksRemovingAuthenticationFromExposedListener() {
   assert.strictEqual(environment.touchCount, 0, 'blocked removal must not mark the Draft dirty');
 }
 
+async function testLinuxWebRuntimeFactsResponsiveLogoutAndNodeEndpoints() {
+  let logoutCalls = 0;
+  const shell = createEnvironment(async () => ({ ok: true }), draftLifecycleIntent());
+  shell.S.auth = { logout() { logoutCalls++; } };
+  shell.S.ui.renderShell(() => {});
+  const logout = buttonWithText(shell.side, '退出登录');
+  assert.ok(logout, 'the shell must expose one discoverable Logout action');
+  logout.listeners.click();
+  assert.strictEqual(logoutCalls, 1, 'desktop and narrow layouts must reuse the auth logout action');
+
+  const css = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/style.css'), 'utf8');
+  const narrow = css.slice(css.indexOf('@media (max-width: 900px)'));
+  assert.match(narrow, /\.side-foot \{ display: flex;/,
+    'the narrow layout must keep the footer containing Logout visible');
+  assert.match(narrow, /\.side-foot__note \{ display: none;/,
+    'the narrow layout may hide the explanatory note without hiding Logout');
+
+  for (const fixture of [
+    {
+      listen: '127.0.0.1:9080',
+      expected: ['实际监听 127.0.0.1:9080', 'ssh -L 9080:127.0.0.1:9080 host', 'http://127.0.0.1:9080']
+    },
+    {
+      listen: '[::1]:9443',
+      expected: ['实际监听 [::1]:9443', 'ssh -L 9443:[::1]:9443 host', 'http://127.0.0.1:9443']
+    }
+  ]) {
+    const environment = createEnvironment(async () => ({ ok: true }), draftLifecycleIntent(), {
+      runtime: { web_listen: fixture.listen }
+    });
+    loadView(environment, 'system');
+    await environment.S.views.system.render(environment.view);
+    const rendered = text(environment.view);
+    for (const expected of fixture.expected) assert.ok(rendered.includes(expected), `${fixture.listen} must render ${expected}`);
+  }
+
+  const intent = draftLifecycleIntent();
+  intent.subscriptions = [];
+  intent.nodes = uiSpec.node_types.map((type, index) => {
+    if (type.value === 'tor') return {
+      id: 'node-tor', enabled: true, name: 'Node tor', type: 'tor', executable_path: '/usr/bin/tor'
+    };
+    return {
+      id: `node-${type.value}`, enabled: true, name: `Node ${type.value}`, type: type.value,
+      server: index === 0 ? '2001:db8::1' : `${type.value}.example`, server_port: 2000 + index
+    };
+  });
+  const nodes = createEnvironment(async () => ({ ok: true }), intent);
+  loadView(nodes, 'nodes');
+  nodes.S.views.nodes.render(nodes.view);
+  const rows = findAll(nodes.view, (element) => element.tag === 'tr');
+  for (const [index, node] of intent.nodes.entries()) {
+    const row = rows.find((candidate) => text(candidate).includes(node.name));
+    assert.ok(row, `${node.type} must render one node row`);
+    const rendered = text(row);
+    const expected = node.type === 'tor'
+      ? '本地 Tor · /usr/bin/tor'
+      : (index === 0 ? `[2001:db8::1]:${node.server_port}` : `${node.server}:${node.server_port}`);
+    assert.ok(rendered.includes(expected), `${node.type} endpoint summary must render ${expected}`);
+    assert.doesNotMatch(rendered, /undefined|:0(?:\D|$)/, `${node.type} must not expose an empty endpoint`);
+  }
+}
+
 async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
   const statuses = subscriptionStatusFixtures.cases.map((fixture) => fixture.status);
   const intent = draftLifecycleIntent();
@@ -1751,6 +1815,7 @@ Promise.resolve()
   .then(testLocalProxyReplacesAndRemovesAuthentication)
   .then(testLocalProxyBlocksExposedUnauthenticatedDraftAndCreatesCredentials)
   .then(testLocalProxyBlocksRemovingAuthenticationFromExposedListener)
+  .then(testLinuxWebRuntimeFactsResponsiveLogoutAndNodeEndpoints)
   .then(testSharedSubscriptionStatusLifecycleAndDisabledUpdate)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {

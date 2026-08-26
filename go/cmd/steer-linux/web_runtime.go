@@ -24,6 +24,7 @@ type runtimeInfo struct {
 	SingBox         runtimeTool    `json:"sing_box"`
 	GeoData         runtimeGeoData `json:"geodata"`
 	CanonicalSchema int            `json:"canonical_schema"`
+	WebListen       string         `json:"web_listen"`
 }
 
 type runtimeGeoData struct {
@@ -74,6 +75,7 @@ func (app webApplication) runtimeInfo(ctx context.Context) runtimeInfo {
 	info := runtimeInfo{
 		Steer:           version,
 		CanonicalSchema: model.SchemaVersion,
+		WebListen:       app.ListenAddress,
 	}
 	runner := app.Runner
 	if runner == nil {

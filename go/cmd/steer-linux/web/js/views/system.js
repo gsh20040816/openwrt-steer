@@ -18,6 +18,20 @@
     return value == null || value === '' ? '—' : String(value);
   }
 
+  function webAccess(listenValue) {
+    const listen = String(listenValue || '');
+    const match = listen.match(/^\[[^\]]+\]:(\d+)$/) || listen.match(/^[^:]+:(\d+)$/);
+    if (!match) return {
+      description: '运行时未返回可确认的 Web 监听地址；无法生成安全的 SSH 转发示例。',
+      command: '监听地址不可用'
+    };
+    const port = match[1];
+    return {
+      description: `Web 实际监听 ${listen}，仅允许 loopback IP。远程访问使用 SSH 端口转发：`,
+      command: `ssh -L ${port}:${listen} host\n# 然后访问 http://127.0.0.1:${port}（需要 web-token）`
+    };
+  }
+
   const view = {
     name: 'system',
     async render(root) {
@@ -25,6 +39,7 @@
       const [geosite, geoip] = await Promise.all([S.api.geodata('geosite'), S.api.geodata('geoip')]);
       const runtime = S.store.runtime || {};
       const geo = runtime.geodata || {};
+      const access = webAccess(runtime.web_listen);
 
       const geoCard = h('section', { class: 'card' }, [
         h('div', { class: 'card__head' }, [
@@ -53,8 +68,8 @@
 
       const accessCard = h('section', { class: 'card card--edge edge--warn' }, [
         h('span', { class: 'eyebrow' }, '访问'),
-        h('p', { class: 'muted' }, 'Web 只监听 127.0.0.1:9080，禁止绑定公网。远程访问使用 SSH 端口转发：'),
-        h('pre', { class: 'mono command-block' }, 'ssh -L 9080:127.0.0.1:9080 host\n# 然后访问 http://127.0.0.1:9080（需要 web-token）')
+        h('p', { class: 'muted' }, access.description),
+        h('pre', { class: 'mono command-block' }, access.command)
       ]);
 
       if (!isCurrent()) return;

@@ -528,7 +528,8 @@ body {
   .side nav { display: flex; flex-wrap: wrap; gap: 2px; }
   .nav-group__label { display: none; }
   .nav-item { width: auto; }
-  .side-foot { display: none; }
+  .side-foot { display: flex; margin-top: 0; padding: 0 8px; border-top: 0; }
+  .side-foot__note { display: none; }
   .strip { flex-wrap: wrap; gap: 10px; }
   .pipeline { grid-template-columns: 1fr; }
   .pipeline .arrow { transform: rotate(90deg); }

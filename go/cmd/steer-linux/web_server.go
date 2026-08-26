@@ -5,8 +5,10 @@ package main
 import (
 	"embed"
 	"fmt"
+	"net"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
@@ -21,18 +23,39 @@ type webApplication struct {
 	RunDirectory   string
 	StateDirectory string
 	SeedDirectory  string
+	ListenAddress  string
 	Runner         linuxplatform.Runner
 }
 
 func serveWeb(listen, webConfigPath, configPath, runDirectory, stateDirectory, seedDirectory string) error {
+	listen, err := normalizeWebListen(listen)
+	if err != nil {
+		return err
+	}
 	if _, err := configuredWebToken(webConfigPath); err != nil {
 		return fmt.Errorf("read Web credentials: %w", err)
 	}
 	app := webApplication{
 		WebConfigPath: webConfigPath, ConfigPath: configPath, RunDirectory: runDirectory,
-		StateDirectory: stateDirectory, SeedDirectory: seedDirectory,
+		StateDirectory: stateDirectory, SeedDirectory: seedDirectory, ListenAddress: listen,
 	}
 	return (&http.Server{Addr: listen, Handler: webHandler(app)}).ListenAndServe()
+}
+
+func normalizeWebListen(value string) (string, error) {
+	host, portText, err := net.SplitHostPort(value)
+	if err != nil {
+		return "", fmt.Errorf("web listen address must be a loopback IP and port: %w", err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return "", fmt.Errorf("web listen address must use a loopback IP, got %q", host)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return "", fmt.Errorf("web listen port must be between 1 and 65535, got %q", portText)
+	}
+	return net.JoinHostPort(ip.String(), strconv.Itoa(port)), nil
 }
 
 func webHandler(app webApplication) http.Handler {
