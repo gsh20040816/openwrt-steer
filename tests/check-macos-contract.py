@@ -34,6 +34,7 @@ def main() -> None:
 
     assert 'DNSCaptureInboundHijack' in compiler
     assert 'DNSCaptureTUNPort53Hijack' in macos_plan
+    assert '"dns_mode": "hijack"' in macos_plan
     assert '"auto_route": true' in macos_plan
     assert '"auto_redirect"' not in macos_plan
     assert 'launchctl' in macos_backend

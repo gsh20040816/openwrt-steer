@@ -954,7 +954,7 @@ return baseclass.extend({
     },
     {
       "value": "block",
-      "label": "Block"
+      "label": "Reject"
     },
     {
       "value": "single",

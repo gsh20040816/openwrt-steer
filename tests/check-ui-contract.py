@@ -67,6 +67,9 @@ if node_types != {
     "hysteria2", "shadowtls", "tuic", "anytls", "naive", "ssh", "tor",
 }:
     raise SystemExit("check-ui-contract: node protocol matrix is incomplete")
+route_kind_labels = {item["value"]: item["label"] for item in contract["route_kinds"]}
+if route_kind_labels.get("block") != "Reject":
+    raise SystemExit("check-ui-contract: deprecated Block label returned instead of Reject")
 
 linux_ui = (ROOT / "go/cmd/steer-linux/web/js/ui.js").read_text()
 linux_lib = (ROOT / "go/cmd/steer-linux/web/js/lib.js").read_text()

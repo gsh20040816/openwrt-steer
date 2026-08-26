@@ -168,8 +168,11 @@ func TestCompileTUNPort53DNSCaptureIsExplicit(t *testing.T) {
 	bundle := Compile(representativeIntent(), options)
 	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
 	first := rules[0].(map[string]any)
-	if first["action"] != "hijack-dns" || !strings.Contains(string(mustJSON(first)), `"port":[53]`) {
+	if first["action"] != "hijack-dns" || !reflect.DeepEqual(first["port"], []uint16{53}) || !reflect.DeepEqual(first["network"], []string{"tcp", "udp"}) {
 		t.Fatalf("TUN port-53 capture was not explicit: %#v", first)
+	}
+	if _, exists := first["source_port"]; exists {
+		t.Fatalf("TUN DNS capture matched the reusable source port instead of destination port 53: %#v", first)
 	}
 }
 
@@ -208,6 +211,33 @@ func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
 	rules, _ := json.Marshal(dns["rules"])
 	if !strings.Contains(string(rules), `"domain_suffix":["blocked.example"],"action":"reject"`) && !strings.Contains(string(rules), `"action":"reject","domain_suffix":["blocked.example"]`) {
 		t.Fatalf("block DNS projection is not a reject action: %s", rules)
+	}
+	routeRules, _ := json.Marshal(bundle.SingBox["route"].(map[string]any)["rules"])
+	if !strings.Contains(string(routeRules), `"domain_suffix":["blocked.example"],"action":"reject"`) && !strings.Contains(string(routeRules), `"action":"reject","domain_suffix":["blocked.example"]`) {
+		t.Fatalf("block traffic projection is not a reject action: %s", routeRules)
+	}
+	outbounds, _ := json.Marshal(bundle.SingBox["outbounds"])
+	if strings.Contains(string(outbounds), `"type":"block"`) || strings.Contains(string(outbounds), `"tag":"steer-route-block"`) {
+		t.Fatalf("deprecated block outbound was emitted: %s", outbounds)
+	}
+}
+
+func TestCompileDefaultBlockAsFinalRejectRule(t *testing.T) {
+	intent := representativeIntent()
+	intent.Rules[len(intent.Rules)-1].Route = "block"
+	bundle := Compile(intent, testOptions())
+	route := bundle.SingBox["route"].(map[string]any)
+	rules := route["rules"].([]any)
+	last := rules[len(rules)-1].(map[string]any)
+	if !reflect.DeepEqual(last, map[string]any{"action": "reject"}) {
+		t.Fatalf("default Block did not become a final reject action: %#v", rules)
+	}
+	if route["final"] != "steer-route-direct" {
+		t.Fatalf("unreachable sing-box final must reference the valid Direct outbound: %#v", route)
+	}
+	dnsRules := bundle.SingBox["dns"].(map[string]any)["rules"].([]any)
+	if !reflect.DeepEqual(dnsRules[len(dnsRules)-1], map[string]any{"action": "reject"}) {
+		t.Fatalf("default Block DNS did not become a final reject action: %#v", dnsRules)
 	}
 }
 

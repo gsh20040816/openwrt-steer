@@ -1088,7 +1088,7 @@ final class AppModel: ObservableObject {
             if references > 0 { return "仍有 \(references) 条路由使用这个节点" }
         case "routes":
             let kind = object["kind"]?.stringValue ?? ""
-            if kind == "direct" || kind == "block" { return "Direct 和 Block 是系统路由，不能删除" }
+            if kind == "direct" || kind == "block" { return "Direct 和 Reject 是系统路由，不能删除" }
             let ruleReferences = root["rules"]?.arrayValue?.filter {
                 $0.objectValue?["route"]?.stringValue == identifier
             }.count ?? 0
@@ -1258,7 +1258,7 @@ final class AppModel: ObservableObject {
     private func draftItemFallbackTitle(key: String, kind: String) -> String {
         if key == "routes" {
             if kind == "direct" { return "Direct" }
-            if kind == "block" { return "Block" }
+            if kind == "block" { return "Reject" }
             return "未命名路由"
         }
         if key == "rules", kind == "default" { return "Default" }

@@ -206,7 +206,10 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		case "direct":
 			outbounds = append(outbounds, map[string]any{"type": "direct", "tag": routeTag(route.ID)})
 		case "block":
-			outbounds = append(outbounds, map[string]any{"type": "block", "tag": routeTag(route.ID)})
+			// Block is a Canonical policy target, not a sing-box outbound.
+			// sing-box deprecated the legacy block outbound in 1.11; rules
+			// referencing this route are lowered to the reject action below.
+			continue
 		case "single":
 			outbounds = append(outbounds, compileRouteOutbound(route, nodes))
 		}
@@ -249,8 +252,12 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 			continue
 		}
 		routeMatch := compileRuleMatch(rule, false)
-		routeMatch["action"] = "route"
-		routeMatch["outbound"] = routeTag(rule.Route)
+		if routes[rule.Route].Kind == "block" {
+			routeMatch["action"] = "reject"
+		} else {
+			routeMatch["action"] = "route"
+			routeMatch["outbound"] = routeTag(rule.Route)
+		}
 		routeRules = append(routeRules, routeMatch)
 		if dnsMatch := compileDNSMatch(rule); len(dnsMatch) > 0 {
 			if routes[rule.Route].Kind == "block" {
@@ -288,8 +295,18 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 	if intent.Main.DNSOptimisticCache {
 		dnsOptions["optimistic"] = true
 	}
+	finalRoute := routeTag(defaultRule.Route)
+	if routes[defaultRule.Route].Kind == "block" {
+		routeRules = append(routeRules, map[string]any{"action": "reject"})
+		for _, route := range intent.Routes {
+			if route.Enabled && route.Kind == "direct" {
+				finalRoute = routeTag(route.ID)
+				break
+			}
+		}
+	}
 	routeOptions := map[string]any{
-		"rules": routeRules, "rule_set": ruleSets, "final": routeTag(defaultRule.Route), "auto_detect_interface": true,
+		"rules": routeRules, "rule_set": ruleSets, "final": finalRoute, "auto_detect_interface": true,
 		"default_domain_resolver": map[string]any{"server": "steer-dns-bootstrap", "strategy": intent.Bootstrap.Strategy},
 	}
 	result := map[string]any{

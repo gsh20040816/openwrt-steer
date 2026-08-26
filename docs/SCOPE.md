@@ -35,7 +35,7 @@ OpenWrt 适配器当前拥有：
 
 macOS 适配器当前拥有：
 
-- Canonical JSON 配置、Darwin TUN `auto_route` 和显式 TCP/UDP 53 capture；
+- Canonical JSON 配置、Darwin TUN `auto_route`、Apple 原生 `dns_mode=hijack` 和显式 TCP/UDP 53 capture；
 - root LaunchDaemon、generation、Geo seed、Apply/health/status/cleanup；
 - SwiftUI GUI 配置与运维前端。GUI 与 LuCI、Linux Web 同级，只调用平台后端，不承载数据面。
 

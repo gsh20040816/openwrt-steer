@@ -480,12 +480,12 @@ async function main() {
 	assertNamedIds(environment, 'Nodes and routes');
 	const systemRoutes = environment.maps[0].sections.filter((section) => section.type == 'NamedSection');
 	assert.deepEqual(systemRoutes.map((section) => section.sectionId), [ 'direct', 'block' ],
-		'Direct and Block render as fixed system-route sections');
+		'Direct and Reject render as fixed system-route sections');
 	const emptyRoutes = environment.maps[0].sections.find((section) => section.type == 'GridSection' && section.sectionType == 'route');
 	assert.deepEqual(emptyRoutes.addDefaults, { enabled: '1', kind: 'single' },
 		'New route rows are always initialized as enabled single-node routes');
 	assert.equal(options.some((option) => option.name == 'kind'), false,
-		'The route UI cannot create or convert another Direct or Block route');
+		'The route UI cannot create or convert another Direct or Reject route');
 	assert.equal(options.some((option) => option.name == 'node'), false,
 		'Routes must not create a ListValue without node candidates');
 

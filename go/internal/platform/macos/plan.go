@@ -42,14 +42,16 @@ func NewPlan(_ model.Intent) Plan {
 
 // CompilerTarget is the supported no-Apple-Developer runtime path. sing-box
 // owns the Darwin utun device and auto_route; macOS does not use Linux's
-// auto_redirect, nftables, or pf. DNS is captured inside the TUN only by an
-// explicit TCP/UDP port-53 rule.
+// auto_redirect, nftables, or pf. dns_mode=hijack installs the native Apple
+// interface DNS path, while the explicit TCP/UDP destination-port-53 rule
+// remains the in-TUN guard. LAN ranges stay outside the TUN so all non-DNS
+// LAN traffic bypasses the proxy core entirely.
 func (plan Plan) CompilerTarget() compiler.Target {
 	return compiler.Target{
 		Inbounds: []any{
 			map[string]any{
 				"type": "tun", "tag": "steer-tun", "address": plan.Resources.TunAddresses,
-				"mtu": TunMTU, "dns_mode": "disabled", "auto_route": true, "stack": "system",
+				"mtu": TunMTU, "dns_mode": "hijack", "auto_route": true, "stack": "system",
 				"route_exclude_address": append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...),
 			},
 		},

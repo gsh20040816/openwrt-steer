@@ -117,7 +117,7 @@ func ContractValue() Contract {
 		LogLevels:           choices("error", "Error", "warn", "Warning", "info", "Info", "debug", "Debug"),
 		BootstrapProtocols:  choices("udp", "UDP", "tcp", "TCP"),
 		BootstrapStrategies: choices("prefer_ipv4", "Prefer IPv4", "prefer_ipv6", "Prefer IPv6", "ipv4_only", "IPv4 only", "ipv6_only", "IPv6 only"),
-		RouteKinds:          choices("direct", "Direct", "block", "Block", "single", "Single node"),
+		RouteKinds:          choices("direct", "Direct", "block", "Reject", "single", "Single node"),
 		DNSProtocols:        choices("udp", "UDP", "tcp", "TCP", "tls", "DoT", "https", "DoH", "quic", "DoQ", "h3", "DoH3"),
 		LocalProxyProtocols: choices("mixed", "Mixed (SOCKS + HTTP)", "socks", "SOCKS", "http", "HTTP CONNECT"),
 		RuleNetworks:        choices("tcp", "TCP", "udp", "UDP"),

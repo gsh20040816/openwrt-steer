@@ -89,7 +89,7 @@ function addSystemRouteSection(map, route) {
 	if (!route)
 		return;
 	const direct = route.kind == 'direct';
-	let section = map.section(form.NamedSection, route['.name'], 'route', direct ? _('Direct') : _('Block'));
+	let section = map.section(form.NamedSection, route['.name'], 'route', direct ? _('Direct') : _('Reject'));
 	section.addremove = false;
 	section.anonymous = true;
 	section.nodescriptions = true;
@@ -105,7 +105,7 @@ function addSystemRouteSection(map, route) {
 	option = section.option(form.Value, 'name', _('Name'));
 	option.rmempty = false;
 	option = section.option(form.DummyValue, '_system_kind', _('Kind'));
-	option.textvalue = function() { return direct ? _('Direct') : _('Block'); };
+	option.textvalue = function() { return direct ? _('Direct') : _('Reject'); };
 }
 
 function configureSubscriptionRemoval(section, nodes, routes) {

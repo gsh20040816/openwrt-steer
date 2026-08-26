@@ -30,10 +30,10 @@ Darwin utun + auto_route
 
 - TUN inbound 不设置 `interface_name`，让 Darwin/utun 自动选择设备；
 - 设置 `auto_route`、`stack=system`、MTU 和地址；
-- 使用 `route_exclude_address` 保留本机/局域网/非全球地址；
+- 使用 `route_exclude_address` 保留本机、局域网和非全球地址，使非 DNS LAN 流量完全不进入代理核心；
 - 不设置 Linux-only `auto_redirect`、iproute2 mark、nftables 或 pf。
 
-DNS 由同一份 sing-box DNS Router 负责。TUN inbound 上只匹配 TCP/UDP 目标端口 53，再执行 `hijack-dns`；普通 UDP session 不匹配该规则。
+DNS 由同一份 sing-box DNS Router 负责。TUN 显式使用 sing-box 1.14 `dns_mode=hijack`，让 Apple 平台的原生 interface DNS 指向 TUN；同时在 TUN inbound 上只匹配 TCP/UDP **目标端口** 53，再执行 `hijack-dns`。该规则不使用 `source_port` 或 DNS 协议嗅探，普通 UDP session 不匹配它。由于无签名 LaunchDaemon 路径不使用 Network Extension，且 macOS PF `rdr` 不能等价处理本机出站，显式硬编码发往 LAN DNS IP 的 Do53 不在这条原生 interface DNS 保证内；其他 LAN 流量优先保持不进入核心。
 
 ## 生命周期
 

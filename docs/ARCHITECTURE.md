@@ -53,7 +53,7 @@ macOS GUI/JSON ──────────┤
 
 校验器拒绝悬空、禁用、非 single 目标和任意环。编译器为每条 single Route 生成独立协议出站 `steer-route-<id>`，因此同一节点可以在不同 Route 中拥有不同前置链，不需要全局节点 selector。
 
-每个启用规则实际引用的 `(DNS Profile, Route)` 编译成独立 DNS transport。代理 Route 引用同一个 Route tag，自动继承完整前置链；Direct 不写 detour；Block 投影为 DNS reject。普通规则与 DNS 规则共享可表达的匹配条件，目标 IP、网络、协议和端口只参与业务流量。
+每个启用规则实际引用的 `(DNS Profile, Route)` 编译成独立 DNS transport。代理 Route 引用同一个 Route tag，自动继承完整前置链；Direct 不写 detour；Reject（兼容键 `kind=block`）在业务路由和 DNS 路由中都投影为 `action: reject`，不创建 block outbound。普通规则与 DNS 规则共享可表达的匹配条件，目标 IP、网络、协议和端口只参与业务流量。
 
 ## OpenWrt 数据面
 

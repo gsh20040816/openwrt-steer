@@ -69,8 +69,8 @@ msgstr "正在应用 Steer"
 msgid "Before rule 1"
 msgstr "规则 1 之前"
 
-msgid "Block"
-msgstr "阻止"
+msgid "Reject"
+msgstr "拒绝"
 
 msgid "Bootstrap DNS"
 msgstr "引导 DNS"

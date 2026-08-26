@@ -36,7 +36,7 @@ Canonical Intent / Validate / Compiler
 1. 节点协议列表、显示名、字段、默认值、必填条件、枚举、TLS/transport 能力和切换协议时允许保留的字段；
 2. Bootstrap、DNS Profile、本地代理和规则协议枚举；
 3. 规则匹配字段、嗅探协议、Default 固定语义和 Geo 表达式前缀；
-4. Direct/Block/single Route 类型与 detour 约束；
+4. Direct/Reject/single Route 类型与 detour 约束；Reject 为兼容已有配置仍使用 `kind=block`；
 5. collection 的稳定 ID 类型、只读来源、排序能力和删除引用策略；
 6. capability 名称及不支持原因；
 7. `saved`、`applied`、`revision`、`validation`、`status` 和结构化错误结果。
@@ -111,7 +111,7 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 - 节点行和 Single Route 行必须同时提供连接测试与下载测速；批量测试只针对当前可见分组中已启用的节点。
 - 单行测试、批量测试、订阅更新和 stale 清理不得禁用整张表或阻断滚动；只禁用当前正在执行的操作。
 - 普通列表只显示“失败”与“详细原因请查看诊断日志”；临时核心名称、outbound ID、命令行和完整后端错误链只能出现在诊断日志。
-- Direct 是系统必需且始终启用的固定路由；Block 是固定类型但可启停。二者均不得显示删除、拖拽排序或类型转换操作，新建路由只能是 Single。
+- Direct 是系统必需且始终启用的固定路由；Reject 是固定类型但可启停。二者均不得显示删除、拖拽排序或类型转换操作，新建路由只能是 Single。Reject 只能编译为 sing-box route/DNS `reject` action，不得生成已废弃的 `type=block` outbound。
 - 删除订阅时必须先检查其节点是否被 Route 引用；无引用时订阅与其生成节点必须一起从工作副本移除。
 - 节点导入统一使用共享后端解析器，支持多行分享链接和 Base64 包装文档；文案不得声称在浏览器本地解析。
 

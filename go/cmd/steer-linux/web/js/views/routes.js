@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* 路由：Direct/Block 固定语义卡 + single 节点链（node ← detour 链）与环检测。 */
+/* 路由：Direct/Reject 固定语义卡 + single 节点链（node ← detour 链）与环检测。 */
 'use strict';
 (function () {
   const S = window.S;
@@ -62,8 +62,8 @@
     const color = kind === 'direct' ? 'ok' : 'err';
     if (!route) {
       return h('section', { class: `card card--edge edge--${color}` }, [
-        h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, kind === 'direct' ? 'Direct' : 'Block'), h('div', { class: 'card__title' }, title))),
-        h('p', { class: 'alert alert--err' }, `缺少必需的 ${kind === 'direct' ? 'Direct' : 'Block'} 系统路由，请从高级配置恢复。`)
+        h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, kind === 'direct' ? 'Direct' : 'Reject'), h('div', { class: 'card__title' }, title))),
+        h('p', { class: 'alert alert--err' }, `缺少必需的 ${kind === 'direct' ? 'Direct' : 'Reject'} 系统路由，请从高级配置恢复。`)
       ]);
     }
     const status = kind === 'direct'
@@ -71,7 +71,7 @@
       : ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); });
     return h('section', { class: `card card--edge edge--${color}` }, [
       h('div', { class: 'card__head' }, [
-        h('div', {}, h('span', { class: 'eyebrow' }, kind === 'direct' ? 'Direct · 必须恰好一个' : 'Block'), h('div', { class: 'card__title' }, title)),
+        h('div', {}, h('span', { class: 'eyebrow' }, kind === 'direct' ? 'Direct · 必须恰好一个' : 'Reject'), h('div', { class: 'card__title' }, title)),
         status
       ]),
       h('p', { class: 'muted' }, desc)
@@ -112,7 +112,7 @@
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '路由'), [
             ui.field('名称', name),
             ui.field('启用', enabled),
-            ui.field('类型', h('span', { class: 'badge' }, 'Single 节点'), '系统 Direct / Block 路由不能从此处创建或转换'),
+            ui.field('类型', h('span', { class: 'badge' }, 'Single 节点'), '系统 Direct / Reject 路由不能从此处创建或转换'),
             h('div', { class: 'field--row' }, [
               ui.field('节点', nodeSel, 'single 路由的出站节点'),
               ui.field('前置代理（detour）', detourSel, '前置路由先拨号；留空直连')
@@ -172,7 +172,7 @@
       ]);
 
       root.append(
-        ui.viewHead('路由', 'Direct / Block 是固定语义；single 路由支持任意深度的前置链，但不得成环', [
+        ui.viewHead('路由', 'Direct / Reject 是固定语义；single 路由支持任意深度的前置链，但不得成环', [
           h('button', {
             class: 'btn btn--primary',
             disabled: intent.nodes.length === 0,
@@ -182,7 +182,7 @@
         ]),
         h('div', { class: 'grid-2' }, [
           kindCard('direct', 'Direct 直连', '匹配流量直接出网。启用配置必须恰好存在一个 Direct 路由。', direct),
-          kindCard('block', 'Block 阻断', '匹配流量被拒绝。', block)
+          kindCard('block', 'Reject 拒绝', '匹配流量使用 sing-box reject action 拒绝，不生成已废弃的 block outbound。', block)
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '单节点路由'), h('div', { class: 'card__title' }, '节点链'))),

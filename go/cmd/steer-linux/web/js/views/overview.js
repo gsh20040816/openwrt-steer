@@ -59,7 +59,7 @@
           arrow(),
           step('dns', intent.dns_profiles.length, 'DNS Profile', '每个 (规则, Profile) 独立路径'),
           arrow(),
-          step('route', intent.routes.length, '路由', 'Direct / Block / 节点链'),
+          step('route', intent.routes.length, '路由', 'Direct / Reject / 节点链'),
           arrow(),
           step('net', null, '网络出口', '前置代理先拨号')
         ])

@@ -4,6 +4,7 @@ package macos
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -24,8 +25,8 @@ func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
 	if tun["auto_route"] != true {
 		t.Fatal("macOS launchd runtime must let sing-box own auto_route")
 	}
-	if tun["dns_mode"] != "disabled" {
-		t.Fatal("macOS TUN must leave DNS ownership to the explicit port-53 rule")
+	if tun["dns_mode"] != "hijack" {
+		t.Fatal("macOS TUN must install the native Apple DNS path instead of leaving LAN resolvers outside Steer")
 	}
 	if _, exists := tun["auto_redirect"]; exists {
 		t.Fatal("macOS target must not use Linux auto_redirect")
@@ -33,9 +34,15 @@ func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
 	if len(tun["route_exclude_address"].([]string)) == 0 {
 		t.Fatal("macOS TUN must preserve non-global routes")
 	}
-	for _, prefix := range tun["route_exclude_address"].([]string) {
+	excluded := tun["route_exclude_address"].([]string)
+	for _, prefix := range excluded {
 		if prefix == "198.18.0.0/15" {
 			t.Fatal("macOS must not exclude the IPv4 subnet containing the system-stack peer")
+		}
+	}
+	for _, lan := range []string{"10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"} {
+		if !contains(excluded, lan) {
+			t.Fatalf("non-DNS LAN traffic would enter the proxy core because %s is not excluded", lan)
 		}
 	}
 }
@@ -56,4 +63,27 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 	if strings.Contains(string(encoded), `"auto_redirect"`) {
 		t.Fatalf("macOS route unexpectedly contains auto_redirect: %s", encoded)
 	}
+	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	if len(rules) < 2 {
+		t.Fatalf("macOS route rules are incomplete: %#v", rules)
+	}
+	first := rules[0].(map[string]any)
+	if first["action"] != "hijack-dns" || !reflect.DeepEqual(first["port"], []uint16{53}) || !reflect.DeepEqual(first["network"], []string{"tcp", "udp"}) {
+		t.Fatalf("macOS DNS hijack must match TCP/UDP destination port 53 exactly: %#v", first)
+	}
+	if _, exists := first["source_port"]; exists {
+		t.Fatalf("macOS DNS hijack accidentally matches the reusable UDP source port: %#v", first)
+	}
+	if rules[1].(map[string]any)["action"] != "sniff" {
+		t.Fatalf("ordinary TUN traffic must remain outside DNS hijack: %#v", rules)
+	}
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

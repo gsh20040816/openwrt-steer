@@ -70,6 +70,6 @@ swift run SteerApp
 
 ## TUN、DNS 和 Geo
 
-sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf。TUN 使用 `198.18.0.1/30` 时，排除表不得覆盖其 system-stack 对端 `198.18.0.2`。DNS 由 sing-box 内部 DNS Router 处理，Steer 只生成明确匹配 TUN 上 TCP/UDP 53 的 `hijack-dns` route rule。
+sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf。TUN 使用 `198.18.0.1/30` 时，排除表不得覆盖其 system-stack 对端 `198.18.0.2`，但必须继续排除 LAN 网段，使非 DNS 局域网流量完全不进入代理核心。TUN 显式使用 sing-box 1.14 `dns_mode=hijack` 安装 Apple interface DNS 路径，Steer 仍生成只匹配 TUN 上 TCP/UDP **目标端口** 53 的 `hijack-dns` route rule；不使用源端口或 DNS 协议嗅探。
 
 Geo 不是 macOS 语义限制。正式 DMG 已内置并校验 tag workflow 使用的精确 `geodata-seed/`；源码开发需把相同 seed 放入 `/Library/Application Support/Steer/geodata-seed/`。Apply 会按 manifest 校验所需 SRS；目标机不安装 geoview，也不读取 DAT。

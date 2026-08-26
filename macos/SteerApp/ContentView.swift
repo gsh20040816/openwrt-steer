@@ -262,7 +262,7 @@ struct OverviewView: View {
             pipelineArrow
             pipelineStep(value: model.itemCount(for: "dns_profiles"), title: "DNS Profile", subtitle: "独立解析路径", symbol: "network")
             pipelineArrow
-            pipelineStep(value: model.itemCount(for: "routes"), title: "路由", subtitle: "Direct / Block / Single", symbol: "arrow.triangle.branch")
+            pipelineStep(value: model.itemCount(for: "routes"), title: "路由", subtitle: "Direct / Reject / Single", symbol: "arrow.triangle.branch")
             pipelineArrow
             pipelineStep(value: 1, title: "网络出口", subtitle: "Darwin utun", symbol: "globe")
         }
@@ -532,7 +532,7 @@ struct DraftCollectionView: View {
                     }
                 }
                 TableColumn("类型") { item in
-                    Text(item.kind.isEmpty ? "—" : item.kind.uppercased())
+                    Text(kindLabel(item))
                         .font(.caption.weight(.medium))
                 }
                 .width(min: 80, ideal: 110)
@@ -759,6 +759,13 @@ struct DraftCollectionView: View {
 
     private func isRequiredDirect(_ item: DraftItem) -> Bool {
         descriptor.key == "routes" && item.kind.caseInsensitiveCompare("direct") == .orderedSame
+    }
+
+    private func kindLabel(_ item: DraftItem) -> String {
+        if descriptor.key == "routes", item.kind.caseInsensitiveCompare("block") == .orderedSame {
+            return "REJECT"
+        }
+        return item.kind.isEmpty ? "—" : item.kind.uppercased()
     }
 
     private func isSystemRoute(_ item: DraftItem) -> Bool {
@@ -1046,7 +1053,7 @@ private extension AppPage {
         case .general: return "运行、探测、DNS 缓存与 Bootstrap 的原生字段设置"
         case .configuration: return "高级编辑与校验；所有可视化页面共享同一份工作副本"
         case .nodes: return "手动节点可编辑，订阅节点保持只读"
-        case .routes: return "Direct、Block 与 Single Route 的确定性出口关系"
+        case .routes: return "Direct、Reject 与 Single Route 的确定性出口关系"
         case .dns: return "上游解析器与每条规则的独立 DNS 路径"
         case .rules: return "从上到下严格匹配，Default 必须位于最后"
         case .subscriptions: return "订阅源、节点同步与 stale 清理"

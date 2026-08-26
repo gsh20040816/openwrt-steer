@@ -956,7 +956,7 @@ enum GeneratedUISpec {
     },
     {
       "value": "block",
-      "label": "Block"
+      "label": "Reject"
     },
     {
       "value": "single",

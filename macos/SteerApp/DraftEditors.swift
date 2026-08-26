@@ -346,7 +346,7 @@ private struct RouteDraftForm: View {
             }
             TextField("名称", text: stringBinding($object, "name"))
             if isSystemRoute {
-                LabeledContent("类型", value: kind == "direct" ? "Direct" : "Block")
+                LabeledContent("类型", value: kind == "direct" ? "Direct" : "Reject")
             } else {
                 LabeledContent("类型", value: "Single 节点")
             }

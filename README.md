@@ -7,7 +7,7 @@ Steer 是一套严格、可解释的透明代理控制面。用户配置节点�
 ## 已实现能力
 
 - 严格 first-match 规则，支持域名、GeoSite、目标 IP、GeoIP、源 CIDR、源 MAC、网络、协议、端口和本地代理入口。
-- Direct、Block、单节点逻辑路由；单节点路由可选择另一条单节点路由作为前置代理，任意深度但不得成环。
+- Direct、Reject、单节点逻辑路由；单节点路由可选择另一条单节点路由作为前置代理，任意深度但不得成环。为兼容现有配置，Reject 的 Canonical `kind` 仍为 `block`，但底层只生成 sing-box `reject` action。
 - SOCKS、HTTP、Shadowsocks、VMess、VLESS、Trojan、Hysteria、ShadowTLS、TUIC、Hysteria2、AnyTLS、SSH、NaiveProxy 和本机 Tor 节点。
 - UDP、TCP、DoT、DoH、DoQ、DoH3 DNS Profile；每个实际使用的 `(DNS Profile, Route)` 拥有独立传输路径。
 - HTTP(S) 节点订阅、稳定节点 ID、过期节点显式清理。
