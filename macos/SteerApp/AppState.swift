@@ -1054,6 +1054,7 @@ final class AppModel: ObservableObject {
     func updateSubscription(_ id: String) {
         let operationID = "update:\(id)"
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
+        let startingWasDirty = isDirty
         let startingDraftSequence = draftMutationSequence
         message = "正在更新订阅…"
         Task {
@@ -1062,7 +1063,7 @@ final class AppModel: ObservableObject {
                 try await backend.updateSubscription(id: id)
                 let snapshot = try await backend.loadConfiguration()
                 subscriptionRuntime = try await backend.subscriptionStatuses()
-                if draftMutationSequence == startingDraftSequence {
+                if !startingWasDirty && draftMutationSequence == startingDraftSequence {
                     replaceDraft(with: snapshot)
                     message = "订阅已更新；运行态未自动 Apply"
                 } else {
@@ -1077,6 +1078,7 @@ final class AppModel: ObservableObject {
     func cleanSubscriptionNode(subscriptionID: String, nodeID: String) {
         let operationID = "clean:\(subscriptionID):\(nodeID)"
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
+        let startingWasDirty = isDirty
         let startingDraftSequence = draftMutationSequence
         message = "正在清理 stale 节点…"
         Task {
@@ -1085,7 +1087,7 @@ final class AppModel: ObservableObject {
                 try await backend.cleanSubscription(id: subscriptionID, nodeID: nodeID)
                 let snapshot = try await backend.loadConfiguration()
                 subscriptionRuntime = try await backend.subscriptionStatuses()
-                if draftMutationSequence == startingDraftSequence {
+                if !startingWasDirty && draftMutationSequence == startingDraftSequence {
                     replaceDraft(with: snapshot)
                     message = "已清理 stale 节点 \(nodeID)；运行态未自动 Apply"
                 } else {

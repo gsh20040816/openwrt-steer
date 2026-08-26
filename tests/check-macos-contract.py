@@ -125,6 +125,8 @@ def main() -> None:
     assert '"--expected-revision", expectedRevision' in state
     assert 'ConfigurationSnapshot' in state and 'savedRevision' in state
     assert 'case revisionConflict(currentRevision: String)' in state
+    assert state.count('let startingWasDirty = isDirty') == 2
+    assert state.count('!startingWasDirty && draftMutationSequence == startingDraftSequence') == 2
     for conflict_choice in ("Reload Saved", "保留本地 Draft", "显式覆盖"):
         assert conflict_choice in content
     assert 'executePrivileged(Self.command([installer.path]))' in state

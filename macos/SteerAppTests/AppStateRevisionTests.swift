@@ -59,6 +59,14 @@ final actor RevisionBackend: BackendClient {
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] { [] }
 
     func updateSubscription(id: String) async throws {
+        await pauseInventoryOperation()
+    }
+
+    func cleanSubscription(id: String, nodeID: String) async throws {
+        await pauseInventoryOperation()
+    }
+
+    private func pauseInventoryOperation() async {
         updateStartedContinuation?.resume()
         updateStartedContinuation = nil
         await withCheckedContinuation { continuation in
@@ -66,7 +74,6 @@ final actor RevisionBackend: BackendClient {
         }
     }
 
-    func cleanSubscription(id: String, nodeID: String) async throws {}
     func geoCatalog(kind: String) async throws -> [String] { [] }
 
     func replaceSaved(document: String, revision: String) {
@@ -76,14 +83,14 @@ final actor RevisionBackend: BackendClient {
     func savedSnapshot() -> ConfigurationSnapshot { snapshot }
     func appliedCount() -> Int { applyCount }
 
-    func waitUntilSubscriptionUpdateStarts() async {
+    func waitUntilInventoryOperationStarts() async {
         if updateContinuation != nil { return }
         await withCheckedContinuation { continuation in
             updateStartedContinuation = continuation
         }
     }
 
-    func finishSubscriptionUpdate(document: String, revision: String) {
+    func finishInventoryOperation(document: String, revision: String) {
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
         updateContinuation?.resume()
         updateContinuation = nil
@@ -146,10 +153,10 @@ final class AppStateRevisionTests: XCTestCase {
         try await waitUntil { !model.isBusy && model.savedRevision == "revision-1" }
 
         model.updateSubscription("public")
-        await backend.waitUntilSubscriptionUpdateStarts()
+        await backend.waitUntilInventoryOperationStarts()
         model.rawJSON = "edit made during update"
         model.markDirty()
-        await backend.finishSubscriptionUpdate(document: "updated inventory", revision: "revision-2")
+        await backend.finishInventoryOperation(document: "updated inventory", revision: "revision-2")
         try await waitUntil { !model.subscriptionOperationInProgress("public") }
 
         XCTAssertEqual(model.rawJSON, "edit made during update")
@@ -178,8 +185,8 @@ final class AppStateRevisionTests: XCTestCase {
         try await waitUntil { !model.isBusy && model.savedRevision == "revision-1" }
 
         model.updateSubscription("public")
-        await backend.waitUntilSubscriptionUpdateStarts()
-        await backend.finishSubscriptionUpdate(document: "updated inventory", revision: "revision-2")
+        await backend.waitUntilInventoryOperationStarts()
+        await backend.finishInventoryOperation(document: "updated inventory", revision: "revision-2")
         try await waitUntil { !model.subscriptionOperationInProgress("public") }
 
         XCTAssertEqual(model.rawJSON, "updated inventory")
@@ -188,6 +195,34 @@ final class AppStateRevisionTests: XCTestCase {
         XCTAssertNil(model.revisionConflict)
         let appliedCount = await backend.appliedCount()
         XCTAssertEqual(appliedCount, 0)
+    }
+
+    func testSubscriptionInventoryOperationsPreserveDraftThatWasAlreadyDirty() async throws {
+        for operation in ["update", "clean"] {
+            let backend = RevisionBackend(document: "loaded", revision: "revision-1")
+            let model = AppModel(backend: backend)
+            model.loadDraft()
+            try await waitUntil { !model.isBusy && model.savedRevision == "revision-1" }
+
+            model.rawJSON = "dirty before operation"
+            model.markDirty()
+            if operation == "update" {
+                model.updateSubscription("public")
+            } else {
+                model.cleanSubscriptionNode(subscriptionID: "public", nodeID: "stale")
+            }
+            await backend.waitUntilInventoryOperationStarts()
+            await backend.finishInventoryOperation(document: "updated inventory", revision: "revision-2")
+            try await waitUntil { !model.subscriptionOperationInProgress("public") }
+
+            XCTAssertEqual(model.rawJSON, "dirty before operation", operation)
+            XCTAssertEqual(model.savedRevision, "revision-1", operation)
+            XCTAssertTrue(model.isDirty, operation)
+            XCTAssertEqual(model.revisionConflict?.currentRevision, "revision-2", operation)
+            XCTAssertEqual(model.revisionConflict?.operation, .subscriptionInventory, operation)
+            let appliedCount = await backend.appliedCount()
+            XCTAssertEqual(appliedCount, 0, operation)
+        }
     }
 
     private func waitUntil(
