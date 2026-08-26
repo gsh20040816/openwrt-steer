@@ -45,6 +45,13 @@ func TestIntentStoreUsesRevisionGuard(t *testing.T) {
 	}
 }
 
+func TestIntentStoreDefaultsToMacOSGeoDataDirectory(t *testing.T) {
+	store := IntentStore{}
+	if got := store.geoDataDirectory(); got != DefaultGeoDataDirectory {
+		t.Fatalf("empty Store Geo directory = %q, want %q", got, DefaultGeoDataDirectory)
+	}
+}
+
 func TestStatusRoundTripRejectsUnknownFields(t *testing.T) {
 	paths, err := NewPaths(filepath.Join(t.TempDir(), "runtime"))
 	if err != nil {

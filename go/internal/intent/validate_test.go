@@ -26,6 +26,69 @@ func TestValidateRepresentativeIntent(t *testing.T) {
 	}
 }
 
+func TestListenersOverlapAddressFamilies(t *testing.T) {
+	tests := []struct {
+		name      string
+		first     Listener
+		second    Listener
+		dualStack bool
+		want      bool
+	}{
+		{"same address", Listener{Address: "127.0.0.1", Port: 1080}, Listener{Address: "127.0.0.1", Port: 1080}, false, true},
+		{"IPv4 wildcard and specific", Listener{Address: "0.0.0.0", Port: 1080}, Listener{Address: "192.0.2.1", Port: 1080}, false, true},
+		{"IPv6 wildcard and specific", Listener{Address: "::", Port: 1080}, Listener{Address: "2001:db8::1", Port: 1080}, false, true},
+		{"dual-stack IPv6 wildcard and IPv4", Listener{Address: "::", Port: 1080}, Listener{Address: "127.0.0.1", Port: 1080}, true, true},
+		{"IPv6-only wildcard and IPv4", Listener{Address: "::", Port: 1080}, Listener{Address: "127.0.0.1", Port: 1080}, false, false},
+		{"IPv4 wildcard and IPv6", Listener{Address: "0.0.0.0", Port: 1080}, Listener{Address: "::1", Port: 1080}, true, false},
+		{"different IPv4 specifics", Listener{Address: "127.0.0.1", Port: 1080}, Listener{Address: "127.0.0.2", Port: 1080}, true, false},
+		{"different IPv6 specifics", Listener{Address: "::1", Port: 1080}, Listener{Address: "::2", Port: 1080}, true, false},
+		{"IPv4 mapped address", Listener{Address: "::ffff:127.0.0.1", Port: 1080}, Listener{Address: "127.0.0.1", Port: 1080}, false, true},
+		{"different ports", Listener{Address: "0.0.0.0", Port: 1080}, Listener{Address: "127.0.0.1", Port: 1081}, true, false},
+		{"invalid address", Listener{Address: "localhost", Port: 1080}, Listener{Address: "127.0.0.1", Port: 1080}, true, false},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := ListenersOverlap(testCase.first, testCase.second, testCase.dualStack); got != testCase.want {
+				t.Fatalf("ListenersOverlap(%#v, %#v, %v) = %v, want %v", testCase.first, testCase.second, testCase.dualStack, got, testCase.want)
+			}
+			if got := ListenersOverlap(testCase.second, testCase.first, testCase.dualStack); got != testCase.want {
+				t.Fatalf("ListenersOverlap is asymmetric: reverse = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestValidateListenerCollisionsAreObjectIssues(t *testing.T) {
+	value := validIntent()
+	value.LocalProxies = []LocalProxy{{
+		ID: "local", Enabled: true, Protocol: "mixed", Listen: "127.0.0.1", ListenPort: 1053,
+	}}
+	validation := ValidateWithOptions(value, ValidationOptions{
+		ReservedListeners:     []Listener{{Address: "0.0.0.0", Port: 1053, Owner: "platform DNS"}},
+		IPv6WildcardDualStack: true,
+	})
+	if validation.OK {
+		t.Fatalf("reserved wildcard listener collision was accepted: %#v", validation)
+	}
+	for _, issue := range validation.Errors {
+		if issue.Code == "PORT_COLLISION" && issue.ObjectType == "local_proxy" && issue.ObjectID == "local" && issue.Option == "listen_port" {
+			return
+		}
+	}
+	t.Fatalf("object-level collision issue is missing: %#v", validation.Errors)
+}
+
+func TestValidateAllowsNonOverlappingSpecificListeners(t *testing.T) {
+	value := validIntent()
+	value.LocalProxies = []LocalProxy{
+		{ID: "first", Enabled: true, Protocol: "mixed", Listen: "127.0.0.1", ListenPort: 1080},
+		{ID: "second", Enabled: true, Protocol: "mixed", Listen: "127.0.0.2", ListenPort: 1080},
+	}
+	if validation := Validate(value); !validation.OK {
+		t.Fatalf("distinct specific listener addresses were rejected: %#v", validation.Errors)
+	}
+}
+
 func TestValidateAllowsHTTPSubscriptionURL(t *testing.T) {
 	intent := validIntent()
 	intent.Subscriptions = []Subscription{{ID: "feed", Enabled: true, URL: "http://192.168.1.2/subscription"}}

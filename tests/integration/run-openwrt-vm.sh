@@ -56,7 +56,7 @@ for attempt in 1 2 3 4 5; do
 	sleep 1
 done
 ubus -v list luci.steer > "$TEST_DIR/rpc-methods.txt"
-for method in geodata_catalog node_speedtest overview_probe route_speedtest status subscriptions validate; do
+for method in commit_candidate geodata_catalog node_speedtest overview_probe route_speedtest status subscriptions validate; do
 	grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"
 done
 for removed in plan rollback; do
@@ -87,6 +87,19 @@ grep -Fq '"initial_path"' /run/steer/current/sing-box.json
 grep -Fq '"type": "remote"' /run/steer/current/sing-box.json
 [ -s /var/lib/steer/cache.db ]
 
+# The LuCI transaction validates the authenticated session overlay before the
+# standard rpcd UCI commit. An unknown Geo selector must remain pending, retain
+# its object-level diagnostic and never reach /etc/config/steer.
+invalid_geo_session="$(ubus call session login '{"username":"root","password":"","timeout":300}' | jsonfilter -e '@.ubus_rpc_session')"
+ubus call uci set "{\"config\":\"steer\",\"section\":\"geo_cn\",\"values\":{\"domain_match\":[\"geosite:not-installed\"]},\"ubus_rpc_session\":\"$invalid_geo_session\"}"
+ubus call luci.steer commit_candidate "{\"ubus_rpc_session\":\"$invalid_geo_session\"}" > "$TEST_DIR/invalid-geo-commit.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/invalid-geo-commit.json" -e '@.committed')" = 'false' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/invalid-geo-commit.json" -e '@.validation.errors[0].code')" = 'GEO_CATEGORY_NOT_FOUND' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/invalid-geo-commit.json" -e '@.validation.errors[0].object_id')" = 'geo_cn' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/invalid-geo-commit.json" -e '@.validation.errors[0].option')" = 'domain_match' ]
+[ "$(uci get steer.geo_cn.domain_match)" = 'geosite:cn' ]
+ubus call session destroy "{\"ubus_rpc_session\":\"$invalid_geo_session\"}"
+
 # Reproduce the LuCI form lifecycle with a real authenticated UCI session.
 # The disk value must remain old until the session-scoped commit completes,
 # and the first Steer Apply after that commit must compile the new value.
@@ -94,7 +107,9 @@ luci_session="$(ubus call session login '{"username":"root","password":"","timeo
 ubus call uci set "{\"config\":\"steer\",\"section\":\"main\",\"values\":{\"log_level\":\"error\"},\"ubus_rpc_session\":\"$luci_session\"}"
 [ "$(uci get steer.main.log_level)" = 'warn' ]
 luci_apply_sequence_before="$(ubus call luci.steer status | jsonfilter -q -e '@.last_apply.sequence' || true)"
-ubus call uci commit "{\"config\":\"steer\",\"ubus_rpc_session\":\"$luci_session\"}"
+ubus call luci.steer commit_candidate "{\"ubus_rpc_session\":\"$luci_session\"}" > "$TEST_DIR/luci-commit.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/luci-commit.json" -e '@.committed')" = 'true' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/luci-commit.json" -e '@.validation.ok')" = 'true' ]
 [ "$(uci get steer.main.log_level)" = 'error' ]
 for wait_attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 	sleep 1
@@ -147,7 +162,8 @@ grep -q 'Address' "$TEST_DIR/dns.txt"
 trigger_sequence_before="$(jsonfilter -q -i "$TEST_DIR/status.json" -e '@.last_apply.sequence')"
 trigger_session="$(ubus call session login '{"username":"root","password":"","timeout":300}' | jsonfilter -e '@.ubus_rpc_session')"
 ubus call uci set "{\"config\":\"steer\",\"section\":\"main\",\"values\":{\"log_level\":\"warn\"},\"ubus_rpc_session\":\"$trigger_session\"}"
-ubus call uci commit "{\"config\":\"steer\",\"ubus_rpc_session\":\"$trigger_session\"}"
+ubus call luci.steer commit_candidate "{\"ubus_rpc_session\":\"$trigger_session\"}" > "$TEST_DIR/trigger-commit.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/trigger-commit.json" -e '@.committed')" = 'true' ]
 trigger_sequence=''
 for wait_attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 	sleep 1
@@ -198,7 +214,8 @@ ubus call luci.steer status > "$TEST_DIR/disabled-status.json"
 disabled_sequence="$(jsonfilter -q -i "$TEST_DIR/disabled-status.json" -e '@.last_apply.sequence')"
 reenable_session="$(ubus call session login '{"username":"root","password":"","timeout":300}' | jsonfilter -e '@.ubus_rpc_session')"
 ubus call uci set "{\"config\":\"steer\",\"section\":\"main\",\"values\":{\"enabled\":\"1\"},\"ubus_rpc_session\":\"$reenable_session\"}"
-ubus call uci commit "{\"config\":\"steer\",\"ubus_rpc_session\":\"$reenable_session\"}"
+ubus call luci.steer commit_candidate "{\"ubus_rpc_session\":\"$reenable_session\"}" > "$TEST_DIR/reenable-commit.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/reenable-commit.json" -e '@.committed')" = 'true' ]
 for wait_attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
 	sleep 1
 	ubus call luci.steer status > "$TEST_DIR/reenabled-status.json"

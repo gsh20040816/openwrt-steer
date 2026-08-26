@@ -56,11 +56,6 @@
         try {
           const parsed = JSON.parse(editor.value);
           const v = await S.api.validate(parsed);
-          const geoErrors = S.validateGeoCategories(parsed, catalogs).map((message) => ({
-            code: 'UNKNOWN_GEO_CATEGORY', object_type: 'rule', message
-          }));
-          v.errors.push(...geoErrors);
-          v.ok = v.errors.length === 0;
           issues.replaceChildren(
             h('div', { class: 'card__head validation-head' }, h('div', {}, h('span', { class: 'eyebrow' }, '校验'), h('div', { class: 'card__title' }, `${v.errors.length} 错误 · ${v.warnings.length} 警告`))),
             ui.issueList(v.errors, ui.jumpToObject),
@@ -74,8 +69,6 @@
       async function save(apply) {
         try {
           const parsed = JSON.parse(editor.value);
-          const geoErrors = S.validateGeoCategories(parsed, catalogs);
-          if (geoErrors.length) throw new Error(geoErrors.join('\n'));
           const normalized = S.store.normalizeIntent(parsed);
           Object.keys(S.store.intent).forEach((k) => delete S.store.intent[k]);
           Object.assign(S.store.intent, normalized);
@@ -94,7 +87,16 @@
             ui.conflictDialog(res.conflict);
           }
         } catch (e) {
-          ui.toast(`保存失败：${e.message}`, 'err');
+          const validation = e.details?.validation;
+          if (validation) {
+            issues.replaceChildren(
+              h('div', { class: 'card__head validation-head' }, h('div', {}, h('span', { class: 'eyebrow' }, '保存前校验失败'), h('div', { class: 'card__title' }, `${validation.errors.length} 错误 · ${validation.warnings.length} 警告`))),
+              ui.issueList(validation.errors, ui.jumpToObject),
+              ui.issueList(validation.warnings, ui.jumpToObject, true)
+            );
+          } else {
+            ui.toast(`保存失败：${e.message}`, 'err');
+          }
         }
       }
 

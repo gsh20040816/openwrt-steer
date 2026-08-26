@@ -49,12 +49,8 @@ function loadHelper(runtime) {
 	const baseclass = { extend: (value) => value };
 	const rpc = {
 		declare: ({ method }) => (...args) => {
-			if (method == 'commit') {
-				assert.deepEqual(args, [ 'steer' ]);
-				runtime.sequence.push('commit');
-				runtime.commitCalls++;
-				return Promise.resolve(0);
-			}
+			if (method == 'commit')
+				throw new Error('LuCI must validate and commit through one backend transaction');
 			if (method == 'status') {
 				runtime.statusCalls++;
 				return Promise.resolve(Object.assign({}, runtime.status, {
@@ -66,6 +62,22 @@ function loadHelper(runtime) {
 			if (method == 'validate') {
 				runtime.validationCalls++;
 				return Promise.resolve(runtime.validation);
+			}
+			if (method == 'commit_candidate') {
+				runtime.sequence.push('validate');
+				runtime.validationCalls++;
+				const code = runtime.candidateValidation.ok === true ? runtime.commitStatus : null;
+				const reply = runtime.commitReply;
+				const committed = code === 0;
+				if (committed) {
+					runtime.sequence.push('commit');
+					runtime.commitCalls++;
+				}
+				return Promise.resolve({
+					committed,
+					validation: runtime.candidateValidation,
+					error: code == null || code === 0 ? null : `commit status ${code}; reply ${JSON.stringify(reply)}`
+				});
 			}
 			if (method == 'overview_probe' || method == 'route_speedtest' || method == 'node_speedtest') {
 				runtime.testCalls.push({ method, args });
@@ -109,6 +121,9 @@ async function main() {
 	const runtime = {
 		status: {},
 		validation: { ok: true, errors: [], warnings: [] },
+		candidateValidation: { ok: true, errors: [], warnings: [] },
+		commitStatus: 0,
+		commitReply: { result: 'standard UCI commit reply' },
 		enabled: '1',
 		applyResult: { ok: true, output: 'applied' },
 		statusCalls: 0,
@@ -202,17 +217,54 @@ async function main() {
 
 	runtime.status = { healthy: true };
 	await helper.apply({ handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); } }, null, '1');
-	assert.deepEqual(runtime.sequence, [ 'save', 'commit' ],
-		'LuCI saves and commits once, leaving the resulting config.change Apply to procd');
+	assert.deepEqual(runtime.sequence, [ 'save', 'validate', 'commit' ],
+		'LuCI backend validates and commits the pending UCI session in one RPC before leaving Apply to procd');
 	assert.equal(runtime.indicatorRefreshed, true, 'LuCI refreshes the pending change indicator after commit');
 	assert.equal(runtime.modalTitle, 'Applying Steer',
 		'Apply shows an explicit transaction progress modal');
 	assert.equal(runtime.modalHidden, true, 'Apply closes the progress modal after RPC completion');
 	assert.equal(runtime.statusCalls, 2, 'LuCI snapshots the Apply sequence and observes exactly one newer result');
-	assert.equal(runtime.validationCalls, 1, 'LuCI refreshes validation independently from runtime status');
+	assert.equal(runtime.validationCalls, 1, 'LuCI validates the candidate once before commit');
 	assert.ok(textContent(runtime.replacement).includes('Traffic steering is active'),
 		'Apply replaces stale overview status with the final runtime result');
 	assert.equal(runtime.notifications.at(-1).level, 'info');
+
+	runtime.sequence = [];
+	runtime.candidateValidation = {
+		ok: false,
+		errors: [ {
+			code: 'GEO_CATEGORY_NOT_FOUND', object_type: 'rule', object_id: 'unknown',
+			option: 'domain_match', message: 'geosite category is unavailable'
+		} ],
+		warnings: []
+	};
+	const commitsBeforeInvalidCandidate = runtime.commitCalls;
+	const invalidResult = await helper.apply({
+		handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); }
+	}, null, '1');
+	assert.deepEqual(runtime.sequence, [ 'save', 'validate' ],
+		'An invalid candidate is backend-validated without reaching UCI commit');
+	assert.equal(runtime.commitCalls, commitsBeforeInvalidCandidate,
+		'Unknown Geo selectors remain pending and are never persisted');
+	assert.equal(invalidResult.saved, false);
+	assert.equal(runtime.notifications.at(-1).level, 'danger');
+	assert.ok(textContent(runtime.notifications.at(-1).content).includes('geosite category is unavailable'),
+		'The backend object-level Geo issue is shown to the user');
+
+	runtime.sequence = [];
+	runtime.candidateValidation = { ok: true, errors: [], warnings: [] };
+	runtime.commitStatus = 4;
+	const commitsBeforeRPCFailure = runtime.commitCalls;
+	const commitFailure = await helper.apply({
+		handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); }
+	}, null, '1');
+	assert.deepEqual(runtime.sequence, [ 'save', 'validate' ],
+		'A nonzero ubus callback status is not confused with its reply object');
+	assert.equal(runtime.commitCalls, commitsBeforeRPCFailure,
+		'A failed standard UCI commit is never reported as committed');
+	assert.equal(commitFailure.saved, false);
+	assert.ok(textContent(runtime.notifications.at(-1).content).includes('commit status 4'));
+	runtime.commitStatus = 0;
 
 	rendered = helper.renderStatus({ healthy: true, ignored_detail: true }, runtime.validation, true);
 	assert.ok(!textContent(rendered).includes('ignored_detail'),

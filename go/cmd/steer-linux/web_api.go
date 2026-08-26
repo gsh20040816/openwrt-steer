@@ -25,11 +25,11 @@ func (app webApplication) handleOverview(writer http.ResponseWriter, request *ht
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	store := linuxplatform.IntentStore{Path: app.ConfigPath}
+	store := linuxplatform.IntentStore{Path: app.ConfigPath, GeoDataDirectory: app.seedDirectory()}
 	value, revision, loadErr := store.Load()
 	validation := model.Validation{OK: false}
 	if loadErr == nil {
-		validation = linuxplatform.Validate(value)
+		validation = linuxplatform.ValidateWithGeoDataDirectory(value, app.seedDirectory())
 	}
 	runner := app.Runner
 	if runner == nil {
@@ -61,7 +61,7 @@ func (app webApplication) handleValidate(writer http.ResponseWriter, request *ht
 		writeWebError(writer, err, http.StatusBadRequest)
 		return
 	}
-	validation := linuxplatform.Validate(value)
+	validation := linuxplatform.ValidateWithGeoDataDirectory(value, app.seedDirectory())
 	writeWebJSON(writer, validation)
 }
 
@@ -247,10 +247,12 @@ func (app webApplication) geoDataStatus(_ context.Context, kind string) geoDataS
 
 func (app webApplication) applySaved() (coreapply.Result, error) {
 	return runLockedApplyResult(app.RunDirectory, func() (coreapply.Result, error) {
-		value, validation, err := loadIntent(app.ConfigPath)
+		value, _, err := (linuxplatform.IntentStore{Path: app.ConfigPath, GeoDataDirectory: app.seedDirectory()}).Load()
 		if err != nil {
+			validation := model.Validation{Errors: []model.Issue{{Code: "DECODE_FAILED", ObjectType: "json", Message: err.Error()}}, Warnings: []model.Issue{}}
 			return coreapply.Result{Validation: &validation}, err
 		}
+		validation := linuxplatform.ValidateWithGeoDataDirectory(value, app.seedDirectory())
 		if !validation.OK {
 			return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 		}
@@ -259,7 +261,7 @@ func (app webApplication) applySaved() (coreapply.Result, error) {
 }
 
 func (app webApplication) applyValue(value model.Intent) (coreapply.Result, error) {
-	validation := linuxplatform.Validate(value)
+	validation := linuxplatform.ValidateWithGeoDataDirectory(value, app.seedDirectory())
 	if !validation.OK {
 		return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 	}

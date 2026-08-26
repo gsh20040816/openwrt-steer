@@ -5,6 +5,8 @@
 
 import { mkdtemp, open, popen, rmdir, unlink } from 'fs';
 
+const ubus = require('ubus').connect();
+
 function shellquote(value) {
 	if (value == null)
 		value = '';
@@ -58,6 +60,64 @@ function command_json_input(arguments, input) {
 	}
 }
 
+function validation_failure(message) {
+	return {
+		ok: false,
+		errors: [ { code: 'DECODE_FAILED', object_type: 'uci', message } ],
+		warnings: []
+	};
+}
+
+function validate_candidate(request) {
+	const session = request?.args?.ubus_rpc_session;
+	if (type(session) != 'string' || match(session, /^[0-9a-f]{32}$/) == null)
+		return validation_failure('The LuCI UCI session is unavailable.');
+
+	const deltaDirectory = '/var/run/rpcd/uci-' + session;
+	const process = popen([ '/sbin/uci', '-q', '-P', deltaDirectory, 'export', 'steer' ], 'r');
+	if (!process)
+		return validation_failure('Unable to export the pending Steer configuration.');
+	const exported = process.read('all') || '';
+	const status = process.close();
+	const lines = split(exported, '\n');
+	if (status != 0 || lines[0] != 'package steer')
+		return validation_failure('Unable to export the pending Steer configuration.');
+
+	const directory = mkdtemp('/tmp/steer-validate-XXXXXX');
+	if (!directory)
+		return validation_failure('Unable to create a private validation directory.');
+	const path = directory + '/steer';
+	const file = open(path, 'w');
+	if (!file) {
+		rmdir(directory);
+		return validation_failure('Unable to create the pending Steer configuration.');
+	}
+	file.write(join('\n', slice(lines, 1)));
+	file.close();
+	const result = command_json('/usr/sbin/steer validate --config ' + shellquote(path));
+	unlink(path);
+	rmdir(directory);
+	return result;
+}
+
+function commit_candidate(request) {
+	const validation = validate_candidate(request);
+	if (validation?.ok !== true)
+		return { committed: false, validation };
+
+	const session = request.args.ubus_rpc_session;
+	return ubus.defer('uci', 'commit', {
+		config: 'steer',
+		ubus_rpc_session: session
+	}, function(code, reply) {
+		request.reply({
+			committed: code == 0,
+			validation,
+			error: code == 0 ? null : 'Unable to commit the validated Steer configuration.'
+		});
+	});
+}
+
 const methods = {
 	status: {
 		call: function() {
@@ -68,6 +128,9 @@ const methods = {
 		call: function() {
 			return command_json('/usr/sbin/steer validate');
 		}
+	},
+	commit_candidate: {
+		call: commit_candidate
 	},
 	intent: {
 		call: function() {

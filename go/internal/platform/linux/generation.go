@@ -50,7 +50,7 @@ func (backend *Backend) CompilerOptions() compiler.Options {
 }
 
 func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compiled compiler.Output) (candidate generation.Candidate, returnErr error) {
-	validation := Validate(value)
+	validation := ValidateWithGeoDataDirectory(value, backend.options.GeoDataDirectory)
 	if !validation.OK {
 		return generation.Candidate{}, ValidationError{Validation: validation}
 	}

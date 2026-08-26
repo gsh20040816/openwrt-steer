@@ -16,7 +16,8 @@ import (
 var ErrRevisionConflict = errors.New("configuration revision conflict")
 
 type IntentStore struct {
-	Path string
+	Path             string
+	GeoDataDirectory string
 }
 
 func (store IntentStore) normalizedPath() string {
@@ -39,7 +40,7 @@ func (store IntentStore) Load() (model.Intent, string, error) {
 }
 
 func (store IntentStore) Save(value model.Intent, expectedRevision string) (string, error) {
-	validation := Validate(value)
+	validation := ValidateWithGeoDataDirectory(value, store.GeoDataDirectory)
 	if !validation.OK {
 		return "", ValidationError{Validation: validation}
 	}

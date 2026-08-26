@@ -3,14 +3,25 @@
 package macos
 
 import (
+	"strings"
+
 	model "github.com/gsh20040816/steer/go/internal/intent"
+	platformvalidation "github.com/gsh20040816/steer/go/internal/validation"
 )
 
 // Validate combines the canonical contract with macOS platform limits.
 // Source-MAC policy describes gateway traffic and has no reliable meaning for
 // a local Darwin TUN, so it is rejected explicitly.
 func Validate(value model.Intent) model.Validation {
-	validation := model.Validate(value)
+	return ValidateWithGeoDataDirectory(value, DefaultGeoDataDirectory)
+}
+
+func ValidateWithGeoDataDirectory(value model.Intent, seedDirectory string) model.Validation {
+	seedDirectory = normalizeGeoDataDirectory(seedDirectory)
+	validation := platformvalidation.Validate(value, platformvalidation.Options{
+		IPv6WildcardDualStack: true,
+		GeoDataDirectory:      seedDirectory,
+	})
 	for _, rule := range value.Rules {
 		if !rule.Enabled {
 			continue
@@ -24,4 +35,11 @@ func Validate(value model.Intent) model.Validation {
 	}
 	validation.OK = len(validation.Errors) == 0
 	return validation
+}
+
+func normalizeGeoDataDirectory(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return DefaultGeoDataDirectory
+	}
+	return value
 }

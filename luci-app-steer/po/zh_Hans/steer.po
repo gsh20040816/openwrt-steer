@@ -33,9 +33,6 @@ msgstr "%d 个端口"
 msgid "%d valid %s names are available for dynamic completion."
 msgstr "当前有 %d 个合法 %s 名称可用于动态补全。"
 
-msgid "%s is not a valid %s name in the current Geo data."
-msgstr "%s 不是当前 Geo 数据中的合法 %s 名称。"
-
 msgid "A disabled configuration stops Steer and removes its runtime resources when applied."
 msgstr "应用已禁用的配置会停止 Steer 并删除其运行时资源。"
 

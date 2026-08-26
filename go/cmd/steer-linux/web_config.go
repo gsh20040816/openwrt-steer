@@ -15,7 +15,7 @@ import (
 )
 
 func (app webApplication) handleConfig(writer http.ResponseWriter, request *http.Request) {
-	store := linuxplatform.IntentStore{Path: app.ConfigPath}
+	store := linuxplatform.IntentStore{Path: app.ConfigPath, GeoDataDirectory: app.seedDirectory()}
 	switch request.Method {
 	case http.MethodGet:
 		value, revision, err := store.Load()
@@ -65,6 +65,13 @@ func (app webApplication) handleConfig(writer http.ResponseWriter, request *http
 			return
 		}
 		if saveErr != nil {
+			var validationErr linuxplatform.ValidationError
+			if errors.As(saveErr, &validationErr) {
+				writeWebJSONStatus(writer, map[string]any{
+					"saved": false, "validation": validationErr.Validation, "error": errorDetails(saveErr),
+				}, http.StatusUnprocessableEntity)
+				return
+			}
 			status := http.StatusUnprocessableEntity
 			if strings.Contains(saveErr.Error(), "If-Match is required") {
 				status = http.StatusPreconditionRequired

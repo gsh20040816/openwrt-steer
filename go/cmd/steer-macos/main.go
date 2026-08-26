@@ -135,6 +135,7 @@ func runValidate(args []string, stdout io.Writer) error {
 	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", defaultConfigPath, "canonical JSON configuration")
+	geoDataDirectory := flags.String("geodata", defaultGeoDataDir, "package-owned Geo SRS seed directory")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -145,7 +146,7 @@ func runValidate(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	validation := macosplatform.Validate(value)
+	validation := macosplatform.ValidateWithGeoDataDirectory(value, *geoDataDirectory)
 	if err := writeJSON(stdout, validation); err != nil {
 		return err
 	}
@@ -171,7 +172,7 @@ func runCompile(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	validation := macosplatform.Validate(value)
+	validation := macosplatform.ValidateWithGeoDataDirectory(value, *geoDataDirectory)
 	if !validation.OK {
 		return macosplatform.ValidationError{Validation: validation}
 	}

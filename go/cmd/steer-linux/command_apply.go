@@ -20,6 +20,7 @@ import (
 func runValidate(args []string) error {
 	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/steer/config.json", "canonical JSON configuration file")
+	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -31,7 +32,7 @@ func runValidate(args []string) error {
 		writeJSON(validation)
 		return err
 	}
-	validation = linuxplatform.Validate(value)
+	validation = linuxplatform.ValidateWithGeoDataDirectory(value, *seedDirectory)
 	writeJSON(validation)
 	if !validation.OK {
 		return errors.New("configuration validation failed")
