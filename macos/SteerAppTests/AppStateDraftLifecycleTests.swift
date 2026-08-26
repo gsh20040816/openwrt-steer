@@ -288,8 +288,8 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         model.saveDraft()
         model.saveAndApplyDraft()
         model.setDraftValue(in: "main", key: "log_level", value: .string("warn"))
-        let importedWhileGuardPending = await model.importNodes("vless://ignored")
-        XCTAssertFalse(importedWhileGuardPending)
+        let previewWhileGuardPending = await model.previewNodeImport("vless://ignored")
+        XCTAssertNil(previewWhileGuardPending)
         model.resolveDraftGuard(.cancel)
 
         XCTAssertEqual(model.rawJSON, editedDocument)
