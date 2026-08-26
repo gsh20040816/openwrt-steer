@@ -309,3 +309,91 @@ func TestCompileSingBoxProxyNodeFamilies(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileHTTPFingerprintAlwaysEnablesTLS(t *testing.T) {
+	tests := []struct {
+		name        string
+		credentials model.NodeCredentials
+		fingerprint string
+		wantTLS     bool
+	}{
+		{name: "fingerprint only", fingerprint: "chrome", wantTLS: true},
+		{name: "fingerprint with authentication", credentials: model.NodeCredentials{Username: "user", Password: "secret"}, fingerprint: "chrome", wantTLS: true},
+		{name: "plain HTTP", credentials: model.NodeCredentials{Username: "user", Password: "secret"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			node := model.Node{
+				ID: "http", Enabled: true, Type: "http", Server: "proxy.example", ServerPort: 8080,
+				NodeCredentials: test.credentials,
+				NodeTLS:         model.NodeTLS{UTLSFingerprint: test.fingerprint},
+			}
+			if validation := model.ValidateNode(node); !validation.OK {
+				t.Fatalf("HTTP node was rejected: %#v", validation.Errors)
+			}
+			outbound := CompileNodeOutbound(node)
+			tls, hasTLS := outbound["tls"].(map[string]any)
+			if hasTLS != test.wantTLS {
+				t.Fatalf("unexpected TLS projection: %#v", outbound)
+			}
+			if test.wantTLS {
+				if tls["enabled"] != true {
+					t.Fatalf("TLS was not enabled: %#v", tls)
+				}
+				utls, ok := tls["utls"].(map[string]any)
+				if !ok || utls["enabled"] != true || utls["fingerprint"] != test.fingerprint {
+					t.Fatalf("uTLS fingerprint was not projected: %#v", tls)
+				}
+			}
+			capabilities := requiredCapabilities(model.Intent{Nodes: []model.Node{node}}, Target{})
+			if hasString(capabilities, "with_utls") != (test.fingerprint != "") {
+				t.Fatalf("uTLS capability does not match TLS projection: %#v", capabilities)
+			}
+		})
+	}
+}
+
+func TestCompileVLESSRealityDoesNotSilentlyDowngrade(t *testing.T) {
+	tests := []struct {
+		name        string
+		tls         model.NodeTLS
+		wantReality bool
+	}{
+		{name: "ordinary TLS", tls: model.NodeTLS{TLSServerName: "proxy.example"}},
+		{name: "complete Reality", tls: model.NodeTLS{TLSServerName: "proxy.example", RealityPublicKey: "public-key", RealityShortID: "0123456789abcdef"}, wantReality: true},
+		{name: "partial Reality stays explicit", tls: model.NodeTLS{TLSServerName: "proxy.example", RealityShortID: "0123456789abcdef"}, wantReality: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			node := model.Node{
+				ID: "vless", Enabled: true, Type: "vless", Server: "proxy.example", ServerPort: 443,
+				NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+				NodeTLS:         test.tls,
+			}
+			outbound := CompileNodeOutbound(node)
+			tls, ok := outbound["tls"].(map[string]any)
+			if !ok || tls["enabled"] != true {
+				t.Fatalf("VLESS TLS was not generated: %#v", outbound)
+			}
+			reality, hasReality := tls["reality"].(map[string]any)
+			if hasReality != test.wantReality {
+				t.Fatalf("unexpected Reality projection: %#v", tls)
+			}
+			if test.wantReality && reality["enabled"] != true {
+				t.Fatalf("Reality was not enabled: %#v", reality)
+			}
+			if test.name == "complete Reality" && (reality["public_key"] != test.tls.RealityPublicKey || reality["short_id"] != test.tls.RealityShortID) {
+				t.Fatalf("complete Reality fields were not projected: %#v", reality)
+			}
+		})
+	}
+}
+
+func hasString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}

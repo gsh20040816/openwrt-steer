@@ -371,8 +371,8 @@ func compileNode(node model.Node) map[string]any {
 		}
 	case "http":
 		result["username"], result["password"] = node.Username, node.Password
-		if node.TLSServerName != "" || node.Insecure {
-			result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		if tls := compileTLSIfConfigured(node); tls != nil {
+			result["tls"] = tls
 		}
 	case "shadowsocks":
 		result["method"], result["password"] = node.Method, node.Password
@@ -521,7 +521,7 @@ func compileRouteOutbound(route model.Route, nodes map[string]model.Node) map[st
 }
 
 func compileTLSIfConfigured(node model.Node) map[string]any {
-	if node.TLSServerName == "" && node.RealityPublicKey == "" && !node.Insecure && node.UTLSFingerprint == "" {
+	if node.TLSServerName == "" && node.RealityPublicKey == "" && node.RealityShortID == "" && !node.Insecure && node.UTLSFingerprint == "" {
 		return nil
 	}
 	return compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, node.RealityPublicKey, node.RealityShortID)
@@ -557,7 +557,7 @@ func compileTLS(serverName string, insecure bool, fingerprint, publicKey, shortI
 	if fingerprint != "" {
 		result["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 	}
-	if publicKey != "" {
+	if publicKey != "" || shortID != "" {
 		result["reality"] = map[string]any{"enabled": true, "public_key": publicKey, "short_id": shortID}
 	}
 	return clean(result)
