@@ -19,15 +19,34 @@
     root.scrollTop = 0;
   }
 
+  function canOpen(name) {
+    if (name === 'advanced' || S.store.draftValid !== false) return true;
+    S.ui.toast(`当前 JSON Draft 无效，不能打开结构化页面：${S.store.draftError}`, 'err');
+    return false;
+  }
+
+  function renderRequested(name) {
+    if (canOpen(name)) {
+      render(name);
+      return true;
+    }
+    history.replaceState(null, '', '#/advanced');
+    render('advanced');
+    return false;
+  }
+
   function router(name) {
+    if (!canOpen(name)) return false;
     if (location.hash === `#/${name}`) render(name);
     else location.hash = `#/${name}`;
+    return true;
   }
   S.router = router;
 
   function currentView() {
     return (location.hash.match(/^#\/([a-z]+)/) || [])[1] || 'overview';
   }
+  S.renderCurrent = () => renderRequested(currentView());
 
   function boot() {
     S.ui.renderShell(router);
@@ -35,8 +54,8 @@
     S.store.subscribe(S.ui.renderStatusStrip);
 
     if (!location.hash) history.replaceState(null, '', '#/overview');
-    render(currentView());
-    window.addEventListener('hashchange', () => render(currentView()));
+    renderRequested(currentView());
+    window.addEventListener('hashchange', () => renderRequested(currentView()));
 
     window.addEventListener('beforeunload', (e) => {
       if (S.store.dirty) {

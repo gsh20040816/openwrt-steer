@@ -83,6 +83,10 @@
   }
 
   async function onValidate() {
+    if (S.store.draftValid === false) {
+      toast(`当前 JSON Draft 无效：${S.store.draftError}`, 'err');
+      return;
+    }
     const v = await S.api.validate(S.store.intent);
     if (!v.errors.length && !v.warnings.length) { toast('校验通过 · 0 错误 · 0 警告', 'ok'); return; }
     showValidation(v);
@@ -111,6 +115,34 @@
     }
   }
 
+  async function reloadSavedDraft(close, message) {
+    try {
+      await S.store.reload();
+      close?.();
+      toast(message || `已放弃全部 Draft 修改并重载 · ${S.fmtRevision(S.store.revision)}`, 'info');
+      S.renderCurrent?.();
+      return true;
+    } catch (error) {
+      toast(`重新载入失败：${error.message}`, 'err');
+      return false;
+    }
+  }
+
+  function onDiscard() {
+    if (!S.store.dirty) return;
+    dialog({
+      title: '放弃当前全部 Draft 修改？',
+      body: h('div', {}, [
+        h('p', {}, '这会丢弃当前工作副本中的全部修改，并重新载入服务器上已保存的配置。'),
+        h('p', { class: 'muted' }, 'Advanced JSON 中尚未提交的文本也会被丢弃；此操作不会改变当前 Active generation。')
+      ]),
+      actions: [
+        ['取消', null],
+        ['放弃修改并重新载入', (close) => reloadSavedDraft(close), 'btn--danger']
+      ]
+    });
+  }
+
   async function onApplySaved() {
     try {
       const result = await S.store.applySaved();
@@ -127,6 +159,10 @@
   async function onToggleEnabled(next) {
     const main = S.store.intent?.main;
     if (!main || enabledToggleBusy || Boolean(main.enabled) === Boolean(next)) return;
+    if (S.store.draftValid === false) {
+      toast(`请先修复或放弃无效 JSON Draft：${S.store.draftError}`, 'err');
+      return;
+    }
 
     const previous = Boolean(main.enabled);
     main.enabled = Boolean(next);
@@ -222,6 +258,7 @@
     const healthy = !!status.healthy;
     const active = !!status.generation;
     const dirty = S.store.dirty;
+    const draftValid = S.store.draftValid !== false;
     const pendingApply = S.store.pendingApply === true;
 
     strip.append(
@@ -237,16 +274,18 @@
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '修订'), h('span', { class: 'strip__fact-value', title: S.store.revision }, S.fmtRevision(S.store.revision))),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次 Apply'), h('span', { class: 'strip__fact-value', title: lastResult?.error || '' }, lastApply ? `${applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
         dirty ? h('span', { class: 'badge badge--warn', title: '工作副本有未保存修改' }, '工作副本已修改') : null,
+        !draftValid ? h('span', { class: 'badge badge--err', title: S.store.draftError }, 'JSON Draft 无效') : null,
         pendingApply ? h('span', { class: 'badge badge--warn', title: '已保存配置与运行态不同，或最近 Apply 失败' }, '已保存，待 Apply') : null
       ]),
       h('div', { class: 'strip__actions' }, [
         h('button', { class: 'btn', onclick: onValidate }, '校验'),
-        h('button', { class: 'btn', onclick: () => onSave(false), disabled: !dirty }, '保存'),
-        h('button', { class: `btn ${dirty ? 'btn--primary' : ''}`, onclick: () => onSave(true), disabled: !dirty }, '保存并 Apply'),
+        dirty ? h('button', { class: 'btn btn--danger', onclick: onDiscard }, '放弃修改') : null,
+        h('button', { class: 'btn', onclick: () => onSave(false), disabled: !dirty || !draftValid, title: !draftValid ? '请先修复或放弃无效 JSON Draft' : '' }, '保存'),
+        h('button', { class: `btn ${dirty && draftValid ? 'btn--primary' : ''}`, onclick: () => onSave(true), disabled: !dirty || !draftValid, title: !draftValid ? '请先修复或放弃无效 JSON Draft' : '' }, '保存并 Apply'),
         h('button', { class: `btn ${!dirty && pendingApply ? 'btn--primary' : ''}`, onclick: onApplySaved, disabled: !pendingApply, title: pendingApply ? 'Apply 当前已保存配置，不需要制造工作副本修改' : '已保存配置与运行态一致' }, 'Apply 已保存配置')
       ])
     );
-    strip.querySelector('.strip__toggle .switch').disabled = enabledToggleBusy;
+    strip.querySelector('.strip__toggle .switch').disabled = enabledToggleBusy || !draftValid;
   }
 
   /* ---------- 通知 ---------- */
@@ -302,7 +341,7 @@
         h('p', { class: 'muted' }, '修订号只用于并发控制，不提供配置历史。')
       ]),
       actions: [
-        ['以服务器为准（丢弃本地修改）', async (close) => { await S.store.reload(); toast(`已重载服务器配置 · ${S.store.revision}`, 'info'); close(); }, 'btn--danger'],
+        ['以服务器为准（丢弃本地修改）', (close) => reloadSavedDraft(close, '已丢弃本地修改并重载服务器配置'), 'btn--danger'],
         ['覆盖保存（保留本地修改）', (close) => { close(); beforeForceSave?.(); forceSave(); }],
         ['取消', null]
       ]
@@ -582,5 +621,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, applyRecord, applyTime, generationLabel, onValidate, onToggleEnabled, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, jumpToObject } });
 })();

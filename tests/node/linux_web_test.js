@@ -103,22 +103,38 @@ function text(value) {
 }
 
 function createEnvironment(save, intent = { main: { enabled: true } }, options = {}) {
+  const side = new Element('aside');
   const strip = new Element('div');
   const toasts = new Element('div');
   const view = new Element('main');
   const drawerRoot = new Element('div');
   const body = new Element('body');
+  side.setAttribute('id', 'side');
   strip.setAttribute('id', 'strip');
   toasts.setAttribute('id', 'toasts');
   view.setAttribute('id', 'view');
   drawerRoot.setAttribute('id', 'drawer-root');
-  body.append(strip, toasts, view, drawerRoot);
+  body.append(side, strip, toasts, view, drawerRoot);
+  const documentListeners = new Map();
+  const windowListeners = new Map();
+  const addListener = (registry, name, listener) => {
+    if (!registry.has(name)) registry.set(name, []);
+    registry.get(name).push(listener);
+  };
+  const removeListener = (registry, name, listener) => {
+    registry.set(name, (registry.get(name) || []).filter((candidate) => candidate !== listener));
+  };
+  const dispatch = async (registry, name, event = {}) => {
+    const results = (registry.get(name) || []).slice().map((listener) => listener(event));
+    await Promise.all(results);
+    return event;
+  };
   const document = {
     body,
     querySelector: (selector) => body.querySelector(selector),
     querySelectorAll: (selector) => body.querySelectorAll(selector),
-    addEventListener() {},
-    removeEventListener() {}
+    addEventListener: (name, listener) => addListener(documentListeners, name, listener),
+    removeEventListener: (name, listener) => removeListener(documentListeners, name, listener)
   };
   const h = (tag, attributes = {}, ...children) => {
     const element = new Element(tag);
@@ -158,15 +174,56 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
       touch() { touchCount++; this.dirty = true; }
     }
   };
-  const window = { S };
+  const window = {
+    S,
+    addEventListener: (name, listener) => addListener(windowListeners, name, listener),
+    removeEventListener: (name, listener) => removeListener(windowListeners, name, listener)
+  };
   const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/ui.js'), 'utf8');
   new Function('window', 'document', 'setTimeout', 'requestAnimationFrame', source)(window, document, () => 0, (callback) => callback());
-  return { S, window, document, body, strip, toasts, view, drawerRoot, get touchCount() { return touchCount; } };
+  return {
+    S, window, document, body, side, strip, toasts, view, drawerRoot,
+    dispatchDocument: (name, event) => dispatch(documentListeners, name, event),
+    dispatchWindow: (name, event) => dispatch(windowListeners, name, event),
+    get touchCount() { return touchCount; }
+  };
 }
 
 function loadView(environment, name) {
   const source = fs.readFileSync(path.join(root, `go/cmd/steer-linux/web/js/views/${name}.js`), 'utf8');
   new Function('window', 'document', 'setTimeout', source)(environment.window, environment.document, () => 0);
+}
+
+function attachRealStore(environment, api) {
+  environment.S.api = api;
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/store.js'), 'utf8');
+  new Function('window', source)(environment.window);
+}
+
+function loadApplication(environment, initialHash = '#/advanced') {
+  let hash = initialHash;
+  const location = {};
+  Object.defineProperty(location, 'hash', {
+    get: () => hash,
+    set: (next) => {
+      hash = String(next);
+      void environment.dispatchWindow('hashchange', {});
+    }
+  });
+  const history = {
+    replaceState(_state, _title, next) { hash = String(next); }
+  };
+  environment.window.location = location;
+  environment.S.auth = { logout() {}, show() {} };
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/app.js'), 'utf8');
+  new Function('window', 'document', 'location', 'history', source)(environment.window, environment.document, location, history);
+  return { location, history, start: () => environment.dispatchDocument('DOMContentLoaded', {}) };
+}
+
+async function flushUI() {
+  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  await Promise.resolve();
 }
 
 function fieldWithLabel(rootElement, label) {
@@ -178,6 +235,10 @@ function fieldWithLabel(rootElement, label) {
 
 function buttonWithText(rootElement, label) {
   return find(rootElement, (element) => element.tag === 'button' && text(element) === label);
+}
+
+function lastButtonWithText(rootElement, label) {
+  return findAll(rootElement, (element) => element.tag === 'button' && text(element) === label).at(-1) || null;
 }
 
 function createRulesEnvironment(intent) {
@@ -621,6 +682,213 @@ async function testActualGenerationAndPersistentApplyFixture() {
   assert.doesNotMatch(text(disabled.strip), /candidate\.last-apply/, 'disabled status must not invent Active from last Apply');
 }
 
+function draftLifecycleIntent() {
+  return {
+    main: {
+      id: 'main', schema_version: 9, enabled: true, log_level: 'warn',
+      probe_direct: 'https://direct.example/', probe_proxy: 'https://proxy.example/', speedtest_proxy: 'https://speed.example/'
+    },
+    bootstrap: { id: 'bootstrap', protocol: 'udp', server: '1.1.1.1', server_port: 53, strategy: 'prefer_ipv4' },
+    nodes: [{ id: 'node', enabled: true, name: 'Node', type: 'socks', server: 'node.example', server_port: 1080 }],
+    subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h' }],
+    routes: [
+      { id: 'direct', enabled: true, kind: 'direct' },
+      { id: 'proxy', enabled: true, name: 'Proxy', kind: 'single', node: 'node' },
+      { id: 'block', enabled: true, kind: 'block' }
+    ],
+    dns_profiles: [{ id: 'public', enabled: true, name: 'Public', protocol: 'udp', server: '1.1.1.1', server_port: 53 }],
+    local_proxies: [],
+    rules: [{ id: 'default', enabled: true, default: true, dns_profile: 'public', route: 'direct' }]
+  };
+}
+
+function createDraftBackend() {
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const state = {
+    intent: draftLifecycleIntent(), revision: '"revision-1"', configCalls: 0, puts: [],
+    nodeTests: 0, routeTests: 0, subscriptionUpdates: 0
+  };
+  state.api = {
+    async config() { state.configCalls++; return { intent: clone(state.intent), revision: state.revision }; },
+    async overview() { return { pending_apply: true, status: { healthy: false } }; },
+    async runtime() { return {}; },
+    async geodata() { return { readable: true, names: [], count: 0 }; },
+    async validate() { return { ok: true, errors: [], warnings: [] }; },
+    async putConfig(intent, _revision, apply) {
+      state.intent = clone(intent);
+      state.puts.push({ intent: clone(intent), apply });
+      state.revision = `"revision-${state.puts.length + 2}"`;
+      return { saved: true, applied: !!apply, revision: state.revision, request_ok: true };
+    },
+    async applySaved() { return { ok: true }; },
+    async speedtestNode() { state.nodeTests++; return { results: [] }; },
+    async speedtestRoute() { state.routeTests++; return { results: [] }; },
+    async subscriptions() {
+      return { subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h', node_count: 0, skipped: 0 }] };
+    },
+    async updateSubscription() {
+      state.subscriptionUpdates++;
+      return { snapshots: [{ node_count: 0, skipped: 0 }] };
+    }
+  };
+  return state;
+}
+
+async function testJSONDraftStoreLifecycle() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  await environment.S.store.init();
+
+  const changed = draftLifecycleIntent();
+  changed.main.log_level = 'debug';
+  const validText = JSON.stringify(changed, null, 4);
+  let result = environment.S.store.editJSON(validText);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(environment.S.store.dirty, true, 'Advanced input must immediately mark the shared Draft dirty');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'debug', 'valid JSON must update the same parsed Draft');
+  assert.strictEqual(environment.S.store.draftText, validText, 'valid Advanced formatting must remain in the shared Draft');
+
+  const lastValidIntent = environment.S.store.intent;
+  const invalidText = '{"main":';
+  result = environment.S.store.editJSON(invalidText);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(environment.S.store.draftText, invalidText, 'invalid JSON text must be retained verbatim');
+  assert.strictEqual(environment.S.store.intent, lastValidIntent, 'invalid JSON must not replace the last parseable Draft object');
+  await assert.rejects(() => environment.S.store.save(false), /JSON Draft 无效/);
+  assert.strictEqual(backend.puts.length, 0, 'invalid JSON must not reach the Save API');
+
+  backend.intent.main.log_level = 'error';
+  backend.revision = '"revision-server"';
+  await environment.S.store.reload();
+  assert.strictEqual(environment.S.store.dirty, false);
+  assert.strictEqual(environment.S.store.draftValid, true);
+  assert.strictEqual(environment.S.store.revision, '"revision-server"');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'error');
+  assert.match(environment.S.store.draftText, /"log_level": "error"/, 'reload must synchronize parsed Intent and Advanced text');
+
+  environment.S.store.intent.main.log_level = 'info';
+  environment.S.store.touch();
+  assert.match(environment.S.store.draftText, /"log_level": "info"/, 'structured edits must synchronize back to Advanced JSON');
+}
+
+async function testAdvancedRouterDiscardAndGuardedActions() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  for (const name of ['config', 'general', 'nodes', 'routes', 'subscriptions']) loadView(environment, name);
+  const application = loadApplication(environment, '#/advanced');
+  await application.start();
+  await flushUI();
+
+  let editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.ok(editor, 'Advanced view must render the shared Draft textarea');
+  const invalidText = '{"main":';
+  editor.value = invalidText;
+  editor.listeners.input({ target: editor });
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.draftValid, false);
+  assert.match(text(environment.strip), /JSON Draft 无效/);
+  assert.ok(buttonWithText(environment.strip, '保存').disabled, 'global Save must be blocked for invalid JSON');
+  assert.ok(buttonWithText(environment.view, '保存').disabled, 'Advanced Save must share the same invalid-Draft guard');
+
+  assert.strictEqual(environment.S.router('general'), false, 'invalid JSON must block structured routing');
+  assert.strictEqual(application.location.hash, '#/advanced');
+  assert.strictEqual(environment.S.store.draftText, invalidText, 'blocked navigation must retain invalid text');
+  application.location.hash = '#/routes';
+  await flushUI();
+  assert.strictEqual(application.location.hash, '#/advanced', 'browser hash navigation must return an invalid Draft to Advanced');
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.strictEqual(editor.value, invalidText, 'hash-route protection must rerender the retained invalid text');
+  const unload = { preventDefault() { this.prevented = true; } };
+  await environment.dispatchWindow('beforeunload', unload);
+  assert.strictEqual(unload.prevented, true, 'browser reload/close must protect the Advanced Draft');
+  assert.strictEqual(unload.returnValue, '', 'beforeunload must use the shared dirty state');
+
+  backend.intent.main.log_level = 'error';
+  backend.revision = '"revision-2"';
+  const callsBeforeDiscard = backend.configCalls;
+  buttonWithText(environment.strip, '放弃修改').listeners.click();
+  lastButtonWithText(environment.body, '取消').listeners.click();
+  assert.strictEqual(backend.configCalls, callsBeforeDiscard, 'Discard Cancel must not reload or mutate state');
+  assert.strictEqual(environment.S.store.draftText, invalidText);
+  assert.strictEqual(environment.S.store.dirty, true);
+
+  buttonWithText(environment.strip, '放弃修改').listeners.click();
+  await lastButtonWithText(environment.body, '放弃修改并重新载入').listeners.click();
+  await flushUI();
+  assert.strictEqual(environment.S.store.dirty, false);
+  assert.strictEqual(environment.S.store.draftValid, true);
+  assert.strictEqual(environment.S.store.revision, '"revision-2"');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'error');
+  assert.strictEqual(environment.S.store.pendingApply, true, 'Discard must not alter pending Apply semantics');
+  assert.strictEqual(buttonWithText(environment.strip, '放弃修改'), null, 'Discard must disappear after the Draft becomes clean');
+  assert.match(text(environment.strip), /revision-2/, 'Discard must synchronize the status strip revision');
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.match(editor.value, /"log_level": "error"/, 'Discard must rerender the current Advanced page from Saved');
+
+  environment.S.router('nodes');
+  await flushUI();
+  await buttonWithText(environment.view, '连接').listeners.click();
+  environment.S.router('routes');
+  await flushUI();
+  await buttonWithText(environment.view, '链测试').listeners.click();
+  environment.S.router('subscriptions');
+  await flushUI();
+  await buttonWithText(environment.view, '立即更新').listeners.click();
+  await flushUI();
+  assert.strictEqual(backend.nodeTests, 1, 'node testing must resume immediately after Discard');
+  assert.strictEqual(backend.routeTests, 1, 'route testing must resume immediately after Discard');
+  assert.strictEqual(backend.subscriptionUpdates, 1, 'subscription update must resume immediately after Discard');
+
+  environment.S.router('advanced');
+  await flushUI();
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  let parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'debug';
+  editor.value = JSON.stringify(parsed, null, 3);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.view, '保存').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'debug', 'Advanced page Save must use the shared JSON Draft');
+  assert.strictEqual(backend.puts.at(-1).apply, false);
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'info';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.strip, '保存').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'info', 'global Save must use the same Advanced JSON Draft');
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'error';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.view, '保存并 Apply').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'error', 'Advanced page Save and Apply must use the shared JSON Draft');
+  assert.strictEqual(backend.puts.at(-1).apply, true);
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'debug';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.strip, '保存并 Apply').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'debug', 'global Save and Apply must use the same Advanced JSON Draft');
+  assert.strictEqual(backend.puts.at(-1).apply, true);
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'warn';
+  const roundTripText = JSON.stringify(parsed, null, 4);
+  editor.value = roundTripText;
+  editor.listeners.input({ target: editor });
+  assert.strictEqual(environment.S.router('general'), true);
+  await flushUI();
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'warn');
+  assert.strictEqual(environment.S.router('advanced'), true);
+  await flushUI();
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.strictEqual(editor.value, roundTripText, 'structured ↔ Advanced navigation must retain the one shared Draft text');
+}
+
 Promise.resolve()
   .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
@@ -633,6 +901,8 @@ Promise.resolve()
   .then(testApplySavedAPIKeepsStructuredFailure)
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)
+  .then(testJSONDraftStoreLifecycle)
+  .then(testAdvancedRouterDiscardAndGuardedActions)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);
