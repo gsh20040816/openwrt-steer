@@ -3,9 +3,11 @@
 package linux
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/gsh20040816/steer/go/internal/compiler"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
@@ -32,6 +34,20 @@ func TestLinuxPlanCapturesHostAndForwardedTraffic(t *testing.T) {
 	}
 	if target.RequiredCapabilities == nil || strings.Join(target.RequiredCapabilities, ",") != "tun,auto_route,auto_redirect" {
 		t.Fatalf("unexpected capability contract: %#v", target.RequiredCapabilities)
+	}
+}
+
+func TestLinuxCompilerTargetUsesSharedLocalProxyResolve(t *testing.T) {
+	value := validIntent()
+	value.LocalProxies = []model.LocalProxy{{ID: "local", Enabled: true, Protocol: "socks", Listen: "127.0.0.1", ListenPort: 1090}}
+	value.Rules = append([]model.Rule{{ID: "local", Enabled: true, DNSProfile: "public", Route: "direct", Inbound: []string{"local"}}}, value.Rules...)
+	bundle := compiler.Compile(value, compiler.Options{Target: NewPlan(value).CompilerTarget()})
+	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	if len(rules) < 4 || rules[0].(map[string]any)["action"] != "hijack-dns" ||
+		rules[1].(map[string]any)["action"] != "sniff" || rules[2].(map[string]any)["action"] != "resolve" ||
+		!reflect.DeepEqual(rules[2].(map[string]any)["inbound"], []string{"steer-tun", "steer-local-local"}) ||
+		rules[3].(map[string]any)["outbound"] != "steer-route-direct" {
+		t.Fatalf("Linux target lost shared sniff/resolve/route semantics: %#v", rules)
 	}
 }
 
