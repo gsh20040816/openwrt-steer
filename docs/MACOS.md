@@ -28,12 +28,12 @@ Darwin utun + auto_route
 
 `macos/SteerApp` 是 macOS 的正式配置与运维前端，不是代理运行时，也不维护第二份配置语义。它直接面向系统安装的 `steer-macos` helper：
 
-- 总览：启用状态、当前 generation、执行模型、配置规模和 Apply；
+- 总览：Draft/Saved/Active、当前 generation、last Apply、配置规模、warnings 和少量快捷操作；
 - 基础设置：用原生字段编辑 Main、探测 URL、DNS 缓存和 Bootstrap DNS；
 - 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
 - Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；
 - 诊断：显示共享校验、最近 Apply、完整 sanitized overview/node/route 报告、运行日志和 LaunchDaemon 后端状态；
-- 系统：逐项显示 helper、sing-box、三个 plist/LaunchDaemon、配置、Geo seed 与 control socket 的安装事实；缺失或版本不一致时可用固定 embedded payload Repair，并提供受控卸载。
+- 系统：逐项显示 helper、sing-box 版本/build tags、generation、last Apply、Geo seed version/rule count、三个 plist/LaunchDaemon、DNS capture boundary、配置与 control socket 的安装事实；缺失或版本不一致时可用固定 embedded payload Repair，并提供受控卸载。
 
 所有页面的 toolbar 和菜单栏固定提供 Save、Apply Saved 与 Save and Apply，文案直接反映是否写入 Saved。Apply Saved 从磁盘读取当前 Saved 后再执行 revision-guarded Apply，即使本地 Draft dirty 也不会夹带或覆盖它；Apply 失败时 candidate 不会冒充 Active。全局 Enable 只出现在总览和菜单栏，并且仅在 Draft clean 时可用；开关变化后立即保存并 Apply，失败时保留后端报告的真实 Active 状态。
 
@@ -69,7 +69,9 @@ sing-box DNS Router
 DNS Profile → Route / outbound
 ```
 
-这不会把普通 UDP session 当成 DNS。DNS Profile、缓存、detour 和上游协议继续由 sing-box 内部实现。
+这不会把普通 UDP session 当成 DNS。DNS Profile、缓存、detour 和上游协议继续由 sing-box 内部实现。Bootstrap 只解析 DNS 上游等基础设施主机名；Direct UDP/TCP Bootstrap 可产生明文 53，但不携带原始业务查询名。应用自带 DoH/DoT/DoQ 是普通业务流量，只有进入 Steer TUN 且另有可验证策略时才可能控制；port-53 hijack 本身不能识别或重定向它。
+
+GUI 的 Diagnostics 只检查当前发布 generation 是否包含预期 `inbound=steer-tun + tcp/udp + destination port 53 + hijack-dns` 配置，并显示静态 exclusions。它不是抓包观测，也不证明零泄漏。loopback、link-local、multicast、文档和其他保留地址继续排除；为保证网络稳定，不扩大为无差别本地链路劫持。
 
 ## Go macOS adapter
 

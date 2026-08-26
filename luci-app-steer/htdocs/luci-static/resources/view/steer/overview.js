@@ -112,11 +112,26 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 	const pending = hasPendingSteerChanges(changes);
 	const lastApply = status?.last_apply;
 	const result = lastApply?.result;
+	const dnsBoundary = uiSpec.dns_boundaries.openwrt;
+	const dnsCapture = diagnostics?.dns_capture || {};
 	return E([], [
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Connectivity targets')),
 			E('p', {}, _('Targets are visited under the current Active rules. Success only proves that the URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.')),
 			renderOverviewTests(permissions?.overview_probe === true)
+		]),
+		E('section', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Active port-53 capture inspection')),
+			E('dl', { 'class': 'steer-status__facts' }, [
+				diagnosticFact(_('Configured'), dnsCapture.configured ? _('Yes') : _('No')),
+				diagnosticFact(_('Mode'), dnsCapture.mode || dnsBoundary.capture_mode),
+				diagnosticFact(_('Generation'), dnsCapture.active_generation),
+				diagnosticFact(_('Result'), dnsCapture.detail),
+				diagnosticFact(_('Capture scope'), dnsBoundary.capture_scope),
+				diagnosticFact(_('Exclusions'), dnsBoundary.exclusions.join(' · '))
+			]),
+			E('p', {}, _(dnsBoundary.diagnostic_boundary)),
+			E('p', {}, _(dnsBoundary.encrypted_dns_boundary))
 		]),
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Recent Overview, Node and Route probe reports')),
@@ -146,8 +161,8 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 
 function lifecycleCounts(counts) {
 	counts = counts || {};
-	return _('Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d').format(
-		counts.nodes || 0, counts.routes || 0, counts.dns_profiles || 0, counts.local_proxies || 0, counts.rules || 0);
+	return _('Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d · Subscriptions %d').format(
+		counts.nodes || 0, counts.routes || 0, counts.dns_profiles || 0, counts.local_proxies || 0, counts.rules || 0, counts.subscriptions || 0);
 }
 
 function renderLifecycleOverview(state) {
@@ -197,7 +212,8 @@ function renderLifecycleOverview(state) {
 						diagnosticFact(_('Pending'), pending ? _('Yes') : _('No')),
 						diagnosticFact(_('Enabled'), desired.enabled ? _('Enabled') : _('Disabled')),
 						diagnosticFact(_('Objects'), lifecycleCounts(desired.counts)),
-						diagnosticFact(_('Validation'), desired.validation?.ok ? _('Valid') : _('Invalid'))
+						diagnosticFact(_('Validation'), desired.validation?.ok ? _('Valid') : _('Invalid')),
+						diagnosticFact(_('Warnings'), desiredWarnings.length)
 					])
 				]),
 				E('article', { 'class': 'steer-test-card' }, [
@@ -207,7 +223,8 @@ function renderLifecycleOverview(state) {
 						diagnosticFact(_('Saved revision'), saved.digest ? saved.digest.slice(0, 12) : '—'),
 						diagnosticFact('pending_apply', state?.pending_apply ? _('Yes') : _('No')),
 						diagnosticFact(_('Objects'), lifecycleCounts(saved.counts)),
-						diagnosticFact(_('Validation'), saved.validation?.ok ? _('Valid') : _('Invalid'))
+						diagnosticFact(_('Validation'), saved.validation?.ok ? _('Valid') : _('Invalid')),
+						diagnosticFact(_('Warnings'), savedWarnings.length)
 					])
 				]),
 				E('article', { 'class': 'steer-test-card' }, [
@@ -293,6 +310,7 @@ return view.extend({
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
 		uiSpec.bootstrap_protocols.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label))); o.rmempty = false;
 		o = s.option(form.Value, 'server', _('Server IP')); o.datatype = 'ipaddr'; o.rmempty = false;
+		o.description = _(uiSpec.dns_boundaries.openwrt.bootstrap_boundary);
 		o = s.option(form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false;
 		o = s.option(form.ListValue, 'strategy', _('Address strategy'));
 		uiSpec.bootstrap_strategies.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/generation"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
@@ -95,6 +97,41 @@ func TestReadDiagnosticsReturnsSavedIdentityAndArchivedReports(t *testing.T) {
 	diagnostics := ReadDiagnostics(configPath, filepath.Join(root, "run"), stateDirectory)
 	if diagnostics.SavedDigest == "" || len(diagnostics.Reports) != 1 || diagnostics.Reports[0].Kind != "direct" {
 		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+}
+
+func TestReadDiagnosticsInspectsCurrentGenerationDNSCaptureArtifacts(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "steer")
+	runDirectory := filepath.Join(root, "run")
+	if err := os.WriteFile(configPath, []byte(minimalConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := DecodeBytes([]byte(minimalConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := NewPlan(value)
+	compiled := compiler.Compile(value, compiler.Options{Target: plan.CompilerTarget()})
+	candidate, err := generation.Create(filepath.Join(runDirectory, "generations"), value, compiled.SingBox)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firewall, err := RenderFirewall(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candidate.Directory, "firewall.nft"), []byte(firewall), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(candidate.Directory, filepath.Join(runDirectory, "current")); err != nil {
+		t.Fatal(err)
+	}
+
+	diagnostics := ReadDiagnostics(configPath, runDirectory, filepath.Join(root, "state"))
+	if !diagnostics.DNSCapture.Configured || diagnostics.DNSCapture.ActiveGeneration != filepath.Base(candidate.Directory) ||
+		diagnostics.DNSCapture.Mode != "dedicated_shim" {
+		t.Fatalf("current OpenWrt DNS capture artifacts were not diagnosed: %#v", diagnostics.DNSCapture)
 	}
 }
 

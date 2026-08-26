@@ -288,6 +288,19 @@ struct OverviewView: View {
                                 .lineLimit(1)
                                 .textSelection(.enabled)
                         }
+                        GridRow {
+                            Text("Saved revision").foregroundStyle(.secondary)
+                            Text(model.savedRevision.isEmpty ? "—" : model.savedRevision)
+                                .font(.caption.monospaced())
+                                .lineLimit(1)
+                                .textSelection(.enabled)
+                        }
+                        GridRow {
+                            Text("Last Apply").foregroundStyle(.secondary)
+                            Text(lastApplySummary)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                        }
                     }
                 }
                 Spacer(minLength: 20)
@@ -342,6 +355,12 @@ struct OverviewView: View {
                 metric(value: model.itemCount(for: "dns_profiles"), label: "DNS Profile", footnote: "\(model.enabledItemCount(for: "dns_profiles")) 已启用", symbol: "network")
                 metric(value: model.itemCount(for: "rules"), label: "规则", footnote: "\(model.enabledItemCount(for: "rules")) 已启用", symbol: "list.number")
             }
+            GridRow {
+                metric(value: model.itemCount(for: "local_proxies"), label: "本地入口", footnote: "\(model.enabledItemCount(for: "local_proxies")) 已启用", symbol: "rectangle.connected.to.line.below")
+                metric(value: model.itemCount(for: "subscriptions"), label: "订阅", footnote: "\(model.enabledItemCount(for: "subscriptions")) 已启用", symbol: "arrow.down.circle")
+                metric(value: model.validation?.warnings.count ?? 0, label: "Warnings", footnote: model.validation == nil ? "尚未校验" : "当前 Draft", symbol: "exclamationmark.triangle")
+                metric(value: model.validation?.errors.count ?? 0, label: "Errors", footnote: model.validation == nil ? "尚未校验" : "当前 Draft", symbol: "xmark.octagon")
+            }
         }
     }
 
@@ -357,6 +376,11 @@ struct OverviewView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var lastApplySummary: String {
+        guard let apply = model.runtime.lastApply else { return "—" }
+        return "\(apply.sequence) · \(apply.result.ok ? "成功" : "失败")"
     }
 
     private func pipelineStep(value: Int, title: String, subtitle: String, symbol: String) -> some View {
@@ -672,6 +696,27 @@ struct DraftCollectionView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isBusy || model.draftSyntaxError != nil)
+            }
+
+            if descriptor.key == "dns_profiles", let boundary = SteerUISpec.contract.dnsBoundaries["macos"] {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label("Bootstrap 与加密 DNS 边界", systemImage: "network.badge.shield.half.filled")
+                        .font(.headline)
+                    Text(boundary.bootstrapBoundary)
+                    Text("port-53 capture：\(boundary.captureScope)")
+                    Text("Exclusions：\(boundary.exclusions.joined(separator: " · "))")
+                    Text(boundary.encryptedDNSBoundary)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(12)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            if descriptor.key == "subscriptions" {
+                Label("订阅更新只刷新 Saved 节点库存，不自动 Apply；被 Route 引用的消失节点保留为 stale。", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Table(of: DraftItem.self, selection: $selection) {
@@ -1137,6 +1182,28 @@ struct DiagnosticsView: View {
                 Button("校验当前工作副本") { model.validate() }
                     .disabled(model.isBusy)
             }
+            Section("Active port-53 配置检查") {
+                let boundary = SteerUISpec.contract.dnsBoundaries["macos"]
+                if let capture = model.diagnosticsDNSCapture {
+                    LabeledContent("结果", value: capture.configured ? "已配置" : "未确认")
+                    LabeledContent("模式", value: capture.mode)
+                    LabeledContent("Generation", value: capture.activeGeneration ?? "—")
+                    LabeledContent("详情", value: capture.detail)
+                } else {
+                    Label("尚未读取 DNS capture 诊断", systemImage: "questionmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                if let boundary {
+                    LabeledContent("范围", value: boundary.captureScope)
+                    LabeledContent("Exclusions", value: boundary.exclusions.joined(separator: " · "))
+                    Text(boundary.diagnosticBoundary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(boundary.encryptedDNSBoundary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Section("运行后端") {
                 LabeledContent("Service", value: "LaunchDaemon + sing-box TUN")
                 LabeledContent("健康状态", value: model.runtime.healthy ? "正常" : "未运行")
@@ -1355,9 +1422,24 @@ struct SystemView: View {
                 LabeledContent("Canonical schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
                 LabeledContent("Backend", value: "steer-macos \(model.versions.helper)")
                 LabeledContent("数据面", value: "sing-box \(model.versions.singBox) · TUN")
+                LabeledContent("Build tags", value: model.versions.singBoxTags.isEmpty ? "—" : model.versions.singBoxTags.joined(separator: " / "))
+                LabeledContent("Active generation", value: model.runtime.generationID.isEmpty ? "—" : model.runtime.generationID)
+                LabeledContent("Last Apply", value: model.runtime.lastApply.map { "\($0.sequence) · \($0.result.ok ? "成功" : "失败")" } ?? "—")
                 LabeledContent("LaunchDaemon", value: "com.steer.steer")
+                LabeledContent("Geo seed version", value: model.versions.geoVersion)
+                LabeledContent("Geo seed rules", value: model.versions.geoRuleCount?.formatted() ?? "—")
                 LabeledContent("GeoSite selectors", value: model.geositeNames.count.formatted())
                 LabeledContent("GeoIP categories", value: model.geoipNames.count.formatted())
+            }
+            Section("DNS capture boundary") {
+                if let boundary = SteerUISpec.contract.dnsBoundaries["macos"] {
+                    LabeledContent("模式", value: boundary.captureMode)
+                    LabeledContent("范围", value: boundary.captureScope)
+                    LabeledContent("Exclusions", value: boundary.exclusions.joined(separator: " · "))
+                    Text(boundary.encryptedDNSBoundary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Section("存储路径") {
                 pathRow("配置", "/Library/Application Support/Steer/config/config.json")

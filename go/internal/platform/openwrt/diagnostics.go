@@ -30,6 +30,10 @@ func ReadDiagnostics(configPath, runDirectory, stateDirectory string) probe.Diag
 		diagnostics.ActiveDigest = compiler.IntentDigest(value)
 		diagnostics.ActiveGeneration = currentGenerationID(currentPath)
 	}
+	diagnostics.DNSCapture = probe.InspectDNSCapture(
+		"dedicated_shim", diagnostics.ActiveGeneration,
+		filepath.Join(currentPath, "sing-box.json"), filepath.Join(currentPath, "firewall.nft"),
+	)
 	return diagnostics
 }
 

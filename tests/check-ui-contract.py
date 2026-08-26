@@ -100,6 +100,9 @@ if [item.get("name") for item in state_lifecycle_fixtures.get("cases", [])] != [
     raise SystemExit("check-ui-contract: state lifecycle fixture drift")
 if probe_diagnostics_fixtures.get("schema_version") != 1:
     raise SystemExit("check-ui-contract: invalid probe diagnostics fixture schema")
+dns_capture_fixture = probe_diagnostics_fixtures.get("diagnostics", {}).get("dns_capture", {})
+if not dns_capture_fixture.get("configured") or dns_capture_fixture.get("mode") != "dedicated_shim":
+    raise SystemExit("check-ui-contract: probe diagnostics DNS capture fixture drift")
 probe_reports = probe_diagnostics_fixtures.get("diagnostics", {}).get("reports", [])
 if [report.get("scope") for report in probe_reports] != ["overview", "nodes", "routes"]:
     raise SystemExit("check-ui-contract: probe diagnostics fixture scope drift")
@@ -132,6 +135,30 @@ actual_navigation = [
 ]
 if actual_navigation != expected_navigation:
     raise SystemExit(f"check-ui-contract: navigation drift: {actual_navigation!r}")
+
+expected_page_facts = {
+    "overview": {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
+    "diagnostics": {"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+    "system": {"versions", "canonical_schema", "generation", "last_apply", "geo", "build_tags", "dns_capture", "paths", "platform_components"},
+}
+page_responsibilities = contract.get("page_responsibilities", {})
+if set(page_responsibilities) != set(expected_page_facts):
+    raise SystemExit("check-ui-contract: page responsibility keys drifted")
+for page, facts in expected_page_facts.items():
+    if set(page_responsibilities[page].get("facts", [])) != facts:
+        raise SystemExit(f"check-ui-contract: {page} responsibility drifted")
+dns_boundaries = contract.get("dns_boundaries", {})
+if set(dns_boundaries) != {"linux", "openwrt", "macos"}:
+    raise SystemExit("check-ui-contract: DNS platform boundaries are incomplete")
+for platform, boundary in dns_boundaries.items():
+    for field in ("capture_mode", "capture_scope", "exclusions", "bootstrap_boundary", "encrypted_dns_boundary", "diagnostic_boundary"):
+        if not boundary.get(field):
+            raise SystemExit(f"check-ui-contract: {platform} DNS boundary lacks {field}")
+    if "does not prove" not in boundary["diagnostic_boundary"] or "Port-53 capture alone" not in boundary["encrypted_dns_boundary"]:
+        raise SystemExit(f"check-ui-contract: {platform} DNS boundary makes an unverifiable claim")
+subscription_inventory = contract.get("subscription_inventory", {})
+if subscription_inventory.get("changes_active_generation") is not False or subscription_inventory.get("stale_referenced_nodes") != "preserved":
+    raise SystemExit("check-ui-contract: subscription inventory lifecycle drifted")
 
 luci_menu = json.loads(
     (ROOT / "luci-app-steer/root/usr/share/luci/menu.d/luci-app-steer.json").read_text()
@@ -194,12 +221,15 @@ linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
 linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
 linux_subscriptions = (ROOT / "go/cmd/steer-linux/web/js/views/subscriptions.js").read_text()
 linux_diagnostics = (ROOT / "go/cmd/steer-linux/web/js/views/diagnostics.js").read_text()
+linux_overview = (ROOT / "go/cmd/steer-linux/web/js/views/overview.js").read_text()
+linux_system = (ROOT / "go/cmd/steer-linux/web/js/views/system.js").read_text()
 linux_dns = (ROOT / "go/cmd/steer-linux/web/js/views/dns.js").read_text()
 linux_proxies = (ROOT / "go/cmd/steer-linux/web/js/views/proxies.js").read_text()
 linux_rules = (ROOT / "go/cmd/steer-linux/web/js/views/rules.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
 luci_rules = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/rules.js").read_text()
 luci_overview = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js").read_text()
+luci_system = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/system.js").read_text()
 luci_helper = (ROOT / "luci-app-steer/htdocs/luci-static/resources/steer.js").read_text()
 luci_dns = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/dns.js").read_text()
 luci_proxies = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/local-proxies.js").read_text()
@@ -218,6 +248,25 @@ require(luci_nodes, "uiSpec.node_types", "LuCI protocol picker")
 require(luci_nodes, "uiSpec.node_fields", "LuCI field matrix")
 require(luci_nodes, "addGeneratedNodeField", "LuCI generated controls")
 require(mac_content, "SteerUISpec.contract.navigation", "macOS navigation")
+require(mac_ui_spec, "pageResponsibilities", "macOS page responsibility contract")
+require(linux_overview, "Draft / Saved / Active", "Linux Overview responsibility")
+require(linux_diagnostics, "S.uiSpec.dns_boundaries", "Linux Diagnostics DNS boundary")
+require(linux_system, "S.uiSpec.dns_boundaries", "Linux System DNS boundary")
+require(linux_dns, "S.uiSpec.dns_boundaries", "Linux DNS boundary")
+require(luci_overview, "uiSpec.dns_boundaries", "LuCI Diagnostics DNS boundary")
+require(luci_system, "uiSpec.dns_boundaries", "LuCI System DNS boundary")
+require(luci_dns, "uiSpec.dns_boundaries", "LuCI DNS boundary")
+require(mac_content, "SteerUISpec.contract.dnsBoundaries", "macOS DNS boundary")
+for content, owner, fragments in (
+    (linux_overview, "Linux Overview", ("lastApply", "intent.nodes.length", "validation.warnings")),
+    (linux_diagnostics, "Linux Diagnostics", ("diagnostics.reports", "S.api.logs", "diagnostics.dns_capture")),
+    (linux_system, "Linux System", ("runtime.sing_box?.tags", "status.generation", "/run/steer")),
+    (luci_overview, "LuCI Overview/Diagnostics", ("renderLifecycleOverview", "diagnostics?.logs", "diagnostics?.dns_capture")),
+    (luci_system, "LuCI System", ("singBox.tags", "status.generation", "/run/steer")),
+    (mac_content, "macOS pages", ("savedRevision", "diagnosticsDNSCapture", "singBoxTags", "geoVersion", "/Library/Application Support/Steer/run")),
+):
+    for fragment in fragments:
+        require(content, fragment, owner)
 require(mac_editors, "SharedNodeDraftForm", "macOS node form")
 require(mac_editors, "SteerUISpec.nodeFields", "macOS field matrix")
 require(linux_subscriptions, "S.uiSpec.subscription_update_interval_default", "Linux subscription default")
@@ -350,9 +399,13 @@ require(mac_content, "!item.enabled", "macOS disabled probe action")
 
 require(linux_subscriptions, "last_failure", "Linux subscription failure state")
 require(linux_subscriptions, "status.stale", "Linux subscription stale state")
+require(linux_subscriptions, "当前运行配置未改变", "Linux no-Apply inventory warning")
+require(linux_subscriptions, "Route 引用", "Linux referenced stale inventory warning")
 require(luci_nodes, "subscriptionOperationGate", "LuCI pending subscription gate")
-require(luci_nodes, "Running configuration was not changed", "LuCI no-Apply inventory warning")
+require(luci_nodes, "current Active configuration was not changed", "LuCI no-Apply inventory warning")
+require(luci_nodes, "preserved as stale", "LuCI referenced stale inventory warning")
 require(mac_state, "SubscriptionStaleNode", "macOS stale node contract")
+require(mac_state, "当前运行配置未改变", "macOS no-Apply inventory warning")
 require(mac_content, "SubscriptionStaleList", "macOS per-node stale management")
 require(mac_content, "pinned-stale", "macOS stale node badge")
 for source, owner in (

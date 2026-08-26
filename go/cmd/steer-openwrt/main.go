@@ -18,6 +18,7 @@ import (
 	"time"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/capability"
 	"github.com/gsh20040816/steer/go/internal/compiler"
 	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
@@ -206,10 +207,11 @@ func runRuntime(args []string) error {
 		return errors.New("_runtime accepts flags only")
 	}
 	result := map[string]any{"steer": version, "canonical_schema": model.SchemaVersion}
-	if output, err := exec.Command(*singBoxBinary, "version", "--name").CombinedOutput(); err == nil {
-		result["sing_box"] = strings.TrimSpace(string(output))
+	if output, err := exec.Command(*singBoxBinary, "version").CombinedOutput(); err == nil {
+		report := capability.Parse(string(output), nil)
+		result["sing_box"] = map[string]any{"version": report.Version, "tags": report.Tags}
 	} else {
-		result["sing_box_error"] = strings.TrimSpace(string(output))
+		result["sing_box"] = map[string]any{"error": strings.TrimSpace(string(output))}
 	}
 	if manifest, err := geodata.ReadManifest(*seedDirectory); err == nil {
 		result["geodata"] = map[string]any{"version": manifest.Upstream.Version, "rule_count": len(manifest.Rules)}

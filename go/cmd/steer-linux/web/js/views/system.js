@@ -38,8 +38,12 @@
       const isCurrent = ui.beginRender(root);
       const [geosite, geoip] = await Promise.all([S.api.geodata('geosite'), S.api.geodata('geoip')]);
       const runtime = S.store.runtime || {};
+      const status = S.store.overview?.status || {};
       const geo = runtime.geodata || {};
       const access = webAccess(runtime.web_listen);
+      const dnsBoundary = S.uiSpec.dns_boundaries.linux;
+      const lastApply = status.last_apply;
+      const lastApplyResult = lastApply?.result;
 
       const geoCard = h('section', { class: 'card' }, [
         h('div', { class: 'card__head' }, [
@@ -62,7 +66,30 @@
           fact('steer', runtimeValue(runtime.steer)),
           fact('sing-box', runtimeValue(runtime.sing_box)),
           fact('canonical schema', runtimeValue(runtime.canonical_schema)),
-          fact('build tags', Array.isArray(runtime.sing_box?.tags) ? runtime.sing_box.tags.join(' / ') : '—')
+          fact('build tags', Array.isArray(runtime.sing_box?.tags) ? runtime.sing_box.tags.join(' / ') : '—'),
+          fact('Active generation', status.generation || '—'),
+          fact('Last Apply', lastApply ? `${ui.applyTime(lastApply)} · ${lastApplyResult?.ok ? '成功' : '失败'} · ${lastApply.sequence}` : '—')
+        ])
+      ]);
+
+      const dnsCard = h('section', { class: 'card' }, [
+        h('span', { class: 'eyebrow' }, 'DNS capture boundary'),
+        h('div', { class: 'facts u-mt-10' }, [
+          fact('模式', dnsBoundary.capture_mode),
+          fact('范围', dnsBoundary.capture_scope),
+          fact('exclusions', dnsBoundary.exclusions.join(' · '))
+        ]),
+        h('p', { class: 'muted' }, dnsBoundary.encrypted_dns_boundary)
+      ]);
+
+      const platformCard = h('section', { class: 'card' }, [
+        h('span', { class: 'eyebrow' }, '平台组件与路径'),
+        h('div', { class: 'facts u-mt-10' }, [
+          fact('systemd', 'steer.service · steer-web.service · steer-subscription.timer'),
+          fact('配置', '/etc/steer/config.json'),
+          fact('运行目录', '/run/steer'),
+          fact('状态目录', '/var/lib/steer'),
+          fact('Geo seed', '/usr/share/steer/geodata-seed')
         ])
       ]);
 
@@ -73,7 +100,7 @@
       ]);
 
       if (!isCurrent()) return;
-      root.append(ui.viewHead('系统', '包内 seed 与可确认的运行事实'), geoCard, factsCard, accessCard);
+      root.append(ui.viewHead('系统', '版本、schema、generation、Geo、构建与平台组件事实'), geoCard, factsCard, dnsCard, platformCard, accessCard);
     }
   };
 

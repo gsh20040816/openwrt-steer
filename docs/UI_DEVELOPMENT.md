@@ -75,11 +75,11 @@ Canonical Intent / Validate / Compiler
   └─ 高级配置 / Canonical 预览
 ```
 
-- 总览只展示运行状态、执行模型、规模摘要和快捷操作，不承载长期配置表单。
+- 总览只展示 Draft/Saved/Active、last Apply、对象规模、warnings 摘要和少量快捷操作，不承载长期配置表单。
 - 基础设置只编辑 Main、探测目标、DNS cache 和 Bootstrap。
 - 节点与路由必须是独立页面；订阅状态和更新不能塞入节点页。
-- 诊断统一容纳 overview/node/route 的完整 sanitized probe 报告、Validate、最近 Apply 和相关日志，并提供 Refresh。
-- 系统统一展示版本、schema、generation、Geo seed、平台路径和平台特有的安装/升级能力。
+- 诊断统一容纳 overview/node/route 的完整 sanitized probe 报告、Validate、Active port-53 配置检查、最近 Apply 和相关日志，并提供 Refresh；测试失败和日志只能明确落到这里。
+- 系统统一展示版本、schema、generation、last Apply、Geo seed、sing-box build tags、DNS capture boundary、平台路径和平台特有组件/安装能力。
 - 高级页在 JSON 平台提供 Canonical 编辑，在 OpenWrt 提供 Canonical 只读预览；它不能成为结构化 UI 缺字段的常规兜底。
 - 平台特有能力放在最接近的共享页面内，不得创建只在单一平台存在的顶层导航层级。
 
@@ -106,6 +106,8 @@ Canonical Intent / Validate / Compiler
 - LuCI ACL、Linux Bearer token 和 macOS peer credential 是 transport 权限，不进入共享 Intent；
 - 日志来源和订阅调度器属于平台实现，但用户操作和结果合同保持一致。
 
+生成规格中的 `page_responsibilities` 固定上述页面事实，`dns_boundaries` 固定三端 capture scope/exclusions 与 Bootstrap/加密 DNS/诊断声明，`subscription_inventory` 固定库存更新不改变 Active generation 且保留被 Route 引用的 stale 节点。页面级测试必须验证三端消费这些字段，不能各自重新发明绝对承诺。
+
 UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并给出稳定原因；不得用一段说明文字冒充已实现功能。
 
 ## 列表与操作一致性
@@ -116,6 +118,7 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 - 普通列表只显示“失败”与“详细原因请查看诊断日志”。Diagnostics 展示 tested_at、scope/object、URL、TCP/TLS/TTFB/HTTP/bytes/rate 中实际存在的安全字段；临时核心名称、outbound ID、命令行和完整后端错误链不得进入报告 UI。
 - Direct 是系统必需且始终启用的固定路由；Reject 是固定类型但可启停。二者均不得显示删除、拖拽排序或类型转换操作，新建路由只能是 Single。Reject 只能编译为 sing-box route/DNS `reject` action，不得生成已废弃的 `type=block` outbound。
 - 删除订阅时必须先检查其节点是否被 Route 引用；无引用时订阅与其生成节点必须一起从工作副本移除。
+- 订阅 Update 的非阻断提示必须同时展示 added/current/stale/skipped，并明确“库存已更新、当前 Active 配置未改变、被 Route 引用的消失节点保留为 stale”；cleanup 只能移除无引用 stale 节点，不得级联改写 Route。
 - 节点导入统一使用共享后端解析器，支持多行分享链接和 Base64 包装文档；文案不得声称在浏览器本地解析。
 - LuCI 批量节点导入在写入 pending UCI 前必须逐项展示名称、协议、endpoint、TLS 校验状态与真实的凭据存在性；凭据内容不得进入预览 DOM，Cancel 不得创建任何 section。JSON boolean 与 UCI `"1"` 必须使用同一 flag normalization。
 - LuCI Named `GridSection` 必须保留原生 provisional section → editor modal → Save/Cancel 生命周期。ID 按共享策略自动生成，共享默认值在原生 `data.add()` 边界注入；Add 后立即编辑，Cancel 删除 provisional section，不能先 `map.save()` 留下空 pending row。

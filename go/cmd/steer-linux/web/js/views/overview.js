@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* 总览：执行模型流水线 + 三张测试卡 + 校验摘要 + 快照。 */
+/* 总览：Draft / Saved / Active、规模、warnings 与少量快捷操作。 */
 'use strict';
 (function () {
   const S = window.S;
-  const { h, fmtReport } = S;
+  const { h } = S;
   const ui = S.ui;
 
   function step(kind, num, title, sub) {
@@ -14,28 +14,6 @@
     ]);
   }
   const arrow = () => h('span', { class: 'arrow', 'aria-hidden': 'true' }, '→');
-
-  function testCard(kind, title, desc) {
-    const out = h('div', { class: 'test-slot' }, h('span', { class: 'muted' }, '未测试'));
-    const run = h('button', { class: 'btn', onclick: async () => {
-      run.disabled = true;
-      out.replaceChildren(h('span', { class: 'muted spinning' }, '测试中…'));
-      try {
-        const report = await S.api.probe(kind);
-        const r = fmtReport(report, kind === 'speedtest');
-        out.replaceChildren(h('div', { class: `test-result ${r.ok ? 'is-ok' : 'is-err'}` }, h('strong', {}, r.label), h('small', {}, r.detail)));
-      } catch (e) {
-        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, '详细原因请查看诊断日志')));
-      }
-      run.disabled = false;
-    } }, '运行测试');
-    return h('div', { class: 'test-card' }, [
-      h('span', { class: 'eyebrow' }, title),
-      h('p', {}, desc),
-      run,
-      out
-    ]);
-  }
 
   const view = {
     name: 'overview',
@@ -73,18 +51,6 @@
         ])
       ]);
 
-      const tests = h('section', { class: 'card' }, [
-        h('div', { class: 'card__head' }, [
-          h('div', {}, h('span', { class: 'eyebrow' }, '连通性'), h('div', { class: 'card__title' }, '手动探测')),
-          h('span', { class: 'muted' }, '按当前 Active 规则访问 · 只证明目标当时可达')
-        ]),
-        h('div', { class: 'grid-3' }, [
-          testCard('direct', '直连目标', '按当前 Active 规则访问配置的直连测试目标；不证明具体 outbound 或 DNS resolver'),
-          testCard('proxy', '代理目标', '按当前 Active 规则访问配置的代理测试目标；不证明具体 outbound 或 DNS resolver'),
-          testCard('speedtest', '下载目标', '按当前 Active 规则访问配置的下载测试目标；不证明具体 outbound 或 DNS resolver')
-        ])
-      ]);
-
       const summary = h('section', { class: 'card' }, [
         h('div', { class: 'card__head' }, [
           h('div', {}, h('span', { class: 'eyebrow' }, '状态模型'), h('div', { class: 'card__title' }, 'Draft / Saved / Active')),
@@ -93,7 +59,8 @@
         h('div', { class: 'facts' }, [
           fact('Draft', S.store.dirty ? '有未保存修改' : '与当前 Saved 基线一致'),
           fact('Draft desired', intent.main?.enabled ? '启用' : '禁用'),
-          fact('Draft 对象', `节点 ${intent.nodes.length} · 规则 ${intent.rules.length} · 路由 ${intent.routes.length}`),
+          fact('Draft 对象', `节点 ${intent.nodes.length} · 路由 ${intent.routes.length} · DNS ${intent.dns_profiles.length} · 本地入口 ${intent.local_proxies.length} · 规则 ${intent.rules.length} · 订阅 ${intent.subscriptions.length}`),
+          fact('Draft warnings', `${validation.warnings?.length || 0} warnings · ${validation.errors?.length || 0} errors`),
           fact('Saved revision', S.fmtRevision(S.store.revision)),
           fact('Saved desired', ov.saved_enabled ? '启用' : '禁用'),
           fact('pending_apply', ov.pending_apply ? '是' : '否'),
@@ -103,10 +70,9 @@
           fact('上次 Apply', lastApply ? `${ui.applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')
         ]),
         h('div', { class: 'u-mt-10' }, ui.applyRecord(status)),
-          validation.errors.length || validation.warnings.length ? h('div', {}, [
-          ui.issueList(validation.errors, ui.jumpToObject),
-          ui.issueList(validation.warnings, ui.jumpToObject, true)
-        ]) : h('p', { class: 'muted' }, '当前 Draft 校验通过。切换运行态失败会保留 Saved revision，Active 仍以运行 Status 为准。')
+        h('p', { class: 'muted' }, validation.errors.length || validation.warnings.length
+          ? '这里只显示问题数量；完整 Validation、Probe、报告与日志统一位于“诊断”。'
+          : '当前 Draft 校验通过。完整测试与日志统一位于“诊断”。')
       ]);
 
       function fact(label, value) {
@@ -115,8 +81,11 @@
 
       if (!isCurrent()) return;
       root.append(...[
-        ui.viewHead('总览', 'systemd Linux 透明代理控制面 · 主机及 VM/Docker 公网流量统一进入 Steer'),
-        externalNotice, pipeline, tests, summary
+        ui.viewHead('总览', 'Draft / Saved / Active 摘要与少量恢复操作', [
+          h('button', { class: 'btn', onclick: () => S.router?.('diagnostics') }, '打开诊断'),
+          h('button', { class: 'btn', onclick: () => S.router?.('system') }, '系统事实')
+        ]),
+        externalNotice, pipeline, summary
       ].filter(Boolean));
     }
   };

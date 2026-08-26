@@ -3,6 +3,8 @@
 package macos
 
 import (
+	"path/filepath"
+
 	"github.com/gsh20040816/steer/go/internal/compiler"
 	"github.com/gsh20040816/steer/go/internal/probe"
 )
@@ -18,6 +20,12 @@ func ReadDiagnostics(configPath string, options BackendOptions) probe.Diagnostic
 	if current, err := runtimePaths(options.RunDirectory, "").LoadCurrent(); err == nil {
 		diagnostics.ActiveGeneration = current.GenerationID
 		diagnostics.ActiveDigest = current.IntentDigest
+		diagnostics.DNSCapture = probe.InspectDNSCapture(
+			"tun_port53_hijack", current.GenerationID,
+			filepath.Join(options.RunDirectory, "generations", current.Directory, "sing-box.json"), "",
+		)
+	} else {
+		diagnostics.DNSCapture = probe.InspectDNSCapture("tun_port53_hijack", "", "", "")
 	}
 	return diagnostics
 }

@@ -135,6 +135,31 @@ func TestCreationDefaultsAndAutomaticIDPolicyAreShared(t *testing.T) {
 	}
 }
 
+func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t *testing.T) {
+	contract := ContractValue()
+	expectedPages := map[string][]string{
+		"overview":    {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
+		"diagnostics": {"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+		"system":      {"versions", "canonical_schema", "generation", "last_apply", "geo", "build_tags", "dns_capture", "paths", "platform_components"},
+	}
+	for page, facts := range expectedPages {
+		if !reflect.DeepEqual(contract.PageResponsibilities[page].Facts, facts) {
+			t.Errorf("%s responsibility drifted: %#v", page, contract.PageResponsibilities[page])
+		}
+	}
+	for _, platform := range []string{"linux", "openwrt", "macos"} {
+		boundary := contract.DNSBoundaries[platform]
+		if boundary.CaptureMode == "" || boundary.CaptureScope == "" || len(boundary.Exclusions) == 0 ||
+			boundary.BootstrapBoundary == "" || boundary.EncryptedDNSBoundary == "" || boundary.DiagnosticBoundary == "" {
+			t.Errorf("%s DNS boundary is incomplete: %#v", platform, boundary)
+		}
+	}
+	if contract.SubscriptionInventory.ChangesActiveGeneration ||
+		contract.SubscriptionInventory.StaleReferencedNodes != "preserved" || contract.SubscriptionInventory.Notice == "" {
+		t.Fatalf("subscription inventory semantics drifted: %#v", contract.SubscriptionInventory)
+	}
+}
+
 func TestHighFrequencyInputFormatsAreShared(t *testing.T) {
 	formats := ContractValue().InputFormats
 	probe := formats["probe_url"]

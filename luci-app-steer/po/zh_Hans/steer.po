@@ -786,9 +786,6 @@ msgstr "按当前 Active 规则访问配置的下载测试目标。"
 msgid "Visits the configured proxy test target under the current Active rules."
 msgstr "按当前 Active 规则访问配置的代理测试目标。"
 
-msgid "Inventory updated: added %d, current %d, stale %d, skipped %d. Running configuration was not changed."
-msgstr "节点库已更新：新增 %d，当前 %d，stale %d，跳过 %d。运行配置未改变。"
-
 msgid "Last failure: %s · %s"
 msgstr "最近失败：%s · %s"
 
@@ -836,9 +833,6 @@ msgstr "无效"
 
 msgid "No"
 msgstr "否"
-
-msgid "Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d"
-msgstr "节点 %d · 路由 %d · DNS %d · 本地代理 %d · 规则 %d"
 
 msgid "Objects"
 msgstr "对象"
@@ -1448,3 +1442,72 @@ msgstr "使用共享的 1–32 字符小写 ID 规则。"
 
 msgid "not selected"
 msgstr "未选择"
+
+msgid "Active port-53 capture inspection"
+msgstr "Active 端口 53 捕获配置检查"
+
+msgid "Bootstrap"
+msgstr "Bootstrap"
+
+msgid "Bootstrap and encrypted DNS boundary"
+msgstr "Bootstrap 与加密 DNS 边界"
+
+msgid "Build tags"
+msgstr "构建标签"
+
+msgid "Capture scope"
+msgstr "捕获范围"
+
+msgid "Configured"
+msgstr "已配置"
+
+msgid "DNS capture boundary"
+msgstr "DNS 捕获边界"
+
+msgid "Exclusions"
+msgstr "排除范围"
+
+msgid "Geo seed path"
+msgstr "Geo seed 路径"
+
+msgid "Mode"
+msgstr "模式"
+
+msgid "Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d · Subscriptions %d"
+msgstr "节点 %d · 路由 %d · DNS %d · 本地入口 %d · 规则 %d · 订阅 %d"
+
+msgid "Platform components and paths"
+msgstr "平台组件与路径"
+
+msgid "Runtime directory"
+msgstr "运行目录"
+
+msgid "Service"
+msgstr "服务"
+
+msgid "State directory"
+msgstr "状态目录"
+
+msgid "Subscription inventory updated; the current Active configuration was not changed. Nodes still referenced by Routes but no longer advertised by the subscription were preserved as stale. Added %d, current %d, stale %d, skipped %d."
+msgstr "订阅节点库存已更新；当前 Active 配置未改变。仍被 Route 引用、但已不再由订阅提供的节点已保留为 stale。新增 %d，当前 %d，stale %d，跳过 %d。"
+
+msgid "Warnings"
+msgstr "警告"
+
+msgid "Router and LAN TCP/UDP destination port 53 is redirected by nftables to the dedicated DNS inbound."
+msgstr "路由器与 LAN 的 TCP/UDP 目标端口 53 由 nftables 重定向到专用 DNS inbound。"
+
+msgid "TUN routing excludes non-global destinations"
+msgstr "TUN 路由排除非全球目的地址"
+
+msgid "marked Steer DNS and TUN traffic is excluded from recapture"
+msgstr "带标记的 Steer DNS 与 TUN 流量不会被再次捕获"
+
+msgid "Bootstrap resolves infrastructure hostnames such as a DNS upstream hostname. Direct UDP/TCP bootstrap can use plaintext port 53, but it does not carry the original user query name."
+msgstr "Bootstrap 解析 DNS 上游主机名等基础设施主机名。Direct UDP/TCP Bootstrap 可以使用明文 53 端口，但不会携带原始用户查询域名。"
+
+msgid "Application-owned DoH, DoT and DoQ is ordinary business traffic. Port-53 capture alone neither identifies nor redirects it; control requires that traffic to enter the captured path and a separately verified block or redirect policy."
+msgstr "应用自带的 DoH、DoT 与 DoQ 属于普通业务流量。仅靠端口 53 捕获既不能识别也不能重定向它；要进行控制，流量必须进入捕获路径，并另有经过验证的阻断或重定向策略。"
+
+msgid "The diagnostic verifies port-53 artifacts in the published Active generation; it is not packet observation and does not prove encrypted-DNS blocking or zero leakage."
+msgstr "该诊断只验证已发布 Active generation 中的端口 53 配置产物；它不是抓包观测，也不证明加密 DNS 已被阻断或零泄漏。"

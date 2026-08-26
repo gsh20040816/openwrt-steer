@@ -50,6 +50,7 @@ return view.extend({
 
 	render: function() {
 		let m, s, o;
+		const boundary = uiSpec.dns_boundaries.openwrt;
 		steer.loadStyle();
 		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
@@ -87,7 +88,22 @@ return view.extend({
 		o = s.taboption('tls', form.Flag, 'insecure', _('Skip certificate verification')); o.default = '0'; o.modalonly = true;
 		dependOnDNSField(o, 'insecure');
 
-		return m.render().then((formNode) => steer.focusSection(s, 'dns_profile').then(() => formNode));
+		return m.render().then((formNode) => steer.focusSection(s, 'dns_profile').then(() => E([], [
+			E('section', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Bootstrap and encrypted DNS boundary')),
+				E('dl', { 'class': 'steer-status__facts' }, [
+					E('div', {}, [ E('dt', {}, _('Bootstrap')), E('dd', {}, '%s %s:%s · %s'.format(
+						String(uci.get('steer', 'bootstrap', 'protocol') || '—').toUpperCase(),
+						uci.get('steer', 'bootstrap', 'server') || '—', uci.get('steer', 'bootstrap', 'server_port') || '—',
+						uci.get('steer', 'bootstrap', 'strategy') || '—')) ]),
+					E('div', {}, [ E('dt', {}, _('Capture scope')), E('dd', {}, boundary.capture_scope) ]),
+					E('div', {}, [ E('dt', {}, _('Exclusions')), E('dd', {}, boundary.exclusions.join(' · ')) ])
+				]),
+				E('p', {}, _(boundary.bootstrap_boundary)),
+				E('p', {}, _(boundary.encrypted_dns_boundary))
+			]),
+			formNode
+		])));
 	},
 
 	handleSaveApply: function(ev, mode) { return steer.apply(this, ev, mode); }

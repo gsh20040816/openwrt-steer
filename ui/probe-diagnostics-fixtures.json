@@ -22,6 +22,12 @@
     "saved_digest": "saved-a",
     "active_generation": "generation-a",
     "active_digest": "active-a",
+    "dns_capture": {
+      "mode": "dedicated_shim",
+      "active_generation": "generation-a",
+      "configured": true,
+      "detail": "the published Active generation contains the expected port-53 capture artifacts"
+    },
     "warnings": [],
     "reports": [
       {
