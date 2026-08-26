@@ -540,6 +540,26 @@ func validateLocalProxy(value LocalProxy, err issueFn) {
 	}
 }
 
+// DNSProjectionUnsupportedConditions returns rule fields that can only be
+// evaluated after DNS resolution. Dropping any of them from a DNS reject would
+// widen the reject beyond the rule's canonical match.
+func DNSProjectionUnsupportedConditions(value Rule) []string {
+	conditions := []string{}
+	if len(value.IPMatch) > 0 {
+		conditions = append(conditions, "ip_match")
+	}
+	if len(value.Network) > 0 {
+		conditions = append(conditions, "network")
+	}
+	if len(value.Protocol) > 0 {
+		conditions = append(conditions, "protocol")
+	}
+	if len(value.Port) > 0 {
+		conditions = append(conditions, "port")
+	}
+	return conditions
+}
+
 func validateRule(value Rule, routes map[string]Route, dnsProfiles map[string]DNSProfile, localProxies map[string]LocalProxy, err, warn issueFn) {
 	hasMatch := len(value.Inbound)+len(value.DomainMatch)+len(value.IPMatch)+len(value.SourceIPCIDR)+len(value.SourceMACAddress)+len(value.Network)+len(value.Protocol)+len(value.Port) > 0
 	if value.Default && hasMatch {
@@ -600,7 +620,10 @@ func validateRule(value Rule, routes map[string]Route, dnsProfiles map[string]DN
 	for _, port := range value.Port {
 		validPort(port, "rule", value.ID, "port", err)
 	}
-	if !value.Default && len(value.Inbound)+len(value.DomainMatch)+len(value.SourceIPCIDR)+len(value.SourceMACAddress) == 0 {
+	unsupportedDNSConditions := DNSProjectionUnsupportedConditions(value)
+	if !value.Default && exists && route.Enabled && route.Kind == "block" && len(unsupportedDNSConditions) > 0 {
+		warn("DNS_REJECT_PROJECTION_SKIPPED", "rule", value.ID, "route", "DNS reject projection is skipped because DNS cannot evaluate connection-stage conditions: "+strings.Join(unsupportedDNSConditions, ", ")+"; DNS queries continue to subsequent rules")
+	} else if !value.Default && len(value.Inbound)+len(value.DomainMatch)+len(value.SourceIPCIDR)+len(value.SourceMACAddress) == 0 {
 		warn("DNS_PROJECTION_EMPTY", "rule", value.ID, "dns_profile", "rule has only connection-stage conditions and produces no DNS projection")
 	}
 }

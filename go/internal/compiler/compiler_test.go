@@ -222,6 +222,50 @@ func TestCompileDirectDNSWithoutDetourAndBlockAsReject(t *testing.T) {
 	}
 }
 
+func TestCompileRejectDoesNotWidenDNSProjection(t *testing.T) {
+	testCases := []struct {
+		name          string
+		connectionSet func(*model.Rule)
+		expectedRoute string
+	}{
+		{name: "port", connectionSet: func(rule *model.Rule) { rule.Port = []int{8443} }, expectedRoute: `"port":[8443]`},
+		{name: "protocol", connectionSet: func(rule *model.Rule) { rule.Protocol = []string{"tls"} }, expectedRoute: `"protocol":["tls"]`},
+		{name: "network", connectionSet: func(rule *model.Rule) { rule.Network = []string{"tcp"} }, expectedRoute: `"network":["tcp"]`},
+		{name: "ip_match", connectionSet: func(rule *model.Rule) { rule.IPMatch = []string{"203.0.113.0/24"} }, expectedRoute: `"ip_cidr":["203.0.113.0/24"]`},
+		{name: "geoip", connectionSet: func(rule *model.Rule) { rule.IPMatch = []string{"geoip:private"} }, expectedRoute: `"rule_set":["steer-geoip-private"]`},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			intent := representativeIntent()
+			blockRule := model.Rule{
+				ID: "conditional_block", Enabled: true, DNSProfile: "public", Route: "block",
+				DomainMatch: []string{"domain:conditional-block.example"},
+			}
+			testCase.connectionSet(&blockRule)
+			intent.Rules = append(intent.Rules[:len(intent.Rules)-1], blockRule, intent.Rules[len(intent.Rules)-1])
+
+			bundle := Compile(intent, testOptions())
+			dnsRules := string(mustJSON(bundle.SingBox["dns"].(map[string]any)["rules"]))
+			if strings.Contains(dnsRules, "conditional-block.example") {
+				t.Fatalf("conditional reject widened into a DNS reject: %s", dnsRules)
+			}
+
+			var compiledRoute string
+			for _, raw := range bundle.SingBox["route"].(map[string]any)["rules"].([]any) {
+				routeRule := raw.(map[string]any)
+				encoded := string(mustJSON(routeRule))
+				if routeRule["action"] == "reject" && strings.Contains(encoded, "conditional-block.example") {
+					compiledRoute = encoded
+					break
+				}
+			}
+			if compiledRoute == "" || !strings.Contains(compiledRoute, testCase.expectedRoute) {
+				t.Fatalf("connection-stage reject lost its exact match: %s", compiledRoute)
+			}
+		})
+	}
+}
+
 func TestCompileDefaultBlockAsFinalRejectRule(t *testing.T) {
 	intent := representativeIntent()
 	intent.Rules[len(intent.Rules)-1].Route = "block"

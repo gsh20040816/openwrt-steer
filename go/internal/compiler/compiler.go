@@ -276,6 +276,9 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		routeRules = append(routeRules, routeMatch)
 		if dnsMatch := compileDNSMatch(rule); len(dnsMatch) > 0 {
 			if routes[rule.Route].Kind == "block" {
+				if len(model.DNSProjectionUnsupportedConditions(rule)) > 0 {
+					continue
+				}
 				dnsMatch["action"] = "reject"
 			} else {
 				dnsMatch["action"] = "route"
