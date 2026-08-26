@@ -179,22 +179,49 @@ async function main() {
 	assert.deepEqual(runtime.previewCalls, [ false, true ],
 		'Canonical Preview forwards only the explicit temporary reveal decision');
 	const addedSections = [];
+	const removedSections = [];
+	const modalSections = [];
+	const sectionValues = {};
+	const namedData = {
+		add: (...args) => { addedSections.push(args); return args[2]; },
+		set: (_config, sectionId, option, value) => { (sectionValues[sectionId] ||= {})[option] = value; },
+		remove: (_config, sectionId) => { removedSections.push(sectionId); delete sectionValues[sectionId]; }
+	};
 	const namedSection = {
 		sectiontype: 'rule',
 		map: {
 			config: 'steer',
-			data: { add: (...args) => addedSections.push(args) },
-			save: () => Promise.resolve('saved')
+			data: namedData,
+			save: () => { throw new Error('Add must not persist a provisional section before modal Save'); }
+		},
+		handleAdd: function(_ev, sectionId) {
+			const added = this.map.data.add(this.map.config, this.sectiontype, sectionId);
+			this.map.addedSection = added;
+			return this.renderMoreOptionsModal(added);
+		},
+		renderMoreOptionsModal: function(sectionId) {
+			modalSections.push({ sectionId, values: { ...(sectionValues[sectionId] || {}) } });
+			return Promise.resolve(sectionId);
+		},
+		handleModalCancel: function(_modalMap, _ev, isSaving) {
+			if (this.map.addedSection != null && !isSaving)
+				this.map.data.remove(this.map.config, this.map.addedSection);
+			delete this.map.addedSection;
 		}
 	};
-	helper.configureNamedSection(namedSection);
+	helper.configureNamedSection(namedSection, { enabled: '1' });
 	assert.equal(namedSection.anonymous, false, 'Steer-owned sections require explicit IDs');
 	assert.equal(namedSection.handleAdd(null, 'Rule-A'), undefined,
 		'Invalid UCI section IDs fail before saving');
 	assert.equal(runtime.notifications.at(-1).level, 'danger');
 	await namedSection.handleAdd(null, 'laptop_direct');
 	assert.deepEqual(addedSections, [ [ 'steer', 'rule', 'laptop_direct' ] ],
-		'Valid section IDs are persisted as named UCI sections');
+		'Valid section IDs create one provisional named UCI section');
+	assert.deepEqual(modalSections, [ { sectionId: 'laptop_direct', values: { enabled: '1' } } ],
+		'Grid Add opens the native editor modal with defaults already available');
+	namedSection.handleModalCancel(null, null, false);
+	assert.deepEqual(removedSections, [ 'laptop_direct' ],
+		'Cancelling the native editor removes the provisional section without a pending row');
 
 	const ruleOrder = [ 'default' ];
 	const savedRuleOrders = [];
@@ -221,10 +248,16 @@ async function main() {
 					return true;
 				}
 			},
-			save: () => {
-				savedRuleOrders.push([ ...ruleOrder ]);
-				return Promise.resolve('saved');
-			}
+			save: () => { throw new Error('Add must wait for the modal Save action'); }
+		},
+		handleAdd: function(_ev, sectionId) {
+			const added = this.map.data.add(this.map.config, this.sectiontype, sectionId);
+			this.map.addedSection = added;
+			return this.renderMoreOptionsModal(added);
+		},
+		renderMoreOptionsModal: function(sectionId) {
+			savedRuleOrders.push([ ...ruleOrder ]);
+			return Promise.resolve(sectionId);
 		}
 	};
 	helper.configureNamedSection(orderedRuleSection, null, 'default');
@@ -233,7 +266,7 @@ async function main() {
 	assert.deepEqual(savedRuleOrders, [
 		[ 'first_rule', 'default' ],
 		[ 'first_rule', 'second_rule', 'default' ]
-	], 'Default-only and existing-rule UCI drafts save each new rule immediately before Default');
+	], 'Each new Rule opens its modal only after being provisionally ordered before Default');
 	assert.deepEqual(moveCalls, [
 		[ 'steer', 'first_rule', 'default', false ],
 		[ 'steer', 'second_rule', 'default', false ]

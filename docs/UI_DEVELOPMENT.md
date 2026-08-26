@@ -115,6 +115,8 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 - Direct 是系统必需且始终启用的固定路由；Reject 是固定类型但可启停。二者均不得显示删除、拖拽排序或类型转换操作，新建路由只能是 Single。Reject 只能编译为 sing-box route/DNS `reject` action，不得生成已废弃的 `type=block` outbound。
 - 删除订阅时必须先检查其节点是否被 Route 引用；无引用时订阅与其生成节点必须一起从工作副本移除。
 - 节点导入统一使用共享后端解析器，支持多行分享链接和 Base64 包装文档；文案不得声称在浏览器本地解析。
+- LuCI 批量节点导入在写入 pending UCI 前必须逐项展示名称、协议、endpoint、TLS 校验状态与真实的凭据存在性；凭据内容不得进入预览 DOM，Cancel 不得创建任何 section。JSON boolean 与 UCI `"1"` 必须使用同一 flag normalization。
+- LuCI Named `GridSection` 必须保留原生 provisional section → editor modal → Save/Cancel 生命周期。共享默认值在原生 `data.add()` 边界注入，Add 后立即编辑，Cancel 删除 provisional section，不能先 `map.save()` 留下空 pending row。
 
 ## 敏感数据
 
