@@ -19,6 +19,7 @@ const root = path.resolve(__dirname, '../..');
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
 const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
+const probeDiagnosticsFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/probe-diagnostics-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -310,6 +311,7 @@ function createEnvironment(sections) {
 		status: () => Promise.resolve({}),
 		validate: () => Promise.resolve({ ok: true, errors: [], warnings: [] }),
 		geodataCatalog: () => Promise.resolve({}),
+		diagnostics: () => Promise.resolve(environment.diagnosticsResult),
 		subscriptions: () => Promise.resolve({ subscriptions: [] }),
 		renderStatus: () => { statusRenderCalls++; return element('div'); },
 		updateSubscription: (id) => {
@@ -355,6 +357,7 @@ function createEnvironment(sections) {
 		get statusRenderCalls() { return statusRenderCalls; },
 		cleanSubscriptionResult: { ok: true },
 		updateSubscriptionResult: { ok: true, subscriptions: [] },
+		diagnosticsResult: probeDiagnosticsFixtures.diagnostics,
 		speedtestResult: { ok: true, results: [ {
 			url: 'https://speed.example/', ok: true, status: 204, attempts: 1,
 			first_byte_milliseconds: 42, downloaded_bytes: 1000000, download_milliseconds: 1000
@@ -538,14 +541,16 @@ function testSubscriptionRPCRejectsPendingSession() {
 	const methods = loadUcodeRPC(runtime);
 	for (const [ method, args ] of [
 		[ methods.subscription_update, { id: 'feed' } ],
-		[ methods.subscription_clean, { id: 'feed', node: 'feed_stale' } ]
+		[ methods.subscription_clean, { id: 'feed', node: 'feed_stale' } ],
+		[ methods.node_speedtest, { node: 'node_a', download: false } ],
+		[ methods.route_speedtest, { route: 'route_a', download: true } ]
 	]) {
 		const response = callUcodeMethod(method, args);
 		assert.equal(response.ok, false);
 		assert.equal(response.error_code, 'PENDING_CHANGES');
 	}
 	assert.equal(runtime.commands.length, 0,
-		'server-side pending guard rejects update and clean before starting the Steer command');
+		'server-side pending guard rejects inventory and committed probe operations before starting Steer');
 	runtime.changes = [];
 	callUcodeMethod(methods.subscription_update, { id: 'feed' });
 	assert.equal(runtime.commands.length, 1);
@@ -674,7 +679,7 @@ async function renderOverview(sections, page = 'general') {
 			_: environment.translate
 		}
 	);
-	environment.rendered = await view.render([ null, {}, { ok: true, errors: [], warnings: [] } ]);
+	environment.rendered = await view.render([ null, {}, { ok: true, errors: [], warnings: [] }, environment.diagnosticsResult, { steer: [] } ]);
 	return environment;
 }
 
@@ -1225,6 +1230,46 @@ async function main() {
 		.onclick({ currentTarget: routeTestButton }, 'route_proxy');
 	assert.deepEqual(environment.routeSpeedtestCalls, [ { route: 'route_proxy', download: false } ],
 		'Route chain test passes the route ID to RPC');
+
+	const enabledFixtures = probeDiagnosticsFixtures.objects;
+	environment = await renderNodes({
+		node: enabledFixtures.nodes.map((item) => ({ '.name': item.id, enabled: item.enabled ? '1' : '0', name: item.id })),
+		route: [], subscription: []
+	}, '', { subscriptions: [] }, 'nodes', [
+		[ 'set', 'main', 'log_level', 'debug' ],
+		[ 'set', 'node_enabled', 'server', 'pending.example' ]
+	]);
+	const pendingNodeSection = environment.maps[0].sections.find((section) => section.sectionType == 'node');
+	const pendingConnect = pendingNodeSection.options.find((option) => option.name == '_connect_speedtest');
+	const pendingDownload = pendingNodeSection.options.find((option) => option.name == '_download_speedtest');
+	assert.ok([ pendingConnect, pendingDownload ].every((option) => option.dependencies.some((dependency) => dependency[0] == 'enabled' && dependency[1] == '1')),
+		'disabled LuCI Nodes do not render backend-rejected test actions');
+	const pendingBatchButtons = findElements(environment.rendered,
+		(node) => node.tag == 'button' && String(node.children?.[0] || '').startsWith('Batch'));
+	assert.equal(pendingBatchButtons.length, 2);
+	assert.ok(pendingBatchButtons.every((button) => button.disabled && button.title.includes('Pending Steer changes')),
+		'pending changes visibly disable every batch Node probe');
+	const pendingProbeButton = { disabled: false, textContent: '', title: '', classList: { toggle: () => {}, add: () => {} } };
+	await pendingConnect.onclick({ currentTarget: pendingProbeButton }, 'node_enabled');
+	assert.deepEqual(environment.speedtestCalls, [], 'changed existing and unrelated pending data block a committed Node probe');
+	environment.setPendingChanges([ [ 'add', 'node_new', 'node' ] ]);
+	await pendingConnect.onclick({ currentTarget: pendingProbeButton }, 'node_new');
+	assert.deepEqual(environment.speedtestCalls, [], 'a new pending Node never sends a guaranteed-failing committed probe');
+	environment.setPendingChanges([]);
+	await pendingConnect.onclick({ currentTarget: pendingProbeButton }, 'node_enabled');
+	assert.deepEqual(environment.speedtestCalls, [ { node: 'node_enabled', download: false } ],
+		'Node probes resume from committed data after Apply or Discard without a page reload');
+	assert.ok(pendingBatchButtons.every((button) => !button.disabled));
+
+	environment = await renderNodes({
+		node: [ { '.name': 'node_enabled', enabled: '1', name: 'Enabled' } ],
+		route: enabledFixtures.routes.map((item) => ({ '.name': item.id, enabled: item.enabled ? '1' : '0', kind: item.kind, node: 'node_enabled' })),
+		subscription: []
+	}, '', { subscriptions: [] }, 'routes', [ [ 'add', 'new_route', 'route' ] ]);
+	const pendingRouteSection = environment.maps[0].sections.find((section) => section.sectionType == 'route');
+	const pendingRouteProbe = pendingRouteSection.options.find((option) => option.name == '_route_connect_test');
+	await pendingRouteProbe.onclick({ currentTarget: pendingProbeButton }, 'route_enabled');
+	assert.deepEqual(environment.routeSpeedtestCalls, [], 'new or edited pending Routes never probe the committed old Route');
 	environment = await renderNodes({
 		node: [
 			{ '.name': 'cfg_manual', name: 'Manual' },
@@ -1403,12 +1448,16 @@ async function main() {
 	assert.equal(environment.statusRenderCalls, 0,
 		'Diagnostics does not duplicate the Overview status panel');
 	const overviewTestButtons = findElements(environment.rendered,
-		(node) => node.tag == 'button' && typeof node.attributes?.click == 'function');
+		(node) => node.tag == 'button' && node.children?.[0] == 'Run test');
 	assert.equal(overviewTestButtons.length, 3,
 		'Overview renders direct, proxy and proxy speed-test actions without requiring a healthy status');
 	await overviewTestButtons[1].attributes.click({ preventDefault: () => {}, currentTarget: overviewTestButtons[1] });
 	assert.deepEqual(environment.overviewProbeCalls, [ 'proxy' ],
 		'Overview proxy test remains clickable when no healthy running status was returned');
+	const diagnosticText = elementText(environment.rendered);
+	for (const expected of [ 'does not prove a particular outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'tested_at', 'Recent logs', 'Recent Apply', 'Validation' ])
+		assert.ok(diagnosticText.includes(expected), `LuCI Diagnostics must render ${expected}`);
+	assert.ok(!diagnosticText.includes('proves the Direct path') && !diagnosticText.includes('proves the proxy path'));
 	const nodeSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodeSource.includes('const id = nextManualNodeID();') &&

@@ -25,8 +25,8 @@ config bootstrap 'bootstrap'
 
 三个测试地址都必须是没有凭据和 fragment 的单个 HTTPS URL：
 
-- `probe_direct`：当前运行配置的直连测试；
-- `probe_proxy`：当前代理、裸节点和路由链连接测试；
+- `probe_direct`：按当前 Active 规则访问的直连测试目标；
+- `probe_proxy`：按当前 Active 规则访问的代理测试目标，以及裸节点和路由链临时测试的默认目标；
 - `speedtest_proxy`：完整下载测速。
 
 后端不会补默认 URL。Bootstrap 只支持 UDP/TCP，服务器必须是 IP 字面量，策略为 `prefer_ipv4`、`prefer_ipv6`、`ipv4_only` 或 `ipv6_only`。
@@ -159,7 +159,7 @@ steer status
 
 `validate` 只做严格解码和共享语义校验。`apply` 还会执行能力检查、Geo 准备、sing-box/nftables 原生检查、切换与本地健康检查。`status` 只包含 `healthy` 和可选 `last_apply`，不会把配置合法性或组件明细混在状态对象中。
 
-概览测试读取当前运行 generation 的 Intent；未 Apply 的修改不会参与。macOS 报告同时包含 `active_generation`、`active_digest` 和 `tested_at`，没有 Active generation 时拒绝请求：
+概览测试读取当前运行 generation 的 Intent；未 Apply 的修改不会参与。三端保存的概览报告包含 `active_generation`、`active_digest` 和 `tested_at`，没有 Active generation 时拒绝请求：
 
 ```sh
 steer probe --kind direct
@@ -176,7 +176,7 @@ steer probe --kind speedtest --route <route-id>
 steer probe --kind speedtest --route <route-id> --download
 ```
 
-连接测试记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试记录字节和耗时。报告保存在 `/var/lib/steer/logs/tests/{overview,nodes,routes}`。概览请求按 Active 规则访问；测试只证明对应配置下 URL 可达，不提供命名 outbound 的命中回执。
+连接测试记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试记录字节、耗时和速率。报告保存在平台 state 的 `logs/tests/{overview,nodes,routes}`，公开 UI 只读取去除 credentials、URL path/query values 与进程诊断的安全版本。概览请求按 Active 规则访问；成功只证明 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。节点/路由测试只验证隔离临时链路，不证明 Active 规则选择了该链路。
 
 ## 版本与升级
 

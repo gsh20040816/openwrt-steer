@@ -59,15 +59,88 @@ function renderTestCard(kind, title, description) {
 
 function renderOverviewTests() {
 	return E('div', { 'class': 'steer-test-grid' }, [
-		renderTestCard('direct', _('Direct test'), _('Requests the configured direct URL through the current running rules.')),
-		renderTestCard('proxy', _('Proxy test'), _('Requests the configured proxy URL through the current running rules.')),
-		renderTestCard('speedtest', _('Proxy speed test'), _('Downloads the configured speed-test URL through the current running rules.'))
+		renderTestCard('direct', _('Direct target'), _('Visits the configured direct test target under the current Active rules.')),
+		renderTestCard('proxy', _('Proxy target'), _('Visits the configured proxy test target under the current Active rules.')),
+		renderTestCard('speedtest', _('Download target'), _('Visits the configured download test target under the current Active rules.'))
+	]);
+}
+
+function diagnosticFact(label, value) {
+	return E('div', {}, [ E('dt', {}, label), E('dd', {}, value == null || value === '' ? '—' : String(value)) ]);
+}
+
+function hasPendingSteerChanges(changes) {
+	if (Array.isArray(changes)) return changes.length > 0;
+	if (Array.isArray(changes?.steer)) return changes.steer.length > 0;
+	return changes?.steer != null && Object.keys(changes.steer).length > 0;
+}
+
+function reportIsStale(report, diagnostics, pending) {
+	if (report.scope == 'overview')
+		return !report.active_generation || !report.active_digest ||
+			report.active_generation != diagnostics.active_generation || report.active_digest != diagnostics.active_digest;
+	return pending || !report.saved_digest || report.saved_digest != diagnostics.saved_digest;
+}
+
+function renderProbeReport(report, diagnostics, pending) {
+	const result = report?.results?.[0] || {};
+	const stale = reportIsStale(report, diagnostics, pending);
+	const rate = result.downloaded_bytes > 0 && result.download_milliseconds > 0
+		? (result.downloaded_bytes * 8 / result.download_milliseconds / 1000).toFixed(1) + ' Mbps' : '—';
+	const target = report.scope == 'overview' ? 'Overview' : '%s/%s'.format(report.scope, report.object_id || '—');
+	return E('article', { 'class': 'cbi-section' }, [
+		E('h4', {}, [ target, ' · ', report.kind, ' · ', stale ? _('Stale') : (report.ok ? _('Succeeded') : _('Failed')) ]),
+		E('dl', { 'class': 'steer-status__facts' }, [
+			diagnosticFact('tested_at', report.tested_at), diagnosticFact('URL', result.url),
+			diagnosticFact(_('Attempts'), result.attempts), diagnosticFact('Connect', result.connect_milliseconds == null ? null : result.connect_milliseconds + ' ms'),
+			diagnosticFact('TLS', result.tls_milliseconds == null ? null : result.tls_milliseconds + ' ms'),
+			diagnosticFact('TTFB', result.first_byte_milliseconds == null ? null : result.first_byte_milliseconds + ' ms'),
+			diagnosticFact('HTTP', result.status), diagnosticFact(_('Bytes'), result.downloaded_bytes),
+			diagnosticFact(_('Rate'), rate)
+		]),
+		(report.error || result.error) ? E('p', { 'class': 'alert-message danger' }, report.error || result.error) : ''
+	]);
+}
+
+function renderDiagnostics(status, validation, diagnostics, changes) {
+	const pending = hasPendingSteerChanges(changes);
+	const lastApply = status?.last_apply;
+	const result = lastApply?.result;
+	return E([], [
+		E('section', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Connectivity targets')),
+			E('p', {}, _('Targets are visited under the current Active rules. Success only proves that the URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.')),
+			renderOverviewTests()
+		]),
+		E('section', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Recent Overview, Node and Route probe reports')),
+			...(diagnostics?.warnings || []).map((warning) => E('p', { 'class': 'alert-message warning' }, warning)),
+			...((diagnostics?.reports || []).length ? diagnostics.reports.map((report) => renderProbeReport(report, diagnostics, pending)) : [ E('p', {}, _('No saved probe reports.')) ])
+		]),
+		E('section', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Validation')),
+			...((validation?.errors || []).map((issue) => E('p', { 'class': 'alert-message danger' }, '%s · %s/%s · %s'.format(issue.code, issue.object_type || 'configuration', issue.object_id || '—', issue.message)))),
+			...((validation?.warnings || []).map((issue) => E('p', { 'class': 'alert-message warning' }, '%s · %s/%s · %s'.format(issue.code, issue.object_type || 'configuration', issue.object_id || '—', issue.message)))),
+			validation?.ok ? E('p', {}, _('The committed configuration is valid.')) : ''
+		]),
+		E('section', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Recent Apply')),
+			E('dl', { 'class': 'steer-status__facts' }, [
+				diagnosticFact(_('Sequence'), lastApply?.sequence), diagnosticFact(_('Result'), result?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—')),
+				diagnosticFact('Generation', result?.generation), diagnosticFact(_('Error'), result?.error)
+			])
+		]),
+		E('section', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Recent logs')),
+			E('pre', { 'class': 'steer-canonical-preview' }, diagnostics?.logs || diagnostics?.log_error || _('No Steer log entries were returned.'))
+		]),
+		E('button', { 'class': 'btn cbi-button-action', click: function() { window.location.reload(); } }, _('Refresh diagnostics'))
 	]);
 }
 
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.status(), steer.validate() ]);
+		return Promise.all([ uci.load('steer'), steer.status(), steer.validate(), steer.diagnostics(), uci.changes() ]);
 	},
 
 	render: function(data) {
@@ -79,7 +152,7 @@ return view.extend({
 		if (page == 'overview' || page == 'steer')
 			return E([], [ steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1') ]);
 		if (page == 'diagnostics')
-			return renderOverviewTests();
+			return renderDiagnostics(status, validation, data[3] || {}, data[4]);
 
 		m = new form.Map('steer', _('Steer'));
 		s = m.section(form.NamedSection, 'main', 'steer', _('General'));

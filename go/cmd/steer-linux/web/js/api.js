@@ -76,6 +76,7 @@
     async overview() { return (await request('/api/v1/overview')).data; },
     async runtime() { return (await request('/api/v1/runtime')).data; },
     async logs() { return (await request('/api/v1/logs')).data; },
+    async diagnostics() { return (await request('/api/v1/diagnostics')).data; },
     config,
     putConfig,
     applySaved,

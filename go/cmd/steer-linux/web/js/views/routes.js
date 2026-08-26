@@ -5,6 +5,15 @@
   const S = window.S;
   const { h, fmtReport } = S;
   const ui = S.ui;
+  let routeButtons = [];
+
+  function syncRouteTestButtons() {
+    routeButtons.forEach((button) => {
+      if (button.classList.contains('spinning')) return;
+      button.disabled = !button._eligible || S.store.dirty;
+      button.title = !button._eligible ? '已停用路由不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : button._label);
+    });
+  }
 
   function nodeLabel(intent, id) {
     const node = intent.nodes.find((n) => n.id === id);
@@ -40,8 +49,12 @@
     return false;
   }
 
-  function routeTestButton(label, download, routeId) {
-    const btn = h('button', { class: 'btn btn--sm', title: label, onclick: async () => {
+  function routeTestButton(label, download, routeId, eligible) {
+    const btn = h('button', { class: 'btn btn--sm', onclick: async () => {
+      if (!eligible) {
+        ui.toast('已停用路由不能测试；请先启用并保存', 'warn');
+        return;
+      }
       if (S.store.dirty) {
         ui.toast('请先保存或放弃工作副本修改，再测试路由', 'warn');
         return;
@@ -53,8 +66,11 @@
         btn.classList.remove('spinning'); btn.textContent = r.label; btn.title = r.detail;
         btn.classList.toggle('is-ok', r.ok); btn.classList.toggle('is-err', !r.ok);
       } catch (e) { btn.classList.remove('spinning'); btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err'); }
-      btn.disabled = false;
-    } }, label);
+      syncRouteTestButtons();
+    }, disabled: !eligible || S.store.dirty, title: !eligible ? '已停用路由不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : label) }, label);
+    btn._eligible = eligible;
+    btn._label = label;
+    routeButtons.push(btn);
     return btn;
   }
 
@@ -146,7 +162,8 @@
   const view = {
     name: 'routes',
     render(root) {
-      ui.beginRender(root);
+      const isCurrent = ui.beginRender(root);
+      routeButtons = [];
       const intent = S.store.intent;
       const direct = intent.routes.find((r) => r.kind === 'direct');
       const block = intent.routes.find((r) => r.kind === 'block');
@@ -155,10 +172,10 @@
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, ['状态', '路由', '链路（出口 ← 前置）', '测试', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, singles.map((route) => h('tr', { class: route.enabled === false ? 'is-disabled' : null }, [
-          h('td', {}, ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); })),
+          h('td', {}, ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); view.render(root); })),
           h('td', {}, h('div', {}, h('strong', {}, route.name || route.id), h('div', { class: 'mono' }, route.id))),
           h('td', {}, chain(intent, route)),
-          h('td', {}, h('div', { class: 'row-actions' }, routeTestButton('链测试', false, route.id), routeTestButton('下载', true, route.id))),
+          h('td', {}, h('div', { class: 'row-actions' }, routeTestButton('链测试', false, route.id, route.enabled !== false), routeTestButton('下载', true, route.id, route.enabled !== false))),
           h('td', {}, h('div', { class: 'row-actions' }, [
             h('button', { class: 'btn btn--sm', onclick: () => openRouteEditor(route) }, '编辑'),
             h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
@@ -170,6 +187,12 @@
           ]))
         ])))
       ]);
+
+      syncRouteTestButtons();
+      if (typeof S.store.subscribe === 'function') {
+        const unsubscribe = S.store.subscribe(syncRouteTestButtons);
+        isCurrent.onDispose(unsubscribe);
+      }
 
       root.append(
         ui.viewHead('路由', 'Direct / Reject 是固定语义；single 路由支持任意深度的前置链，但不得成环', [

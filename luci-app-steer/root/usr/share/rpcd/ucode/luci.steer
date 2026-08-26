@@ -75,7 +75,7 @@ function session_id(request) {
 	return session;
 }
 
-function with_committed_subscription(request, callback) {
+function with_committed_configuration(request, callback) {
 	const session = session_id(request);
 	if (!session) {
 		request.reply({ ok: false, error_code: 'PENDING_STATE_UNAVAILABLE', error: 'The LuCI UCI session is unavailable.' });
@@ -94,7 +94,7 @@ function with_committed_subscription(request, callback) {
 			request.reply({
 				ok: false,
 				error_code: 'PENDING_CHANGES',
-				error: 'Save and apply or discard pending Steer changes before updating subscription inventory.'
+				error: 'Apply or discard pending Steer changes before operating on the committed configuration.'
 			});
 			return;
 		}
@@ -252,6 +252,15 @@ function pending_preview() {
 	};
 }
 
+function recent_logs() {
+	const process = popen([ '/sbin/logread', '-e', 'steer' ], 'r');
+	if (!process)
+		return { ok: false, error: 'Unable to read Steer logs.' };
+	const output = process.read('all') || '';
+	const status = process.close();
+	return { ok: status == 0, output, error: status == 0 ? null : 'Unable to read Steer logs.' };
+}
+
 function intent_preview(request) {
 	const session = session_id(request);
 	if (!session)
@@ -328,12 +337,17 @@ const methods = {
 	},
 	logs: {
 		call: function() {
-			const process = popen([ '/sbin/logread', '-e', 'steer' ], 'r');
-			if (!process)
-				return { ok: false, error: '无法读取系统日志' };
-			const output = process.read('all') || '';
-			const status = process.close();
-			return { ok: status == 0, output, error: status == 0 ? null : 'logread 执行失败' };
+			return recent_logs();
+		}
+	},
+	diagnostics: {
+		call: function() {
+			const diagnostics = command_json('/usr/sbin/steer _diagnostics');
+			const logs = recent_logs();
+			diagnostics.logs = logs.output || '';
+			if (!logs.ok && diagnostics.error == null)
+				diagnostics.log_error = logs.error;
+			return diagnostics;
 		}
 	},
 	geodata_catalog: {
@@ -357,7 +371,7 @@ const methods = {
 			const id = request?.args?.id;
 			if (!id)
 				return { ok: false, error: '缺少订阅 ID' };
-			return with_committed_subscription(request, function() {
+			return with_committed_configuration(request, function() {
 				return command_json('/usr/sbin/steer subscription update --id ' + shellquote(id));
 			});
 		}
@@ -369,7 +383,7 @@ const methods = {
 			const node = request?.args?.node;
 			if (!id || !node)
 				return { ok: false, error: '缺少订阅 ID 或节点 ID' };
-			return with_committed_subscription(request, function() {
+			return with_committed_configuration(request, function() {
 				return command_json('/usr/sbin/steer subscription clean --id ' + shellquote(id) + ' --node ' + shellquote(node));
 			});
 		}
@@ -380,10 +394,12 @@ const methods = {
 			const node = request?.args?.node;
 			if (!node)
 				return { ok: false, error: '缺少节点 ID' };
-			let command = '/usr/sbin/steer probe --kind speedtest --node ' + shellquote(node);
-			if (request.args.download)
-				command += ' --download';
-			return command_json(command);
+			return with_committed_configuration(request, function() {
+				let command = '/usr/sbin/steer probe --kind speedtest --node ' + shellquote(node);
+				if (request.args.download)
+					command += ' --download';
+				return command_json(command);
+			});
 		}
 	},
 	route_speedtest: {
@@ -392,10 +408,12 @@ const methods = {
 			const route = request?.args?.route;
 			if (!route)
 				return { ok: false, error: '缺少路由 ID' };
-			let command = '/usr/sbin/steer probe --kind speedtest --route ' + shellquote(route);
-			if (request.args.download)
-				command += ' --download';
-			return command_json(command);
+			return with_committed_configuration(request, function() {
+				let command = '/usr/sbin/steer probe --kind speedtest --route ' + shellquote(route);
+				if (request.args.download)
+					command += ' --download';
+				return command_json(command);
+			});
 		}
 	},
 	overview_probe: {

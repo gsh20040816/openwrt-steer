@@ -51,12 +51,23 @@ func (app webApplication) handleLogs(writer http.ResponseWriter, request *http.R
 	if runner == nil {
 		runner = linuxplatform.ExecRunner{}
 	}
-	output, err := runner.Output(request.Context(), "/usr/bin/journalctl", "-u", "steer.service", "-n", "200", "--no-pager", "--output=short-iso")
+	output, err := runner.Output(request.Context(), "/usr/bin/journalctl",
+		"-u", "steer.service", "-u", "steer-web.service", "-u", "steer-subscription.service",
+		"-n", "300", "--no-pager", "--output=short-iso")
 	if err != nil {
 		writeWebError(writer, err, http.StatusUnprocessableEntity)
 		return
 	}
 	writeWebJSON(writer, map[string]any{"output": string(output)})
+}
+
+func (app webApplication) handleDiagnostics(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.Header().Set("Allow", http.MethodGet)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeWebJSON(writer, linuxplatform.ReadDiagnostics(app.ConfigPath, app.RunDirectory, app.StateDirectory))
 }
 
 func (app webApplication) runtimeInfo(ctx context.Context) runtimeInfo {

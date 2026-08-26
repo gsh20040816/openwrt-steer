@@ -40,6 +40,18 @@ for listen, classification in {
 subscription_status_fixtures = json.loads(
     (ROOT / "ui/subscription-status-fixtures.json").read_text()
 )
+probe_diagnostics_fixtures = json.loads(
+    (ROOT / "ui/probe-diagnostics-fixtures.json").read_text()
+)
+if probe_diagnostics_fixtures.get("schema_version") != 1:
+    raise SystemExit("check-ui-contract: invalid probe diagnostics fixture schema")
+probe_reports = probe_diagnostics_fixtures.get("diagnostics", {}).get("reports", [])
+if [report.get("scope") for report in probe_reports] != ["overview", "nodes", "routes"]:
+    raise SystemExit("check-ui-contract: probe diagnostics fixture scope drift")
+for collection in ("nodes", "routes", "subscriptions"):
+    enabled_values = [item.get("enabled") for item in probe_diagnostics_fixtures.get("objects", {}).get(collection, [])]
+    if enabled_values != [True, False]:
+        raise SystemExit(f"check-ui-contract: {collection} enabled/disabled probe fixture drift")
 if subscription_status_fixtures.get("schema_version") != 1:
     raise SystemExit("check-ui-contract: invalid subscription status fixture schema")
 subscription_cases = {item.get("name"): item.get("status", {}) for item in subscription_status_fixtures.get("cases", [])}
@@ -126,9 +138,11 @@ linux_lib = (ROOT / "go/cmd/steer-linux/web/js/lib.js").read_text()
 linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
 linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
 linux_subscriptions = (ROOT / "go/cmd/steer-linux/web/js/views/subscriptions.js").read_text()
+linux_diagnostics = (ROOT / "go/cmd/steer-linux/web/js/views/diagnostics.js").read_text()
 linux_dns = (ROOT / "go/cmd/steer-linux/web/js/views/dns.js").read_text()
 linux_proxies = (ROOT / "go/cmd/steer-linux/web/js/views/proxies.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
+luci_overview = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js").read_text()
 luci_dns = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/dns.js").read_text()
 luci_proxies = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/local-proxies.js").read_text()
 mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
@@ -191,6 +205,24 @@ subscription_fixture_consumers = (
 for consumer in subscription_fixture_consumers:
     consumer_content = (ROOT / consumer).read_text()
     require(consumer_content, "subscription-status-fixtures.json", consumer)
+
+probe_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/ProbeDiagnosticsTests.swift",
+)
+for consumer in probe_fixture_consumers:
+    consumer_content = (ROOT / consumer).read_text()
+    require(consumer_content, "probe-diagnostics-fixtures.json", consumer)
+
+require(linux_diagnostics, "不证明具体 outbound", "Linux accurate probe boundary")
+require(luci_overview, "does not prove a particular outbound", "LuCI accurate probe boundary")
+require(mac_content, "不证明具体 outbound", "macOS accurate probe boundary")
+require(linux_diagnostics, "diagnostics.reports", "Linux persisted probe reports")
+require(luci_overview, "diagnostics.reports", "LuCI persisted probe reports")
+require(mac_content, "diagnosticProbeReports", "macOS persisted probe reports")
+require(luci_nodes, "probeOperationGate", "LuCI pending probe gate")
+require(mac_content, "!item.enabled", "macOS disabled probe action")
 
 require(linux_subscriptions, "last_failure", "Linux subscription failure state")
 require(linux_subscriptions, "status.stale", "Linux subscription stale state")

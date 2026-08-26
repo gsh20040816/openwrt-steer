@@ -24,6 +24,7 @@ import (
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	macosplatform "github.com/gsh20040816/steer/go/internal/platform/macos"
+	"github.com/gsh20040816/steer/go/internal/probe"
 )
 
 const (
@@ -246,7 +247,7 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = fmt.Sprintf("unsupported control request schema %d", request.SchemaVersion)
 		return response
 	}
-	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" && request.Operation != "probe" {
+	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" && request.Operation != "probe" && request.Operation != "diagnostics" {
 		response.Error = "unsupported control operation"
 		return response
 	}
@@ -259,6 +260,21 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			return response
 		}
 		defer lock.Close()
+	}
+	if request.Operation == "diagnostics" {
+		if request.Document != "" || request.ExpectedRevision != "" || request.ID != "" || request.Kind != "" || request.NodeID != "" || request.RouteID != "" || request.Download {
+			response.Error = "diagnostics accepts no operation arguments"
+			return response
+		}
+		diagnostics := macosplatform.ReadDiagnostics(service.configPath, service.options)
+		payload, err := json.Marshal(diagnostics)
+		if err != nil {
+			response.Error = "encode diagnostics: " + err.Error()
+			return response
+		}
+		response.Payload = payload
+		response.OK = true
+		return response
 	}
 	if request.Operation == "probe" {
 		if request.Document != "" || request.ExpectedRevision != "" || request.ID != "" {
@@ -279,10 +295,13 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), controlDeadline)
 		defer cancel()
-		report, err := run(ctx, service.configPath, service.options, probeSelection{
+		selection := probeSelection{
 			Kind: request.Kind, NodeID: request.NodeID, RouteID: request.RouteID, Download: request.Download,
-		})
+		}
+		report, err := run(ctx, service.configPath, service.options, selection)
 		if err != nil {
+			failure := probe.FailureReport(probeScope(selection), probeObjectID(selection), probeReportKind(selection), err)
+			_ = macosplatform.SaveTestReport(service.options, failure)
 			response.Error = err.Error()
 			return response
 		}
@@ -291,10 +310,13 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			if !finalStatus.Healthy || finalStatus.GenerationID != activeStatus.GenerationID ||
 				finalStatus.IntentDigest != activeStatus.IntentDigest ||
 				report.ActiveGeneration != activeStatus.GenerationID || report.ActiveDigest != activeStatus.IntentDigest {
-				response.Error = "active macOS generation changed or became unhealthy while the overview probe was running"
+				identityErr := errors.New("active macOS generation changed or became unhealthy while the overview probe was running")
+				_ = macosplatform.SaveTestReport(service.options, probe.FailureReport("overview", "", selection.Kind, identityErr))
+				response.Error = identityErr.Error()
 				return response
 			}
 		}
+		_ = macosplatform.SaveTestReport(service.options, report.TestReport)
 		response.Payload, err = json.Marshal(report)
 		if err != nil {
 			response.Error = "encode probe report: " + err.Error()
@@ -420,6 +442,36 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 	}
 	response.OK = true
 	return response
+}
+
+func probeScope(selection probeSelection) string {
+	if selection.NodeID != "" {
+		return "nodes"
+	}
+	if selection.RouteID != "" {
+		return "routes"
+	}
+	return "overview"
+}
+
+func probeObjectID(selection probeSelection) string {
+	if selection.NodeID != "" {
+		return selection.NodeID
+	}
+	return selection.RouteID
+}
+
+func probeReportKind(selection probeSelection) string {
+	if selection.NodeID == "" && selection.RouteID == "" {
+		if selection.Kind == "direct" || selection.Kind == "proxy" || selection.Kind == "speedtest" {
+			return selection.Kind
+		}
+		return "direct"
+	}
+	if selection.Download {
+		return "download"
+	}
+	return "connect"
 }
 
 func (service *controlService) readRuntimeStatus() macosplatform.Status {

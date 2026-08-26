@@ -80,6 +80,24 @@ config route 'disabled_route'
 	}
 }
 
+func TestReadDiagnosticsReturnsSavedIdentityAndArchivedReports(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "steer")
+	stateDirectory := filepath.Join(root, "state")
+	if err := os.WriteFile(configPath, []byte(minimalConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTestReport(stateDirectory, TestReport{
+		Scope: "overview", Kind: "direct", OK: true, TestedAt: time.Now(), Results: []TestResult{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := ReadDiagnostics(configPath, filepath.Join(root, "run"), stateDirectory)
+	if diagnostics.SavedDigest == "" || len(diagnostics.Reports) != 1 || diagnostics.Reports[0].Kind != "direct" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+}
+
 func TestTemporaryProbeConfigPreservesBootstrapAndMarksDialSockets(t *testing.T) {
 	original := map[string]any{"type": "socks", "tag": "route-proxy", "server": "192.0.2.1", "server_port": 1080}
 	bootstrap := model.Bootstrap{Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"}

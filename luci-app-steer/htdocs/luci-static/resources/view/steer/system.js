@@ -10,14 +10,13 @@ function fact(label, value) {
 
 return view.extend({
 	load: function() {
-		return Promise.all([ steer.runtime(), steer.status(), steer.logs() ]);
+		return Promise.all([ steer.runtime(), steer.status() ]);
 	},
 
 	render: function(data) {
 		steer.loadStyle();
 		const runtime = data[0] || {};
 		const status = data[1] || {};
-		const logs = data[2] || {};
 		return E([], [
 			E('section', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Runtime')),
@@ -30,10 +29,6 @@ return view.extend({
 					fact('Geo seed', runtime.geodata?.version || runtime.geodata_error),
 					fact('Geo rules', runtime.geodata?.rule_count)
 				])
-			]),
-			E('section', { 'class': 'cbi-section' }, [
-				E('h3', {}, _('Recent logs')),
-				E('pre', { 'class': 'steer-canonical-preview' }, logs.output || logs.error || _('No Steer log entries were returned.'))
 			])
 		]);
 	}
