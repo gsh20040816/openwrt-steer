@@ -420,6 +420,48 @@ private struct NodeCollectionGroup: Identifiable {
     let count: Int
 }
 
+private struct DefaultRuleCard: View {
+    let item: DraftItem
+    let detail: String
+    let isBusy: Bool
+    let edit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Label("Default", systemImage: "pin.fill")
+                    .font(.headline)
+                Text(item.title)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Label("始终启用 · 固定在最后", systemImage: "lock.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.green)
+                Button(action: edit) {
+                    Label("编辑决策", systemImage: "square.and.pencil")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isBusy)
+            }
+            Text(detail)
+                .font(.callout.monospaced())
+                .foregroundStyle(.secondary)
+            Text("第 \(item.index + 1) 条 · 只能修改显示名称、DNS Profile 与 Route")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(.quaternary)
+        )
+    }
+}
+
 struct DraftCollectionView: View {
     @ObservedObject var model: AppModel
     let descriptor: DraftCollectionDescriptor
@@ -435,9 +477,15 @@ struct DraftCollectionView: View {
         nodeGroups.contains(where: { $0.id == selectedNodeGroup }) ? selectedNodeGroup : "_manual"
     }
     private var items: [DraftItem] {
-        guard descriptor.key == "nodes" else { return allItems }
-        return allItems.filter { ($0.sourceSubscription ?? "_manual") == activeNodeGroup }
+        if descriptor.key == "nodes" {
+            return allItems.filter { ($0.sourceSubscription ?? "_manual") == activeNodeGroup }
+        }
+        if descriptor.key == "rules" {
+            return allItems.filter { !isDefaultRule($0) }
+        }
+        return allItems
     }
+    private var defaultRule: DraftItem? { allItems.first(where: isDefaultRule) }
     private var enabledVisibleNodeIDs: [String] { items.filter(\.enabled).map(\.identifier) }
 
     private var nodeGroups: [NodeCollectionGroup] {
@@ -469,7 +517,7 @@ struct DraftCollectionView: View {
             HStack {
                 Label(descriptor.title, systemImage: descriptor.symbol)
                     .font(.headline)
-                Text(descriptor.key == "nodes" ? "\(items.count) / \(allItems.count) 项" : "\(items.count) 项")
+                Text(descriptor.key == "nodes" ? "\(items.count) / \(allItems.count) 项" : "\(allItems.count) 项")
                     .foregroundStyle(.secondary)
                 if descriptor.key == "nodes" {
                     Picker("节点分组", selection: Binding(
@@ -673,6 +721,16 @@ struct DraftCollectionView: View {
                 }
             }
 
+            if let defaultRule {
+                DefaultRuleCard(
+                    item: defaultRule,
+                    detail: runtimeDetail(defaultRule),
+                    isBusy: model.isBusy
+                ) {
+                    edit(defaultRule)
+                }
+            }
+
             HStack {
                 if !actionError.isEmpty {
                     Label(actionError, systemImage: "exclamationmark.triangle.fill")
@@ -760,11 +818,13 @@ struct DraftCollectionView: View {
 
     private func moveItems(_ identifiers: [String], to destination: Int) {
         let sources = IndexSet(identifiers.compactMap { identifier in
-            items.firstIndex(where: { $0.id == identifier })
+            items.first(where: { $0.id == identifier })?.index
         })
-        guard !sources.isEmpty, !sources.contains(where: { isPinned(items[$0]) }) else { return }
+        guard !sources.isEmpty, !sources.contains(where: { index in
+            allItems.indices.contains(index) && isPinned(allItems[index])
+        }) else { return }
         let resolvedDestination: Int
-        if descriptor.key == "rules", let defaultIndex = items.firstIndex(where: isPinned) {
+        if descriptor.key == "rules", let defaultIndex = allItems.firstIndex(where: isPinned) {
             resolvedDestination = min(destination, defaultIndex)
         } else {
             resolvedDestination = destination
@@ -796,8 +856,10 @@ struct DraftCollectionView: View {
     }
 
     private func canMoveDown(_ item: DraftItem) -> Bool {
-        guard !isPinned(item), item.index < items.count - 1 else { return false }
-        return !isPinned(items[item.index + 1])
+        guard !isPinned(item),
+              let position = items.firstIndex(where: { $0.id == item.id }),
+              position < items.count - 1 else { return false }
+        return !isPinned(items[position + 1])
     }
 
     private func probeSummary(_ item: DraftItem) -> String? {
