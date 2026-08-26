@@ -5,6 +5,7 @@
   const S = window.S;
   const { h, asList } = S;
   const ui = S.ui;
+  const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.local_proxy_protocols.map((item) => [item.value, item.label]));
 
   function refCount(intent, proxyId) {
     return intent.rules.filter((r) => asList(r.inbound).includes(proxyId)).length;
@@ -16,13 +17,41 @@
       eyebrow: `本地代理 · ${proxy.id}`, title: proxy.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(proxy));
+        const hasSavedPassword = typeof draft.password === 'string' && draft.password !== '';
+        let authAction = hasSavedPassword ? 'keep' : 'remove';
         const name = ui.input({ value: draft.name || '', placeholder: '端点名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
         const protocol = ui.select(S.uiSpec.local_proxy_protocols.map((item) => [item.value, item.label]), draft.protocol, (v) => { draft.protocol = v; });
-        const listen = ui.input({ value: draft.listen || '', placeholder: '127.0.0.1' });
+        const listen = ui.input({ value: draft.listen || '', placeholder: '127.0.0.1', oninput: updateExposure });
         const port = ui.input({ type: 'number', value: draft.listen_port || '', placeholder: '1080' });
         const username = ui.input({ value: draft.username || '', placeholder: '（可选）' });
-        const password = ui.input({ type: 'password', value: draft.password || '' });
+        const password = ui.input({ type: 'password', value: '', placeholder: '输入新密码' });
+        const authStatus = h('div', { class: 'field__hint' });
+        const auth = ui.select(hasSavedPassword ? [
+          ['keep', '保持已保存密码'], ['replace', '替换密码'], ['remove', '移除认证']
+        ] : [
+          ['remove', '不设置认证'], ['replace', '设置用户名和密码']
+        ], authAction, (value) => { authAction = value; updateAuthControls(); });
+        const exposure = h('div', { class: 'alert local-proxy-exposure', role: 'alert' }, [
+          h('strong', {}, '非 loopback 监听会扩大暴露范围'),
+          h('div', {}, '该地址可能允许局域网或公网客户端连接；必须同时设置用户名和密码。')
+        ]);
+
+        function updateAuthControls() {
+          const editingUsername = authAction === 'keep' || authAction === 'replace';
+          username.disabled = !editingUsername;
+          password.disabled = authAction !== 'replace';
+          authStatus.replaceChildren(authAction === 'keep'
+            ? '密码不会回显；保存时保留已保存值。'
+            : (authAction === 'replace' ? '用户名与新密码必须同时填写。' : '保存时会同时清空用户名和密码。'));
+        }
+
+        function updateExposure() {
+          exposure.hidden = ui.classifyLocalProxyListen(listen.value.trim()) !== 'non_loopback';
+        }
+
+        updateAuthControls();
+        updateExposure();
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '端点'), [
@@ -30,23 +59,55 @@
             ui.field('启用', enabled),
             h('div', { class: 'field--row' }, [ui.field('协议', protocol), ui.field('监听端口', port)]),
             ui.field('监听地址', listen, '通常保持环回地址'),
+            exposure,
+            ui.field('认证操作', auth),
             h('div', { class: 'field--row' }, [
               ui.field('用户名', username),
-              ui.field('密码', password, '留空 = 保留已保存值')
-            ])
+              ui.field('新密码', password)
+            ]),
+            authStatus
           ])
         );
         return {
           submit() {
             if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
             if (!listen.value.trim()) { ui.toast('监听地址不能为空', 'err'); return false; }
+            const listenAddress = listen.value.trim();
+            const listenClass = ui.classifyLocalProxyListen(listenAddress);
+            if (listenClass === 'invalid') { ui.toast('监听地址必须是 IP literal，不能使用 hostname', 'err'); return false; }
             const p = Number(port.value);
             if (!port.value || p < 1 || p > 65535) { ui.toast('端口必须是 1–65535', 'err'); return false; }
+
+            let nextUsername = '';
+            let nextPassword = '';
+            if (authAction === 'keep') {
+              nextUsername = username.value.trim();
+              nextPassword = hasSavedPassword ? draft.password : '';
+            } else if (authAction === 'replace') {
+              nextUsername = username.value.trim();
+              nextPassword = password.value;
+            }
+            if ((nextUsername === '') !== (nextPassword === '')) {
+              ui.toast('用户名和密码必须同时填写；替换密码时不能留空', 'err');
+              return false;
+            }
+            if (listenClass === 'non_loopback' && nextUsername === '') {
+              ui.toast('非 loopback 监听存在暴露风险，必须设置用户名和密码', 'err');
+              return false;
+            }
+
             draft.name = name.value.trim();
-            draft.listen = listen.value.trim();
+            draft.listen = listenAddress;
             draft.listen_port = p;
-            if (!draft.username) delete draft.username;
-            if (password.value) draft.password = password.value;
+            if (nextUsername) {
+              draft.username = nextUsername;
+              draft.password = nextPassword;
+            } else {
+              delete draft.username;
+              delete draft.password;
+            }
+            delete proxy.username;
+            delete proxy.password;
             Object.assign(proxy, draft);
             return proxy;
           }
@@ -72,7 +133,7 @@
         h('tbody', {}, intent.local_proxies.map((p) => h('tr', { class: p.enabled === false ? 'is-disabled' : null }, [
           h('td', {}, ui.toggle(p.enabled, (v) => { p.enabled = v; S.store.touch(); })),
           h('td', {}, h('div', {}, h('strong', {}, p.name || p.id), h('div', { class: 'mono' }, p.id))),
-          h('td', {}, h('span', { class: 'badge badge--match' }, p.protocol === 'socks' ? 'SOCKS' : 'HTTP CONNECT')),
+          h('td', {}, h('span', { class: 'badge badge--match' }, PROTOCOL_LABEL[p.protocol] || p.protocol)),
           h('td', { class: 'mono' }, `${p.listen}:${p.listen_port}`),
           h('td', { class: 'mono num' }, String(refCount(intent, p.id))),
           h('td', {}, h('div', { class: 'row-actions' }, [

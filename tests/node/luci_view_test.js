@@ -17,6 +17,7 @@ if (typeof String.prototype.format != 'function') {
 
 const root = path.resolve(__dirname, '../..');
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
+const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -144,6 +145,7 @@ function createEnvironment(sections) {
 			this.name = name;
 			this.values = [];
 			this.dependencies = [];
+			this.formValues = {};
 		}
 
 		value(key, label, description) {
@@ -154,6 +156,12 @@ function createEnvironment(sections) {
 		}
 
 		depends(...values) { this.dependencies.push(values); }
+
+		cfgvalue(sectionId) { return uci.get('steer', sectionId, this.name); }
+
+		formvalue(sectionId) {
+			return Object.hasOwn(this.formValues, sectionId) ? this.formValues[sectionId] : this.cfgvalue(sectionId);
+		}
 
 		submit(sectionId, value) {
 			/* RichListValue passes only `optional` to LuCI's Dropdown widget. */
@@ -609,6 +617,7 @@ async function renderLocalProxies(sections) {
 		}
 	);
 	await view.render();
+	environment.localProxyView = view;
 	return environment;
 }
 
@@ -981,6 +990,49 @@ async function main() {
 	assert.equal(transitionReveal.hidden, true, 'Reveal becomes unavailable when pending changes appear');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertExplicitIdsAndOptionalNames(environment, 'Local proxies');
+	environment = await renderLocalProxies({ local_proxy: [ {
+		'.name': 'entry', enabled: '1', name: 'Entry', protocol: 'mixed', listen: '127.0.0.1', listen_port: '1080'
+	} ] });
+	options = allOptions(environment);
+	const localProtocol = options.find((option) => option.name == 'protocol');
+	const mixedLabel = uiSpec.local_proxy_protocols.find((item) => item.value == 'mixed').label;
+	assert.equal(localProtocol.values.find((value) => value[0] == 'mixed')[1], mixedLabel,
+		'LuCI must render Mixed using the shared protocol label');
+	const localListen = options.find((option) => option.name == 'listen');
+	const localUsername = options.find((option) => option.name == 'username');
+	const localPassword = options.find((option) => option.name == 'password');
+	assert.ok(localListen.description?.attributes?.class == 'steer-exposure-warning',
+		'LuCI must present a prominent non-loopback exposure warning');
+	assert.ok([ localListen, localUsername, localPassword ].every((option) => typeof option.validate == 'function'),
+		'LuCI must validate address scope and paired authentication before form submission');
+	for (const fixture of localProxyFixtures.cases) {
+		assert.equal(environment.localProxyView.classifyLocalProxyListen(fixture.listen), fixture.classification,
+			`LuCI classification drifted for ${fixture.name}`);
+		localListen.formValues.entry = fixture.listen;
+		localUsername.formValues.entry = '';
+		localPassword.formValues.entry = '';
+		const unauthenticated = localListen.validate('entry', fixture.listen);
+		assert.equal(unauthenticated === true, fixture.allow_unauthenticated,
+			`LuCI unauthenticated result drifted for ${fixture.name}`);
+
+		localUsername.formValues.entry = 'user';
+		localPassword.formValues.entry = 'secret';
+		const authenticated = localListen.validate('entry', fixture.listen);
+		assert.equal(authenticated === true, fixture.classification != 'invalid',
+			`LuCI authenticated result drifted for ${fixture.name}`);
+	}
+	localListen.formValues.entry = '127.0.0.1';
+	localPassword.formValues.entry = '';
+	assert.notEqual(localUsername.validate('entry', 'user'), true,
+		'LuCI must reject a username without its paired password');
+	localUsername.formValues.entry = '';
+	assert.notEqual(localPassword.validate('entry', 'secret'), true,
+		'LuCI must reject a password without its paired username');
+	localListen.formValues.entry = '0.0.0.0';
+	localUsername.formValues.entry = '';
+	localPassword.formValues.entry = '';
+	assert.ok(String(localListen.validate('entry', '0.0.0.0')).includes('exposed'),
+		'LuCI must explain the risk when blocking an exposed unauthenticated listener');
 	const groupedFixture = {
 		node: [
 			{ '.name': 'cfg_manual', name: 'Manual', type: 'hysteria2' },

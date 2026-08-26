@@ -196,6 +196,14 @@
 .steer-conflict-alert p { margin: .45rem 0 0; }
 .steer-conflict-alert ul { margin: .45rem 0 0; }
 
+.steer-exposure-warning {
+	display: block;
+	padding: .55rem .7rem;
+	border-left: .25rem solid #b7791f;
+	background: color-mix(in srgb, #b7791f 9%, transparent);
+	color: #8a5a00;
+}
+
 .steer-match-editor {
 	position: relative;
 	width: 100%;

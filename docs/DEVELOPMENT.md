@@ -45,6 +45,10 @@ python3 tests/check-package-boundaries.py
 python3 tests/check-build-cache.py
 python3 tests/check-linux-packaging.py
 python3 tests/check-ui-contract.py
+
+cd macos
+swift test --disable-sandbox
+cd ..
 git diff --check
 ```
 

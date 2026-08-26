@@ -150,6 +150,10 @@ def main() -> None:
     assert 'defaultPort' in ui_spec and 'protocolSpec?.fields.contains' in dns_editor
     assert 'currentPort == $0.defaultPort' in ui_spec and 'protocolSpec?.defaultPort' in dns_editor
     assert '["tls", "https", "quic", "h3"]' not in dns_editor
+    assert 'classifyLocalProxyListen' in editors
+    assert 'validateLocalProxyAuthentication' in editors
+    assert '暴露范围警告' in editors
+    assert '.testTarget(' in package and 'SteerAppTests' in package
     assert 'func probe(kind:' in state
     assert 'func subscriptionStatuses()' in state
     assert 'func updateSubscription(id:' in state

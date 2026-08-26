@@ -222,6 +222,9 @@ msgstr "类型"
 msgid "Listen address"
 msgstr "监听地址"
 
+msgid "Listen address must be an IP literal."
+msgstr "监听地址必须是 IP literal。"
+
 msgid "Local Proxies"
 msgstr "本地代理"
 
@@ -245,9 +248,6 @@ msgstr "在 IP 路由前匹配局域网客户端，因此同一条规则同时�
 
 msgid "Missing: %s"
 msgstr "缺失：%s"
-
-msgid "Mixed (SOCKS + HTTP)"
-msgstr "混合（SOCKS + HTTP）"
 
 msgid "Name"
 msgstr "名称"
@@ -423,8 +423,11 @@ msgstr "上传 Mbps"
 msgid "Upstream"
 msgstr "上游"
 
-msgid "Use a loopback address unless LAN clients must connect directly. Non-loopback listeners require authentication."
-msgstr "除非 LAN 客户端必须直接连接，否则请使用环回地址。非环回监听地址必须启用身份验证。"
+msgid "Exposure warning: non-loopback listeners may be reachable from LAN or public networks and require authentication."
+msgstr "暴露范围警告：非环回监听可能被局域网或公网访问，必须启用身份验证。"
+
+msgid "Non-loopback listeners are exposed beyond this device and require username/password authentication."
+msgstr "非环回监听会暴露到本机之外，必须设置用户名和密码。"
 
 msgid "Use stable DHCP leases or stable IPv6 addresses when a rule belongs to one device."
 msgstr "当规则属于某一台设备时，请使用固定 DHCP 租约或稳定的 IPv6 地址。"
