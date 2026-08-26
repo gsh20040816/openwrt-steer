@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import CryptoKit
 import SwiftUI
 
 enum AppPage: String, CaseIterable, Identifiable {
@@ -122,6 +123,22 @@ struct ApplyOutcome: Sendable {
     let error: String
 }
 
+struct ConfigurationSnapshot: Sendable {
+    let document: String
+    let revision: String
+}
+
+enum DraftConflictOperation: Sendable, Equatable {
+    case save
+    case apply
+    case subscriptionInventory
+}
+
+struct DraftRevisionConflict: Sendable {
+    let currentRevision: String
+    let operation: DraftConflictOperation
+}
+
 struct ProbeResult: Decodable, Sendable {
     let ok: Bool
     let status: Int?
@@ -228,11 +245,13 @@ private struct ControlResponse: Decodable {
     let applied: Bool?
     let revision: String?
     let payload: JSONValue?
+    let errorCode: String?
     let error: String?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case ok, status, saved, applied, revision, payload, error
+        case errorCode = "error_code"
     }
 }
 
@@ -276,6 +295,7 @@ enum BackendClientError: LocalizedError {
     case helperUnavailable
     case invalidResponse
     case validationFailed
+    case revisionConflict(currentRevision: String)
     case processFailed(String)
 
     var errorDescription: String? {
@@ -286,6 +306,8 @@ enum BackendClientError: LocalizedError {
             return "steer-macos 返回了无法识别的响应。"
         case .validationFailed:
             return "配置校验失败，未保存也未 Apply。"
+        case .revisionConflict:
+            return "Saved 配置已在其他操作中更新；请先处理 revision 冲突。"
         case let .processFailed(message):
             return message
         }
@@ -296,9 +318,9 @@ protocol BackendClient: Sendable {
     func componentStatus() async -> SystemComponentsStatus
     func installSystemComponents() async throws
     func validate(document: String) async throws -> ValidationResult
-    func loadConfiguration() async throws -> String
-    func save(document: String) async throws
-    func apply(document: String) async throws -> ApplyOutcome
+    func loadConfiguration() async throws -> ConfigurationSnapshot
+    func save(document: String, expectedRevision: String) async throws -> String
+    func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome
     func status() async throws -> RuntimeStatus
     func logs() async throws -> String
     func versions() async throws -> RuntimeVersions
@@ -370,7 +392,7 @@ struct HelperBackendClient: BackendClient {
         }
     }
 
-    func loadConfiguration() async throws -> String {
+    func loadConfiguration() async throws -> ConfigurationSnapshot {
         let url = URL(fileURLWithPath: Self.configurationPath)
         let output: Data
         do {
@@ -383,33 +405,58 @@ struct HelperBackendClient: BackendClient {
         guard let document = String(data: output, encoding: .utf8) else {
             throw BackendClientError.invalidResponse
         }
-        return document
+        return ConfigurationSnapshot(document: document, revision: Self.configurationRevision(output))
     }
 
-    func save(document: String) async throws {
-        let validation = try await validate(document: document)
-        guard validation.ok else { throw BackendClientError.validationFailed }
-        let helper = URL(fileURLWithPath: Self.installedHelperPath)
-        try requireExecutable(helper)
-        try await withTemporaryDocument(document) { url in
-            let result = try await Self.execute(helper, ["control", "--operation", "save", "--input", url.path])
-            let response = try Self.decodeControlResponse(result)
-            guard response.ok, response.saved == true else {
-                throw BackendClientError.processFailed(response.error ?? "Steer control service 拒绝保存配置。")
-            }
-        }
-    }
-
-    func apply(document: String) async throws -> ApplyOutcome {
+    func save(document: String, expectedRevision: String) async throws -> String {
         let validation = try await validate(document: document)
         guard validation.ok else { throw BackendClientError.validationFailed }
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
         try requireExecutable(helper)
         return try await withTemporaryDocument(document) { url in
-            let result = try await Self.execute(helper, ["control", "--operation", "apply", "--input", url.path])
+            let result = try await Self.execute(helper, [
+                "control", "--operation", "save", "--input", url.path,
+                "--expected-revision", expectedRevision,
+            ])
             let response = try Self.decodeControlResponse(result)
+            if response.errorCode == "REVISION_CONFLICT" {
+                guard let revision = response.revision, !revision.isEmpty else {
+                    throw BackendClientError.invalidResponse
+                }
+                throw BackendClientError.revisionConflict(currentRevision: revision)
+            }
+            guard response.ok, response.saved == true else {
+                throw BackendClientError.processFailed(response.error ?? "Steer control service 拒绝保存配置。")
+            }
+            guard let revision = response.revision, !revision.isEmpty else {
+                throw BackendClientError.invalidResponse
+            }
+            return revision
+        }
+    }
+
+    func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome {
+        let validation = try await validate(document: document)
+        guard validation.ok else { throw BackendClientError.validationFailed }
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        return try await withTemporaryDocument(document) { url in
+            let result = try await Self.execute(helper, [
+                "control", "--operation", "apply", "--input", url.path,
+                "--expected-revision", expectedRevision,
+            ])
+            let response = try Self.decodeControlResponse(result)
+            if response.errorCode == "REVISION_CONFLICT" {
+                guard let revision = response.revision, !revision.isEmpty else {
+                    throw BackendClientError.invalidResponse
+                }
+                throw BackendClientError.revisionConflict(currentRevision: revision)
+            }
             if response.saved != true {
                 throw BackendClientError.processFailed(response.error ?? "配置未保存。")
+            }
+            guard let revision = response.revision, !revision.isEmpty else {
+                throw BackendClientError.invalidResponse
             }
             let status: RuntimeStatus
             if let responseStatus = response.status {
@@ -419,7 +466,7 @@ struct HelperBackendClient: BackendClient {
             }
             return ApplyOutcome(
                 status: status, saved: true, applied: response.applied == true,
-                revision: response.revision ?? "", error: response.error ?? ""
+                revision: revision, error: response.error ?? ""
             )
         }
     }
@@ -563,6 +610,10 @@ struct HelperBackendClient: BackendClient {
         return response
     }
 
+    static func configurationRevision(_ content: Data) -> String {
+        "sha256-" + SHA256.hash(data: content).map { String(format: "%02x", $0) }.joined()
+    }
+
     private func withTemporaryDocument<T>(
         _ document: String,
         operation: (URL) async throws -> T
@@ -644,11 +695,14 @@ final class AppModel: ObservableObject {
     @Published var probeSummaries: [String: String] = [:]
     @Published var geositeNames: [String] = []
     @Published var geoipNames: [String] = []
+    @Published private(set) var savedRevision = ""
+    @Published private(set) var revisionConflict: DraftRevisionConflict?
     @Published private(set) var activeProbeKeys: Set<String> = []
     @Published private(set) var isBatchNodeProbeRunning = false
     @Published private(set) var activeSubscriptionOperationIDs: Set<String> = []
 
     private let backend: BackendClient
+    private var draftMutationSequence: UInt64 = 0
 
     init(backend: BackendClient? = nil) {
         self.backend = backend ?? HelperBackendClient()
@@ -705,6 +759,7 @@ final class AppModel: ObservableObject {
     }
 
     func markDirty() {
+        draftMutationSequence &+= 1
         isDirty = true
         message = "有未应用的 draft 修改"
     }
@@ -721,13 +776,12 @@ final class AppModel: ObservableObject {
                     : "尚未安装系统组件；当前为源码开发构建"
                 return
             }
-            self.rawJSON = try await self.backend.loadConfiguration()
+            self.replaceDraft(with: try await self.backend.loadConfiguration())
             self.runtime = try await self.backend.status()
             self.versions = try await self.backend.versions()
             self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
             self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
             self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
-            self.isDirty = false
             self.message = self.runtime.healthy ? "Steer 运行正常" : "已连接后端，Steer 当前未运行"
         }
     }
@@ -742,13 +796,12 @@ final class AppModel: ObservableObject {
             guard components.installed else {
                 throw BackendClientError.processFailed("安装器已结束，但系统组件验收未通过。")
             }
-            self.rawJSON = try await self.backend.loadConfiguration()
+            self.replaceDraft(with: try await self.backend.loadConfiguration())
             self.runtime = try await self.backend.status()
             self.versions = try await self.backend.versions()
             self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
             self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
             self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
-            self.isDirty = false
             self.message = "系统组件安装完成；后续保存和应用不再请求管理员密码"
         }
     }
@@ -801,14 +854,14 @@ final class AppModel: ObservableObject {
     }
 
     func apply() {
+        let document = rawJSON
+        let expectedRevision = savedRevision
         perform(message: "正在保存并应用配置…") {
-            let outcome = try await self.backend.apply(document: self.rawJSON)
-            self.runtime = outcome.status
-            self.isDirty = !outcome.saved
-            if outcome.saved && !outcome.applied {
-                self.message = "配置已保存，但 Apply 失败：\(outcome.error.isEmpty ? "运行态未切换" : outcome.error)"
-            } else {
-                self.message = self.runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用"
+            do {
+                try await self.applyCurrentDraft(document: document, expectedRevision: expectedRevision)
+            } catch {
+                if self.recordRevisionConflict(error, operation: .apply) { return }
+                throw error
             }
         }
     }
@@ -821,6 +874,7 @@ final class AppModel: ObservableObject {
         }
         let previousDocument = rawJSON
         let previousDirty = isDirty
+        let expectedRevision = savedRevision
         var main = root["main"]?.objectValue ?? [:]
         main["enabled"] = .bool(enabled)
         root["main"] = .object(main)
@@ -831,15 +885,19 @@ final class AppModel: ObservableObject {
 
         let updatedDocument = String(decoding: data, as: UTF8.self)
         rawJSON = updatedDocument
+        draftMutationSequence &+= 1
+        isDirty = true
         isBusy = true
         message = enabled ? "正在启用并应用 Steer…" : "正在停用并清理 Steer…"
         Task {
             defer { isBusy = false }
             do {
-                let outcome = try await backend.apply(document: updatedDocument)
+                let outcome = try await backend.apply(document: updatedDocument, expectedRevision: expectedRevision)
                 runtime = outcome.status
                 if outcome.saved {
                     isDirty = false
+                    savedRevision = outcome.revision
+                    revisionConflict = nil
                 }
                 if outcome.applied {
                     message = enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源"
@@ -849,6 +907,10 @@ final class AppModel: ObservableObject {
                     throw BackendClientError.processFailed(outcome.error)
                 }
             } catch {
+                if recordRevisionConflict(error, operation: .apply) {
+                    isDirty = true
+                    return
+                }
                 rawJSON = previousDocument
                 isDirty = previousDirty
                 message = "切换 Steer 状态失败：\(error.localizedDescription)"
@@ -857,18 +919,79 @@ final class AppModel: ObservableObject {
     }
 
     func saveDraft() {
+        let document = rawJSON
+        let expectedRevision = savedRevision
         perform(message: "正在保存配置…") {
-            try await self.backend.save(document: self.rawJSON)
-            self.isDirty = false
-            self.message = "配置已保存；运行态未改变"
+            do {
+                try await self.saveCurrentDraft(document: document, expectedRevision: expectedRevision)
+            } catch {
+                if self.recordRevisionConflict(error, operation: .save) { return }
+                throw error
+            }
         }
     }
 
     func loadDraft() {
         perform(message: "正在读取配置…") {
-            self.rawJSON = try await self.backend.loadConfiguration()
-            self.isDirty = false
+            self.replaceDraft(with: try await self.backend.loadConfiguration())
             self.message = "已读取系统配置"
+        }
+    }
+
+    var revisionConflictExplanation: String {
+        guard let revisionConflict else { return "" }
+        switch revisionConflict.operation {
+        case .subscriptionInventory:
+            return "订阅节点库存已更新，但更新期间本地 Draft 也发生了修改。Reload Saved 会丢弃本地修改；显式覆盖只保存本地 Draft，不会自动 Apply。"
+        case .apply:
+            return "Saved 配置已在加载后发生变化。Reload Saved 会丢弃本地修改；显式覆盖会保存并 Apply 当前本地 Draft。"
+        case .save:
+            return "Saved 配置已在加载后发生变化。Reload Saved 会丢弃本地修改；显式覆盖只保存当前本地 Draft。"
+        }
+    }
+
+    func keepLocalDraftAfterRevisionConflict() {
+        guard revisionConflict != nil else { return }
+        revisionConflict = nil
+        isDirty = true
+        message = "已保留本地 Draft；再次保存时仍会校验 Saved revision"
+    }
+
+    func reloadSavedAfterRevisionConflict() {
+        revisionConflict = nil
+        perform(message: "正在重新载入 Saved 配置…") {
+            self.replaceDraft(with: try await self.backend.loadConfiguration())
+            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
+            self.message = "已重新载入 Saved 配置；本地 Draft 修改已丢弃"
+        }
+    }
+
+    func overwriteAfterRevisionConflict() {
+        guard let conflict = revisionConflict else { return }
+        let document = rawJSON
+        revisionConflict = nil
+        switch conflict.operation {
+        case .apply:
+            perform(message: "正在显式覆盖 Saved 并 Apply…") {
+                do {
+                    try await self.applyCurrentDraft(document: document, expectedRevision: conflict.currentRevision)
+                } catch {
+                    if self.recordRevisionConflict(error, operation: .apply) { return }
+                    throw error
+                }
+            }
+        case .save, .subscriptionInventory:
+            perform(message: "正在显式覆盖 Saved 配置…") {
+                do {
+                    try await self.saveCurrentDraft(document: document, expectedRevision: conflict.currentRevision)
+                    if conflict.operation == .subscriptionInventory {
+                        self.message = "已显式覆盖 Saved 配置；订阅操作未自动 Apply"
+                    }
+                } catch {
+                    if self.recordRevisionConflict(error, operation: conflict.operation) { return }
+                    throw error
+                }
+            }
         }
     }
 
@@ -931,15 +1054,20 @@ final class AppModel: ObservableObject {
     func updateSubscription(_ id: String) {
         let operationID = "update:\(id)"
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
+        let startingDraftSequence = draftMutationSequence
         message = "正在更新订阅…"
         Task {
             defer { activeSubscriptionOperationIDs.remove(operationID) }
             do {
                 try await backend.updateSubscription(id: id)
-                rawJSON = try await backend.loadConfiguration()
+                let snapshot = try await backend.loadConfiguration()
                 subscriptionRuntime = try await backend.subscriptionStatuses()
-                isDirty = false
-                message = "订阅已更新；运行态未自动 Apply"
+                if draftMutationSequence == startingDraftSequence {
+                    replaceDraft(with: snapshot)
+                    message = "订阅已更新；运行态未自动 Apply"
+                } else {
+                    presentSubscriptionInventoryConflict(snapshot)
+                }
             } catch {
                 message = "订阅更新失败：\(error.localizedDescription)"
             }
@@ -949,15 +1077,20 @@ final class AppModel: ObservableObject {
     func cleanSubscriptionNode(subscriptionID: String, nodeID: String) {
         let operationID = "clean:\(subscriptionID):\(nodeID)"
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
+        let startingDraftSequence = draftMutationSequence
         message = "正在清理 stale 节点…"
         Task {
             defer { activeSubscriptionOperationIDs.remove(operationID) }
             do {
                 try await backend.cleanSubscription(id: subscriptionID, nodeID: nodeID)
-                rawJSON = try await backend.loadConfiguration()
+                let snapshot = try await backend.loadConfiguration()
                 subscriptionRuntime = try await backend.subscriptionStatuses()
-                isDirty = false
-                message = "已清理 stale 节点 \(nodeID)"
+                if draftMutationSequence == startingDraftSequence {
+                    replaceDraft(with: snapshot)
+                    message = "已清理 stale 节点 \(nodeID)；运行态未自动 Apply"
+                } else {
+                    presentSubscriptionInventoryConflict(snapshot)
+                }
             } catch {
                 message = "stale 节点清理失败：\(error.localizedDescription)"
             }
@@ -1132,6 +1265,55 @@ final class AppModel: ObservableObject {
         mutateCollection(key) { values in
             values.move(fromOffsets: source, toOffset: destination)
         }
+    }
+
+    private func replaceDraft(with snapshot: ConfigurationSnapshot) {
+        rawJSON = snapshot.document
+        savedRevision = snapshot.revision
+        revisionConflict = nil
+        isDirty = false
+    }
+
+    private func saveCurrentDraft(document: String, expectedRevision: String) async throws {
+        let revision = try await backend.save(document: document, expectedRevision: expectedRevision)
+        savedRevision = revision
+        revisionConflict = nil
+        isDirty = false
+        message = "配置已保存；运行态未改变"
+    }
+
+    private func applyCurrentDraft(document: String, expectedRevision: String) async throws {
+        let outcome = try await backend.apply(document: document, expectedRevision: expectedRevision)
+        runtime = outcome.status
+        isDirty = !outcome.saved
+        if outcome.saved {
+            savedRevision = outcome.revision
+            revisionConflict = nil
+        }
+        if outcome.saved && !outcome.applied {
+            message = "配置已保存，但 Apply 失败：\(outcome.error.isEmpty ? "运行态未切换" : outcome.error)"
+        } else {
+            message = runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用"
+        }
+    }
+
+    @discardableResult
+    private func recordRevisionConflict(_ error: Error, operation: DraftConflictOperation) -> Bool {
+        guard let backendError = error as? BackendClientError,
+              case let .revisionConflict(currentRevision) = backendError else { return false }
+        revisionConflict = DraftRevisionConflict(currentRevision: currentRevision, operation: operation)
+        isDirty = true
+        message = "Saved 配置已变化；本地 Draft、Saved 与 Active 均未被此次操作修改"
+        return true
+    }
+
+    private func presentSubscriptionInventoryConflict(_ snapshot: ConfigurationSnapshot) {
+        revisionConflict = DraftRevisionConflict(
+            currentRevision: snapshot.revision,
+            operation: .subscriptionInventory
+        )
+        isDirty = true
+        message = "订阅已更新 Saved 节点库存；更新期间的本地 Draft 已保留，运行态未自动 Apply"
     }
 
     private func perform(message pendingMessage: String, operation: @escaping () async throws -> Void) {

@@ -41,6 +41,10 @@ Darwin utun + auto_route
 
 control daemon 只接受 schema 固定、大小受限的 `save`、`apply`、`subscription-update` 和 `subscription-clean` JSON 请求，不提供 shell、路径或可执行文件参数。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
 
+GUI 每次 Load 同时保存配置内容的 SHA-256 revision；Save 与 Apply 必须携带该 `expected_revision`。control 在与订阅调度器共用的跨进程 operation lock 内先比较当前 Saved revision，再写入或切换运行态。不匹配时返回稳定的 `REVISION_CONFLICT`，Saved、Active 和本地 Draft 都不变。GUI 明确提供 Reload Saved、保留本地 Draft 和显式覆盖三种选择；显式覆盖仍使用冲突响应中的最新 revision 做第二次原子比较，不绕过并发保护。
+
+订阅 timer 和手动 Update 只更新 Saved 节点库存，从不自动 Apply。手动更新开始后若 Draft 未变化，完成时可安全 reload；若用户在网络请求期间继续编辑，GUI 保留本地 Draft 并显示上述冲突选择，不能用更新结果静默替换编辑内容。
+
 系统配置的唯一真相仍是：
 
 ```text

@@ -15,5 +15,10 @@ let package = Package(
             path: "SteerApp",
             exclude: ["Info.plist"]
         ),
+        .testTarget(
+            name: "SteerAppTests",
+            dependencies: ["SteerApp"],
+            path: "SteerAppTests"
+        ),
     ]
 )

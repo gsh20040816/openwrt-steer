@@ -195,10 +195,11 @@ jobs:
             -o "$RUNNER_TEMP/steer-macos" \
             ./cmd/steer-macos
 
-      - name: Build Swift GUI in debug and release modes
+      - name: Test and build Swift GUI in debug and release modes
         working-directory: macos
         run: |
           plutil -lint launchd/com.steer.steer.plist launchd/com.steer.steer.control.plist
+          swift test --disable-sandbox
           swift build -c debug --disable-sandbox
           swift build -c release --disable-sandbox
           app_binary="$(swift build -c release --show-bin-path)/SteerApp"
