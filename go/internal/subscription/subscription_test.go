@@ -40,6 +40,38 @@ func TestParseBase64VMess(t *testing.T) {
 	}
 }
 
+func TestCredentialProxyDefaultPortsFollowScheme(t *testing.T) {
+	tests := []struct {
+		raw      string
+		nodeType string
+		port     int
+		tlsName  string
+	}{
+		{raw: "socks://proxy.example", nodeType: "socks", port: 1080},
+		{raw: "socks5://proxy.example", nodeType: "socks", port: 1080},
+		{raw: "http://proxy.example", nodeType: "http", port: 80},
+		{raw: "https://proxy.example", nodeType: "http", port: 443, tlsName: "proxy.example"},
+		{raw: "https://proxy.example:8443", nodeType: "http", port: 8443, tlsName: "proxy.example"},
+	}
+	for _, testCase := range tests {
+		node, err := ParseURI(testCase.raw)
+		if err != nil {
+			t.Fatalf("ParseURI(%q): %v", testCase.raw, err)
+		}
+		if node.Type != testCase.nodeType || node.ServerPort != testCase.port || node.TLSServerName != testCase.tlsName {
+			t.Errorf("ParseURI(%q) = %#v; want type=%q port=%d tls=%q", testCase.raw, node, testCase.nodeType, testCase.port, testCase.tlsName)
+		}
+	}
+
+	result, err := ParseList("socks://socks.example\nhttp://http.example\nhttps://https.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Nodes) != 3 || result.Nodes[0].ServerPort != 1080 || result.Nodes[1].ServerPort != 80 || result.Nodes[2].ServerPort != 443 {
+		t.Fatalf("subscription list did not reuse scheme defaults: %#v", result.Nodes)
+	}
+}
+
 func TestRejectUnknownParameter(t *testing.T) {
 	if _, err := ParseURI("tuic://00000000-0000-4000-8000-000000000001:password@example.com:443?unsupported=x"); err == nil {
 		t.Fatal("unknown URI parameter was silently accepted")

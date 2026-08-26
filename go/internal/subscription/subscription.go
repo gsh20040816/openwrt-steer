@@ -98,7 +98,8 @@ func parseCredentialProxy(u *url.URL, scheme string) (model.Node, error) {
 	if u.Hostname() == "" {
 		return model.Node{}, fmt.Errorf("%s URI has no server", scheme)
 	}
-	node := model.Node{Enabled: true, Type: scheme, Name: u.Fragment, Server: u.Hostname(), ServerPort: port(u, 1080)}
+	defaultPort := map[string]int{"socks": 1080, "http": 80, "https": 443}[scheme]
+	node := model.Node{Enabled: true, Type: scheme, Name: u.Fragment, Server: u.Hostname(), ServerPort: port(u, defaultPort)}
 	if scheme == "https" {
 		node.Type = "http"
 		node.TLSServerName = u.Hostname()
