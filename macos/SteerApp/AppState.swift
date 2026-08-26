@@ -286,6 +286,41 @@ indirect enum JSONValue: Codable, Sendable {
     }
 }
 
+enum RuleDraftPolicy {
+    static let matchKeys = [
+        "inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address",
+        "network", "protocol", "port",
+    ]
+
+    static func isDefault(_ object: [String: JSONValue]) -> Bool {
+        object["default"]?.boolValue == true
+    }
+
+    static func replacement(
+        for existing: [String: JSONValue],
+        proposed: [String: JSONValue]
+    ) -> [String: JSONValue] {
+        guard isDefault(existing) else {
+            var ordinary = proposed
+            ordinary["default"] = .bool(false)
+            return ordinary
+        }
+
+        var pinned = existing
+        for key in ["name", "dns_profile", "route"] {
+            if let value = proposed[key] {
+                pinned[key] = value
+            } else {
+                pinned.removeValue(forKey: key)
+            }
+        }
+        pinned["enabled"] = .bool(true)
+        pinned["default"] = .bool(true)
+        for key in matchKeys { pinned.removeValue(forKey: key) }
+        return pinned
+    }
+}
+
 struct NodeImportResult: Decodable, Sendable {
     let nodes: [JSONValue]
     let skipped: Int
@@ -1145,10 +1180,15 @@ final class AppModel: ObservableObject {
     func replaceDraftItem(in key: String, at index: Int, object: [String: JSONValue]) -> Bool {
         var replaced = false
         mutateCollection(key) { values in
-            guard values.indices.contains(index) else { return }
-            if key == "rules", object["default"]?.boolValue == true {
-                values.remove(at: index)
-                values.append(.object(object))
+            guard values.indices.contains(index), let existing = values[index].objectValue else { return }
+            if key == "rules" {
+                let replacement = RuleDraftPolicy.replacement(for: existing, proposed: object)
+                if RuleDraftPolicy.isDefault(existing) {
+                    values.remove(at: index)
+                    values.append(.object(replacement))
+                } else {
+                    values[index] = .object(replacement)
+                }
             } else {
                 values[index] = .object(object)
             }
@@ -1160,6 +1200,11 @@ final class AppModel: ObservableObject {
     func setDraftItemEnabled(in key: String, at index: Int, enabled: Bool) {
         mutateCollection(key) { values in
             guard values.indices.contains(index), var object = values[index].objectValue else { return }
+            if key == "rules", RuleDraftPolicy.isDefault(object) {
+                object["enabled"] = .bool(true)
+                values[index] = .object(object)
+                return
+            }
             object["enabled"] = .bool(enabled)
             values[index] = .object(object)
         }
@@ -1169,26 +1214,37 @@ final class AppModel: ObservableObject {
         mutateCollection(key) { values in
             let destination = index + offset
             guard values.indices.contains(index), values.indices.contains(destination) else { return }
+            if key == "rules" {
+                guard values[index].objectValue.map(RuleDraftPolicy.isDefault) != true,
+                      values[destination].objectValue.map(RuleDraftPolicy.isDefault) != true else { return }
+            }
             values.swapAt(index, destination)
         }
     }
 
     @discardableResult
     func appendDraftItem(to key: String, object: [String: JSONValue]) -> Bool {
+        if key == "rules", RuleDraftPolicy.isDefault(object) { return false }
+        var appended = false
         mutateCollection(key) { values in
-            if key == "rules", object["default"]?.boolValue != true,
+            if key == "rules",
                let defaultIndex = values.firstIndex(where: {
-                   $0.objectValue?["default"]?.boolValue == true
+                   $0.objectValue.map(RuleDraftPolicy.isDefault) == true
                }) {
                 values.insert(.object(object), at: defaultIndex)
             } else {
                 values.append(.object(object))
             }
+            appended = true
         }
-        return true
+        return appended
     }
 
     func removeDraftItem(from key: String, at index: Int) {
+        if key == "rules", let object = draftItemObject(for: key, at: index), RuleDraftPolicy.isDefault(object) {
+            message = "Default 规则必须保留"
+            return
+        }
         if key == "subscriptions",
            var root = parseDraft()?.objectValue,
            case var .array(subscriptions)? = root[key], subscriptions.indices.contains(index),
@@ -1265,7 +1321,17 @@ final class AppModel: ObservableObject {
 
     func moveDraftItem(in key: String, from source: IndexSet, to destination: Int) {
         mutateCollection(key) { values in
-            values.move(fromOffsets: source, toOffset: destination)
+            guard key == "rules" else {
+                values.move(fromOffsets: source, toOffset: destination)
+                return
+            }
+            let defaultIndex = values.firstIndex {
+                $0.objectValue.map(RuleDraftPolicy.isDefault) == true
+            }
+            guard !source.contains(where: { index in
+                values.indices.contains(index) && values[index].objectValue.map(RuleDraftPolicy.isDefault) == true
+            }) else { return }
+            values.move(fromOffsets: source, toOffset: min(destination, defaultIndex ?? values.endIndex))
         }
     }
 

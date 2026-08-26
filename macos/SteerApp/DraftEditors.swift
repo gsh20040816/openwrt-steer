@@ -52,7 +52,11 @@ struct DraftItemEditor: View {
                 case "local_proxies":
                     LocalProxyDraftForm(object: $object)
                 case "rules":
-                    RuleDraftForm(model: model, object: $object, editingIndex: target.index)
+                    if target.object["default"]?.boolValue == true {
+                        DefaultRuleDraftForm(model: model, object: $object)
+                    } else {
+                        RuleDraftForm(model: model, object: $object)
+                    }
                 case "subscriptions":
                     SubscriptionDraftForm(object: $object)
                 default:
@@ -278,7 +282,11 @@ private struct SharedNodeDraftForm: View {
                 ForEach(field.options) { option in Text(option.label).tag(Int(option.value) ?? 0) }
             }
         case "string-list":
-            TextField(label, text: stringListBinding($object, field.key), prompt: prompt(field))
+            MultilineStringListEditor(
+                label: label,
+                text: stringListBinding($object, field.key),
+                example: field.placeholder.contains(",") ? "" : field.placeholder
+            )
         case "password" where field.multiline:
             LabeledContent(label) {
                 TextEditor(text: stringBinding($object, field.key))
@@ -450,31 +458,74 @@ private struct LocalProxyDraftForm: View {
     }
 }
 
-private struct RuleDraftForm: View {
-    @ObservedObject var model: AppModel
-    @Binding var object: [String: JSONValue]
-    let editingIndex: Int?
+private struct MultilineStringListEditor: View {
+    let label: String
+    let example: String
+    @Binding private var text: String
+    @State private var draftText: String
 
-    private var isDefault: Bool { draftBool(object, "default") }
-    private var hasOtherDefault: Bool {
-        model.draftItems(for: "rules").contains {
-            $0.kind == "default" && $0.index != editingIndex
-        }
+    init(label: String, text: Binding<String>, example: String) {
+        self.label = label
+        self.example = example
+        _text = text
+        _draftText = State(initialValue: text.wrappedValue)
     }
 
     var body: some View {
-        Section("规则") {
-            Toggle("启用规则", isOn: boolBinding($object, "enabled", defaultValue: true))
-            TextField("名称", text: stringBinding($object, "name"))
-            Toggle("Default 规则", isOn: defaultRuleBinding)
-                .disabled(hasOtherDefault && !isDefault)
-            if hasOtherDefault && !isDefault {
-                Text("配置中已经存在 Default 规则。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.callout.weight(.medium))
+            TextEditor(text: $draftText)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 82)
+            Text(example.isEmpty ? "每行一个完整条目；逗号属于条目正文。" : "每行一个完整条目；逗号属于条目正文。示例：\(example)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: draftText) { text = $0 }
+        .onChange(of: text) { value in
+            let normalizedDraft = DraftStringListCodec.text(from: DraftStringListCodec.values(from: draftText))
+            if value != normalizedDraft { draftText = value }
+        }
+    }
+}
+
+private struct MatchListEditor: View {
+    let label: String
+    let key: String
+    let example: String
+    let catalogLabel: String
+    let catalogPrefix: String
+    let catalog: [String]
+    @Binding var object: [String: JSONValue]
+
+    var body: some View {
+        MultilineStringListEditor(
+            label: label,
+            text: stringListBinding($object, key),
+            example: example
+        )
+        if !catalog.isEmpty {
+            Menu("添加 \(catalogLabel)") {
+                ForEach(catalog.prefix(100), id: \.self) { name in
+                    Button(name) { appendCatalogValue(catalogPrefix + name) }
+                }
             }
         }
+    }
 
+    private func appendCatalogValue(_ value: String) {
+        let current = stringListBinding($object, key).wrappedValue
+        stringListBinding($object, key).wrappedValue = DraftStringListCodec.appendingUnique(value, to: current)
+    }
+}
+
+private struct RuleDecisionSection: View {
+    @ObservedObject var model: AppModel
+    @Binding var object: [String: JSONValue]
+
+    var body: some View {
         Section("决策") {
             Picker("Route", selection: stringBinding($object, "route", required: true)) {
                 Text("请选择 Route").tag("")
@@ -489,77 +540,89 @@ private struct RuleDraftForm: View {
                 }
             }
         }
+    }
+}
 
-        if !isDefault {
-            Section("目标匹配") {
-                TextField("Domain match", text: stringListBinding($object, "domain_match"), prompt: Text("domain:example.com, geosite:cn"))
-                if !model.geositeNames.isEmpty {
-                    Menu("添加 GeoSite") {
-                        ForEach(model.geositeNames.prefix(100), id: \.self) { name in
-                            Button(name) { appendMatch("domain_match", value: "geosite:\(name)") }
-                        }
-                    }
-                }
-                TextField("IP match", text: stringListBinding($object, "ip_match"), prompt: Text("10.0.0.0/8, geoip:cn"))
-                if !model.geoipNames.isEmpty {
-                    Menu("添加 GeoIP") {
-                        ForEach(model.geoipNames.prefix(100), id: \.self) { name in
-                            Button(name) { appendMatch("ip_match", value: "geoip:\(name)") }
-                        }
-                    }
-                }
-                TextField("目标端口", text: intListBinding($object, "port"), prompt: Text("443, 8443"))
+private struct DefaultRuleDraftForm: View {
+    @ObservedObject var model: AppModel
+    @Binding var object: [String: JSONValue]
+
+    var body: some View {
+        Section("Default") {
+            LabeledContent("状态") {
+                Label("固定启用 · 始终位于最后", systemImage: "lock.fill")
+                    .foregroundStyle(.green)
             }
-            Section("来源匹配") {
-                TextField("Source IP CIDR", text: stringListBinding($object, "source_ip_cidr"), prompt: Text("192.168.1.0/24"))
-                if model.draftItems(for: "local_proxies").isEmpty {
-                    LabeledContent("本地入口", value: "无")
-                } else {
-                    DisclosureGroup("本地入口") {
-                        ForEach(model.draftItems(for: "local_proxies")) { item in
-                            Toggle(item.title, isOn: membershipBinding($object, "inbound", item.identifier))
-                        }
+            TextField("名称", text: stringBinding($object, "name"))
+            Text("Default 的身份、状态和顺序固定；只能修改显示名称与决策。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        RuleDecisionSection(model: model, object: $object)
+    }
+}
+
+private struct RuleDraftForm: View {
+    @ObservedObject var model: AppModel
+    @Binding var object: [String: JSONValue]
+
+    var body: some View {
+        Section("规则") {
+            Toggle("启用规则", isOn: boolBinding($object, "enabled", defaultValue: true))
+            TextField("名称", text: stringBinding($object, "name"))
+            LabeledContent("类型", value: "普通 first-match 规则")
+        }
+
+        RuleDecisionSection(model: model, object: $object)
+
+        Section("目标匹配") {
+            MatchListEditor(
+                label: "Domain match",
+                key: "domain_match",
+                example: "domain:example.com / geosite:cn / regexp:^api[0-9]{1,3}\\.example\\.com$",
+                catalogLabel: "GeoSite",
+                catalogPrefix: "geosite:",
+                catalog: model.geositeNames,
+                object: $object
+            )
+            MatchListEditor(
+                label: "IP match",
+                key: "ip_match",
+                example: "10.0.0.0/8 / geoip:cn",
+                catalogLabel: "GeoIP",
+                catalogPrefix: "geoip:",
+                catalog: model.geoipNames,
+                object: $object
+            )
+            TextField("目标端口", text: intListBinding($object, "port"), prompt: Text("443, 8443"))
+        }
+        Section("来源匹配") {
+            MultilineStringListEditor(
+                label: "Source IP CIDR",
+                text: stringListBinding($object, "source_ip_cidr"),
+                example: "192.168.1.0/24"
+            )
+            if model.draftItems(for: "local_proxies").isEmpty {
+                LabeledContent("本地入口", value: "无")
+            } else {
+                DisclosureGroup("本地入口") {
+                    ForEach(model.draftItems(for: "local_proxies")) { item in
+                        Toggle(item.title, isOn: membershipBinding($object, "inbound", item.identifier))
                     }
                 }
             }
-            Section("连接条件") {
-                ForEach(SteerUISpec.contract.ruleNetworks) { option in
-                    Toggle(option.label, isOn: membershipBinding($object, "network", option.value))
-                }
-                DisclosureGroup("嗅探协议") {
-                    ForEach(SteerUISpec.contract.ruleProtocols) { option in
-                        Toggle(option.label, isOn: membershipBinding($object, "protocol", option.value))
-                    }
-                }
+        }
+        Section("连接条件") {
+            ForEach(SteerUISpec.contract.ruleNetworks) { option in
+                Toggle(option.label, isOn: membershipBinding($object, "network", option.value))
             }
-        } else {
-            Section {
-                Text("Default 不包含匹配条件，并固定在规则列表最后。")
-                    .foregroundStyle(.secondary)
+            DisclosureGroup("嗅探协议") {
+                ForEach(SteerUISpec.contract.ruleProtocols) { option in
+                    Toggle(option.label, isOn: membershipBinding($object, "protocol", option.value))
+                }
             }
         }
     }
-
-    private var defaultRuleBinding: Binding<Bool> {
-        Binding(
-            get: { draftBool(object, "default") },
-            set: { enabled in
-                var copy = object
-                copy["default"] = .bool(enabled)
-                if enabled {
-                    for key in ruleMatchKeys { copy.removeValue(forKey: key) }
-                }
-                object = copy
-            }
-        )
-    }
-
-    private func appendMatch(_ key: String, value: String) {
-        var values = draftStringList(object, key)
-        if !values.contains(value) { values.append(value) }
-        object[key] = .array(values.map(JSONValue.string))
-    }
-
 }
 
 private struct SubscriptionDraftForm: View {
@@ -635,11 +698,11 @@ private func intBinding(
     )
 }
 
-private func stringListBinding(_ object: Binding<[String: JSONValue]>, _ key: String) -> Binding<String> {
+func stringListBinding(_ object: Binding<[String: JSONValue]>, _ key: String) -> Binding<String> {
     Binding(
-        get: { draftStringList(object.wrappedValue, key).joined(separator: ", ") },
+        get: { DraftStringListCodec.text(from: draftStringList(object.wrappedValue, key)) },
         set: { raw in
-            let values = splitList(raw).map(JSONValue.string)
+            let values = DraftStringListCodec.values(from: raw).map(JSONValue.string)
             var copy = object.wrappedValue
             if values.isEmpty { copy.removeValue(forKey: key) } else { copy[key] = .array(values) }
             object.wrappedValue = copy
@@ -651,7 +714,7 @@ private func intListBinding(_ object: Binding<[String: JSONValue]>, _ key: Strin
     Binding(
         get: { draftIntList(object.wrappedValue, key).map(String.init).joined(separator: ", ") },
         set: { raw in
-            let values = splitList(raw).compactMap(Int.init).map { JSONValue.number(Double($0)) }
+            let values = splitIntegerList(raw).compactMap(Int.init).map { JSONValue.number(Double($0)) }
             var copy = object.wrappedValue
             if values.isEmpty { copy.removeValue(forKey: key) } else { copy[key] = .array(values) }
             object.wrappedValue = copy
@@ -701,7 +764,25 @@ private func draftIntList(_ object: [String: JSONValue], _ key: String) -> [Int]
     object[key]?.arrayValue?.compactMap(\.numberValue).map(Int.init) ?? []
 }
 
-private func splitList(_ raw: String) -> [String] {
+enum DraftStringListCodec {
+    static func text(from values: [String]) -> String {
+        values.joined(separator: "\n")
+    }
+
+    static func values(from text: String) -> [String] {
+        text.components(separatedBy: .newlines).filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    static func appendingUnique(_ value: String, to text: String) -> String {
+        var values = values(from: text)
+        if !values.contains(value) { values.append(value) }
+        return self.text(from: values)
+    }
+}
+
+private func splitIntegerList(_ raw: String) -> [String] {
     raw.split(whereSeparator: { $0 == "," || $0 == "\n" })
         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         .filter { !$0.isEmpty }
@@ -711,13 +792,8 @@ private func validPort(_ value: Int) -> Bool {
     (1...65_535).contains(value)
 }
 
-private let ruleMatchKeys = [
-    "inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address",
-    "network", "protocol", "port",
-]
-
 private func ruleHasMatch(_ object: [String: JSONValue]) -> Bool {
-    ruleMatchKeys.contains { object[$0]?.arrayValue?.isEmpty == false }
+    RuleDraftPolicy.matchKeys.contains { object[$0]?.arrayValue?.isEmpty == false }
 }
 
 private func normalizedObject(_ source: [String: JSONValue], key: String) -> [String: JSONValue] {
@@ -760,7 +836,7 @@ private func normalizedObject(_ source: [String: JSONValue], key: String) -> [St
         SteerUISpec.normalizeDNSProfile(&object)
     }
     if key == "rules", draftBool(object, "default") {
-        for field in ruleMatchKeys { object.removeValue(forKey: field) }
+        for field in RuleDraftPolicy.matchKeys { object.removeValue(forKey: field) }
     }
     return object
 }

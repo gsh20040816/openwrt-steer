@@ -15,6 +15,7 @@ go vet ./...
 Linux 适配器测试覆盖主机与转发流量 plan、OUTPUT/PREROUTING DNS shim 与受保护的 wildcard listener、1.14 原生 source-MAC、JSON 原子写入与 ETag 冲突、systemd/backend generation、Web bearer token/CSP/开关失败回滚、临时 probe 的 bypass mark 和静态 Linux 构建。
 
 macOS 适配器测试覆盖 Darwin TUN plan、TUN port-53 capture、JSON store、generation、launchd backend 和平台限制；`check-macos-contract.py` 约束 SwiftUI GUI 直接面向 helper，并确保旧数据面实验路径不会重新进入仓库。
+SwiftUI 工作副本行为由 `cd macos && swift test --disable-sandbox` 覆盖，包括规则 string-list 的无损逐行 round-trip 与 Default 固定不变量。
 
 ## LuCI 与静态边界
 

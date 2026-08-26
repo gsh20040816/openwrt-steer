@@ -32,6 +32,7 @@ def main() -> None:
     content = read("macos/SteerApp/ContentView.swift")
     editors = read("macos/SteerApp/DraftEditors.swift")
     ui_spec = read("macos/SteerApp/UISpec.swift")
+    rule_tests = read("macos/SteerAppTests/RuleDraftTests.swift")
     general = read("macos/SteerApp/ConfigurationFormView.swift")
 
     assert 'DNSCaptureInboundHijack' in compiler
@@ -78,6 +79,10 @@ def main() -> None:
     assert 'while launchctl print system/com.steer.steer' in installer
     assert 'Timed out waiting for the previous Steer LaunchDaemons to stop.' in installer
     assert '.executable(name: "SteerApp"' in package
+    assert '.testTarget(' in package and 'name: "SteerAppTests"' in package
+    assert "DraftStringListCodecTests" in rule_tests and "AppModelRulePolicyTests" in rule_tests
+    assert "testCommaBearingEntriesRoundTripWithoutRewriting" in rule_tests
+    assert "testDefaultCannotBeDisabledDeletedOrMoved" in rule_tests
     assert 'SteerAgent' not in package
     assert "SteerNetwork" not in package
     assert 'NavigationSplitView' in content
@@ -90,6 +95,12 @@ def main() -> None:
     assert 'GroupBox' not in content
     for editor in ("NodeDraftForm", "RouteDraftForm", "DNSDraftForm", "LocalProxyDraftForm", "RuleDraftForm", "SubscriptionDraftForm"):
         assert editor in editors
+    assert "MultilineStringListEditor" in editors and "MatchListEditor" in editors
+    assert "DraftStringListCodec.values(from: raw)" in editors
+    assert 'TextField("Domain match"' not in editors and 'TextField("IP match"' not in editors
+    assert 'TextField(label, text: stringListBinding' not in editors
+    assert "DefaultRuleDraftForm" in editors and 'Toggle("Default 规则"' not in editors
+    assert "Default 的身份、状态和顺序固定" in editors
     for editor_control in ("TextField", "SecureField", "Picker", "Toggle", "DisclosureGroup"):
         assert editor_control in editors
     assert 'Canonical JSON 条目' not in editors
@@ -107,6 +118,10 @@ def main() -> None:
     assert 'activeProbeKeys' in state and 'perform(message: "正在运行探测…")' not in state
     assert 'guard let result = results.first(where: { $0.ok }) else {' in state and 'return "失败"' in state
     assert 'isSystemRoute(item)' in content and 'isDefaultRule(item)' in content
+    assert 'private struct DefaultRuleCard: View' in content and 'private var defaultRule: DraftItem?' in content
+    assert 'Label("始终启用 · 固定在最后", systemImage: "lock.fill")' in content
+    assert '只能修改显示名称、DNS Profile 与 Route' in content
+    assert "enum RuleDraftPolicy" in state and "RuleDraftPolicy.replacement" in state
     assert '系统必需 · 始终启用' in editors
     assert 'Picker("类型"' not in editors and 'LabeledContent("类型", value: "Single 节点")' in editors
     assert 'SharedNodeDraftForm' in editors and 'SteerUISpec.nodeFields' in editors

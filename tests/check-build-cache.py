@@ -50,6 +50,7 @@ for fragment in (
     'CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build',
     "CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build",
     "/workspace/tests/integration/run-linux-system.sh",
+    "swift test --disable-sandbox",
     "swift build -c release --disable-sandbox",
     "python3 tests/check-macos-packaging.py",
 ):
