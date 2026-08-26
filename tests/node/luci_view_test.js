@@ -656,6 +656,13 @@ async function main() {
 		'Subscription creation validates the stricter Steer ID syntax');
 	assert.equal(typeof subscriptionSection.handleRemove, 'function',
 		'Subscription removal uses the shared reference guard and generated-node cascade');
+	assert.equal(subscriptionSection.addDefaults.update_interval, uiSpec.subscription_update_interval_default,
+		'LuCI subscription creation uses the shared interval default');
+	const subscriptionInterval = subscriptionSection.options.find((option) => option.name == 'update_interval');
+	assert.equal(subscriptionInterval.placeholder, uiSpec.subscription_update_interval_default,
+		'LuCI update interval field exposes the shared default without changing existing empty values');
+	assert.equal(subscriptionInterval.default, undefined,
+		'LuCI existing manual-only subscriptions must remain empty');
 	environment = await renderOverview({}, 'diagnostics');
 	assert.equal(environment.statusRenderCalls, 0,
 		'Diagnostics does not duplicate the Overview status panel');

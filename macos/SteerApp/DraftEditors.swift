@@ -553,7 +553,7 @@ private struct SubscriptionDraftForm: View {
             Toggle("启用订阅", isOn: boolBinding($object, "enabled", defaultValue: true))
             TextField("名称", text: stringBinding($object, "name"))
             TextField("URL", text: stringBinding($object, "url", required: true), prompt: Text("https://example.com/subscription"))
-            TextField("更新间隔", text: stringBinding($object, "update_interval"), prompt: Text("6h"))
+            TextField("更新间隔", text: stringBinding($object, "update_interval"), prompt: Text(SteerUISpec.contract.subscriptionUpdateIntervalDefault))
             Text("订阅刷新由平台后端执行；订阅生成的节点在节点页保持只读。")
                 .font(.caption)
                 .foregroundStyle(.secondary)

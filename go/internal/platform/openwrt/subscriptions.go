@@ -134,6 +134,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 	if err != nil {
 		return nil, err
 	}
+	scheduleTime := time.Now()
 	var result []SubscriptionSnapshot
 	store := &UCIStore{write: writeUCI}
 	var changes []subscription.Change
@@ -144,10 +145,16 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		if !uci.IsIdentifier(configured.ID) {
 			return nil, fmt.Errorf("subscription %q has an unsafe UCI section ID", configured.ID)
 		}
-		if id == "" && configured.UpdateInterval != "" {
-			if interval, parseErr := time.ParseDuration(configured.UpdateInterval); parseErr != nil {
-				return nil, fmt.Errorf("subscription %s has invalid update interval: %w", configured.ID, parseErr)
-			} else if previous, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, configured.ID)); readErr == nil && !previous.FetchedAt.IsZero() && time.Since(previous.FetchedAt) < interval {
+		if id == "" {
+			var fetchedAt time.Time
+			if previous, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, configured.ID)); readErr == nil {
+				fetchedAt = previous.FetchedAt
+			}
+			due, scheduleErr := subscription.AutomaticUpdateDue(configured.UpdateInterval, fetchedAt, scheduleTime)
+			if scheduleErr != nil {
+				return nil, fmt.Errorf("subscription %s has invalid update interval: %w", configured.ID, scheduleErr)
+			}
+			if !due {
 				continue
 			}
 		}

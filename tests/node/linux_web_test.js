@@ -449,6 +449,17 @@ async function testRuleStringListFlushesOnDrawerSubmit() {
   );
 }
 
+function testSubscriptionCreationDefaultUsesSharedSpec() {
+  assert.strictEqual(uiSpec.subscription_update_interval_default, '6h');
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/subscriptions.js'), 'utf8');
+  assert.ok(source.includes('S.uiSpec.subscription_update_interval_default'),
+    'Linux subscription creation must consume the shared interval default');
+  assert.ok(source.includes('update_interval: defaultInterval'),
+    'Linux new-subscription draft must use the shared interval default');
+  assert.ok(!source.includes("update_interval: '12h'"),
+    'Linux subscription creation retained its divergent literal default');
+}
+
 Promise.resolve()
   .then(testFailedToggleRestoresDraft)
   .then(testConflictRestoresUntilOverwriteIsChosen)
@@ -456,6 +467,7 @@ Promise.resolve()
   .then(testChipsCommitPendingTokensConsistently)
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
   .then(testRuleStringListFlushesOnDrawerSubmit)
+  .then(testSubscriptionCreationDefaultUsesSharedSpec)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);

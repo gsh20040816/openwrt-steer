@@ -550,7 +550,7 @@ return view.extend({
 
 		if (page == 'subscriptions') {
 			s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
-			steer.configureNamedSection(s);
+			steer.configureNamedSection(s, { enabled: '1', update_interval: uiSpec.subscription_update_interval_default });
 			configureSubscriptionRemoval(s, nodes, routes);
 			s.addremove = true;
 			s.nodescriptions = true;
@@ -561,7 +561,7 @@ return view.extend({
 			o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 			o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
 			o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
-			o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = '6h'; o.modalonly = true;
+			o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = uiSpec.subscription_update_interval_default; o.modalonly = true;
 			return m.render().then((formNode) => E([], [ renderSubscriptionStatus(data?.[1]), formNode ]));
 		}
 

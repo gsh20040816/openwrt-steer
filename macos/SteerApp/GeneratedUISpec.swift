@@ -6,6 +6,7 @@ enum GeneratedUISpec {
 {
   "schema_version": 1,
   "canonical_schema": 9,
+  "subscription_update_interval_default": "6h",
   "node_types": [
     {
       "value": "socks",
