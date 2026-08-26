@@ -143,7 +143,21 @@ private actor DraftLifecycleBackend: BackendClient {
     func versions() async throws -> RuntimeVersions { RuntimeVersions() }
     func parseNodes(document: String) async throws -> NodeImportResult { NodeImportResult(nodes: [], skipped: 0) }
     func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
-        ProbeReport(ok: true, scope: kind, objectID: nil, kind: kind, results: [], error: nil)
+        ProbeReport(
+            ok: true,
+            scope: nodeID == nil && routeID == nil ? "overview" : (nodeID == nil ? "routes" : "nodes"),
+            objectID: nodeID ?? routeID,
+            kind: kind,
+            results: [ProbeResult(
+                ok: true, status: 204, firstByteMilliseconds: 12,
+                connectMilliseconds: 4, tlsMilliseconds: 6,
+                downloadedBytes: nil, downloadMilliseconds: nil, error: nil
+            )],
+            error: nil,
+            activeGeneration: nodeID == nil && routeID == nil ? runtimeStatus.generationID : nil,
+            activeDigest: nodeID == nil && routeID == nil ? runtimeStatus.intentDigest : nil,
+            testedAt: "2026-08-26T01:02:03Z"
+        )
     }
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] { [] }
     func updateSubscription(id: String) async throws {}
@@ -479,6 +493,48 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertEqual(model.rawJSON, editedDocument)
         XCTAssertEqual(model.savedRevision, "revision-1")
         XCTAssertTrue(model.isDirty)
+    }
+
+    func testOverviewProbeIdentityStaysCurrentAfterSaveAndExpiresAfterActiveChangesOrStops() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy && model.hasInitializedDraft }
+
+        model.runProbe(kind: "proxy")
+        try await waitUntil {
+            !model.overviewProbeInProgress("proxy") && model.overviewProbeDetail("proxy") != nil
+        }
+        XCTAssertEqual(model.overviewProbeSummary("proxy"), "12 ms")
+        XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("Active generation active-original") == true)
+        XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("digest active-original") == true)
+        XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("tested_at 2026-08-26T01:02:03Z") == true)
+        XCTAssertFalse(model.overviewProbeIsStale("proxy"))
+
+        model.rawJSON = editedDocument
+        model.markDirty()
+        model.saveDraft()
+        try await waitUntil { !model.isBusy && !model.isDirty }
+        XCTAssertEqual(model.runtime.generationID, "active-original")
+        XCTAssertFalse(model.overviewProbeIsStale("proxy"), "Save-only must not change Active probe identity")
+
+        model.runtime.healthy = false
+        XCTAssertFalse(model.hasActiveGeneration)
+        XCTAssertTrue(model.overviewProbeIsStale("proxy"), "an unhealthy data plane must expire a green result")
+        model.runtime.healthy = true
+        XCTAssertTrue(model.hasActiveGeneration)
+        XCTAssertFalse(model.overviewProbeIsStale("proxy"))
+
+        model.applySaved()
+        try await waitUntil { !model.isBusy }
+        XCTAssertEqual(model.runtime.generationID, "active-1")
+        XCTAssertTrue(model.overviewProbeIsStale("proxy"))
+        XCTAssertTrue(model.overviewProbeSummary("proxy").contains("已过期"))
+
+        model.runtime = RuntimeStatus()
+        XCTAssertFalse(model.hasActiveGeneration)
+        XCTAssertTrue(model.overviewProbeIsStale("proxy"))
+        XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("已过期") == true)
     }
 
     func testTerminationGuardCancelAndSaveReplyWithoutApplying() async throws {

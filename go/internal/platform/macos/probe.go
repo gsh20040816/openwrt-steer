@@ -24,10 +24,19 @@ import (
 
 type TestReport = probe.Report
 
-func ProbeCurrent(ctx context.Context, configPath, kind string, client *http.Client) (TestReport, error) {
-	value, err := readProbeIntent(configPath)
+type ActiveProbe struct {
+	Report       TestReport
+	GenerationID string
+	IntentDigest string
+}
+
+func ProbeCurrent(ctx context.Context, runDirectory, kind string, client *http.Client) (ActiveProbe, error) {
+	if runDirectory == "" {
+		runDirectory = "/Library/Application Support/Steer/run"
+	}
+	current, value, err := runtimePaths(runDirectory, "").LoadCurrentIntent()
 	if err != nil {
-		return TestReport{}, err
+		return ActiveProbe{}, fmt.Errorf("load active macOS generation for probe: %w", err)
 	}
 	target, download := "", false
 	switch kind {
@@ -38,12 +47,19 @@ func ProbeCurrent(ctx context.Context, configPath, kind string, client *http.Cli
 	case "speedtest":
 		target, download = value.Main.SpeedtestProxyURL, true
 	default:
-		return TestReport{}, fmt.Errorf("unsupported probe kind %q", kind)
+		return ActiveProbe{}, fmt.Errorf("unsupported probe kind %q", kind)
+	}
+	if target == "" {
+		return ActiveProbe{}, fmt.Errorf("active macOS intent has no %s HTTPS probe", kind)
 	}
 	if client == nil {
 		client = probe.HTTPClient(nil, download)
 	}
-	return probe.Run(ctx, client, "overview", "", kind, target, download), nil
+	return ActiveProbe{
+		Report:       probe.Run(ctx, client, "overview", "", kind, target, download),
+		GenerationID: current.GenerationID,
+		IntentDigest: current.IntentDigest,
+	}, nil
 }
 
 func SpeedTestNode(ctx context.Context, configPath, singBoxPath, nodeID string, download bool) (TestReport, error) {

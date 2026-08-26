@@ -6,9 +6,9 @@ macOS 的正式产品由 SwiftUI GUI 前端和 LaunchDaemon 后端组成：
 SteerApp
   ├── read config / validate / status（无授权弹窗）
   ├── 首次安装 embedded payload（一次管理员授权）
-  └── save / apply / subscription update-clean（后续免密）
+  └── save / apply / probe / subscription update-clean（后续免密）
              ↓ /var/run/steer/control.sock
-steer-macos _control（root、仅允许固定配置与订阅操作）
+steer-macos _control（root、仅允许固定配置、探测与订阅操作）
              ↓
 steer-macos helper
   └── launchd lifecycle → external sing-box → Darwin TUN
@@ -66,7 +66,7 @@ swift build --disable-sandbox
 swift run SteerApp
 ```
 
-安装器把配置设为 `root:admin 0640`，并公开不含密钥的 generation 摘要，因此 GUI 启动、刷新状态、Validate、探测和 Geo catalog 不需要管理员授权。开发安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，并安装 control 与订阅调度服务；后续 Save/Apply 与订阅更新/清理和正式 App 使用同一受限免密 IPC。
+安装器把配置设为 `root:admin 0640`，并公开不含密钥的 generation 摘要，因此 GUI 启动、刷新状态、Validate、探测和 Geo catalog 不会弹出管理员授权。概览探测经受限 control socket 从 Active generation 读取目标；没有 Active 时 fail closed，Save-only 不会改变目标。报告绑定 Active generation/digest/tested_at，Active 改变或停用后旧结果显示为过期。开发安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，并安装 control 与订阅调度服务；后续 Save/Apply、探测与订阅更新/清理和正式 App 使用同一受限免密 IPC。
 
 GUI Load 会保存当前 Saved revision，后续 Save/Apply 通过 `expected_revision` 做乐观并发保护。订阅 timer 或手动更新先改变 Saved 节点库存时，旧 Draft 不能覆盖它；GUI 会让用户选择 Reload Saved、保留本地 Draft 或显式覆盖。手动更新期间的新编辑不会被完成后的 reload 清除，订阅库存更新也不会自动 Apply。
 

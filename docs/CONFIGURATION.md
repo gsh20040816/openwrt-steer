@@ -157,7 +157,7 @@ steer status
 
 `validate` 只做严格解码和共享语义校验。`apply` 还会执行能力检查、Geo 准备、sing-box/nftables 原生检查、切换与本地健康检查。`status` 只包含 `healthy` 和可选 `last_apply`，不会把配置合法性或组件明细混在状态对象中。
 
-概览测试读取当前运行 generation 的 Intent；未 Apply 的 UCI 修改不会参与：
+概览测试读取当前运行 generation 的 Intent；未 Apply 的修改不会参与。macOS 报告同时包含 `active_generation`、`active_digest` 和 `tested_at`，没有 Active generation 时拒绝请求：
 
 ```sh
 steer probe --kind direct
@@ -174,7 +174,7 @@ steer probe --kind speedtest --route <route-id>
 steer probe --kind speedtest --route <route-id> --download
 ```
 
-连接测试记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试记录字节和耗时。报告保存在 `/var/lib/steer/logs/tests/{overview,nodes,routes}`。测试证明对应配置下 URL 可达，不提供命名 outbound 的命中回执。
+连接测试记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试记录字节和耗时。报告保存在 `/var/lib/steer/logs/tests/{overview,nodes,routes}`。概览请求按 Active 规则访问；测试只证明对应配置下 URL 可达，不提供命名 outbound 的命中回执。
 
 ## 版本与升级
 

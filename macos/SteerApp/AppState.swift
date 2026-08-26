@@ -197,10 +197,16 @@ struct ProbeReport: Decodable, Sendable {
     let kind: String
     let results: [ProbeResult]
     let error: String?
+    let activeGeneration: String?
+    let activeDigest: String?
+    let testedAt: String
 
     enum CodingKeys: String, CodingKey {
         case ok, scope, kind, results, error
         case objectID = "object_id"
+        case activeGeneration = "active_generation"
+        case activeDigest = "active_digest"
+        case testedAt = "tested_at"
     }
 
     var summary: String {
@@ -214,6 +220,15 @@ struct ProbeReport: Decodable, Sendable {
             return "\(milliseconds) ms"
         }
         return result.status.map { "HTTP \($0)" } ?? "成功"
+    }
+
+    func isStale(relativeTo runtime: RuntimeStatus) -> Bool {
+        guard scope == "overview" else { return false }
+        guard let activeGeneration, !activeGeneration.isEmpty,
+              let activeDigest, !activeDigest.isEmpty else { return true }
+        return !runtime.healthy
+            || runtime.generationID != activeGeneration
+            || runtime.intentDigest != activeDigest
     }
 }
 
@@ -759,6 +774,7 @@ final class AppModel: ObservableObject {
     @Published var systemComponentsUpdateAvailable = false
     @Published var subscriptionRuntime: [SubscriptionRuntimeStatus] = []
     @Published var probeSummaries: [String: String] = [:]
+    @Published private(set) var overviewProbeReports: [String: ProbeReport] = [:]
     @Published var geositeNames: [String] = []
     @Published var geoipNames: [String] = []
     @Published private(set) var savedRevision = ""
@@ -806,6 +822,10 @@ final class AppModel: ObservableObject {
 
     var canToggleEnabled: Bool {
         canSaveAndApplyDraft && !isDirty
+    }
+
+    var hasActiveGeneration: Bool {
+        runtime.healthy && !runtime.generationID.isEmpty && !runtime.intentDigest.isEmpty
     }
 
     var draftGuardTitle: String {
@@ -1451,19 +1471,34 @@ final class AppModel: ObservableObject {
     func runProbe(kind: String, nodeID: String? = nil, routeID: String? = nil, download: Bool = false) {
         guard pendingDraftAction == nil else { return }
         let key = probeKey(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
+        let isOverview = nodeID == nil && routeID == nil
         guard activeProbeKeys.insert(key).inserted else { return }
-        message = download ? "正在运行下载测速…" : "正在运行连接测试…"
+        message = isOverview
+            ? "正在按 Active 规则访问探测目标…"
+            : (download ? "正在运行下载测速…" : "正在运行连接测试…")
         Task {
             defer { activeProbeKeys.remove(key) }
             do {
                 let report = try await backend.probe(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
                 probeSummaries[key] = report.summary
-                message = report.ok
-                    ? "测试完成：\(report.summary)"
-                    : (download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志")
+                if isOverview {
+                    overviewProbeReports[key] = report
+                    message = report.ok
+                        ? "按 Active 规则访问完成：\(report.summary)"
+                        : "按 Active 规则访问失败；详细原因请查看诊断日志"
+                } else {
+                    message = report.ok
+                        ? "测试完成：\(report.summary)"
+                        : (download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志")
+                }
             } catch {
                 probeSummaries[key] = "失败"
-                message = download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志"
+                if isOverview {
+                    overviewProbeReports.removeValue(forKey: key)
+                    message = "按 Active 规则访问失败；没有可用的 Active generation 或详细原因请查看诊断日志"
+                } else {
+                    message = download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志"
+                }
             }
         }
     }
@@ -1498,6 +1533,26 @@ final class AppModel: ObservableObject {
 
     func overviewProbeInProgress(_ kind: String) -> Bool {
         activeProbeKeys.contains("overview:\(kind)")
+    }
+
+    func overviewProbeSummary(_ kind: String) -> String {
+        let key = "overview:\(kind)"
+        guard let report = overviewProbeReports[key] else {
+            return probeSummaries[key] ?? "未测试"
+        }
+        return report.summary + (report.isStale(relativeTo: runtime) ? " · 已过期" : "")
+    }
+
+    func overviewProbeDetail(_ kind: String) -> String? {
+        guard let report = overviewProbeReports["overview:\(kind)"],
+              let generation = report.activeGeneration,
+              let digest = report.activeDigest else { return nil }
+        let stale = report.isStale(relativeTo: runtime) ? " · 已过期" : ""
+        return "Active generation \(generation) · digest \(digest) · tested_at \(report.testedAt)\(stale)"
+    }
+
+    func overviewProbeIsStale(_ kind: String) -> Bool {
+        overviewProbeReports["overview:\(kind)"]?.isStale(relativeTo: runtime) == true
     }
 
     private func probeKey(kind: String, nodeID: String?, routeID: String?, download: Bool) -> String {

@@ -127,10 +127,40 @@ func (paths Paths) LoadCurrent() (CurrentGeneration, error) {
 	if err := unmarshalStrict(content, &current); err != nil {
 		return CurrentGeneration{}, fmt.Errorf("decode macOS current generation: %w", err)
 	}
-	if current.SchemaVersion != RuntimeSchemaVersion || current.GenerationID == "" || current.Directory == "" {
+	if current.SchemaVersion != RuntimeSchemaVersion || current.GenerationID == "" || current.IntentDigest == "" ||
+		current.Directory == "" || current.Directory == "." || filepath.Base(current.Directory) != current.Directory {
 		return CurrentGeneration{}, fmt.Errorf("invalid macOS current generation contract")
 	}
 	return current, nil
+}
+
+// LoadCurrentIntent resolves only the immutable Intent named by current.json.
+// Saved config is deliberately not a fallback: a Save without Apply must not
+// alter diagnostics for the running data plane.
+func (paths Paths) LoadCurrentIntent() (CurrentGeneration, model.Intent, error) {
+	current, err := paths.LoadCurrent()
+	if err != nil {
+		return CurrentGeneration{}, model.Intent{}, err
+	}
+	directory := filepath.Join(paths.GenerationsDirectory, current.Directory)
+	metadata, err := readGenerationMetadata(directory)
+	if err != nil {
+		return CurrentGeneration{}, model.Intent{}, err
+	}
+	if metadata.GenerationID != current.GenerationID || metadata.IntentDigest != current.IntentDigest {
+		return CurrentGeneration{}, model.Intent{}, fmt.Errorf("current macOS generation metadata does not match current.json")
+	}
+	value, err := generation.ReadIntent(directory)
+	if err != nil {
+		return CurrentGeneration{}, model.Intent{}, err
+	}
+	if !value.Main.Enabled {
+		return CurrentGeneration{}, model.Intent{}, fmt.Errorf("current macOS generation is disabled")
+	}
+	if digest := compiler.IntentDigest(value); digest != current.IntentDigest {
+		return CurrentGeneration{}, model.Intent{}, fmt.Errorf("current macOS intent digest does not match current.json")
+	}
+	return current, value, nil
 }
 
 func marshalJSON(value any) ([]byte, error) {

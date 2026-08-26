@@ -53,7 +53,10 @@ final actor RevisionBackend: BackendClient {
     func parseNodes(document: String) async throws -> NodeImportResult { NodeImportResult(nodes: [], skipped: 0) }
 
     func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
-        ProbeReport(ok: true, scope: kind, objectID: nil, kind: kind, results: [], error: nil)
+        ProbeReport(
+            ok: true, scope: "overview", objectID: nil, kind: kind, results: [], error: nil,
+            activeGeneration: "active", activeDigest: "active", testedAt: "2026-08-26T01:02:03Z"
+        )
     }
 
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] { [] }

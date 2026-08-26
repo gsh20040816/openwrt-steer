@@ -955,14 +955,21 @@ struct DiagnosticsView: View {
     var body: some View {
         List {
             Section("连通性探测") {
+                Text("目标来自当前 Active generation，请求按 Active 规则访问。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
-                    overviewProbeButton("直连探测", kind: "direct")
-                    overviewProbeButton("代理探测", kind: "proxy")
-                    overviewProbeButton("下载测速", kind: "speedtest", download: true)
+                    overviewProbeButton("测试直连 URL", kind: "direct")
+                    overviewProbeButton("测试代理 URL", kind: "proxy")
+                    overviewProbeButton("测试下载 URL", kind: "speedtest", download: true)
                 }
-                LabeledContent("直连", value: model.probeSummaries["overview:direct"] ?? "未测试")
-                LabeledContent("代理", value: model.probeSummaries["overview:proxy"] ?? "未测试")
-                LabeledContent("下载", value: model.probeSummaries["overview:speedtest"] ?? "未测试")
+                if !model.hasActiveGeneration {
+                    Label("当前没有 Active generation；概览探测不会发起请求。", systemImage: "pause.circle")
+                        .foregroundStyle(.secondary)
+                }
+                overviewProbeResult("直连 URL", kind: "direct")
+                overviewProbeResult("代理 URL", kind: "proxy")
+                overviewProbeResult("下载 URL", kind: "speedtest")
             }
             Section("配置校验") {
                 if let validation = model.validation {
@@ -1032,7 +1039,21 @@ struct DiagnosticsView: View {
                 Text(title)
             }
         }
-        .disabled(running)
+        .disabled(running || !model.hasActiveGeneration)
+        .help(model.hasActiveGeneration ? "目标来自 Active generation，并按 Active 规则访问" : "需要 Active generation")
+    }
+
+    @ViewBuilder
+    private func overviewProbeResult(_ title: String, kind: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            LabeledContent(title, value: model.overviewProbeSummary(kind))
+            if let detail = model.overviewProbeDetail(kind) {
+                Text(detail)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(model.overviewProbeIsStale(kind) ? Color.orange : Color.secondary)
+                    .textSelection(.enabled)
+            }
+        }
     }
 
     private func issueRow(_ issue: ValidationIssue, isError: Bool) -> some View {
