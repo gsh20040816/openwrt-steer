@@ -46,6 +46,36 @@ func validateLocalProxyAuthentication(listen: String, username: String, password
     return nil
 }
 
+struct GeoCatalogPresentation: Equatable {
+    let category: String
+    let attribute: String?
+}
+
+func geoCatalogPresentation(_ name: String) -> GeoCatalogPresentation {
+    guard let separator = name.firstIndex(of: "@") else {
+        return GeoCatalogPresentation(category: name, attribute: nil)
+    }
+    return GeoCatalogPresentation(
+        category: String(name[..<separator]),
+        attribute: String(name[name.index(after: separator)...])
+    )
+}
+
+func geoCatalogMatches(_ catalog: [String], query: String, limit: Int = 40) -> [String] {
+    guard limit > 0 else { return [] }
+    let terms = query
+        .split(whereSeparator: \.isWhitespace)
+        .map(String.init)
+    var seen = Set<String>()
+    var matches: [String] = []
+    for name in catalog where seen.insert(name).inserted {
+        guard terms.allSatisfy({ name.localizedCaseInsensitiveContains($0) }) else { continue }
+        matches.append(name)
+        if matches.count == limit { break }
+    }
+    return matches
+}
+
 struct DraftEditorTarget: Identifiable {
     let id = UUID()
     let key: String
@@ -196,7 +226,14 @@ struct DraftItemEditor: View {
         case "routes":
             let kind = draftString(value, "kind")
             if !["direct", "block", "single"].contains(kind) { return "请选择路由类型" }
-            if kind == "single" && draftString(value, "node").isEmpty { return "Single Route 必须选择节点" }
+            if kind == "single" {
+                let nodeID = draftString(value, "node")
+                if let problem = model.nodeReferenceProblem(nodeID) { return "Node 引用无效：\(problem)" }
+                let detourID = draftString(value, "detour")
+                if let problem = model.routeDetourProblem(routeID: identifier, detourID: detourID) {
+                    return problem
+                }
+            }
         case "dns_profiles":
             let proto = draftString(value, "protocol")
             if draftString(value, "server").isEmpty { return "DNS 服务器不能为空" }
@@ -235,6 +272,11 @@ struct NodeImportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var document = ""
     @State private var errorMessage = ""
+    @State private var previewItems: [NodeImportPreviewItem] = []
+    @State private var skipped = 0
+    @State private var hasPreview = false
+
+    private var selectedCount: Int { previewItems.filter(\.selected).count }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -248,13 +290,55 @@ struct NodeImportSheet: View {
             .padding(20)
             Divider()
             Form {
-                Section("分享链接") {
-                    TextEditor(text: $document)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 260)
-                    Text("支持 VLESS、VMess、Trojan、Hysteria、TUIC、Shadowsocks、SOCKS、HTTP、SSH 等由 Steer 后端解析的格式。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if hasPreview {
+                    Section {
+                        HStack {
+                            Label("\(previewItems.count) 个可导入节点", systemImage: "checklist")
+                            Spacer()
+                            Button(selectedCount == previewItems.count ? "取消全选" : "全选") {
+                                let selected = selectedCount != previewItems.count
+                                for index in previewItems.indices { previewItems[index].selected = selected }
+                            }
+                        }
+                        if skipped > 0 {
+                            Label(
+                                "已跳过 \(skipped) 个无法识别或字段不完整的条目",
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .foregroundStyle(.orange)
+                        }
+                        Text("预览只显示安全摘要；密码、Token、私钥及其他凭据不会显示。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } header: {
+                        Text("解析结果")
+                    }
+                    ForEach($previewItems) { $item in
+                        Section {
+                            HStack(alignment: .top, spacing: 12) {
+                                Toggle("选择", isOn: $item.selected)
+                                    .labelsHidden()
+                                VStack(alignment: .leading, spacing: 8) {
+                                    TextField("显示名称", text: $item.name)
+                                    LabeledContent("协议", value: item.protocolName.uppercased())
+                                    LabeledContent("服务器", value: item.server)
+                                    LabeledContent("端口", value: item.port.formatted())
+                                    LabeledContent("TLS", value: item.tlsVerification)
+                                }
+                            }
+                        } header: {
+                            Text(item.name.isEmpty ? "未命名节点" : item.name)
+                        }
+                    }
+                } else {
+                    Section("分享链接") {
+                        TextEditor(text: $document)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 260)
+                        Text("支持 VLESS、VMess、Trojan、Hysteria、TUIC、Shadowsocks、SOCKS、HTTP、SSH 等由 Steer 后端解析的格式。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -267,22 +351,45 @@ struct NodeImportSheet: View {
                 Spacer()
                 Button("取消") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("导入到工作副本") {
-                    Task {
-                        if await model.importNodes(document) {
+                if hasPreview {
+                    Button("返回修改") {
+                        hasPreview = false
+                        previewItems = []
+                        skipped = 0
+                        errorMessage = ""
+                    }
+                    Button("导入所选（\(selectedCount)）") {
+                        let preview = NodeImportPreview(items: previewItems, skipped: skipped)
+                        if model.confirmNodeImport(preview) {
                             dismiss()
                         } else {
                             errorMessage = model.message
                         }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selectedCount == 0 || model.isBusy)
+                } else {
+                    Button("解析并预览") {
+                        Task {
+                            errorMessage = ""
+                            if let preview = await model.previewNodeImport(document) {
+                                previewItems = preview.items
+                                skipped = preview.skipped
+                                hasPreview = true
+                            } else {
+                                errorMessage = model.message
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(document.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isBusy)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(document.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isBusy)
             }
             .padding(16)
         }
-        .frame(minWidth: 680, minHeight: 500)
+        .frame(minWidth: 720, minHeight: 560)
     }
 }
 
@@ -402,6 +509,19 @@ private struct RouteDraftForm: View {
 
     private var kind: String { draftString(object, "kind") }
     private var isSystemRoute: Bool { ["direct", "block"].contains(originalKind) }
+    private var routeID: String { draftString(object, "id") }
+    private var selectedNodeID: String { draftString(object, "node") }
+    private var selectedDetourID: String { draftString(object, "detour") }
+    private var selectableNodes: [DraftItem] { model.draftItems(for: "nodes").filter(\.enabled) }
+    private var selectableDetours: [DraftItem] { model.routeDetourCandidates(editingRouteID: routeID) }
+
+    private func nodeLabel(_ identifier: String) -> String {
+        model.draftItems(for: "nodes").first(where: { $0.identifier == identifier })?.title ?? identifier
+    }
+
+    private func detourLabel(_ identifier: String) -> String {
+        model.draftItems(for: "routes").first(where: { $0.identifier == identifier })?.title ?? identifier
+    }
 
     var body: some View {
         Section("路由") {
@@ -429,17 +549,35 @@ private struct RouteDraftForm: View {
             Section("出口关系") {
                 Picker("节点", selection: stringBinding($object, "node", required: true)) {
                     Text("请选择节点").tag("")
-                    ForEach(model.draftItems(for: "nodes")) { item in
+                    ForEach(selectableNodes) { item in
                         Text("\(item.title) · \(item.kind.uppercased())").tag(item.identifier)
                     }
+                    if !selectedNodeID.isEmpty,
+                       !selectableNodes.contains(where: { $0.identifier == selectedNodeID }) {
+                        Text("\(nodeLabel(selectedNodeID)) · \(model.nodeReferenceProblem(selectedNodeID) ?? "无效")")
+                            .foregroundStyle(.red)
+                            .tag(selectedNodeID)
+                    }
+                }
+                if let problem = model.nodeReferenceProblem(selectedNodeID), !selectedNodeID.isEmpty {
+                    Label("当前 Node：\(problem)", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
                 }
                 Picker("前置路由 (detour)", selection: stringBinding($object, "detour")) {
                     Text("直连（无前置）").tag("")
-                    ForEach(model.draftItems(for: "routes").filter {
-                        $0.kind == "single" && $0.index != editingIndex
-                    }) { item in
+                    ForEach(selectableDetours) { item in
                         Text(item.title).tag(item.identifier)
                     }
+                    if !selectedDetourID.isEmpty,
+                       !selectableDetours.contains(where: { $0.identifier == selectedDetourID }) {
+                        Text("\(detourLabel(selectedDetourID)) · \(model.routeDetourProblem(routeID: routeID, detourID: selectedDetourID) ?? "无效")")
+                            .foregroundStyle(.red)
+                            .tag(selectedDetourID)
+                    }
+                }
+                if let problem = model.routeDetourProblem(routeID: routeID, detourID: selectedDetourID) {
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
                 }
                 Text("非空时先拨号前置路由，再连接当前节点。")
                     .font(.caption)
@@ -580,18 +718,73 @@ private struct MatchListEditor: View {
             text: stringListBinding($object, key),
             example: example
         )
-        if !catalog.isEmpty {
-            Menu("添加 \(catalogLabel)") {
-                ForEach(catalog.prefix(100), id: \.self) { name in
-                    Button(name) { appendCatalogValue(catalogPrefix + name) }
-                }
-            }
-        }
+        GeoCatalogCompletion(
+            label: catalogLabel,
+            prefix: catalogPrefix,
+            catalog: catalog,
+            append: appendCatalogValue
+        )
     }
 
     private func appendCatalogValue(_ value: String) {
         let current = stringListBinding($object, key).wrappedValue
         stringListBinding($object, key).wrappedValue = DraftStringListCodec.appendingUnique(value, to: current)
+    }
+}
+
+private struct GeoCatalogCompletion: View {
+    let label: String
+    let prefix: String
+    let catalog: [String]
+    let append: (String) -> Void
+    @State private var query = ""
+    @State private var selected: String?
+
+    private var results: [String] { geoCatalogMatches(catalog, query: query) }
+
+    var body: some View {
+        DisclosureGroup("添加 \(label)") {
+            if catalog.isEmpty {
+                Label("Geo catalog 当前不可用；仍可在上方手动输入 \(prefix)category。", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            } else {
+                TextField("搜索完整 \(label) catalog", text: $query)
+                    .onSubmit { appendSelection() }
+                if results.isEmpty {
+                    Text("没有匹配项；仍可在上方手动输入。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    List(results, id: \.self, selection: $selected) { name in
+                        let presentation = geoCatalogPresentation(name)
+                        HStack {
+                            Text(presentation.category)
+                            if let attribute = presentation.attribute {
+                                Text("@\(attribute)")
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.purple)
+                            }
+                        }
+                        .tag(name)
+                    }
+                    .frame(minHeight: 120, maxHeight: 180)
+                    HStack {
+                        Text("显示最多 \(results.count) 项；搜索范围为全部 \(catalog.count) 项")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("添加选择") { appendSelection() }
+                            .disabled(selected == nil && results.isEmpty)
+                    }
+                }
+            }
+        }
+        .onChange(of: query) { _ in selected = results.first }
+        .onAppear { selected = results.first }
+    }
+
+    private func appendSelection() {
+        guard let name = selected ?? results.first else { return }
+        append(prefix + name)
     }
 }
 

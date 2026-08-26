@@ -562,6 +562,64 @@ struct NodeImportResult: Decodable, Sendable {
     let skipped: Int
 }
 
+struct NodeImportPreviewItem: Identifiable {
+    let id = UUID()
+    var selected = true
+    var name: String
+    let protocolName: String
+    let server: String
+    let port: Int
+    let tlsVerification: String
+    fileprivate let sourceObject: [String: JSONValue]
+
+    init?(value: JSONValue) {
+        guard let object = value.objectValue else { return nil }
+        sourceObject = object
+        name = object["name"]?.stringValue ?? ""
+        protocolName = object["type"]?.stringValue ?? "unknown"
+        server = object["server"]?.stringValue ?? ""
+        port = Int(object["server_port"]?.numberValue ?? 0)
+
+        let tlsProtocols = Set([
+            "trojan", "hysteria", "hysteria2", "tuic", "shadowtls", "anytls", "naive", "naive+https",
+        ])
+        let security = object["security"]?.stringValue ?? ""
+        let usesTLS = tlsProtocols.contains(protocolName)
+            || ["tls", "reality"].contains(security)
+            || object["tls_server_name"]?.stringValue?.isEmpty == false
+            || object["reality_public_key"]?.stringValue?.isEmpty == false
+        if usesTLS {
+            tlsVerification = object["insecure"]?.boolValue == true ? "跳过证书验证" : "验证证书"
+        } else {
+            tlsVerification = "不适用"
+        }
+    }
+
+    fileprivate func importedObject() -> [String: JSONValue] {
+        var object = sourceObject
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            object.removeValue(forKey: "name")
+        } else {
+            object["name"] = .string(trimmedName)
+        }
+        object["id"] = .string("node-\(UUID().uuidString.lowercased().prefix(8))")
+        object.removeValue(forKey: "source_subscription")
+        object.removeValue(forKey: "source_fingerprint")
+        object.removeValue(forKey: "pinned_stale")
+        return object
+    }
+}
+
+struct NodeImportPreview {
+    var items: [NodeImportPreviewItem]
+    let skipped: Int
+
+    var skippedSummary: String? {
+        skipped == 0 ? nil : "已跳过 \(skipped) 个无法识别或字段不完整的条目"
+    }
+}
+
 enum BackendClientError: LocalizedError {
     case helperUnavailable
     case invalidResponse
@@ -1150,6 +1208,10 @@ final class AppModel: ObservableObject {
 
     private let backend: BackendClient
     private var draftMutationSequence: UInt64 = 0
+    private var cachedDraftDocument: String?
+    private var cachedDraftValue: JSONValue?
+    private var cachedDraftError: String?
+    private(set) var draftDecodeCount = 0
     private var probeReportDraftSequences: [String: UInt64] = [:]
     private var initialStateLoadInProgress = false
     private var terminationReply: ((Bool) -> Void)?
@@ -1205,13 +1267,8 @@ final class AppModel: ObservableObject {
     }
 
     var draftSyntaxError: String? {
-        guard let data = rawJSON.data(using: .utf8) else { return "配置无法编码为 UTF-8" }
-        do {
-            _ = try JSONDecoder().decode(JSONValue.self, from: data)
-            return nil
-        } catch {
-            return error.localizedDescription
-        }
+        refreshDraftCache()
+        return cachedDraftError
     }
 
     var draftSchemaVersion: Int {
@@ -1376,30 +1433,45 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func importNodes(_ document: String) async -> Bool {
-        guard !isBusy, pendingDraftAction == nil else { return false }
+    func previewNodeImport(_ document: String) async -> NodeImportPreview? {
+        guard !isBusy, pendingDraftAction == nil else { return nil }
         isBusy = true
         message = "正在解析节点分享链接…"
         defer { isBusy = false }
         do {
             let result = try await backend.parseNodes(document: document)
-            mutateCollection("nodes") { values in
-                for value in result.nodes {
-                    guard var object = value.objectValue else { continue }
-                    object["id"] = .string("node-\(UUID().uuidString.lowercased().prefix(8))")
-                    object.removeValue(forKey: "source_subscription")
-                    object.removeValue(forKey: "source_fingerprint")
-                    values.append(.object(object))
-                }
-            }
+            let preview = NodeImportPreview(
+                items: result.nodes.compactMap(NodeImportPreviewItem.init(value:)),
+                skipped: result.skipped
+            )
             message = result.skipped == 0
-                ? "已导入 \(result.nodes.count) 个节点到工作副本"
-                : "已导入 \(result.nodes.count) 个节点，跳过 \(result.skipped) 个无效条目"
-            return true
+                ? "已解析 \(preview.items.count) 个节点；确认前不会修改工作副本"
+                : "已解析 \(preview.items.count) 个节点；\(preview.skippedSummary ?? "")"
+            return preview
         } catch {
             message = "导入节点失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    @discardableResult
+    func confirmNodeImport(_ preview: NodeImportPreview) -> Bool {
+        guard !isBusy, pendingDraftAction == nil else { return false }
+        let selected = preview.items.filter(\.selected)
+        guard !selected.isEmpty else {
+            message = "请至少选择一个节点"
             return false
         }
+        var imported = false
+        mutateCollection("nodes") { values in
+            values.append(contentsOf: selected.map { .object($0.importedObject()) })
+            imported = true
+        }
+        guard imported else { return false }
+        message = preview.skipped == 0
+            ? "已导入 \(selected.count) 个节点到工作副本"
+            : "已导入 \(selected.count) 个节点；\(preview.skippedSummary ?? "")"
+        return true
     }
 
     func validate() {
@@ -2187,6 +2259,75 @@ final class AppModel: ObservableObject {
         return values[index].objectValue
     }
 
+    func nodeReferenceProblem(_ identifier: String) -> String? {
+        guard !identifier.isEmpty else { return "未选择 Node" }
+        guard let node = draftItems(for: "nodes").first(where: { $0.identifier == identifier }) else {
+            return "Node 不存在"
+        }
+        return node.enabled ? nil : "Node 已停用"
+    }
+
+    func routeDetourProblem(routeID: String, detourID: String) -> String? {
+        guard !detourID.isEmpty else { return nil }
+        guard let detour = draftItems(for: "routes").first(where: { $0.identifier == detourID }) else {
+            return "detour Route 不存在"
+        }
+        guard detour.kind == "single" else { return "detour 必须是 Single Route" }
+        guard detour.enabled else { return "detour Route 已停用" }
+        if let problem = routeChainProblem(startingAt: detourID) { return "detour 链无效：\(problem)" }
+        return routeDetourWouldCycle(routeID: routeID, detourID: detourID) ? "detour 会形成 Route 环" : nil
+    }
+
+    func routeDetourCandidates(editingRouteID: String) -> [DraftItem] {
+        draftItems(for: "routes").filter { route in
+            route.kind == "single" && route.enabled && route.identifier != editingRouteID
+                && routeDetourProblem(routeID: editingRouteID, detourID: route.identifier) == nil
+        }
+    }
+
+    func routeDetourWouldCycle(routeID: String, detourID: String) -> Bool {
+        guard !routeID.isEmpty, !detourID.isEmpty else { return false }
+        guard let root = parseDraft()?.objectValue,
+              case let .array(values)? = root["routes"] else { return false }
+        var graph: [String: String] = [:]
+        for value in values {
+            guard let object = value.objectValue,
+                  let identifier = object["id"]?.stringValue else { continue }
+            graph[identifier] = object["detour"]?.stringValue ?? ""
+        }
+        graph[routeID] = detourID
+        var visited = Set<String>()
+        var current = routeID
+        while let next = graph[current], !next.isEmpty {
+            guard visited.insert(current).inserted else { return true }
+            current = next
+        }
+        return !visited.insert(current).inserted
+    }
+
+    private func routeChainProblem(startingAt identifier: String) -> String? {
+        guard let root = parseDraft()?.objectValue,
+              case let .array(routeValues)? = root["routes"] else { return "Route 不存在" }
+        var routes: [String: [String: JSONValue]] = [:]
+        for value in routeValues {
+            guard let object = value.objectValue, let id = object["id"]?.stringValue else { continue }
+            routes[id] = object
+        }
+        let nodes = Set(draftItems(for: "nodes").filter(\.enabled).map(\.identifier))
+        var visited = Set<String>()
+        var current = identifier
+        while !current.isEmpty {
+            guard visited.insert(current).inserted else { return "Route 环" }
+            guard let route = routes[current] else { return "Route \(current) 不存在" }
+            guard route["kind"]?.stringValue == "single" else { return "Route \(current) 不是 Single" }
+            guard route["enabled"]?.boolValue ?? true else { return "Route \(current) 已停用" }
+            let node = route["node"]?.stringValue ?? ""
+            guard nodes.contains(node) else { return "Route \(current) 的 Node 缺失或已停用" }
+            current = route["detour"]?.stringValue ?? ""
+        }
+        return nil
+    }
+
     func newDraftItemObject(for key: String) -> [String: JSONValue]? {
         defaultItem(for: key).objectValue
     }
@@ -2466,8 +2607,26 @@ final class AppModel: ObservableObject {
     }
 
     private func parseDraft() -> JSONValue? {
-        guard let data = rawJSON.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(JSONValue.self, from: data)
+        refreshDraftCache()
+        return cachedDraftValue
+    }
+
+    private func refreshDraftCache() {
+        guard cachedDraftDocument != rawJSON else { return }
+        cachedDraftDocument = rawJSON
+        draftDecodeCount += 1
+        guard let data = rawJSON.data(using: .utf8) else {
+            cachedDraftValue = nil
+            cachedDraftError = "配置无法编码为 UTF-8"
+            return
+        }
+        do {
+            cachedDraftValue = try JSONDecoder().decode(JSONValue.self, from: data)
+            cachedDraftError = nil
+        } catch {
+            cachedDraftValue = nil
+            cachedDraftError = error.localizedDescription
+        }
     }
 
     private func mutateCollection(_ key: String, _ mutate: (inout [JSONValue]) -> Void) {

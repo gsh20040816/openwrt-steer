@@ -638,7 +638,8 @@ struct DraftCollectionView: View {
                 Button { editSelected() } label: {
                     Label("编辑", systemImage: "square.and.pencil")
                 }
-                .disabled(model.isBusy || selectedItem == nil || selectedItem?.subscriptionOwned == true)
+                .disabled(model.isBusy || model.draftSyntaxError != nil
+                          || selectedItem == nil || selectedItem?.subscriptionOwned == true)
                 if descriptor.key == "nodes" {
                     Button {
                         selectedNodeGroup = "_manual"
@@ -646,7 +647,7 @@ struct DraftCollectionView: View {
                     } label: {
                         Label("导入", systemImage: "square.and.arrow.down")
                     }
-                    .disabled(model.isBusy)
+                    .disabled(model.isBusy || model.draftSyntaxError != nil)
                     Menu("批量测速") {
                         Button("批量连接测试") {
                             model.runAllNodeProbes(download: false, nodeIDs: enabledVisibleNodeIDs)
@@ -670,7 +671,7 @@ struct DraftCollectionView: View {
                     Label(descriptor.addLabel, systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.isBusy)
+                .disabled(model.isBusy || model.draftSyntaxError != nil)
             }
 
             Table(of: DraftItem.self, selection: $selection) {
@@ -796,9 +797,26 @@ struct DraftCollectionView: View {
                     if descriptor.ordered { moveItems(identifiers, to: destination) }
                 }
             }
-            .disabled(!model.canEditDraft)
+            .disabled(!model.canEditDraft || model.draftSyntaxError != nil)
             .overlay {
-                if items.isEmpty {
+                if let syntaxError = model.draftSyntaxError {
+                    VStack(spacing: 9) {
+                        Image(systemName: "xmark.octagon.fill")
+                            .font(.largeTitle)
+                            .foregroundStyle(.red)
+                        Text("Raw Draft JSON 语法无效")
+                            .font(.headline)
+                        Text(syntaxError)
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(4)
+                        Text("请先在 Configuration 页面修复；此处不会把解析失败显示成空集合。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(24)
+                } else if items.isEmpty {
                     VStack(spacing: 9) {
                         Image(systemName: descriptor.symbol)
                             .font(.largeTitle)
