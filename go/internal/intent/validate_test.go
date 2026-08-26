@@ -228,6 +228,38 @@ func TestPinnedStaleSubscriptionNodeWarns(t *testing.T) {
 	}
 }
 
+func TestValidateWarnsWhenDNSRejectProjectionWouldWiden(t *testing.T) {
+	intent := validIntent()
+	conditionalBlock := Rule{
+		ID: "conditional_block", Enabled: true, DNSProfile: "dns", Route: "block",
+		DomainMatch: []string{"domain:example.com"},
+		IPMatch:     []string{"geoip:private"},
+		Network:     []string{"tcp"},
+		Protocol:    []string{"tls"},
+		Port:        []int{443},
+	}
+	intent.Rules = append(intent.Rules[:len(intent.Rules)-1], conditionalBlock, intent.Rules[len(intent.Rules)-1])
+	validation := Validate(intent)
+	if !validation.OK {
+		t.Fatalf("conditional block rule was rejected: %#v", validation.Errors)
+	}
+	var projectionWarning *Issue
+	for index := range validation.Warnings {
+		if validation.Warnings[index].Code == "DNS_REJECT_PROJECTION_SKIPPED" {
+			projectionWarning = &validation.Warnings[index]
+			break
+		}
+	}
+	if projectionWarning == nil {
+		t.Fatalf("missing skipped DNS reject warning: %#v", validation.Warnings)
+	}
+	for _, detail := range []string{"ip_match", "network", "protocol", "port", "DNS queries continue to subsequent rules"} {
+		if !strings.Contains(projectionWarning.Message, detail) {
+			t.Fatalf("warning does not explain %q: %#v", detail, projectionWarning)
+		}
+	}
+}
+
 func hasIssue(validation Validation, code string) bool {
 	for _, issue := range validation.Errors {
 		if issue.Code == code {
