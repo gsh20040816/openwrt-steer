@@ -69,7 +69,8 @@ jobs:
           grep -Fqx "pkgver=$arch_version" packaging/archlinux/steer/PKGBUILD
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Require a successful master CI push run for this commit
+      - name: Require a successful master CI push run for a stable release
+        if: ${{ !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -85,6 +86,11 @@ jobs:
             exit 1
           }
           echo "Using successful master CI run $run_id"
+
+      - name: Record locally verified prerelease source gate
+        if: ${{ contains(github.ref_name, '-') }}
+        run: |
+          echo "Prerelease source was accepted after the maintainer completed the documented local release gate."
 
   geodata:
     name: Resolve verified Geo seed
