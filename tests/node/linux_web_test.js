@@ -16,6 +16,7 @@ const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/v
 const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-reference-fixtures.json'), 'utf8'));
 const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
 const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
+const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -286,6 +287,10 @@ function createRulesEnvironment(intent) {
     input: ({ value }) => Object.assign(new Element('input'), { value }),
     toggle: () => new Element('button'),
     selectWithMissing: (options) => options,
+    referenceOptions: (_collection, items) => (items || []).map((item) => [item.id, item.name || item.id]),
+    creationDraft: (collection, overrides = {}) => ({
+      ...(uiSpec.creation_defaults[collection] || {}), id: `rule_${nextID++}`, ...overrides
+    }),
     select: (options, value) => Object.assign(new Element('select'), { value }),
     multiChoice: (_options, values) => Object.assign(new Element('div'), { value: values || [], commitPending: () => false }),
     chips: () => Object.assign(new Element('div'), { commitPending: () => false }),
@@ -641,10 +646,42 @@ function testSubscriptionCreationDefaultUsesSharedSpec() {
   const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/subscriptions.js'), 'utf8');
   assert.ok(source.includes('S.uiSpec.subscription_update_interval_default'),
     'Linux subscription creation must consume the shared interval default');
-  assert.ok(source.includes('update_interval: defaultInterval'),
-    'Linux new-subscription draft must use the shared interval default');
+  assert.ok(source.includes("ui.creationDraft('subscriptions')"),
+    'Linux new-subscription draft must use all shared creation defaults');
   assert.ok(!source.includes("update_interval: '12h'"),
     'Linux subscription creation retained its divergent literal default');
+}
+
+function testSharedCreationDefaultsAutomaticIDsAndReferenceLabels() {
+  assert.strictEqual(creationPolicyFixtures.schema_version, 1);
+  const environment = createEnvironment(async () => ({ ok: true }), {
+    main: {}, nodes: [], routes: [], dns_profiles: [], local_proxies: [], rules: [], subscriptions: []
+  });
+  for (const fixture of creationPolicyFixtures.cases) {
+    const actual = environment.S.ui.creationDraft(fixture.collection, {
+      id: fixture.id, ...(fixture.overrides || {})
+    });
+    assert.deepStrictEqual(actual, fixture.expected, `${fixture.collection} creation Canonical must match the shared fixture`);
+  }
+  const generated = environment.S.ui.creationDraft('nodes');
+  assert.match(generated.id, new RegExp(uiSpec.id_policy.pattern));
+  const options = environment.S.ui.referenceOptions(
+    'nodes', creationPolicyFixtures.ambiguous_references.nodes
+  );
+  assert.strictEqual(options.find(([id]) => id === 'node-unique')[1], 'Unique',
+    'an unambiguous selector label stays concise');
+  assert.match(options.find(([id]) => id === 'node-a1b2c3')[1], /Same · a\.example:1080 · #a1b2c3/,
+    'duplicate names include endpoint and short stable ID');
+  for (const [collection, expected] of [
+    ['routes', /Same · Node node-a · #a1b2c3/],
+    ['dns_profiles', /Same · 1\.1\.1\.1:53 · #a1b2c3/],
+    ['local_proxies', /Same · 127\.0\.0\.1:1090 · #a1b2c3/]
+  ]) {
+    const label = environment.S.ui.referenceOptions(
+      collection, creationPolicyFixtures.ambiguous_references[collection]
+    )[0][1];
+    assert.match(label, expected, `${collection} duplicate names remain distinguishable`);
+  }
 }
 
 async function testApplySavedAPIKeepsStructuredFailure() {
@@ -1802,6 +1839,7 @@ Promise.resolve()
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
   .then(testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit)
   .then(testSubscriptionCreationDefaultUsesSharedSpec)
+  .then(testSharedCreationDefaultsAutomaticIDsAndReferenceLabels)
   .then(testApplySavedAPIKeepsStructuredFailure)
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)

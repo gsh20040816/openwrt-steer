@@ -8,7 +8,6 @@
 
   const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.dns_protocols.map((item) => [item.value, item.label]));
   const DNS_FIELDS = new Set(S.uiSpec.dns_protocols.flatMap((item) => item.fields));
-  const DEFAULT_PROTOCOL = S.uiSpec.dns_protocols[0];
 
   function protocolSpec(value) {
     return S.uiSpec.dns_protocols.find((item) => item.value === value);
@@ -49,16 +48,16 @@
       eyebrow: `DNS Profile · ${profile.id}`, title: profile.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(profile));
-        const initialSpec = protocolSpec(draft.protocol) || DEFAULT_PROTOCOL;
-        draft.protocol = initialSpec.value;
-        if (!Number.isInteger(Number(draft.server_port)) || Number(draft.server_port) < 1) draft.server_port = initialSpec.default_port;
+        const initialSpec = protocolSpec(draft.protocol);
         cleanupProtocolFields(draft);
         const name = ui.input({ value: draft.name || '', placeholder: 'Profile 名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
         const server = ui.input({ value: draft.server || '', placeholder: 'dns.example.com 或 IP' });
         const port = ui.input({ type: 'number', value: draft.server_port || '', placeholder: '53 / 853 / 443' });
         const protocolFields = h('div', {});
-        const protocol = ui.select(S.uiSpec.dns_protocols.map((item) => [item.value, item.label]), draft.protocol, (v) => {
+        const protocolOptions = S.uiSpec.dns_protocols.map((item) => [item.value, item.label]);
+        if (!initialSpec) protocolOptions.unshift(['', '缺失（需修复）']);
+        const protocol = ui.select(protocolOptions, draft.protocol || '', (v) => {
           draft.server_port = Number(port.value);
           applyProtocol(draft, v);
           port.value = draft.server_port;
@@ -102,11 +101,11 @@
         );
         return {
           submit() {
-            if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
             if (!server.value.trim()) { ui.toast('服务器不能为空', 'err'); return false; }
-            draft.name = name.value.trim();
+            draft.name = name.value.trim() || undefined;
             draft.server = server.value.trim();
             draft.server_port = Number(port.value);
+            if (!protocolSpec(draft.protocol)) { ui.toast('请选择 DNS 协议', 'err'); return false; }
             if (!Number.isInteger(draft.server_port) || draft.server_port < 1 || draft.server_port > 65535) { ui.toast('端口必须是 1–65535', 'err'); return false; }
             for (const field of ['path', 'tls_server_name']) {
               if (typeof draft[field] === 'string') draft[field] = draft[field].trim() || undefined;
@@ -123,7 +122,7 @@
       onSubmit(profile) {
         if (isNew) S.store.intent.dns_profiles.push(profile);
         S.store.touch();
-        ui.toast(`DNS Profile ${profile.name} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
+        ui.toast(`DNS Profile ${profile.name || profile.id} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
         view.render(document.querySelector('#view'));
         return true;
       }
@@ -160,7 +159,7 @@
 
       root.append(
         ui.viewHead('DNS Profile', '每个实际使用的 (规则, Profile) 拥有独立传输路径；被规则引用后不可悬空', [
-		  h('button', { class: 'btn btn--primary', onclick: () => openEditor({ id: S.uid('dns'), enabled: true, name: '', protocol: DEFAULT_PROTOCOL.value, server: '', server_port: DEFAULT_PROTOCOL.default_port }) }, '添加 Profile')
+		  h('button', { class: 'btn btn--primary', onclick: () => openEditor(ui.creationDraft('dns_profiles')) }, '添加 Profile')
 		]),
         intent.dns_profiles.length
           ? h('section', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table))

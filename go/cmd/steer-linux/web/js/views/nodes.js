@@ -180,7 +180,7 @@
             class: 'btn btn--primary', onclick: () => {
               if (nameInput) node.name = nameInput.value.trim() || node.name;
               nodes.forEach((candidate) => {
-                candidate.id = S.uid('node');
+                candidate.id = ui.creationDraft('nodes').id;
                 delete candidate.source_subscription;
                 delete candidate.source_fingerprint;
                 delete candidate.pinned_stale;
@@ -221,7 +221,16 @@
         const draft = JSON.parse(JSON.stringify(node));
         const name = ui.input({ value: draft.name || '', placeholder: '节点名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const typeSel = ui.select(S.uiSpec.node_types.map((item) => [item.value, item.label]), draft.type, (v) => { draft.type = v; rebuildSpec(); });
+        const typeOptions = S.uiSpec.node_types.map((item) => [item.value, item.label]);
+        if (!draft.type) typeOptions.unshift(['', '缺失（需修复）']);
+        const typeSel = ui.select(typeOptions, draft.type, (v) => {
+          draft.type = v;
+          for (const field of fieldsFor(v)) {
+            if (draft[field.key] == null && field.default !== undefined)
+              draft[field.key] = JSON.parse(JSON.stringify(field.default));
+          }
+          rebuildSpec();
+        });
         const server = ui.input({ value: draft.server || '', placeholder: 'example.com 或 IP' });
         const port = ui.input({ type: 'number', value: draft.server_port || '', placeholder: '443' });
         const endpoint = h('div', { class: 'field--row' });
@@ -236,10 +245,14 @@
             listControls.push(control);
             return control;
           }
-          if (field.control === 'select' || field.control === 'select-integer') return ui.select(
-            field.options.map((item) => [item.value, item.label]), String(draft[key] ?? field.default ?? ''),
-            (v) => { draft[key] = field.control === 'select-integer' && v !== '' ? Number(v) : v; rebuildSpec(); }
-          );
+          if (field.control === 'select' || field.control === 'select-integer') {
+            const options = field.options.map((item) => [item.value, item.label]);
+            if (draft[key] == null && !options.some(([value]) => value === '')) options.unshift(['', '缺失（需修复）']);
+            return ui.select(
+              options, String(draft[key] ?? ''),
+              (v) => { draft[key] = field.control === 'select-integer' && v !== '' ? Number(v) : v; rebuildSpec(); }
+            );
+          }
           if (field.control === 'integer') return ui.input({ type: 'number', value: draft[key] ?? '', placeholder: field.placeholder || '', oninput: (e) => { draft[key] = e.target.value === '' ? undefined : Number(e.target.value); } });
           if (field.multiline) return ui.textarea({
             value: draft[key] ?? '', placeholder: field.placeholder || '', sensitive: !!field.sensitive,
@@ -283,8 +296,7 @@
           submit() {
             listControls.forEach((control) => control.commitPending());
             const trim = (v) => String(v ?? '').trim();
-            if (!trim(name.value)) { ui.toast('名称不能为空', 'err'); return false; }
-            draft.name = trim(name.value);
+            draft.name = trim(name.value) || undefined;
             if (!requiresRemoteEndpoint(draft.type)) {
               delete draft.server;
               delete draft.server_port;
@@ -308,7 +320,7 @@
       onSubmit(node) {
         if (isNew) S.store.intent.nodes.push(node);
         S.store.touch();
-        ui.toast(`节点 ${node.name} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
+        ui.toast(`节点 ${node.name || node.id} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
         view.render(document.querySelector('#view'));
         return true;
       }
@@ -378,7 +390,7 @@
       root.append(
         ui.viewHead('节点', editable ? '手动维护的节点；订阅节点只读，由订阅更新生成' : '订阅生成数据 · 只读 · 修改请在订阅源或手动节点中完成', [
           h('button', { class: 'btn', onclick: openImport }, '导入节点'),
-          editable ? h('button', { class: 'btn btn--primary', onclick: () => openNodeEditor({ id: S.uid('node'), enabled: true, name: '', type: 'trojan', server: '', server_port: 443 }) }, '添加节点') : null
+          editable ? h('button', { class: 'btn btn--primary', onclick: () => openNodeEditor(ui.creationDraft('nodes')) }, '添加节点') : null
         ]),
         groupNav
       );

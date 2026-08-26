@@ -142,13 +142,13 @@ def main() -> None:
     assert '只能修改显示名称、DNS Profile 与 Route' in content
     assert "enum RuleDraftPolicy" in state and "RuleDraftPolicy.replacement" in state
     assert '系统必需 · 始终启用' in editors
-    assert 'Picker("类型"' not in editors and 'LabeledContent("类型", value: "Single 节点")' in editors
+    assert 'Picker("类型"' not in editors and 'LabeledContent("类型")' in editors and 'Text("Single 节点")' in editors
     assert 'SharedNodeDraftForm' in editors and 'SteerUISpec.nodeFields' in editors
     dns_editor = editors[editors.index("private struct DNSDraftForm"):editors.index("private struct LocalProxyDraftForm")]
     assert 'UIDNSProtocolSpec' in ui_spec
     assert 'applyDNSProtocol' in ui_spec and 'normalizeDNSProfile' in ui_spec
     assert 'defaultPort' in ui_spec and 'protocolSpec?.fields.contains' in dns_editor
-    assert 'currentPort == $0.defaultPort' in ui_spec and 'protocolSpec?.defaultPort' in dns_editor
+    assert 'currentPort == $0.defaultPort' in ui_spec and 'defaultValue:' not in dns_editor
     assert '["tls", "https", "quic", "h3"]' not in dns_editor
     assert 'classifyLocalProxyListen' in editors
     assert 'validateLocalProxyAuthentication' in editors

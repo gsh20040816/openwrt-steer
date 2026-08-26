@@ -47,7 +47,11 @@ function collectNodeReferences(nodes, routes, groups) {
 	}).forEach((node) => {
 		known[node['.name']] = true;
 		const group = groups.find((candidate) => candidate.id == nodeGroupID(node));
-		references.push({ id: node['.name'], label: node.name || _('Unnamed'), group: group?.label || nodeGroupID(node) });
+		const endpoint = node.server && node.server_port ? '%s:%s'.format(node.server, node.server_port) : node.type;
+		references.push({
+			id: node['.name'], label: node.name || node['.name'], group: group?.label || nodeGroupID(node),
+			detail: endpoint + (node.source_subscription ? ' · ' + _('Subscription: %s').format(node.source_subscription) : '')
+		});
 	});
 	routes.forEach((route) => {
 		const node = route.kind == 'single' ? route.node : null;
@@ -56,7 +60,7 @@ function collectNodeReferences(nodes, routes, groups) {
 			references.push({ id: node, label: _('Missing: %s').format(node), group: _('Missing references') });
 		}
 	});
-	return references;
+	return steer.disambiguateReferences(references);
 }
 
 function addNodeValues(option, references) {
@@ -73,7 +77,8 @@ function nodeReferenceLabel(references, nodeId) {
 function collectRouteReferences(routes) {
 	const references = routes.filter((route) => route.kind == 'single').map((route) => ({
 		id: route['.name'],
-		label: routeLabel(route)
+		label: routeLabel(route),
+		detail: _('Node: %s').format(route.node || _('not selected'))
 	}));
 	const known = Object.fromEntries(references.map((reference) => [ reference.id, true ]));
 	routes.forEach((route) => {
@@ -82,7 +87,7 @@ function collectRouteReferences(routes) {
 			references.push({ id: route.detour, label: _('Missing: %s').format(route.detour) });
 		}
 	});
-	return references;
+	return steer.disambiguateReferences(references);
 }
 
 function routeKindLabel(kind) {
@@ -354,8 +359,6 @@ function addGeneratedNodeField(section, field) {
 		option.rows = 6;
 	if (field.placeholder)
 		option.placeholder = field.placeholder;
-	if (field.default !== undefined)
-		option.default = typeof(field.default) == 'boolean' ? (field.default ? '1' : '0') : String(field.default);
 	(field.options || []).forEach((item) => option.value(item.value, nodeChoiceLabel(item)));
 
 	if (field.when) {
@@ -383,10 +386,11 @@ function selectedNodeGroup(groups) {
 }
 
 function nextManualNodeID() {
+	const prefix = uiSpec.id_policy.collection_prefixes.nodes;
 	let index = 1;
-	while (uci.get('steer', 'manual_node_' + index))
+	while (uci.get('steer', prefix + '_' + index))
 		index++;
-	return 'manual_node_' + index;
+	return prefix + '_' + index;
 }
 
 function renderNodeGroupNavigation(groups, activeGroup) {
@@ -918,7 +922,7 @@ return view.extend({
 
 		if (page == 'subscriptions') {
 			s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
-			steer.configureNamedSection(s, { enabled: '1', update_interval: uiSpec.subscription_update_interval_default });
+			steer.configureNamedSection(s, steer.creationDefaults('subscriptions'));
 			configureSubscriptionRemoval(s, nodes);
 			s.addremove = true;
 			s.nodescriptions = true;
@@ -947,7 +951,7 @@ return view.extend({
 			const rejectRecovery = renderMissingRejectAction(routes, m);
 
 			s = m.section(form.GridSection, 'route', _('Single-node routes'));
-			steer.configureNamedSection(s, { enabled: '1', kind: 'single' });
+			steer.configureNamedSection(s, steer.creationDefaults('routes', { node: enabledNodeIds[0] || '' }));
 			steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('routes', sectionId),
 				_('Route is still referenced'));
 			configureSingleRouteCreation(s);
@@ -1024,7 +1028,7 @@ return view.extend({
 		}
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
-		steer.configureNamedSection(s);
+		steer.configureNamedSection(s, steer.creationDefaults('nodes'));
 		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('nodes', sectionId),
 			_('Node is still referenced'));
 		s.addremove = activeNodeGroup == manualNodeGroup;

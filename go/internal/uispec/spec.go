@@ -86,28 +86,38 @@ type NavigationGroup struct {
 	Items []NavigationItem `json:"items"`
 }
 
+type IDPolicy struct {
+	Pattern            string            `json:"pattern"`
+	MaxLength          int               `json:"max_length"`
+	AutoGenerate       bool              `json:"auto_generate"`
+	CollectionPrefixes map[string]string `json:"collection_prefixes"`
+}
+
 type Contract struct {
-	SchemaVersion                     int                             `json:"schema_version"`
-	CanonicalSchema                   int                             `json:"canonical_schema"`
-	SubscriptionUpdateIntervalDefault string                          `json:"subscription_update_interval_default"`
-	InputFormats                      map[string]InputFormat          `json:"input_formats"`
-	NodeTypes                         []Choice                        `json:"node_types"`
-	NodeFields                        []Field                         `json:"node_fields"`
-	LogLevels                         []Choice                        `json:"log_levels"`
-	BootstrapProtocols                []Choice                        `json:"bootstrap_protocols"`
-	BootstrapStrategies               []Choice                        `json:"bootstrap_strategies"`
-	RouteKinds                        []Choice                        `json:"route_kinds"`
-	DNSProtocols                      []DNSProtocol                   `json:"dns_protocols"`
-	LocalProxyProtocols               []Choice                        `json:"local_proxy_protocols"`
-	RuleNetworks                      []Choice                        `json:"rule_networks"`
-	RuleProtocols                     []Choice                        `json:"rule_protocols"`
-	RuleMatchFields                   []string                        `json:"rule_match_fields"`
-	RuleConnectionOnlyFields          []string                        `json:"rule_connection_only_fields"`
-	CollectionReferences              []CollectionReference           `json:"collection_references"`
-	DomainPrefixes                    []string                        `json:"domain_prefixes"`
-	IPPrefixes                        []string                        `json:"ip_prefixes"`
-	PlatformCapabilities              map[string]PlatformCapabilities `json:"platform_capabilities"`
-	Navigation                        []NavigationGroup               `json:"navigation"`
+	SchemaVersion                     int                               `json:"schema_version"`
+	CanonicalSchema                   int                               `json:"canonical_schema"`
+	SubscriptionUpdateIntervalDefault string                            `json:"subscription_update_interval_default"`
+	IDPolicy                          IDPolicy                          `json:"id_policy"`
+	CreationDefaults                  map[string]map[string]interface{} `json:"creation_defaults"`
+	CreationRequiredFields            map[string][]string               `json:"creation_required_fields"`
+	InputFormats                      map[string]InputFormat            `json:"input_formats"`
+	NodeTypes                         []Choice                          `json:"node_types"`
+	NodeFields                        []Field                           `json:"node_fields"`
+	LogLevels                         []Choice                          `json:"log_levels"`
+	BootstrapProtocols                []Choice                          `json:"bootstrap_protocols"`
+	BootstrapStrategies               []Choice                          `json:"bootstrap_strategies"`
+	RouteKinds                        []Choice                          `json:"route_kinds"`
+	DNSProtocols                      []DNSProtocol                     `json:"dns_protocols"`
+	LocalProxyProtocols               []Choice                          `json:"local_proxy_protocols"`
+	RuleNetworks                      []Choice                          `json:"rule_networks"`
+	RuleProtocols                     []Choice                          `json:"rule_protocols"`
+	RuleMatchFields                   []string                          `json:"rule_match_fields"`
+	RuleConnectionOnlyFields          []string                          `json:"rule_connection_only_fields"`
+	CollectionReferences              []CollectionReference             `json:"collection_references"`
+	DomainPrefixes                    []string                          `json:"domain_prefixes"`
+	IPPrefixes                        []string                          `json:"ip_prefixes"`
+	PlatformCapabilities              map[string]PlatformCapabilities   `json:"platform_capabilities"`
+	Navigation                        []NavigationGroup                 `json:"navigation"`
 }
 
 func choices(values ...string) []Choice {
@@ -148,6 +158,33 @@ func ContractValue() Contract {
 		SchemaVersion:                     SchemaVersion,
 		CanonicalSchema:                   9,
 		SubscriptionUpdateIntervalDefault: "6h",
+		IDPolicy: IDPolicy{
+			Pattern: `^[a-z][a-z0-9_-]{0,31}$`, MaxLength: 32, AutoGenerate: true,
+			CollectionPrefixes: map[string]string{
+				"nodes": "node", "routes": "route", "dns_profiles": "dns", "local_proxies": "proxy",
+				"rules": "rule", "subscriptions": "subscription",
+			},
+		},
+		CreationDefaults: map[string]map[string]interface{}{
+			"main":          {"schema_version": 9, "enabled": false, "log_level": "warn"},
+			"bootstrap":     {"protocol": "udp", "server": "1.1.1.1", "server_port": 53, "strategy": "prefer_ipv4"},
+			"nodes":         {"enabled": true, "type": "socks", "server": "", "server_port": 1080},
+			"routes":        {"enabled": true, "kind": "single", "node": ""},
+			"dns_profiles":  {"enabled": true, "protocol": "udp", "server": "", "server_port": 53},
+			"local_proxies": {"enabled": true, "protocol": "mixed", "listen": "127.0.0.1", "listen_port": 1090},
+			"rules":         {"enabled": true, "default": false, "dns_profile": "", "route": "direct"},
+			"subscriptions": {"enabled": true, "url": "", "update_interval": "6h"},
+		},
+		CreationRequiredFields: map[string][]string{
+			"main":          {"schema_version", "enabled", "log_level"},
+			"bootstrap":     {"protocol", "server", "server_port", "strategy"},
+			"nodes":         {"id", "enabled", "type", "server", "server_port"},
+			"routes":        {"id", "enabled", "kind", "node"},
+			"dns_profiles":  {"id", "enabled", "protocol", "server", "server_port"},
+			"local_proxies": {"id", "enabled", "protocol", "listen", "listen_port"},
+			"rules":         {"id", "enabled", "default", "dns_profile", "route"},
+			"subscriptions": {"id", "enabled", "url", "update_interval"},
+		},
 		InputFormats: map[string]InputFormat{
 			"probe_url":         {Kind: "url", Schemes: []string{"https"}, Absolute: true, ForbidCredentials: true, ForbidFragment: true},
 			"subscription_url":  {Kind: "url", Schemes: []string{"http", "https"}, Absolute: true},
@@ -209,7 +246,7 @@ func ContractValue() Contract {
 
 	contract.NodeFields = []Field{
 		{Key: "enabled", Label: "Enabled", Control: "boolean", Section: "general", Types: nodeTypeValues(), Default: true},
-		{Key: "name", Label: "Name", Control: "text", Section: "general", Types: nodeTypeValues(), RequiredTypes: nodeTypeValues()},
+		{Key: "name", Label: "Name", Control: "text", Section: "general", Types: nodeTypeValues()},
 		{Key: "server", Label: "Server", Control: "text", Section: "general", Types: allRemote, RequiredTypes: allRemote, Placeholder: "example.com or IP"},
 		{Key: "server_port", Label: "Port", Control: "integer", Section: "general", Types: allRemote, RequiredTypes: allRemote, Default: 443},
 		stringField("uuid", "UUID", "protocol", "vmess", "vless", "tuic"),

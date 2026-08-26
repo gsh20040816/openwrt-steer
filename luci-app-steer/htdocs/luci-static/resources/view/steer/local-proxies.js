@@ -105,7 +105,7 @@ return view.extend({
 		m = new form.Map('steer', _('Local proxies'));
 
 		s = m.section(form.GridSection, 'local_proxy', _('Named proxy entry points'));
-		steer.configureNamedSection(s);
+		steer.configureNamedSection(s, steer.creationDefaults('local_proxies'));
 		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('local_proxies', sectionId),
 			_('Local proxy is still referenced'));
 		s.addremove = true;

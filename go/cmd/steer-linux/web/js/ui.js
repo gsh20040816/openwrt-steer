@@ -868,5 +868,40 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, multiChoice, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject, takeObjectFocus, focusDrawerOption, collectionReferences, guardCollectionDeletion } });
+  function creationDraft(collection, overrides = {}) {
+    const defaults = JSON.parse(JSON.stringify(S.uiSpec.creation_defaults?.[collection] || {}));
+    const prefix = S.uiSpec.id_policy?.collection_prefixes?.[collection] || 'item';
+    const used = new Set(Object.values(S.store?.intent || {}).flatMap((value) =>
+      Array.isArray(value) ? value.map((item) => item?.id).filter(Boolean) : []));
+    let id = S.uid(prefix);
+    let collision = 2;
+    while (used.has(id)) id = `${prefix}-${collision++}`;
+    return { ...defaults, id, ...overrides };
+  }
+
+  function referenceOptions(collection, items) {
+    const values = asList(items);
+    const baseLabels = values.map((item) => item.name || item.id);
+    const counts = new Map();
+    baseLabels.forEach((label) => counts.set(label, (counts.get(label) || 0) + 1));
+    const endpoint = (host, port) => host && port ? `${host}:${port}` : '';
+    return values.map((item, index) => {
+      const base = baseLabels[index];
+      if ((counts.get(base) || 0) < 2) return [item.id, base];
+      let detail = '';
+      if (collection === 'nodes') {
+        detail = endpoint(item.server, item.server_port) || item.type || '';
+        if (item.source_subscription) detail += `${detail ? ' · ' : ''}订阅 ${item.source_subscription}`;
+      } else if (collection === 'routes') {
+        detail = item.kind === 'single' ? `Node ${item.node || '未选择'}` : (item.kind || '');
+      } else if (collection === 'dns_profiles') {
+        detail = endpoint(item.server, item.server_port) || item.protocol || '';
+      } else if (collection === 'local_proxies') {
+        detail = endpoint(item.listen, item.listen_port) || item.protocol || '';
+      }
+      return [item.id, `${base}${detail ? ` · ${detail}` : ''} · #${String(item.id).slice(-6)}`];
+    });
+  }
+
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, multiChoice, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, creationDraft, referenceOptions, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject, takeObjectFocus, focusDrawerOption, collectionReferences, guardCollectionDeletion } });
 })();

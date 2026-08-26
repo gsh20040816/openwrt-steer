@@ -3,6 +3,7 @@
 
 import json
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -58,6 +59,9 @@ rule_summary_fixtures = json.loads(
 form_input_fixtures = json.loads(
     (ROOT / "ui/form-input-fixtures.json").read_text()
 )
+creation_policy_fixtures = json.loads(
+    (ROOT / "ui/creation-policy-fixtures.json").read_text()
+)
 for name, fixture in {
     "validation issue": validation_issue_fixtures,
     "collection reference": collection_reference_fixtures,
@@ -73,6 +77,21 @@ if form_input_fixtures.get("schema_version") != 1 or not form_input_fixtures.get
     raise SystemExit("check-ui-contract: invalid shared form input fixtures")
 if set(contract.get("input_formats", {})) != {"probe_url", "subscription_url", "positive_duration", "dns_http_path"}:
     raise SystemExit("check-ui-contract: shared input format metadata drifted")
+if creation_policy_fixtures.get("schema_version") != 1:
+    raise SystemExit("check-ui-contract: invalid creation policy fixture schema")
+id_policy = contract.get("id_policy", {})
+if not id_policy.get("auto_generate") or id_policy.get("max_length") != 32:
+    raise SystemExit("check-ui-contract: automatic ID policy is missing")
+id_pattern = re.compile(id_policy.get("pattern", ""))
+for case in creation_policy_fixtures.get("cases", []):
+    collection = case["collection"]
+    actual = dict(contract.get("creation_defaults", {}).get(collection, {}))
+    actual["id"] = case["id"]
+    actual.update(case.get("overrides", {}))
+    if actual != case["expected"]:
+        raise SystemExit(f"check-ui-contract: {collection} creation Canonical drifted: {actual!r}")
+    if not id_pattern.fullmatch(case["id"]):
+        raise SystemExit(f"check-ui-contract: fixture ID violates shared policy: {case['id']!r}")
 if state_lifecycle_fixtures.get("schema_version") != 1:
     raise SystemExit("check-ui-contract: invalid state lifecycle fixture schema")
 if [item.get("name") for item in state_lifecycle_fixtures.get("cases", [])] != [
@@ -187,6 +206,7 @@ luci_proxies = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/l
 mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
 mac_state = (ROOT / "macos/SteerApp/AppState.swift").read_text()
 mac_editors = (ROOT / "macos/SteerApp/DraftEditors.swift").read_text()
+mac_configuration = (ROOT / "macos/SteerApp/ConfigurationFormView.swift").read_text()
 mac_ui_spec = (ROOT / "macos/SteerApp/UISpec.swift").read_text()
 openwrt_cli = (ROOT / "go/cmd/steer-openwrt/main.go").read_text()
 mac_control = (ROOT / "go/cmd/steer-macos/control.go").read_text()
@@ -201,11 +221,11 @@ require(mac_content, "SteerUISpec.contract.navigation", "macOS navigation")
 require(mac_editors, "SharedNodeDraftForm", "macOS node form")
 require(mac_editors, "SteerUISpec.nodeFields", "macOS field matrix")
 require(linux_subscriptions, "S.uiSpec.subscription_update_interval_default", "Linux subscription default")
-require(linux_subscriptions, "update_interval: defaultInterval", "Linux subscription creation")
+require(linux_subscriptions, "ui.creationDraft('subscriptions')", "Linux subscription creation")
 require(luci_nodes, "uiSpec.subscription_update_interval_default", "LuCI subscription default")
-require(luci_nodes, "update_interval: uiSpec.subscription_update_interval_default", "LuCI subscription creation")
-require(mac_state, "SteerUISpec.contract.subscriptionUpdateIntervalDefault", "macOS subscription default")
-require(mac_state, '"update_interval": .string(SteerUISpec.contract.subscriptionUpdateIntervalDefault)', "macOS subscription creation")
+require(luci_nodes, "steer.creationDefaults('subscriptions')", "LuCI subscription creation")
+require(mac_ui_spec, "subscriptionUpdateIntervalDefault", "macOS subscription default")
+require(mac_state, "SteerUISpec.creationObject", "macOS subscription creation")
 require(linux_dns, "item.fields", "Linux DNS field matrix")
 require(linux_dns, "next.default_port", "Linux DNS port matrix")
 require(luci_dns, "protocol.fields", "LuCI DNS field matrix")
@@ -285,6 +305,23 @@ form_input_fixture_consumers = (
 )
 for consumer in form_input_fixture_consumers:
     require((ROOT / consumer).read_text(), "form-input-fixtures.json", consumer)
+
+creation_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/UISafetyContractTests.swift",
+)
+for consumer in creation_fixture_consumers:
+    require((ROOT / consumer).read_text(), "creation-policy-fixtures.json", consumer)
+
+require(linux_ui, "creationDraft", "Linux automatic creation policy")
+require(linux_ui, "referenceOptions", "Linux disambiguated references")
+require(luci_helper, "nextSectionID", "LuCI automatic ID policy")
+require(luci_helper, "disambiguateReferences", "LuCI disambiguated references")
+require(mac_ui_spec, "creationObject", "macOS creation policy")
+require(mac_state, "draftReferenceLabel", "macOS disambiguated references")
+if "defaultValue:" in mac_editors or "defaultValue:" in mac_configuration:
+    raise SystemExit("check-ui-contract: macOS still renders a field-missing phantom default")
 
 require(linux_ui, "Draft desired", "Linux Draft state")
 require(linux_ui, "Saved desired", "Linux Saved state")

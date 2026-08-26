@@ -70,12 +70,12 @@
         const draft = JSON.parse(JSON.stringify(rule));
         const name = ui.input({ value: draft.name || '', placeholder: '规则名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const dnsOpts = intent.dns_profiles.map((p) => [p.id, p.name || p.id]);
+        const dnsOpts = ui.referenceOptions('dns_profiles', intent.dns_profiles);
         const dnsSel = ui.select(ui.selectWithMissing(dnsOpts, draft.dns_profile, '缺失 Profile'), draft.dns_profile, (v) => { draft.dns_profile = v; });
-        const routeOpts = intent.routes.map((r) => [r.id, r.name || r.id]);
+        const routeOpts = ui.referenceOptions('routes', intent.routes);
         const routeSel = ui.select(ui.selectWithMissing(routeOpts, draft.route, '缺失路由'), draft.route, (v) => { draft.route = v; });
 
-        const inboundChoices = asList(intent.local_proxies).map((proxy) => [proxy.id, proxy.name || proxy.id]);
+        const inboundChoices = ui.referenceOptions('local_proxies', intent.local_proxies);
         const inboundControl = ui.multiChoice(inboundChoices, asList(draft.inbound), {
           onchange: (v) => { draft.inbound = v; }, missingLabel: '缺失本地代理'
         });
@@ -116,8 +116,7 @@
         return {
           submit() {
             [srcCidr, srcMac, ports].forEach((control) => control.commitPending());
-            if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
-            draft.name = name.value.trim();
+            draft.name = name.value.trim() || undefined;
             draft.dns_profile = dnsSel.value;
             draft.route = routeSel.value;
             draft.domain_match = domain.value;
@@ -135,7 +134,7 @@
           rules.splice(defaultIndex < 0 ? rules.length : defaultIndex, 0, rule);
         }
         S.store.touch();
-        ui.toast(`规则 ${rule.name} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
+        ui.toast(`规则 ${rule.name || rule.id} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
         view.render(document.querySelector('#view'));
         return true;
       }
@@ -224,15 +223,20 @@
           h('span', { class: 'badge badge--match' }, '只有 DNS Profile 与路由可修改')
         ]),
         h('div', { class: 'default-fields' }, [
-          ui.field('DNS Profile', ui.select(intent.dns_profiles.map((p) => [p.id, p.name || p.id]), defaultRule.dns_profile, (v) => { defaultRule.dns_profile = v; S.store.touch(); }), null, 'dns_profile'),
-          ui.field('路由', ui.select(intent.routes.map((r) => [r.id, r.name || r.id]), defaultRule.route, (v) => { defaultRule.route = v; S.store.touch(); }), null, 'route')
+          ui.field('DNS Profile', ui.select(ui.referenceOptions('dns_profiles', intent.dns_profiles), defaultRule.dns_profile, (v) => { defaultRule.dns_profile = v; S.store.touch(); }), null, 'dns_profile'),
+          ui.field('路由', ui.select(ui.referenceOptions('routes', intent.routes), defaultRule.route, (v) => { defaultRule.route = v; S.store.touch(); }), null, 'route')
         ])
       ]);
 
       root.append(
         ui.viewHead('规则', 'first-match 有序执行；拖拽调整顺序。启用配置必须恰好一个 Default 规则', [
           h('button', { class: 'btn btn--primary', onclick: () => {
-            const rule = { id: S.uid('rule'), enabled: true, name: '新规则', dns_profile: intent.dns_profiles[0]?.id || '', route: 'direct' };
+            const direct = intent.routes.find((route) => route.kind === 'direct' && route.enabled !== false)
+              || intent.routes.find((route) => route.enabled !== false);
+            const rule = ui.creationDraft('rules', {
+              dns_profile: intent.dns_profiles.find((profile) => profile.enabled !== false)?.id || '',
+              route: direct?.id || ''
+            });
             openRuleEditor(rule);
           } }, '添加规则')
         ]),

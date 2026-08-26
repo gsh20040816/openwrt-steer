@@ -5,6 +5,7 @@ package uispec
 import (
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -88,6 +89,49 @@ func TestReferenceAndRuleStageContractsAreExplicit(t *testing.T) {
 func TestSubscriptionCreationDefaultIsShared(t *testing.T) {
 	if value := ContractValue().SubscriptionUpdateIntervalDefault; value != "6h" {
 		t.Fatalf("unexpected subscription update interval default %q", value)
+	}
+}
+
+func TestCreationDefaultsAndAutomaticIDPolicyAreShared(t *testing.T) {
+	contract := ContractValue()
+	if !contract.IDPolicy.AutoGenerate || contract.IDPolicy.MaxLength != 32 {
+		t.Fatalf("unexpected ID policy: %#v", contract.IDPolicy)
+	}
+	pattern, err := regexp.Compile(contract.IDPolicy.Pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for collection, prefix := range contract.IDPolicy.CollectionPrefixes {
+		if !pattern.MatchString(prefix + "-abc123") {
+			t.Errorf("%s prefix %q cannot generate a valid ID", collection, prefix)
+		}
+	}
+	for collection, required := range contract.CreationRequiredFields {
+		defaults, exists := contract.CreationDefaults[collection]
+		if !exists {
+			t.Errorf("%s has required fields but no creation defaults", collection)
+			continue
+		}
+		for _, field := range required {
+			if field == "id" {
+				if _, exists := contract.IDPolicy.CollectionPrefixes[collection]; !exists {
+					t.Errorf("%s requires id but has no ID prefix", collection)
+				}
+				continue
+			}
+			if _, exists := defaults[field]; !exists {
+				t.Errorf("%s creation defaults do not materialize %q", collection, field)
+			}
+		}
+	}
+	if got := contract.CreationDefaults["dns_profiles"]; got["protocol"] != "udp" || got["server_port"] != 53 {
+		t.Fatalf("DNS creation must make the stable UDP/53 choice: %#v", got)
+	}
+	if got := contract.CreationDefaults["nodes"]; got["type"] != "socks" || got["server_port"] != 1080 {
+		t.Fatalf("Node creation defaults drifted: %#v", got)
+	}
+	if got := contract.CreationDefaults["local_proxies"]; got["protocol"] != "mixed" || got["listen_port"] != 1090 {
+		t.Fatalf("Local Proxy creation defaults drifted: %#v", got)
 	}
 }
 

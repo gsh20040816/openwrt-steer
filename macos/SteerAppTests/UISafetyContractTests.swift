@@ -88,6 +88,24 @@ final class UISafetyContractTests: XCTestCase {
         let valid: Bool
     }
 
+    private struct CreationDocument: Decodable {
+        let schemaVersion: Int
+        let cases: [CreationCase]
+        let ambiguousReferences: [String: [JSONValue]]
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion = "schema_version"
+            case cases
+            case ambiguousReferences = "ambiguous_references"
+        }
+    }
+
+    private struct CreationCase: Decodable {
+        let collection: String
+        let id: String
+        let overrides: [String: JSONValue]?
+        let expected: JSONValue
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -149,5 +167,80 @@ final class UISafetyContractTests: XCTestCase {
         XCTAssertEqual(SteerUISpec.contract.inputFormats["probe_url"]?.schemes, ["https"])
         XCTAssertTrue(SteerUISpec.contract.inputFormats["probe_url"]?.forbidCredentials ?? false)
         XCTAssertEqual(SteerUISpec.contract.inputFormats["positive_duration"]?.pattern, "^[1-9][0-9]*(ms|s|m|h)$")
+    }
+
+    @MainActor
+    func testSharedCreationDefaultsAutomaticIDsAndDisambiguatedReferences() throws {
+        let document = try decode(CreationDocument.self, "ui/creation-policy-fixtures.json")
+        XCTAssertEqual(document.schemaVersion, 1)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        for fixture in document.cases {
+            let actual = JSONValue.object(SteerUISpec.creationObject(
+                for: fixture.collection, id: fixture.id, overrides: fixture.overrides ?? [:]
+            ))
+            XCTAssertEqual(try encoder.encode(actual), try encoder.encode(fixture.expected), fixture.collection)
+        }
+        XCTAssertTrue(SteerUISpec.contract.idPolicy.autoGenerate)
+        XCTAssertEqual(SteerUISpec.contract.idPolicy.maxLength, 32)
+        var customizedNode: [String: JSONValue] = ["type": .string("socks"), "version": .number(2)]
+        SteerUISpec.applyNodeType("shadowtls", to: &customizedNode)
+        XCTAssertEqual(customizedNode["version"]?.numberValue, 2, "an explicit value must not be overwritten")
+        var incompleteNode: [String: JSONValue] = [:]
+        SteerUISpec.applyNodeType("shadowtls", to: &incompleteNode)
+        XCTAssertEqual(incompleteNode["version"]?.numberValue, 3, "a newly selected type materializes its visible default")
+
+        let model = AppModel()
+        var ambiguousRoot: [String: JSONValue] = [
+            "main": .object(["schema_version": .number(9)]),
+        ]
+        for (collection, values) in document.ambiguousReferences {
+            ambiguousRoot[collection] = .array(values)
+        }
+        model.rawJSON = String(decoding: try encoder.encode(JSONValue.object(ambiguousRoot)), as: UTF8.self)
+        let items = model.draftItems(for: "nodes")
+        XCTAssertEqual(model.draftReferenceLabel(try XCTUnwrap(items.first { $0.identifier == "node-unique" }), in: "nodes"), "Unique")
+        let duplicate = model.draftReferenceLabel(try XCTUnwrap(items.first { $0.identifier == "node-a1b2c3" }), in: "nodes")
+        XCTAssertTrue(duplicate.contains("Same · a.example:1080 · #a1b2c3"), duplicate)
+        for (collection, identifier) in [
+            ("routes", "route-a1b2c3"), ("dns_profiles", "dns-a1b2c3"),
+            ("local_proxies", "proxy-a1b2c3"),
+        ] {
+            let item = try XCTUnwrap(model.draftItems(for: collection).first { $0.identifier == identifier })
+            let label = model.draftReferenceLabel(item, in: collection)
+            XCTAssertTrue(label.contains("Same") && label.contains("#a1b2c3"), label)
+        }
+    }
+
+    @MainActor
+    func testMacOSNewDraftItemsMaterializeTheSharedCanonicalFixture() throws {
+        let document = try decode(CreationDocument.self, "ui/creation-policy-fixtures.json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let model = AppModel()
+        model.rawJSON = String(decoding: try encoder.encode(JSONValue.object([
+            "main": .object(["schema_version": .number(9)]),
+            "nodes": .array([.object([
+                "id": .string("node-existing"), "enabled": .bool(true), "type": .string("socks"),
+                "server": .string("127.0.0.1"), "server_port": .number(1080),
+            ])]),
+            "routes": .array([.object([
+                "id": .string("direct"), "enabled": .bool(true), "kind": .string("direct"),
+            ])]),
+            "dns_profiles": .array([.object([
+                "id": .string("dns-existing"), "enabled": .bool(true), "protocol": .string("udp"),
+                "server": .string("1.1.1.1"), "server_port": .number(53),
+            ])]),
+        ])), as: UTF8.self)
+
+        for fixture in document.cases {
+            var actual = try XCTUnwrap(model.newDraftItemObject(for: fixture.collection))
+            actual["id"] = .string(fixture.id)
+            XCTAssertEqual(
+                try encoder.encode(JSONValue.object(actual)),
+                try encoder.encode(fixture.expected),
+                fixture.collection
+            )
+        }
     }
 }

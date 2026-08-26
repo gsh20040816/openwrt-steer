@@ -603,7 +603,8 @@ struct NodeImportPreviewItem: Identifiable {
         } else {
             object["name"] = .string(trimmedName)
         }
-        object["id"] = .string("node-\(UUID().uuidString.lowercased().prefix(8))")
+        let prefix = SteerUISpec.contract.idPolicy.collectionPrefixes["nodes"] ?? "node"
+        object["id"] = .string("\(prefix)-\(UUID().uuidString.lowercased().prefix(8))")
         object.removeValue(forKey: "source_subscription")
         object.removeValue(forKey: "source_fingerprint")
         object.removeValue(forKey: "pinned_stale")
@@ -2259,6 +2260,18 @@ final class AppModel: ObservableObject {
         return values[index].objectValue
     }
 
+    func draftReferenceLabel(_ item: DraftItem, in collection: String) -> String {
+        let items = draftItems(for: collection)
+        guard items.filter({ $0.title == item.title }).count > 1 else { return item.title }
+        var qualifiers: [String] = []
+        if !item.detail.isEmpty { qualifiers.append(item.detail) }
+        if collection == "nodes", let source = item.sourceSubscription {
+            qualifiers.append("订阅 \(source)")
+        }
+        qualifiers.append("#\(String(item.identifier.suffix(6)))")
+        return ([item.title] + qualifiers).joined(separator: " · ")
+    }
+
     func nodeReferenceProblem(_ identifier: String) -> String? {
         guard !identifier.isEmpty else { return "未选择 Node" }
         guard let node = draftItems(for: "nodes").first(where: { $0.identifier == identifier }) else {
@@ -2654,39 +2667,23 @@ final class AppModel: ObservableObject {
     }
 
     private func defaultItem(for key: String) -> JSONValue {
-        let prefix: String
-        switch key {
-        case "nodes": prefix = "node"
-        case "routes": prefix = "route"
-        case "dns_profiles": prefix = "dns"
-        case "subscriptions": prefix = "subscription"
-        case "local_proxies": prefix = "proxy"
-        case "rules": prefix = "rule"
-        default: prefix = "item"
-        }
+        let prefix = SteerUISpec.contract.idPolicy.collectionPrefixes[key] ?? "item"
         let id = "\(prefix)-\(UUID().uuidString.lowercased().prefix(8))"
         let firstNode = draftItems(for: "nodes").first(where: \.enabled)?.identifier ?? ""
-        let firstRoute = draftItems(for: "routes").first(where: \.enabled)?.identifier ?? ""
+        let routes = draftItems(for: "routes")
+        let firstRoute = routes.first(where: { $0.enabled && $0.kind == "direct" })?.identifier
+            ?? routes.first(where: \.enabled)?.identifier ?? ""
         let firstDNS = draftItems(for: "dns_profiles").first(where: \.enabled)?.identifier ?? ""
+        var overrides: [String: JSONValue] = [:]
         switch key {
-        case "nodes":
-            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新节点"), "type": .string("vless"), "server": .string(""), "server_port": .number(443)])
         case "routes":
-            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新路由"), "kind": .string("single"), "node": .string(firstNode)])
-        case "dns_profiles":
-            let protocolSpec = SteerUISpec.dnsProtocol("https") ?? SteerUISpec.contract.dnsProtocols[0]
-            var profile: [String: JSONValue] = ["id": .string(id), "enabled": .bool(true), "name": .string("新 DNS Profile"), "protocol": .string(protocolSpec.value), "server": .string(""), "server_port": .number(Double(protocolSpec.defaultPort))]
-            if protocolSpec.fields.contains("path") { profile["path"] = .string("/dns-query") }
-            return .object(profile)
-        case "subscriptions":
-            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新订阅"), "url": .string(""), "update_interval": .string(SteerUISpec.contract.subscriptionUpdateIntervalDefault)])
-        case "local_proxies":
-            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新本地代理"), "protocol": .string("mixed"), "listen": .string("127.0.0.1"), "listen_port": .number(1090 + Double(itemCount(for: key)))])
+            overrides["node"] = .string(firstNode)
         case "rules":
-            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新规则"), "default": .bool(false), "dns_profile": .string(firstDNS), "route": .string(firstRoute)])
-        default:
-            return .object(["id": .string(id), "enabled": .bool(true)])
+            overrides["dns_profile"] = .string(firstDNS)
+            overrides["route"] = .string(firstRoute)
+        default: break
         }
+        return .object(SteerUISpec.creationObject(for: key, id: id, overrides: overrides))
     }
 
     private func draftItemDetail(key: String, object: [String: JSONValue]) -> String {

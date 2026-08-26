@@ -50,11 +50,10 @@ return view.extend({
 
 	render: function() {
 		let m, s, o;
-		const defaultProtocol = uiSpec.dns_protocols[0];
 		steer.loadStyle();
 		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
-		steer.configureNamedSection(s, { enabled: '1', protocol: defaultProtocol.value, server_port: String(defaultProtocol.default_port) });
+		steer.configureNamedSection(s, steer.creationDefaults('dns_profiles'));
 		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('dns_profiles', sectionId),
 			_('DNS profile is still referenced'));
 		s.addremove = true;
