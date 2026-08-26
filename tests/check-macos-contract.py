@@ -33,6 +33,7 @@ def main() -> None:
     editors = read("macos/SteerApp/DraftEditors.swift")
     ui_spec = read("macos/SteerApp/UISpec.swift")
     rule_tests = read("macos/SteerAppTests/RuleDraftTests.swift")
+    lifecycle_tests = read("macos/SteerAppTests/AppStateDraftLifecycleTests.swift")
     general = read("macos/SteerApp/ConfigurationFormView.swift")
 
     assert 'DNSCaptureInboundHijack' in compiler
@@ -110,6 +111,24 @@ def main() -> None:
     assert 'Bootstrap DNS' in general and 'DNS 缓存' in general and '连通性探测' in general
     assert 'setEnabledAndApply($0)' not in general and 'setEnabledAndApply($0)' in content
     assert 'func setEnabledAndApply' in state
+    assert 'guard !isDirty else {' in state and '不会静默部署未完成修改' in state
+    assert 'initialStateLoadInProgress' in state
+    assert 'guard !hasInitializedDraft, !initialStateLoadInProgress,' in state
+    assert '!isBusy, pendingDraftAction == nil else { return }' in state
+    assert 'enum DraftGuardAction' in state and 'func resolveDraftGuard' in state
+    assert 'func applySaved()' in state and 'func saveAndApplyDraft()' in state
+    assert 'savedApplyPending' not in state and '已保存，待 Apply' not in content
+    assert 'draftMatches(document:' in state and 'draftSequence:' in state
+    for global_action in ('Label("保存"', 'Label("Apply Saved"', 'Label("保存并应用"'):
+        assert global_action in content
+    assert 'DraftActionButtons(model: model)' in app
+    assert 'applicationShouldTerminate' in app and 'beginTerminationGuard' in app
+    assert 'testInitialLoadRunsOnceAndWindowReopenPreservesDirtyDraft' in lifecycle_tests
+    assert 'testInitialLoadFailureCanRetryWithoutOverwritingLaterEdits' in lifecycle_tests
+    assert 'testFirstInstallCanSaveAndPreserveAnEditedDraft' in lifecycle_tests
+    assert 'testApplySavedPreservesAnIndependentDirtyDraft' in lifecycle_tests
+    assert 'testSaveAndApplyDoesNotMarkNewerInFlightEditsClean' in lifecycle_tests
+    assert 'testTerminationGuardCancelAndSaveReplyWithoutApplying' in lifecycle_tests
     assert 'deletionBlockReason' in state and '.alert(' in content
     assert 'NodeImportSheet' in editors and 'parseNodes(document:' in state
     assert 'sourceSubscription' in state and 'NodeCollectionGroup' in content

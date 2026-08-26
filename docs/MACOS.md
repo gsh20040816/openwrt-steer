@@ -35,7 +35,7 @@ Darwin utun + auto_route
 - 诊断：显示共享校验结果、overview/node/route 探测、运行日志和 LaunchDaemon 后端状态；
 - 系统：显示运行时、系统路径和授权边界。
 
-全局 Enable 只出现在总览和菜单栏；开关变化后立即保存并 Apply，失败时恢复原状态。
+所有页面的 toolbar 和菜单栏固定提供 Save、Apply Saved 与 Save and Apply，文案直接反映是否写入 Saved。Apply Saved 从磁盘读取当前 Saved 后再执行 revision-guarded Apply，即使本地 Draft dirty 也不会夹带或覆盖它；Apply 失败时 candidate 不会冒充 Active。全局 Enable 只出现在总览和菜单栏，并且仅在 Draft clean 时可用；开关变化后立即保存并 Apply，失败时保留后端报告的真实 Active 状态。
 
 读取系统配置、Status、Validate、探测和 Geo catalog 不请求管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save、Apply 和订阅更新/清理通过常驻 `com.steer.steer.control` root LaunchDaemon 的受限 Unix socket IPC 完成，不再重复请求密码。
 
@@ -44,6 +44,8 @@ control daemon 只接受 schema 固定、大小受限的 `save`、`apply`、`sub
 GUI 每次 Load 同时保存配置内容的 SHA-256 revision；Save 与 Apply 必须携带该 `expected_revision`。control 在与订阅调度器共用的跨进程 operation lock 内先比较当前 Saved revision，再写入或切换运行态。不匹配时返回稳定的 `REVISION_CONFLICT`，Saved、Active 和本地 Draft 都不变。GUI 明确提供 Reload Saved、保留本地 Draft 和显式覆盖三种选择；显式覆盖仍使用冲突响应中的最新 revision 做第二次原子比较，不绕过并发保护。
 
 订阅 timer 和手动 Update 只更新 Saved 节点库存，从不自动 Apply。手动更新开始后若 Draft 未变化，完成时可安全 reload；若用户在网络请求期间继续编辑，GUI 保留本地 Draft 并显示上述冲突选择，不能用更新结果静默替换编辑内容。
+
+同一 App 生命周期只执行一次初始 Load，因此关闭主窗口再从菜单栏打开会保留内存中的 Draft。Reload、安装/Repair 和退出如果遇到 dirty Draft，统一进入 Save / Discard / Cancel guard；Cancel 不触碰 Draft、Saved 或 Active。安装完成不再无条件 Load：Save 会保留并写入安装前的 Draft，Discard 才明确以安装后的 Saved 配置替换它。
 
 系统配置的唯一真相仍是：
 

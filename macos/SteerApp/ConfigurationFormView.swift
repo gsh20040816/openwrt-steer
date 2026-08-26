@@ -54,7 +54,7 @@ struct ConfigurationFormView: View {
                 }
             }
             .formStyle(.grouped)
-            .disabled(model.isBusy)
+            .disabled(!model.canEditDraft)
 
             Divider()
             HStack(spacing: 10) {
@@ -66,13 +66,9 @@ struct ConfigurationFormView: View {
                 }
                 Spacer()
                 Button("重新载入") { model.loadDraft() }
-                Button("保存") { model.saveDraft() }
-                    .disabled(!model.isDirty)
                 Button("校验") { model.validate() }
                     .disabled(model.draftSyntaxError != nil)
-                Button("保存并应用") { model.apply() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.draftSyntaxError != nil)
+                DraftActionButtons(model: model)
             }
             .disabled(model.isBusy)
             .padding(16)
