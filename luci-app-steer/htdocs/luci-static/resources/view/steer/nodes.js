@@ -256,6 +256,73 @@ function nodeChoiceLabel(item) {
 	return labels[item.label] || item.label;
 }
 
+const SensitiveTextValue = form.TextValue.extend({
+	__name__: 'Steer.SensitiveTextValue',
+
+	secretValue: function(sectionId) {
+		this.steerSecretValues ??= {};
+		if (!(sectionId in this.steerSecretValues))
+			this.steerSecretValues[sectionId] = String(uci.get('steer', sectionId, this.option) || '');
+		return this.steerSecretValues[sectionId];
+	},
+
+	cfgvalue: function(sectionId) {
+		this.secretValue(sectionId);
+		return '';
+	},
+
+	write: function(sectionId, value) {
+		const secret = this.secretValue(sectionId);
+		const revealed = this.steerSecretRevealed?.[sectionId] === true;
+		const replacement = String(value || '');
+		if (!revealed && replacement == '' && secret != '')
+			return;
+		if (replacement == '')
+			uci.unset('steer', sectionId, this.option);
+		else
+			uci.set('steer', sectionId, this.option, replacement);
+		this.steerSecretValues[sectionId] = replacement;
+	},
+
+	remove: function(sectionId) {
+		const secret = this.secretValue(sectionId);
+		if (secret != '' && this.steerSecretRevealed?.[sectionId] !== true)
+			return;
+		uci.unset('steer', sectionId, this.option);
+		this.steerSecretValues[sectionId] = '';
+	},
+
+	renderWidget: function(sectionId) {
+		const widget = form.TextValue.prototype.renderWidget.apply(this, arguments);
+		const textarea = widget.matches?.('textarea') ? widget : widget.querySelector('textarea');
+		if (!textarea)
+			return widget;
+		const secret = this.secretValue(sectionId);
+		textarea.value = '';
+		textarea.setAttribute('autocomplete', 'off');
+		textarea.setAttribute('autocapitalize', 'off');
+		textarea.setAttribute('spellcheck', 'false');
+		textarea.placeholder = secret != ''
+			? _('Configured secret is hidden. Leave this field blank to keep it unchanged.')
+			: textarea.placeholder;
+		if (secret == '')
+			return widget;
+
+		const reveal = E('button', {
+			'type': 'button',
+			'class': 'cbi-button cbi-button-action',
+			'click': () => {
+				this.steerSecretRevealed ??= {};
+				this.steerSecretRevealed[sectionId] = true;
+				textarea.value = secret;
+				reveal.disabled = true;
+				reveal.textContent = _('Revealed until this editor is closed');
+			}
+		}, _('Reveal configured secret'));
+		return E('div', { 'class': 'steer-secret-editor' }, [ widget, reveal ]);
+	}
+});
+
 function addGeneratedNodeField(section, field) {
 	let widget = form.Value;
 	if (field.control == 'boolean')
@@ -264,6 +331,8 @@ function addGeneratedNodeField(section, field) {
 		widget = form.ListValue;
 	else if (field.control == 'string-list')
 		widget = form.DynamicList;
+	else if (field.multiline && field.sensitive)
+		widget = SensitiveTextValue;
 	else if (field.multiline)
 		widget = form.TextValue;
 

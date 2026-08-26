@@ -9,7 +9,7 @@
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
 const callValidate = rpc.declare({ object: 'luci.steer', method: 'validate', expect: { '': {} } });
 const callCommitCandidate = rpc.declare({ object: 'luci.steer', method: 'commit_candidate', expect: { '': {} } });
-const callIntent = rpc.declare({ object: 'luci.steer', method: 'intent', expect: { '': {} } });
+const callIntentPreview = rpc.declare({ object: 'luci.steer', method: 'intent_preview', params: [ 'reveal' ], expect: { '': {} } });
 const callRuntime = rpc.declare({ object: 'luci.steer', method: 'runtime', expect: { '': {} } });
 const callLogs = rpc.declare({ object: 'luci.steer', method: 'logs', expect: { '': {} } });
 const callGeodataCatalog = rpc.declare({ object: 'luci.steer', method: 'geodata_catalog', expect: { '': {} } });
@@ -58,7 +58,7 @@ return baseclass.extend({
 	status: function() { return L.resolveDefault(callStatus(), {}); },
 	validate: function() { return L.resolveDefault(callValidate(), {}); },
 	commitCandidate: function() { return L.resolveDefault(callCommitCandidate(), {}); },
-	intent: function() { return L.resolveDefault(callIntent(), {}); },
+	intentPreview: function(reveal) { return L.resolveDefault(callIntentPreview(reveal === true), {}); },
 	runtime: function() { return L.resolveDefault(callRuntime(), {}); },
 	logs: function() { return L.resolveDefault(callLogs(), {}); },
 	geodataCatalog: function() { return L.resolveDefault(callGeodataCatalog(), {}); },

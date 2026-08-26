@@ -118,6 +118,80 @@ function commit_candidate(request) {
 	});
 }
 
+function secret_option(key) {
+	return key == 'private_key' || match(key, /(^|_)(password|token)$/) != null;
+}
+
+function redact_secrets(value) {
+	const valueType = type(value);
+	if ((valueType != 'array' && valueType != 'object') || value == null)
+		return value;
+
+	const redacted = valueType == 'array' ? [] : {};
+	for (let key in value) {
+		const item = value[key];
+		redacted[key] = secret_option(key) && item != null && `${item}` != ''
+			? '[REDACTED]'
+			: redact_secrets(item);
+	}
+	return redacted;
+}
+
+function preview_failure(message) {
+	return { ok: false, source: 'unavailable', redacted: true, error: message };
+}
+
+function intent_preview(request) {
+	const session = request?.args?.ubus_rpc_session;
+	if (type(session) != 'string' || match(session, /^[0-9a-f]{32}$/) == null)
+		return preview_failure('The LuCI UCI session is unavailable.');
+
+	const deltaDirectory = '/var/run/rpcd/uci-' + session;
+	const changesProcess = popen([ '/sbin/uci', '-q', '-P', deltaDirectory, 'changes', 'steer' ], 'r');
+	if (!changesProcess)
+		return preview_failure('Unable to inspect the pending Steer configuration.');
+	const changes = changesProcess.read('all') || '';
+	const changesStatus = changesProcess.close();
+	if (changesStatus != 0)
+		return preview_failure('Unable to inspect the pending Steer configuration.');
+	const pending = trim(changes) != '';
+
+	const exportProcess = popen([ '/sbin/uci', '-q', '-P', deltaDirectory, 'export', 'steer' ], 'r');
+	if (!exportProcess)
+		return preview_failure('Unable to export the Steer configuration preview.');
+	const exported = exportProcess.read('all') || '';
+	const exportStatus = exportProcess.close();
+	const lines = split(exported, '\n');
+	if (exportStatus != 0 || lines[0] != 'package steer')
+		return preview_failure('Unable to export the Steer configuration preview.');
+
+	const directory = mkdtemp('/tmp/steer-preview-XXXXXX');
+	if (!directory)
+		return preview_failure('Unable to create a private preview directory.');
+	const path = directory + '/steer';
+	const file = open(path, 'w');
+	if (!file) {
+		rmdir(directory);
+		return preview_failure('Unable to create the Steer configuration preview.');
+	}
+	file.write(join('\n', slice(lines, 1)));
+	file.close();
+	const intent = command_json('/usr/sbin/steer _export-intent --config ' + shellquote(path));
+	unlink(path);
+	rmdir(directory);
+	if (intent?.error != null)
+		return preview_failure('Unable to decode the Steer configuration preview.');
+
+	const reveal = request?.args?.reveal == true;
+	return {
+		ok: true,
+		source: pending ? 'pending' : 'committed',
+		pending,
+		redacted: !reveal,
+		intent: reveal ? intent : redact_secrets(intent)
+	};
+}
+
 const methods = {
 	status: {
 		call: function() {
@@ -132,10 +206,9 @@ const methods = {
 	commit_candidate: {
 		call: commit_candidate
 	},
-	intent: {
-		call: function() {
-			return command_json('/usr/sbin/steer _export-intent');
-		}
+	intent_preview: {
+		args: { reveal: false },
+		call: intent_preview
 	},
 	runtime: {
 		call: function() {

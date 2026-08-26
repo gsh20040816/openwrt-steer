@@ -61,6 +61,7 @@ function element(tag, attributes, children) {
 		hidden: attributes?.hidden != null,
 		title: attributes?.title || '',
 		value: attributes?.value || '',
+		placeholder: attributes?.placeholder || '',
 		listeners: {},
 		replaceChildren: function(...replacement) { this.children = replacement; },
 		appendChild: function(child) { this.children.push(child); return child; },
@@ -68,10 +69,14 @@ function element(tag, attributes, children) {
 			(this.listeners[name] ||= []).push(listener);
 		},
 		setAttribute: function(name, value) { this.attributes[name] = String(value); },
+		getAttribute: function(name) { return this.attributes[name]; },
+		matches: function(selector) { return selector == this.tag; },
 		querySelector: function(selector) {
-			if (!selector.startsWith('.')) return null;
-			const className = selector.slice(1);
-			return findElements(this, (candidate) => String(candidate.attributes?.class || '').split(/\s+/).includes(className))[0] || null;
+			if (selector.startsWith('.')) {
+				const className = selector.slice(1);
+				return findElements(this, (candidate) => String(candidate.attributes?.class || '').split(/\s+/).includes(className))[0] || null;
+			}
+			return findElements(this, (candidate) => candidate !== this && candidate.tag == selector)[0] || null;
 		}
 	};
 	node.classList = {
@@ -95,6 +100,16 @@ function element(tag, attributes, children) {
 	return node;
 }
 
+function elementText(value) {
+	if (value == null)
+		return '';
+	if (typeof(value) != 'object')
+		return String(value);
+	if (value.textContent != null)
+		return String(value.textContent);
+	return (value.children || []).map(elementText).join(' ');
+}
+
 function findElements(root, predicate) {
 	if (root == null || typeof root != 'object')
 		return [];
@@ -112,7 +127,11 @@ function createEnvironment(sections) {
 		return ExtendedDynamicList;
 	};
 	class TextValue {}
-	TextValue.prototype.renderWidget = function() {};
+	TextValue.prototype.renderWidget = function(sectionId) {
+		const textarea = element('textarea');
+		textarea.value = typeof(this.cfgvalue) == 'function' ? this.cfgvalue(sectionId) : '';
+		return textarea;
+	};
 	TextValue.extend = function(definition) {
 		class ExtendedTextValue extends TextValue {}
 		Object.assign(ExtendedTextValue.prototype, definition);
@@ -392,6 +411,28 @@ async function renderDns(sections) {
 		}
 	);
 	await view.render();
+	return environment;
+}
+
+async function renderAdvanced(initial, revealed) {
+	const environment = createEnvironment({});
+	environment.previewCalls = [];
+	environment.steer.intentPreview = (reveal) => {
+		environment.previewCalls.push(reveal === true);
+		return Promise.resolve(reveal ? revealed : initial);
+	};
+	const advanced = loadView(
+		'luci-app-steer/htdocs/luci-static/resources/view/steer/advanced.js',
+		{
+			view: environment.view,
+			steer: environment.steer,
+			E: element,
+			_: environment.translate
+		}
+	);
+	const loaded = await advanced.load();
+	environment.rendered = advanced.render(loaded);
+	environment.advanced = advanced;
 	return environment;
 }
 
@@ -712,6 +753,44 @@ async function main() {
 	dnsProtocol.write('custom_port', 'udp');
 	assert.deepEqual(dnsProfiles.dns_profile[1], { '.name': 'custom_port', protocol: 'udp', server_port: '8443' },
 		'DNS protocol switching preserves an explicit custom UCI port while clearing stale security fields');
+
+	const pendingIntent = {
+		main: { log_level: 'debug' },
+		nodes: [ {
+			id: 'secret_node', password: 'node-password', obfs_password: 'obfs-password',
+			private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----'
+		} ],
+		local_proxies: [ { id: 'local', password: 'local-password' } ],
+		future: { nested: { token: 'future-token' } }
+	};
+	const pendingPreview = { ok: true, source: 'pending', pending: true, redacted: true, intent: pendingIntent };
+	const revealedPreview = { ok: true, source: 'pending', pending: true, redacted: false, intent: pendingIntent };
+	environment = await renderAdvanced(pendingPreview, revealedPreview);
+	assert.deepEqual(environment.previewCalls, [ false ], 'Advanced requests a redacted preview by default');
+	let previewText = elementText(environment.rendered);
+	assert.ok(previewText.includes('Pending candidate') && previewText.includes('debug'),
+		'Advanced labels and renders the real pending candidate instead of a committed substitute');
+	for (const secret of [ 'node-password', 'obfs-password', 'local-password', 'future-token', 'BEGIN PRIVATE KEY' ]) {
+		assert.equal(previewText.includes(secret), false, `default Canonical Preview must deeply redact ${secret}`);
+	}
+	assert.ok(previewText.includes('[REDACTED]'), 'redacted Canonical Preview keeps secret locations visible');
+	const revealSecrets = findElements(environment.rendered,
+		(node) => node.tag == 'button' && elementText(node).includes('Reveal secrets temporarily'))[0];
+	await revealSecrets.attributes.click();
+	assert.deepEqual(environment.previewCalls, [ false, true ], 'secret reveal requires a separate explicit RPC');
+	previewText = elementText(environment.rendered);
+	assert.ok(previewText.includes('node-password') && previewText.includes('BEGIN PRIVATE KEY'),
+		'explicit reveal shows the current pending snapshot temporarily');
+	await revealSecrets.attributes.click();
+	previewText = elementText(environment.rendered);
+	assert.equal(previewText.includes('node-password'), false, 'Hide immediately scrubs revealed secrets from the preview DOM');
+
+	const freshPage = await renderAdvanced(pendingPreview, revealedPreview);
+	assert.equal(elementText(freshPage.rendered).includes('node-password'), false,
+		'leaving and re-entering Advanced restores default secret redaction');
+	const committedPage = await renderAdvanced({ ok: true, source: 'committed', pending: false, redacted: true, intent: { main: {} } }, revealedPreview);
+	assert.ok(elementText(committedPage.rendered).includes('Committed snapshot'),
+		'Advanced explicitly labels a preview with no pending UCI changes as committed');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertExplicitIdsAndOptionalNames(environment, 'Local proxies');
 	const groupedFixture = {
@@ -739,6 +818,41 @@ async function main() {
 		'Hysteria2 exposes its password as a generated secure field');
 	assert.notEqual(hysteriaPassword.validate('cfg_manual', ''), true,
 		'Hysteria2 password remains required in the native LuCI editor');
+
+	const sshKey = '-----BEGIN OPENSSH PRIVATE KEY-----\nline one\nline two\n-----END OPENSSH PRIVATE KEY-----\n';
+	const sshFixture = {
+		node: [ { '.name': 'ssh_secret', name: 'SSH', type: 'ssh', server: 'ssh.example', server_port: '22', username: 'root', private_key: sshKey } ],
+		route: [],
+		subscription: []
+	};
+	environment = await renderNodes(sshFixture);
+	const privateKey = allOptions(environment).find((option) => option.name == 'private_key');
+	assert.equal(privateKey.type.prototype.__name__, 'Steer.SensitiveTextValue',
+		'SSH multiline private_key uses the secret-preserving editor');
+	let privateKeyEditor = Object.create(privateKey.type.prototype);
+	privateKeyEditor.option = 'private_key';
+	assert.equal(privateKeyEditor.cfgvalue('ssh_secret'), '', 'configured private_key is never returned as default textarea content');
+	let privateKeyWidget = privateKeyEditor.renderWidget('ssh_secret');
+	let privateKeyTextarea = findElements(privateKeyWidget, (node) => node.tag == 'textarea')[0];
+	assert.equal(privateKeyTextarea.value, '', 'SSH private key remains absent from the DOM until explicit reveal');
+	privateKeyEditor.remove('ssh_secret');
+	privateKeyEditor.write('ssh_secret', '');
+	assert.equal(sshFixture.node[0].private_key, sshKey,
+		'hidden blank form submission must preserve the configured private_key');
+	const revealKey = findElements(privateKeyWidget,
+		(node) => node.tag == 'button' && elementText(node).includes('Reveal configured secret'))[0];
+	revealKey.attributes.click();
+	assert.equal(privateKeyTextarea.value, sshKey, 'private_key plaintext appears only after explicit reveal');
+	privateKeyTextarea.value = '';
+	privateKeyEditor.remove('ssh_secret');
+	assert.equal(sshFixture.node[0].private_key, undefined,
+		'clearing a revealed private_key is an explicit secret deletion');
+	sshFixture.node[0].private_key = sshKey;
+	privateKeyEditor = Object.create(privateKey.type.prototype);
+	privateKeyEditor.option = 'private_key';
+	privateKeyWidget = privateKeyEditor.renderWidget('ssh_secret');
+	privateKeyTextarea = findElements(privateKeyWidget, (node) => node.tag == 'textarea')[0];
+	assert.equal(privateKeyTextarea.value, '', 'a new page/editor instance restores private_key masking');
 	environment = await renderNodes(groupedFixture, '', undefined, 'routes');
 	const groupedPicker = environment.maps[0].sections.flatMap((section) => section.options)
 		.find((option) => option.name == 'node');
@@ -949,6 +1063,17 @@ async function main() {
 		rpcSource.includes('committed: code == 0') &&
 		rpcSource.includes('call: commit_candidate'),
 		'One backend transaction validates the current LuCI session overlay before standard UCI commit');
+	assert.ok(rpcSource.includes("'changes', 'steer'") &&
+		rpcSource.includes("mkdtemp('/tmp/steer-preview-XXXXXX')") &&
+		rpcSource.includes("command_json('/usr/sbin/steer _export-intent --config '") &&
+		rpcSource.includes('function redact_secrets(value)') &&
+		rpcSource.includes("args: { reveal: false }") &&
+		rpcSource.includes('call: intent_preview'),
+		'Preview exports the real session overlay independently and redacts secrets unless explicitly revealed');
+	const aclSource = fs.readFileSync(path.join(root,
+		'luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json'), 'utf8');
+	assert.ok(aclSource.includes('"intent_preview"') && !aclSource.includes('"intent"'),
+		'LuCI ACL exposes only the redaction-aware Canonical Preview RPC');
 
 	console.log('LuCI view regression tests passed.');
 }
