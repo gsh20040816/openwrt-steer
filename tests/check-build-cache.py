@@ -77,9 +77,9 @@ for forbidden in (
         fail(f"all-commit CI must not publish release assets: {forbidden}")
 
 release_trigger = RELEASE.split("concurrency:", 1)[0]
-if "tags:\n      - 'v*'" not in release_trigger:
-    fail("release workflow must trigger only on v* tags")
-for forbidden in ("branches:", "workflow_dispatch:", "paths-ignore:"):
+if "tags:\n      - 'v*'" not in release_trigger or "workflow_dispatch:" not in release_trigger:
+    fail("release workflow must support v* tag pushes and explicit degraded-service dispatch")
+for forbidden in ("branches:", "paths-ignore:"):
     if forbidden in release_trigger:
         fail(f"release trigger must not contain {forbidden}")
 
@@ -87,6 +87,7 @@ for fragment in (
     "group: release-${{ github.ref_name }}",
     "cancel-in-progress: false",
     "source-gate:",
+    'test "$GITHUB_REF_TYPE" = tag',
     'git merge-base --is-ancestor "$GITHUB_SHA" origin/master',
     "actions/workflows/ci.yml/runs?branch=master&status=success",
     'select(.head_sha == \\\"$SOURCE_REVISION\\\" and .event == \\\"push\\\")',
