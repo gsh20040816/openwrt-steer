@@ -68,12 +68,12 @@
       const tests = h('section', { class: 'card' }, [
         h('div', { class: 'card__head' }, [
           h('div', {}, h('span', { class: 'eyebrow' }, '连通性'), h('div', { class: 'card__title' }, '手动探测')),
-          h('span', { class: 'muted' }, '经当前运行规则请求 · 不影响配置')
+          h('span', { class: 'muted' }, '按当前 Active 规则访问 · 只证明目标当时可达')
         ]),
         h('div', { class: 'grid-3' }, [
-          testCard('direct', '直连测试', '请求直连 URL，验证 Direct 路径'),
-          testCard('proxy', '代理测试', '请求代理 URL，验证当前代理路径'),
-          testCard('speedtest', '下载测速', '经代理下载测速 URL')
+          testCard('direct', '直连目标', '按当前 Active 规则访问配置的直连测试目标；不证明具体 outbound 或 DNS resolver'),
+          testCard('proxy', '代理目标', '按当前 Active 规则访问配置的代理测试目标；不证明具体 outbound 或 DNS resolver'),
+          testCard('speedtest', '下载目标', '按当前 Active 规则访问配置的下载测试目标；不证明具体 outbound 或 DNS resolver')
         ])
       ]);
 

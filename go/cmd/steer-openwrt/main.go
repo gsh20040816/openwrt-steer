@@ -22,6 +22,7 @@ import (
 	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	"github.com/gsh20040816/steer/go/internal/platform/openwrt"
+	coreprobe "github.com/gsh20040816/steer/go/internal/probe"
 	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
@@ -68,11 +69,29 @@ func run(args []string) error {
 		return runExportIntent(args[1:])
 	case "_runtime":
 		return runRuntime(args[1:])
+	case "_diagnostics":
+		return runDiagnostics(args[1:])
 	case "_start":
 		return runServiceStart(args[1:])
 	default:
 		return usage()
 	}
+}
+
+func runDiagnostics(args []string) error {
+	flags := flag.NewFlagSet("_diagnostics", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
+	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("_diagnostics accepts flags only")
+	}
+	writeJSON(openwrt.ReadDiagnostics(*configPath, *runDirectory, *stateDirectory))
+	return nil
 }
 
 func runExportIntent(args []string) error {
@@ -388,7 +407,7 @@ func runProbe(args []string) error {
 			if *download {
 				testKind = "download"
 			}
-			writeJSON(openwrt.TestReport{Scope: scope, ObjectID: objectID, Kind: testKind, Error: err.Error(), TestedAt: time.Now().UTC(), Results: []openwrt.TestResult{}})
+			writeJSON(coreprobe.FailureReport(scope, objectID, testKind, err))
 			return err
 		}
 		writeJSON(report)
@@ -399,7 +418,7 @@ func runProbe(args []string) error {
 	}
 	report, err := openwrt.ProbeCurrentWithState(context.Background(), *runDirectory, *stateDirectory, *kind, nil)
 	if err != nil {
-		writeJSON(openwrt.TestReport{Scope: "overview", Kind: *kind, Error: err.Error(), TestedAt: time.Now().UTC(), Results: []openwrt.TestResult{}})
+		writeJSON(coreprobe.FailureReport("overview", "", *kind, err))
 		return err
 	}
 	writeJSON(report)

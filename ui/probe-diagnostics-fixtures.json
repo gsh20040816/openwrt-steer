@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "capability": {
+    "overview": "Success only proves that the configured URL was reachable under the current Active rules at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.",
+    "temporary": "Node and Route probes validate an isolated temporary chain and do not prove which path the current Active rules selected."
+  },
+  "objects": {
+    "nodes": [
+      { "id": "node_enabled", "enabled": true },
+      { "id": "node_disabled", "enabled": false }
+    ],
+    "routes": [
+      { "id": "route_enabled", "enabled": true, "kind": "single" },
+      { "id": "route_disabled", "enabled": false, "kind": "single" }
+    ],
+    "subscriptions": [
+      { "id": "subscription_enabled", "enabled": true },
+      { "id": "subscription_disabled", "enabled": false }
+    ]
+  },
+  "diagnostics": {
+    "saved_digest": "saved-a",
+    "active_generation": "generation-a",
+    "active_digest": "active-a",
+    "warnings": [],
+    "reports": [
+      {
+        "scope": "overview",
+        "kind": "proxy",
+        "ok": true,
+        "tested_at": "2026-08-26T04:00:00Z",
+        "active_generation": "generation-a",
+        "active_digest": "active-a",
+        "results": [
+          {
+            "url": "https://probe.example/REDACTED",
+            "ok": true,
+            "attempts": 1,
+            "status": 204,
+            "connect_milliseconds": 7,
+            "tls_milliseconds": 9,
+            "first_byte_milliseconds": 21
+          }
+        ]
+      },
+      {
+        "scope": "nodes",
+        "object_id": "node_enabled",
+        "kind": "download",
+        "ok": true,
+        "tested_at": "2026-08-26T03:00:00Z",
+        "saved_digest": "saved-a",
+        "results": [
+          {
+            "url": "https://probe.example/REDACTED",
+            "ok": true,
+            "attempts": 1,
+            "status": 200,
+            "connect_milliseconds": 8,
+            "tls_milliseconds": 10,
+            "first_byte_milliseconds": 24,
+            "downloaded_bytes": 1000000,
+            "download_milliseconds": 500
+          }
+        ]
+      },
+      {
+        "scope": "routes",
+        "object_id": "route_enabled",
+        "kind": "connect",
+        "ok": false,
+        "error": "probe timed out",
+        "tested_at": "2026-08-26T02:00:00Z",
+        "saved_digest": "saved-old",
+        "results": []
+      }
+    ]
+  }
+}

@@ -32,14 +32,14 @@ Darwin utun + auto_route
 - 基础设置：用原生字段编辑 Main、探测 URL、DNS 缓存和 Bootstrap DNS；
 - 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
 - Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；
-- 诊断：显示共享校验结果、overview/node/route 探测、运行日志和 LaunchDaemon 后端状态；
+- 诊断：显示共享校验、最近 Apply、完整 sanitized overview/node/route 报告、运行日志和 LaunchDaemon 后端状态；
 - 系统：显示运行时、系统路径和授权边界。
 
 所有页面的 toolbar 和菜单栏固定提供 Save、Apply Saved 与 Save and Apply，文案直接反映是否写入 Saved。Apply Saved 从磁盘读取当前 Saved 后再执行 revision-guarded Apply，即使本地 Draft dirty 也不会夹带或覆盖它；Apply 失败时 candidate 不会冒充 Active。全局 Enable 只出现在总览和菜单栏，并且仅在 Draft clean 时可用；开关变化后立即保存并 Apply，失败时保留后端报告的真实 Active 状态。
 
 读取系统配置、Status、Validate、探测和 Geo catalog 不弹出管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。概览探测通过同一个受限 Unix socket 交给 root daemon：请求只含固定的 kind/对象 ID/download 字段，不接受 URL、路径或命令；daemon 从 Active generation 的 `intent.json` 选择目标。没有 Active generation 时概览探测直接拒绝，不会退回 Saved 配置或发起普通 HTTP 请求。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save、Apply、探测和订阅更新/清理通过常驻 `com.steer.steer.control` root LaunchDaemon 完成，不再重复请求密码。
 
-control daemon 只接受 schema 固定、大小受限的 `save`、`apply`、`probe`、`subscription-update` 和 `subscription-clean` JSON 请求，不提供 shell、URL、路径或可执行文件参数。概览探测还必须先通过 LaunchDaemon 与 TUN 健康检查；只有 `current.json` 但数据面未就绪时 fail closed。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
+control daemon 只接受 schema 固定、大小受限的 `save`、`apply`、`probe`、只读 `diagnostics`、`subscription-update` 和 `subscription-clean` JSON 请求，不提供 shell、URL、路径或可执行文件参数。概览探测还必须先通过 LaunchDaemon 与 TUN 健康检查；只有 `current.json` 但数据面未就绪时 fail closed。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
 
 GUI 每次 Load 同时保存配置内容的 SHA-256 revision；Save 与 Apply 必须携带该 `expected_revision`。control 在与订阅调度器共用的跨进程 operation lock 内先比较当前 Saved revision，再写入或切换运行态。不匹配时返回稳定的 `REVISION_CONFLICT`，Saved、Active 和本地 Draft 都不变。GUI 明确提供 Reload Saved、保留本地 Draft 和显式覆盖三种选择；显式覆盖仍使用冲突响应中的最新 revision 做第二次原子比较，不绕过并发保护。
 

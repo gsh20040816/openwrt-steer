@@ -21,13 +21,16 @@ const (
 )
 
 type Report struct {
-	Scope    string    `json:"scope"`
-	ObjectID string    `json:"object_id,omitempty"`
-	Kind     string    `json:"kind"`
-	OK       bool      `json:"ok"`
-	Error    string    `json:"error,omitempty"`
-	TestedAt time.Time `json:"tested_at"`
-	Results  []Result  `json:"results"`
+	Scope            string    `json:"scope"`
+	ObjectID         string    `json:"object_id,omitempty"`
+	Kind             string    `json:"kind"`
+	OK               bool      `json:"ok"`
+	Error            string    `json:"error,omitempty"`
+	TestedAt         time.Time `json:"tested_at"`
+	Results          []Result  `json:"results"`
+	SavedDigest      string    `json:"saved_digest,omitempty"`
+	ActiveGeneration string    `json:"active_generation,omitempty"`
+	ActiveDigest     string    `json:"active_digest,omitempty"`
 }
 
 type Result struct {

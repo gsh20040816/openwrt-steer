@@ -59,6 +59,9 @@ func probeCurrent(ctx context.Context, runDirectory, stateDirectory, kind string
 		client = probe.HTTPClient(nil, download)
 	}
 	report := probe.Run(ctx, client, "overview", "", kind, target, download)
+	report.ActiveGeneration = currentGenerationID(filepath.Join(runDirectory, "current"))
+	report.ActiveDigest = compiler.IntentDigest(currentIntent)
+	report = probe.SanitizeReport(report)
 	if stateDirectory != "" {
 		if err := saveTestReport(stateDirectory, report); err != nil {
 			return report, err
@@ -70,7 +73,7 @@ func probeCurrent(ctx context.Context, runDirectory, stateDirectory, kind string
 func SpeedTestNode(ctx context.Context, configPath, stateDirectory, singBoxPath, nodeID string, download bool) (TestReport, error) {
 	value, err := readTestIntent(configPath, "node test")
 	if err != nil {
-		return TestReport{}, err
+		return TestReport{}, recordTestFailure(stateDirectory, "nodes", nodeID, testKind(download), err)
 	}
 	var node model.Node
 	found := false
@@ -81,7 +84,8 @@ func SpeedTestNode(ctx context.Context, configPath, stateDirectory, singBoxPath,
 		}
 	}
 	if !found || !node.Enabled {
-		return TestReport{}, fmt.Errorf("enabled node %q was not found", nodeID)
+		err := fmt.Errorf("enabled node %q was not found", nodeID)
+		return TestReport{}, recordTestFailure(stateDirectory, "nodes", nodeID, testKind(download), err)
 	}
 	target, kind := value.Main.ProbeProxyURL, "connect"
 	if download {
@@ -89,8 +93,10 @@ func SpeedTestNode(ctx context.Context, configPath, stateDirectory, singBoxPath,
 	}
 	report, err := runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, []any{compiler.CompileNodeOutbound(node)}, compiler.NodeOutboundTag(node.ID), "nodes", node.ID, kind, target, download)
 	if err != nil {
-		return TestReport{}, err
+		return TestReport{}, recordTestFailure(stateDirectory, "nodes", nodeID, kind, err)
 	}
+	report.SavedDigest = compiler.IntentDigest(value)
+	report = probe.SanitizeReport(report)
 	if err := saveTestReport(stateDirectory, report); err != nil {
 		return report, err
 	}
@@ -100,7 +106,7 @@ func SpeedTestNode(ctx context.Context, configPath, stateDirectory, singBoxPath,
 func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath, routeID string, download bool) (TestReport, error) {
 	value, err := readTestIntent(configPath, "route test")
 	if err != nil {
-		return TestReport{}, err
+		return TestReport{}, recordTestFailure(stateDirectory, "routes", routeID, testKind(download), err)
 	}
 	var route model.Route
 	found := false
@@ -111,11 +117,13 @@ func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath
 		}
 	}
 	if !found || !route.Enabled || route.Kind != "single" {
-		return TestReport{}, fmt.Errorf("enabled single-node route %q was not found", routeID)
+		err := fmt.Errorf("enabled single-node route %q was not found", routeID)
+		return TestReport{}, recordTestFailure(stateDirectory, "routes", routeID, testKind(download), err)
 	}
 	outbounds := compiler.CompileRouteChainOutbounds(value, route.ID)
 	if len(outbounds) == 0 {
-		return TestReport{}, fmt.Errorf("compiled route test has no route-chain outbounds")
+		err := fmt.Errorf("compiled route test has no route-chain outbounds")
+		return TestReport{}, recordTestFailure(stateDirectory, "routes", routeID, testKind(download), err)
 	}
 	target, kind := value.Main.ProbeProxyURL, "connect"
 	if download {
@@ -123,8 +131,10 @@ func SpeedTestRoute(ctx context.Context, configPath, stateDirectory, singBoxPath
 	}
 	report, err := runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, outbounds, compiler.RouteOutboundTag(route.ID), "routes", route.ID, kind, target, download)
 	if err != nil {
-		return TestReport{}, err
+		return TestReport{}, recordTestFailure(stateDirectory, "routes", routeID, kind, err)
 	}
+	report.SavedDigest = compiler.IntentDigest(value)
+	report = probe.SanitizeReport(report)
 	if err := saveTestReport(stateDirectory, report); err != nil {
 		return report, err
 	}
@@ -255,22 +265,22 @@ func readTestIntent(configPath, operation string) (model.Intent, error) {
 }
 
 func saveTestReport(stateDirectory string, report TestReport) error {
-	if stateDirectory == "" {
-		stateDirectory = "/var/lib/steer"
+	return probe.SaveReport(stateDirectory, report)
+}
+
+func recordTestFailure(stateDirectory, scope, objectID, kind string, testErr error) error {
+	if kind != "direct" && kind != "proxy" && kind != "speedtest" && kind != "connect" && kind != "download" {
+		kind = "connect"
 	}
-	directory := filepath.Join(stateDirectory, "logs", "tests", report.Scope)
-	if report.ObjectID != "" {
-		directory = filepath.Join(directory, report.ObjectID)
+	if saveErr := saveTestReport(stateDirectory, probe.FailureReport(scope, objectID, kind, testErr)); saveErr != nil {
+		return fmt.Errorf("%w; save sanitized probe failure: %v", testErr, saveErr)
 	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create test log directory: %w", err)
+	return testErr
+}
+
+func testKind(download bool) string {
+	if download {
+		return "download"
 	}
-	encoded, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode test report: %w", err)
-	}
-	if err := atomicWrite(filepath.Join(directory, report.Kind+".json"), append(encoded, '\n')); err != nil {
-		return fmt.Errorf("save test report: %w", err)
-	}
-	return nil
+	return "connect"
 }

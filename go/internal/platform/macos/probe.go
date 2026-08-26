@@ -55,8 +55,12 @@ func ProbeCurrent(ctx context.Context, runDirectory, kind string, client *http.C
 	if client == nil {
 		client = probe.HTTPClient(nil, download)
 	}
+	report := probe.Run(ctx, client, "overview", "", kind, target, download)
+	report.ActiveGeneration = current.GenerationID
+	report.ActiveDigest = current.IntentDigest
+	report = probe.SanitizeReport(report)
 	return ActiveProbe{
-		Report:       probe.Run(ctx, client, "overview", "", kind, target, download),
+		Report:       report,
 		GenerationID: current.GenerationID,
 		IntentDigest: current.IntentDigest,
 	}, nil
@@ -82,7 +86,12 @@ func SpeedTestNode(ctx context.Context, configPath, singBoxPath, nodeID string, 
 	if download {
 		target, kind = value.Main.SpeedtestProxyURL, "download"
 	}
-	return runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, []any{compiler.CompileNodeOutbound(node)}, compiler.NodeOutboundTag(node.ID), "nodes", node.ID, kind, target, download)
+	report, err := runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, []any{compiler.CompileNodeOutbound(node)}, compiler.NodeOutboundTag(node.ID), "nodes", node.ID, kind, target, download)
+	if err != nil {
+		return TestReport{}, err
+	}
+	report.SavedDigest = compiler.IntentDigest(value)
+	return probe.SanitizeReport(report), nil
 }
 
 func SpeedTestRoute(ctx context.Context, configPath, singBoxPath, routeID string, download bool) (TestReport, error) {
@@ -109,7 +118,12 @@ func SpeedTestRoute(ctx context.Context, configPath, singBoxPath, routeID string
 	if download {
 		target, kind = value.Main.SpeedtestProxyURL, "download"
 	}
-	return runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, outbounds, compiler.RouteOutboundTag(route.ID), "routes", route.ID, kind, target, download)
+	report, err := runTemporaryProbe(ctx, singBoxPath, value.Bootstrap, outbounds, compiler.RouteOutboundTag(route.ID), "routes", route.ID, kind, target, download)
+	if err != nil {
+		return TestReport{}, err
+	}
+	report.SavedDigest = compiler.IntentDigest(value)
+	return probe.SanitizeReport(report), nil
 }
 
 func runTemporaryProbe(ctx context.Context, singBoxPath string, bootstrap model.Bootstrap, outbounds []any, finalTag, scope, objectID, kind, target string, download bool) (TestReport, error) {

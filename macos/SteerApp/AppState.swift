@@ -68,6 +68,7 @@ struct RuntimeStatus: Decodable, Sendable {
     var generationID = ""
     var intentDigest = ""
     var error = ""
+    var lastApply: RuntimeApplyRecord? = nil
 
     init() {}
 
@@ -77,6 +78,7 @@ struct RuntimeStatus: Decodable, Sendable {
         generationID = try container.decodeIfPresent(String.self, forKey: .generationID) ?? ""
         intentDigest = try container.decodeIfPresent(String.self, forKey: .intentDigest) ?? ""
         error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
+        lastApply = try container.decodeIfPresent(RuntimeApplyRecord.self, forKey: .lastApply)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -84,7 +86,19 @@ struct RuntimeStatus: Decodable, Sendable {
         case generationID = "generation_id"
         case intentDigest = "intent_digest"
         case error
+        case lastApply = "last_apply"
     }
+}
+
+struct RuntimeApplyRecord: Decodable, Sendable {
+    let sequence: String
+    let result: RuntimeApplyResult
+}
+
+struct RuntimeApplyResult: Decodable, Sendable {
+    let ok: Bool
+    let generation: String?
+    let error: String?
 }
 
 struct ValidationIssue: Codable, Identifiable {
@@ -179,18 +193,37 @@ struct ProbeResult: Decodable, Sendable {
     let downloadedBytes: Int?
     let downloadMilliseconds: Int?
     let error: String?
+    let url: String?
+    let attempts: Int?
 
     enum CodingKeys: String, CodingKey {
-        case ok, status, error
+        case ok, status, error, url, attempts
         case firstByteMilliseconds = "first_byte_milliseconds"
         case connectMilliseconds = "connect_milliseconds"
         case tlsMilliseconds = "tls_milliseconds"
         case downloadedBytes = "downloaded_bytes"
         case downloadMilliseconds = "download_milliseconds"
     }
+
+    init(
+        ok: Bool, status: Int?, firstByteMilliseconds: Int?, connectMilliseconds: Int?,
+        tlsMilliseconds: Int?, downloadedBytes: Int?, downloadMilliseconds: Int?,
+        error: String?, url: String? = nil, attempts: Int? = nil
+    ) {
+        self.ok = ok
+        self.status = status
+        self.firstByteMilliseconds = firstByteMilliseconds
+        self.connectMilliseconds = connectMilliseconds
+        self.tlsMilliseconds = tlsMilliseconds
+        self.downloadedBytes = downloadedBytes
+        self.downloadMilliseconds = downloadMilliseconds
+        self.error = error
+        self.url = url
+        self.attempts = attempts
+    }
 }
 
-struct ProbeReport: Decodable, Sendable {
+struct ProbeReport: Decodable, Sendable, Identifiable {
     let ok: Bool
     let scope: String
     let objectID: String?
@@ -199,14 +232,35 @@ struct ProbeReport: Decodable, Sendable {
     let error: String?
     let activeGeneration: String?
     let activeDigest: String?
+    let savedDigest: String?
     let testedAt: String
+
+    var id: String { "\(scope):\(objectID ?? "overview"):\(kind):\(testedAt)" }
 
     enum CodingKeys: String, CodingKey {
         case ok, scope, kind, results, error
         case objectID = "object_id"
         case activeGeneration = "active_generation"
         case activeDigest = "active_digest"
+        case savedDigest = "saved_digest"
         case testedAt = "tested_at"
+    }
+
+    init(
+        ok: Bool, scope: String, objectID: String?, kind: String,
+        results: [ProbeResult], error: String?, activeGeneration: String?,
+        activeDigest: String?, savedDigest: String? = nil, testedAt: String
+    ) {
+        self.ok = ok
+        self.scope = scope
+        self.objectID = objectID
+        self.kind = kind
+        self.results = results
+        self.error = error
+        self.activeGeneration = activeGeneration
+        self.activeDigest = activeDigest
+        self.savedDigest = savedDigest
+        self.testedAt = testedAt
     }
 
     var summary: String {
@@ -230,6 +284,25 @@ struct ProbeReport: Decodable, Sendable {
             || runtime.generationID != activeGeneration
             || runtime.intentDigest != activeDigest
     }
+}
+
+struct ProbeDiagnostics: Decodable, Sendable {
+    let reports: [ProbeReport]
+    let savedDigest: String?
+    let activeGeneration: String?
+    let activeDigest: String?
+    let warnings: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case reports, warnings
+        case savedDigest = "saved_digest"
+        case activeGeneration = "active_generation"
+        case activeDigest = "active_digest"
+    }
+
+    static let empty = ProbeDiagnostics(
+        reports: [], savedDigest: nil, activeGeneration: nil, activeDigest: nil, warnings: []
+    )
 }
 
 struct SubscriptionFailure: Decodable, Sendable {
@@ -464,10 +537,15 @@ protocol BackendClient: Sendable {
     func versions() async throws -> RuntimeVersions
     func parseNodes(document: String) async throws -> NodeImportResult
     func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport
+    func diagnostics() async throws -> ProbeDiagnostics
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus]
     func updateSubscription(id: String) async throws
     func cleanSubscription(id: String, nodeID: String) async throws
     func geoCatalog(kind: String) async throws -> [String]
+}
+
+extension BackendClient {
+    func diagnostics() async throws -> ProbeDiagnostics { .empty }
 }
 
 struct HelperBackendClient: BackendClient {
@@ -686,6 +764,16 @@ struct HelperBackendClient: BackendClient {
         return report
     }
 
+    func diagnostics() async throws -> ProbeDiagnostics {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let result = try await Self.execute(helper, ["_diagnostics"])
+        guard let diagnostics = try? JSONDecoder().decode(ProbeDiagnostics.self, from: result.stdout) else {
+            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        }
+        return diagnostics
+    }
+
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] {
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
         try requireExecutable(helper)
@@ -832,6 +920,9 @@ final class AppModel: ObservableObject {
     @Published var subscriptionRuntime: [SubscriptionRuntimeStatus] = []
     @Published var probeSummaries: [String: String] = [:]
     @Published private(set) var overviewProbeReports: [String: ProbeReport] = [:]
+    @Published private(set) var probeReports: [String: ProbeReport] = [:]
+    @Published private(set) var diagnosticsSavedDigest = ""
+    @Published private(set) var diagnosticsWarnings: [String] = []
     @Published var geositeNames: [String] = []
     @Published var geoipNames: [String] = []
     @Published private(set) var savedRevision = ""
@@ -844,6 +935,7 @@ final class AppModel: ObservableObject {
 
     private let backend: BackendClient
     private var draftMutationSequence: UInt64 = 0
+    private var probeReportDraftSequences: [String: UInt64] = [:]
     private var initialStateLoadInProgress = false
     private var terminationReply: ((Bool) -> Void)?
 
@@ -989,6 +1081,9 @@ final class AppModel: ObservableObject {
                 }
                 self.hasInitializedDraft = true
                 self.runtime = try await self.backend.status()
+                if let diagnostics = try? await self.backend.diagnostics() {
+                    self.installDiagnostics(diagnostics)
+                }
                 self.versions = try await self.backend.versions()
                 self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
                 self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
@@ -1019,6 +1114,18 @@ final class AppModel: ObservableObject {
         perform(message: "正在读取最近日志…") {
             self.diagnosticsLog = try await self.backend.logs()
             self.message = self.diagnosticsLog.isEmpty ? "当前没有日志输出" : "已读取最近日志"
+        }
+    }
+
+    func refreshDiagnostics() {
+        perform(message: "正在刷新诊断数据…") {
+            async let runtime = self.backend.status()
+            async let diagnostics = self.backend.diagnostics()
+            async let logs = self.backend.logs()
+            self.runtime = try await runtime
+            self.installDiagnostics(try await diagnostics)
+            self.diagnosticsLog = try await logs
+            self.message = "诊断数据已刷新"
         }
     }
 
@@ -1527,6 +1634,18 @@ final class AppModel: ObservableObject {
 
     func runProbe(kind: String, nodeID: String? = nil, routeID: String? = nil, download: Bool = false) {
         guard pendingDraftAction == nil else { return }
+        if (nodeID != nil || routeID != nil), isDirty {
+            message = "请先保存或丢弃 Draft，再测试 Saved 节点或路由"
+            return
+        }
+        if let nodeID, draftItems(for: "nodes").first(where: { $0.identifier == nodeID })?.enabled == false {
+            message = "已停用节点不能测试；请先启用并保存"
+            return
+        }
+        if let routeID, draftItems(for: "routes").first(where: { $0.identifier == routeID })?.enabled == false {
+            message = "已停用路由不能测试；请先启用并保存"
+            return
+        }
         let key = probeKey(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
         let isOverview = nodeID == nil && routeID == nil
         guard activeProbeKeys.insert(key).inserted else { return }
@@ -1538,6 +1657,8 @@ final class AppModel: ObservableObject {
             do {
                 let report = try await backend.probe(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
                 probeSummaries[key] = report.summary
+                probeReports[key] = report
+                probeReportDraftSequences[key] = draftMutationSequence
                 if isOverview {
                     overviewProbeReports[key] = report
                     message = report.ok
@@ -1550,6 +1671,9 @@ final class AppModel: ObservableObject {
                 }
             } catch {
                 probeSummaries[key] = "失败"
+                if let diagnostics = try? await backend.diagnostics() {
+                    installDiagnostics(diagnostics)
+                }
                 if isOverview {
                     overviewProbeReports.removeValue(forKey: key)
                     message = "按 Active 规则访问失败；没有可用的 Active generation 或详细原因请查看诊断日志"
@@ -1561,26 +1685,30 @@ final class AppModel: ObservableObject {
     }
 
     func runAllNodeProbes(download: Bool, nodeIDs: [String]) {
+        let enabledIDs = Set(draftItems(for: "nodes").filter(\.enabled).map(\.identifier))
+        let eligibleNodeIDs = nodeIDs.filter { enabledIDs.contains($0) }
         guard pendingDraftAction == nil,
-              !isBatchNodeProbeRunning, !nodeIDs.isEmpty else { return }
+              !isDirty, !isBatchNodeProbeRunning, !eligibleNodeIDs.isEmpty else { return }
         isBatchNodeProbeRunning = true
         message = download ? "正在批量下载测速…" : "正在批量连接测试…"
         Task {
             defer { isBatchNodeProbeRunning = false }
             var succeeded = 0
-            for nodeID in nodeIDs {
+            for nodeID in eligibleNodeIDs {
                 let key = probeKey(kind: "speedtest", nodeID: nodeID, routeID: nil, download: download)
                 guard activeProbeKeys.insert(key).inserted else { continue }
                 do {
                     let report = try await backend.probe(kind: "speedtest", nodeID: nodeID, routeID: nil, download: download)
                     probeSummaries[key] = report.summary
+                    probeReports[key] = report
+                    probeReportDraftSequences[key] = draftMutationSequence
                     if report.ok { succeeded += 1 }
                 } catch {
                     probeSummaries[key] = "失败"
                 }
                 activeProbeKeys.remove(key)
             }
-            message = "批量测试完成：成功 \(succeeded)/\(nodeIDs.count)"
+            message = "批量测试完成：成功 \(succeeded)/\(eligibleNodeIDs.count)"
         }
     }
 
@@ -1610,6 +1738,42 @@ final class AppModel: ObservableObject {
 
     func overviewProbeIsStale(_ kind: String) -> Bool {
         overviewProbeReports["overview:\(kind)"]?.isStale(relativeTo: runtime) == true
+    }
+
+    var diagnosticProbeReports: [ProbeReport] {
+        probeReports.values.sorted { $0.testedAt > $1.testedAt }
+    }
+
+    func probeReportIsStale(_ report: ProbeReport) -> Bool {
+        if report.scope == "overview" {
+            return report.isStale(relativeTo: runtime)
+        }
+        let key = reportKey(report)
+        if isDirty || probeReportDraftSequences[key] != draftMutationSequence {
+            return true
+        }
+        guard let savedDigest = report.savedDigest, !savedDigest.isEmpty,
+              !diagnosticsSavedDigest.isEmpty else { return true }
+        return savedDigest != diagnosticsSavedDigest
+    }
+
+    private func installDiagnostics(_ diagnostics: ProbeDiagnostics) {
+        diagnosticsSavedDigest = diagnostics.savedDigest ?? ""
+        diagnosticsWarnings = diagnostics.warnings
+        for report in diagnostics.reports {
+            let key = reportKey(report)
+            probeReports[key] = report
+            probeSummaries[key] = report.summary
+            probeReportDraftSequences[key] = draftMutationSequence
+            if report.scope == "overview" {
+                overviewProbeReports[key] = report
+            }
+        }
+    }
+
+    private func reportKey(_ report: ProbeReport) -> String {
+        if report.scope == "overview" { return "overview:\(report.kind)" }
+        return "\(report.scope):\(report.objectID ?? "unknown"):\(report.kind)"
     }
 
     private func probeKey(kind: String, nodeID: String?, routeID: String?, download: Bool) -> String {
@@ -1888,6 +2052,7 @@ final class AppModel: ObservableObject {
         savedRevision = snapshot.revision
         revisionConflict = nil
         isDirty = false
+        diagnosticsSavedDigest = ""
     }
 
     private func updateComponentStatus(_ components: SystemComponentsStatus) {
@@ -1908,6 +2073,7 @@ final class AppModel: ObservableObject {
     ) -> Bool {
         let draftStayedAtSavedVersion = draftMatches(document: document, sequence: draftSequence)
         savedRevision = revision
+        diagnosticsSavedDigest = ""
         revisionConflict = nil
         isDirty = !draftStayedAtSavedVersion
         return draftStayedAtSavedVersion

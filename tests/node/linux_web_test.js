@@ -10,6 +10,7 @@ const root = path.resolve(__dirname, '../..');
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
 const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
+const probeDiagnosticsFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/probe-diagnostics-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -715,7 +716,8 @@ async function testActualGenerationAndPersistentApplyFixture() {
     api: {
       validate: async () => ({ ok: true, errors: [], warnings: [] }),
       probe: async () => ({}),
-      logs: async () => ({ output: '' })
+      logs: async () => ({ output: '' }),
+      diagnostics: async () => probeDiagnosticsFixtures.diagnostics
     }
   });
   environment.S.ui.renderStatusStrip();
@@ -778,6 +780,53 @@ function draftLifecycleIntent() {
     local_proxies: [],
     rules: [{ id: 'default', enabled: true, default: true, dns_profile: 'public', route: 'direct' }]
   };
+}
+
+async function testSharedProbeDiagnosticsAndDisabledActions() {
+  const intent = draftLifecycleIntent();
+  const disabledNode = probeDiagnosticsFixtures.objects.nodes.find((item) => item.id === 'node_disabled');
+  const disabledRoute = probeDiagnosticsFixtures.objects.routes.find((item) => item.id === 'route_disabled');
+  intent.nodes.push({ ...disabledNode, name: 'Disabled node', type: 'socks', server: 'disabled.example', server_port: 1080 });
+  intent.routes.push({ ...disabledRoute, name: 'Disabled route', node: 'node_disabled' });
+  let nodeCalls = 0, routeCalls = 0;
+  const environment = createEnvironment(async () => ({ ok: true }), intent, { api: {
+    validate: async () => ({ ok: true, errors: [], warnings: [] }),
+    logs: async () => ({ output: 'steer-web probe log' }),
+    diagnostics: async () => probeDiagnosticsFixtures.diagnostics,
+    probe: async () => probeDiagnosticsFixtures.diagnostics.reports[0],
+    speedtestNode: async () => { nodeCalls++; return probeDiagnosticsFixtures.diagnostics.reports[1]; },
+    speedtestRoute: async () => { routeCalls++; return probeDiagnosticsFixtures.diagnostics.reports[2]; }
+  } });
+  environment.S.store.refreshOverview = async () => ({ ok: true });
+
+  loadView(environment, 'diagnostics');
+  const diagnosticsRoot = new Element('main');
+  await environment.S.views.diagnostics.render(diagnosticsRoot);
+  const renderedDiagnostics = text(diagnosticsRoot);
+  for (const expected of ['不证明具体 outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'tested_at', 'steer-web probe log', '最近 Apply 结果']) {
+    assert.match(renderedDiagnostics, new RegExp(expected), `Linux Diagnostics must render ${expected}`);
+  }
+  assert.doesNotMatch(renderedDiagnostics, /验证 Direct 路径|验证当前代理路径/);
+
+  loadView(environment, 'nodes');
+  const nodesRoot = new Element('main');
+  environment.S.views.nodes.render(nodesRoot);
+  const disabledNodeRow = findAll(nodesRoot, (element) => element.tag === 'tr' && text(element).includes('Disabled node'))[0];
+  const disabledNodeTests = findAll(disabledNodeRow, (element) => element.tag === 'button' && ['连接', '下载'].includes(text(element)));
+  assert.strictEqual(disabledNodeTests.length, 2);
+  assert.ok(disabledNodeTests.every((button) => Object.hasOwn(button.attributes, 'disabled') && button.attributes.title.includes('已停用')));
+  await disabledNodeTests[0].listeners.click();
+  assert.strictEqual(nodeCalls, 0, 'disabled Linux Node test must not reach the backend');
+
+  loadView(environment, 'routes');
+  const routesRoot = new Element('main');
+  environment.S.views.routes.render(routesRoot);
+  const disabledRouteRow = findAll(routesRoot, (element) => element.tag === 'tr' && text(element).includes('Disabled route'))[0];
+  const disabledRouteTests = findAll(disabledRouteRow, (element) => element.tag === 'button' && ['链测试', '下载'].includes(text(element)));
+  assert.strictEqual(disabledRouteTests.length, 2);
+  assert.ok(disabledRouteTests.every((button) => Object.hasOwn(button.attributes, 'disabled') && button.attributes.title.includes('已停用')));
+  await disabledRouteTests[0].listeners.click();
+  assert.strictEqual(routeCalls, 0, 'disabled Linux Route test must not reach the backend');
 }
 
 function createDraftBackend() {
@@ -1531,6 +1580,7 @@ Promise.resolve()
   .then(testApplySavedAPIKeepsStructuredFailure)
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)
+  .then(testSharedProbeDiagnosticsAndDisabledActions)
   .then(testJSONDraftStoreLifecycle)
   .then(testStoreSnapshotsAndAsyncOrdering)
   .then(testSaveAndApplySurviveOverviewRefreshFailure)

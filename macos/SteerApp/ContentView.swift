@@ -1006,8 +1006,8 @@ struct DraftCollectionView: View {
             }
         }
         .buttonStyle(.borderless)
-        .help(download ? "下载测速" : (scope == "routes" ? "路由链连接测试" : "连接测试"))
-        .disabled(model.isDirty || running)
+        .help(!item.enabled ? "已停用对象不能测试" : (download ? "下载测速" : (scope == "routes" ? "路由链连接测试" : "连接测试")))
+        .disabled(model.isDirty || running || !item.enabled)
     }
 
     private func runtimeDetail(_ item: DraftItem) -> String {
@@ -1030,7 +1030,7 @@ struct DiagnosticsView: View {
     var body: some View {
         List {
             Section("连通性探测") {
-                Text("目标来自当前 Active generation，请求按 Active 规则访问。")
+                Text("目标来自当前 Active generation，并按 Active 规则访问。成功只表示该 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -1045,6 +1045,19 @@ struct DiagnosticsView: View {
                 overviewProbeResult("直连 URL", kind: "direct")
                 overviewProbeResult("代理 URL", kind: "proxy")
                 overviewProbeResult("下载 URL", kind: "speedtest")
+            }
+            Section("最近 Probe 报告") {
+                if model.diagnosticProbeReports.isEmpty {
+                    Label("尚无已保存报告", systemImage: "doc.text.magnifyingglass")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(model.diagnosticProbeReports) { report in
+                    probeReport(report)
+                }
+                ForEach(model.diagnosticsWarnings, id: \.self) { warning in
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
             }
             Section("配置校验") {
                 if let validation = model.validation {
@@ -1072,6 +1085,20 @@ struct DiagnosticsView: View {
                 Button("刷新状态") { model.refreshStatus() }
                     .disabled(model.isBusy)
             }
+            Section("最近 Apply") {
+                if let apply = model.runtime.lastApply {
+                    LabeledContent("Sequence", value: apply.sequence)
+                    LabeledContent("结果", value: apply.result.ok ? "成功" : "失败")
+                    if let generation = apply.result.generation, !generation.isEmpty {
+                        LabeledContent("Generation", value: generation)
+                    }
+                    if let error = apply.result.error, !error.isEmpty {
+                        LabeledContent("错误", value: error)
+                    }
+                } else {
+                    Text("尚无 Apply 记录").foregroundStyle(.secondary)
+                }
+            }
             Section("最近消息") {
                 Text(model.message.isEmpty ? "—" : model.message)
                     .textSelection(.enabled)
@@ -1090,6 +1117,10 @@ struct DiagnosticsView: View {
                     .frame(minHeight: 220, maxHeight: 320)
                 }
                 Button("刷新日志") { model.refreshLogs() }
+                    .disabled(model.isBusy)
+            }
+            Section {
+                Button("刷新全部诊断") { model.refreshDiagnostics() }
                     .disabled(model.isBusy)
             }
         }
@@ -1128,6 +1159,50 @@ struct DiagnosticsView: View {
                     .foregroundStyle(model.overviewProbeIsStale(kind) ? Color.orange : Color.secondary)
                     .textSelection(.enabled)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func probeReport(_ report: ProbeReport) -> some View {
+        let stale = model.probeReportIsStale(report)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(report.scope == "overview" ? "Overview" : "\(report.scope)/\(report.objectID ?? "—")")
+                    .fontWeight(.medium)
+                Text(report.kind).font(.caption.monospaced()).foregroundStyle(.secondary)
+                Spacer()
+                Label(stale ? "已过期" : (report.ok ? "成功" : "失败"),
+                      systemImage: stale ? "clock.badge.exclamationmark" : (report.ok ? "checkmark.circle.fill" : "xmark.circle.fill"))
+                    .font(.caption)
+                    .foregroundStyle(stale ? .orange : (report.ok ? .green : .red))
+            }
+            LabeledContent("tested_at", value: report.testedAt)
+            if let result = report.results.first {
+                if let url = result.url, !url.isEmpty { LabeledContent("URL", value: url) }
+                if let attempts = result.attempts { LabeledContent("Attempts", value: String(attempts)) }
+                HStack(spacing: 14) {
+                    measurement("Connect", result.connectMilliseconds, "ms")
+                    measurement("TLS", result.tlsMilliseconds, "ms")
+                    measurement("TTFB", result.firstByteMilliseconds, "ms")
+                    measurement("HTTP", result.status, "")
+                }
+                if let bytes = result.downloadedBytes, bytes > 0 {
+                    let milliseconds = result.downloadMilliseconds ?? 0
+                    let rate = milliseconds > 0 ? String(format: "%.1f Mbps", Double(bytes) * 8 / Double(milliseconds) / 1000) : "—"
+                    Text("\(bytes) bytes · \(milliseconds) ms · \(rate)")
+                        .font(.caption.monospaced())
+                }
+                if let error = result.error, !error.isEmpty { Text(error).foregroundStyle(.red) }
+            }
+            if let error = report.error, !error.isEmpty { Text(error).foregroundStyle(.red) }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func measurement(_ label: String, _ value: Int?, _ suffix: String) -> some View {
+        if let value {
+            Text("\(label) \(value)\(suffix)").font(.caption.monospaced())
         }
     }
 
@@ -1278,7 +1353,7 @@ private extension AppPage {
         case .rules: return "从上到下严格匹配，Default 必须位于最后"
         case .subscriptions: return "订阅源、节点同步与 stale 清理"
         case .proxies: return "本机 SOCKS、HTTP 与 Mixed 入口"
-        case .diagnostics: return "配置校验、LaunchDaemon 状态与最近消息"
+        case .diagnostics: return "完整 Probe 报告、配置校验、最近 Apply 与相关日志"
         case .settings: return "版本、运行时与系统路径"
         }
     }

@@ -10,6 +10,14 @@
   let activeGroup = MANUAL;
   const rowButtons = new Map(); /* nodeId -> {conn, down} */
 
+  function syncTestButtons() {
+    rowButtons.forEach((pair) => [pair.conn, pair.down].forEach((button) => {
+      if (button.classList.contains('spinning')) return;
+      button.disabled = !button._eligible || S.store.dirty;
+      button.title = !button._eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : button._label);
+    }));
+  }
+
   const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.node_types.map((item) => [item.value, item.label]));
   const FIELD_LABEL = {
     uuid: 'UUID', username: '用户名', password: '密码', method: '加密方法', plugin: '插件', plugin_options: '插件参数',
@@ -43,8 +51,12 @@
     return list;
   }
 
-  function testButton(label, download, nodeId) {
-    const btn = h('button', { class: 'btn btn--sm', title: label, onclick: async () => {
+  function testButton(label, download, nodeId, eligible) {
+    const btn = h('button', { class: 'btn btn--sm', onclick: async () => {
+      if (!eligible) {
+        ui.toast('已停用节点不能测试；请先启用并保存', 'warn');
+        return;
+      }
       if (S.store.dirty) {
         ui.toast('请先保存或放弃工作副本修改，再测试节点', 'warn');
         return;
@@ -66,8 +78,10 @@
         btn.title = '详细原因请查看诊断日志';
         btn.classList.add('is-err');
       }
-      btn.disabled = false;
-    } }, label);
+      syncTestButtons();
+    }, disabled: !eligible || S.store.dirty, title: !eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : label) }, label);
+    btn._eligible = eligible;
+    btn._label = label;
     return btn;
   }
 
@@ -284,7 +298,7 @@
   const view = {
     name: 'nodes',
     render(root) {
-      ui.beginRender(root);
+      const isCurrent = ui.beginRender(root);
       const intent = S.store.intent;
       rowButtons.clear();
       const groupList = groups(intent);
@@ -301,8 +315,9 @@
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, ['状态', '节点', '协议', '服务器', '测试', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, nodes.map((node) => {
-          const conn = testButton('连接', false, node.id);
-          const down = testButton('下载', true, node.id);
+          const eligible = node.enabled !== false;
+          const conn = testButton('连接', false, node.id, eligible);
+          const down = testButton('下载', true, node.id, eligible);
           rowButtons.set(node.id, { conn, down });
           const edit = editable ? h('button', { class: 'btn btn--sm', onclick: () => openNodeEditor(node) }, '编辑') : h('span', { class: 'badge' }, '订阅');
           const del = editable ? h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
@@ -313,7 +328,7 @@
           } }, '删除') : null;
           return h('tr', { class: node.enabled === false ? 'is-disabled' : null }, [
             h('td', {}, (() => {
-              const enabled = ui.toggle(node.enabled, (v) => { node.enabled = v; S.store.touch(); });
+              const enabled = ui.toggle(node.enabled, (v) => { node.enabled = v; S.store.touch(); view.render(root); });
               enabled.disabled = !editable;
               enabled.title = editable ? '启用或停用节点' : '订阅节点状态由订阅管理';
               return enabled;
@@ -328,6 +343,11 @@
       ]);
 
       const batch = renderBatch(nodes.filter((node) => node.enabled !== false).map((node) => node.id));
+	  syncTestButtons();
+	  if (typeof S.store.subscribe === 'function') {
+		const unsubscribe = S.store.subscribe(syncTestButtons);
+		isCurrent.onDispose(unsubscribe);
+	  }
       root.append(
         ui.viewHead('节点', editable ? '手动维护的节点；订阅节点只读，由订阅更新生成' : '订阅生成数据 · 只读 · 修改请在订阅源或手动节点中完成', [
           h('button', { class: 'btn', onclick: openImport }, '导入节点'),

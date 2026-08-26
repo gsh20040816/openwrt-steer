@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	macosplatform "github.com/gsh20040816/steer/go/internal/platform/macos"
+	"github.com/gsh20040816/steer/go/internal/probe"
 )
 
 func TestAuthorizedControlPeer(t *testing.T) {
@@ -118,6 +120,40 @@ func TestControlServiceProbeForwardsOnlyStructuredSelection(t *testing.T) {
 	}
 	if report.OK || report.Scope != "nodes" || report.ObjectID != "node-a" {
 		t.Fatalf("HTTP probe failure was confused with control failure: %#v", report)
+	}
+}
+
+func TestControlServiceDiagnosticsReturnsSanitizedPersistedReports(t *testing.T) {
+	document, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	if err := os.WriteFile(configPath, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options := macosplatform.BackendOptions{StateDirectory: filepath.Join(root, "state")}
+	if err := macosplatform.SaveTestReport(options, probe.Report{
+		Scope: "nodes", ObjectID: "node-a", Kind: "connect", TestedAt: time.Now(),
+		Error: "temporary sing-box private_key=secret", Results: []probe.Result{{URL: "https://user:token@example.test/probe?token=secret"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := &controlService{configPath: configPath, options: options}
+	response := service.handle(controlRequest{SchemaVersion: controlSchemaVersion, Operation: "diagnostics"})
+	if !response.OK {
+		t.Fatalf("diagnostics request failed: %+v", response)
+	}
+	var diagnostics probe.Diagnostics
+	if err := decodeStrictJSON(response.Payload, &diagnostics); err != nil || len(diagnostics.Reports) != 1 || diagnostics.SavedDigest == "" {
+		t.Fatalf("diagnostics payload drifted: %v %#v", err, diagnostics)
+	}
+	encoded := string(response.Payload)
+	for _, secret := range []string{"user:token", "secret", "private_key", "temporary sing-box"} {
+		if strings.Contains(encoded, secret) {
+			t.Fatalf("diagnostics payload leaked %q: %s", secret, encoded)
+		}
 	}
 }
 

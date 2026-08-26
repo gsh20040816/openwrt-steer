@@ -15,14 +15,26 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
+	"github.com/gsh20040816/steer/go/internal/probe"
 )
 
 type webRuntimeRunner struct{}
+
+type webLogRunner struct{ arguments []string }
+
+func (runner *webLogRunner) Output(_ context.Context, name string, arguments ...string) ([]byte, error) {
+	if name != "/usr/bin/journalctl" {
+		return nil, fmt.Errorf("unexpected log command %s", name)
+	}
+	runner.arguments = append([]string{}, arguments...)
+	return []byte("combined Steer logs"), nil
+}
 
 func (webRuntimeRunner) Output(_ context.Context, name string, _ ...string) ([]byte, error) {
 	switch name {
@@ -334,6 +346,47 @@ func TestWebRuntimeReportsInstalledToolVersions(t *testing.T) {
 	}
 	if value.SingBox.Error != "" || value.GeoData.Error != "" || strings.Join(value.SingBox.Tags, ",") != "with_quic,with_utls" {
 		t.Fatalf("runtime dependency details = %#v", value)
+	}
+}
+
+func TestWebDiagnosticsReturnsSanitizedHistoryAndAggregatedLogs(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	stateDirectory := filepath.Join(root, "state")
+	if _, err := (linuxplatform.IntentStore{Path: configPath}).Save(webTestIntent(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := probe.SaveReport(stateDirectory, probe.Report{
+		Scope: "nodes", ObjectID: "node_a", Kind: "connect", TestedAt: time.Now(),
+		Error: "temporary sing-box password=secret", Results: []probe.Result{{URL: "https://user:token@example.test/probe?token=secret"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &webLogRunner{}
+	app := webApplication{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: stateDirectory, Runner: runner}
+	diagnosticsResponse := httptest.NewRecorder()
+	app.handleDiagnostics(diagnosticsResponse, httptest.NewRequest(http.MethodGet, "/api/v1/diagnostics", nil))
+	if diagnosticsResponse.Code != http.StatusOK {
+		t.Fatalf("diagnostics endpoint returned %d: %s", diagnosticsResponse.Code, diagnosticsResponse.Body.String())
+	}
+	var diagnostics probe.Diagnostics
+	if err := json.Unmarshal(diagnosticsResponse.Body.Bytes(), &diagnostics); err != nil || len(diagnostics.Reports) != 1 || diagnostics.SavedDigest == "" {
+		t.Fatalf("diagnostics response drifted: %v %#v", err, diagnostics)
+	}
+	encoded := diagnosticsResponse.Body.String()
+	for _, secret := range []string{"user:token", "secret", "temporary sing-box"} {
+		if strings.Contains(encoded, secret) {
+			t.Fatalf("diagnostics response leaked %q: %s", secret, encoded)
+		}
+	}
+
+	logsResponse := httptest.NewRecorder()
+	app.handleLogs(logsResponse, httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil))
+	arguments := strings.Join(runner.arguments, " ")
+	for _, unit := range []string{"steer.service", "steer-web.service", "steer-subscription.service"} {
+		if !strings.Contains(arguments, unit) {
+			t.Fatalf("aggregated journal omitted %s: %s", unit, arguments)
+		}
 	}
 }
 

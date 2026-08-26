@@ -481,6 +481,48 @@ function subscriptionOperationGate(initialChanges, formNode) {
 	};
 }
 
+function probeOperationGate(initialChanges) {
+	let pending = hasPendingSteerChanges(initialChanges);
+	const buttons = [];
+	const updateButtons = function() {
+		buttons.forEach((button) => {
+			button.disabled = pending;
+			button.title = pending ? _('Pending Steer changes must be applied or discarded before testing committed Nodes or Routes.') : (button._steerTitle || '');
+		});
+	};
+	const refresh = function() {
+		return uci.changes().then((changes) => {
+			pending = hasPendingSteerChanges(changes);
+			updateButtons();
+			return !pending;
+		});
+	};
+	const stateChanged = function() { refresh(); };
+	window.addEventListener?.('steer-uci-state-changed', stateChanged);
+	window.addEventListener?.('focus', stateChanged);
+	return {
+		bind: function(button, title) {
+			if (!button) return button;
+			button._steerTitle = title || button.title || '';
+			buttons.push(button);
+			updateButtons();
+			return button;
+		},
+		bindForm: function(formNode) {
+			const selector = 'output[for$="._connect_speedtest"] button, output[for$="._download_speedtest"] button, output[for$="._route_connect_test"] button, output[for$="._route_download_test"] button';
+			Array.from(formNode?.querySelectorAll?.(selector) || []).forEach((button) => this.bind(button, button.title));
+		},
+		allow: function() {
+			return refresh().then((allowed) => {
+				if (!allowed)
+					ui.addNotification(_('Probe is locked'), E('p', {}, _('Apply or discard pending Steer changes before testing the committed configuration.')), 'warning');
+				return allowed;
+			});
+		},
+		refresh
+	};
+}
+
 function renderSubscriptionStatus(result, gate) {
 	const subscriptions = result?.subscriptions || [];
 	return E('section', { 'class': 'steer-subscription-status' }, [
@@ -670,7 +712,9 @@ function speedtestResult(report, download) {
 	};
 }
 
-function runSpeedtest(sectionId, download, button) {
+function runSpeedtest(sectionId, download, button, gate, refreshAfter = true) {
+	return gate.allow().then((allowed) => {
+	if (!allowed) return false;
 	setSpeedtestButton(button, 'testing', _('Testing…'));
 	return steer.speedtest(sectionId, download).then((report) => {
 		const result = speedtestResult(report, download);
@@ -680,9 +724,12 @@ function runSpeedtest(sectionId, download, button) {
 		setSpeedtestButton(button, 'error', _('Failed'), _('See diagnostic logs for details.'));
 		return false;
 	});
+	}).then((result) => refreshAfter ? gate.refresh().then(() => result) : result);
 }
 
-function runRouteSpeedtest(sectionId, download, button) {
+function runRouteSpeedtest(sectionId, download, button, gate) {
+	return gate.allow().then((allowed) => {
+	if (!allowed) return false;
 	setSpeedtestButton(button, 'testing', _('Testing…'));
 	return steer.routeSpeedtest(sectionId, download).then((report) => {
 		const result = speedtestResult(report, download);
@@ -692,6 +739,7 @@ function runRouteSpeedtest(sectionId, download, button) {
 		setSpeedtestButton(button, 'error', _('Failed'), _('See diagnostic logs for details.'));
 		return false;
 	});
+	}).then((result) => gate.refresh().then(() => result));
 }
 
 function findSpeedtestButton(sectionId, download) {
@@ -700,7 +748,9 @@ function findSpeedtestButton(sectionId, download) {
 	return document.querySelector('output[for="%s"] button'.format(id));
 }
 
-function runBatchSpeedtest(sectionIds, download, button) {
+function runBatchSpeedtest(sectionIds, download, button, gate) {
+	return gate.allow().then((allowed) => {
+	if (!allowed) return false;
 	const title = download ? _('Batch download test') : _('Batch connection test');
 	const buttons = Array.from(document.querySelectorAll('.steer-speedtest-batch button'));
 	let cursor = 0;
@@ -712,7 +762,7 @@ function runBatchSpeedtest(sectionIds, download, button) {
 	const worker = async function() {
 		while (cursor < sectionIds.length) {
 			const sectionId = sectionIds[cursor++];
-			if (await runSpeedtest(sectionId, download, findSpeedtestButton(sectionId, download)))
+			if (await runSpeedtest(sectionId, download, findSpeedtestButton(sectionId, download), gate, false))
 				succeeded++;
 			completed++;
 			button.textContent = '%s · %d/%d'.format(title, completed, sectionIds.length);
@@ -727,15 +777,17 @@ function runBatchSpeedtest(sectionIds, download, button) {
 		button.title = _('%d/%d succeeded; click to test again.').format(succeeded, sectionIds.length);
 		buttons.forEach((candidate) => { candidate.disabled = false; });
 	});
+	}).then((result) => gate.refresh().then(() => result));
 }
 
-function renderBatchSpeedtests(sectionIds) {
+function renderBatchSpeedtests(sectionIds, gate) {
 	if (!sectionIds.length)
 		return null;
-	return E('div', { 'class': 'steer-speedtest-batch' }, [
-		E('button', { 'class': 'btn cbi-button-action', 'click': function(ev) { return runBatchSpeedtest(sectionIds, false, ev.currentTarget); } }, _('Batch connection test')),
-		E('button', { 'class': 'btn cbi-button-action', 'click': function(ev) { return runBatchSpeedtest(sectionIds, true, ev.currentTarget); } }, _('Batch download test'))
-	]);
+	const connect = E('button', { 'class': 'btn cbi-button-action', 'click': function(ev) { return runBatchSpeedtest(sectionIds, false, ev.currentTarget, gate); } }, _('Batch connection test'));
+	const download = E('button', { 'class': 'btn cbi-button-action', 'click': function(ev) { return runBatchSpeedtest(sectionIds, true, ev.currentTarget, gate); } }, _('Batch download test'));
+	gate.bind(connect, _('Batch connection test'));
+	gate.bind(download, _('Batch download test'));
+	return E('div', { 'class': 'steer-speedtest-batch' }, [ connect, download ]);
 }
 
 function showImportDialog() {
@@ -857,6 +909,7 @@ return view.extend({
 				return E([], [ renderSubscriptionStatus(data?.[1], gate), formNode ]);
 			});
 		}
+		const probeGate = probeOperationGate(data?.[2]);
 
 		if (page == 'routes') {
 			addSystemRouteSection(m, routes.find((route) => route.kind == 'direct'));
@@ -921,7 +974,7 @@ return view.extend({
 			o.inputstyle = 'action';
 			o.write = function() {};
 			o.remove = function() {};
-			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, false, ev.currentTarget); };
+			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, false, ev.currentTarget, probeGate); };
 
 			o = s.option(form.Button, '_route_download_test', _('Chain download test'));
 			o.depends({ kind: 'single', enabled: '1' });
@@ -930,8 +983,11 @@ return view.extend({
 			o.inputstyle = 'action';
 			o.write = function() {};
 			o.remove = function() {};
-			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget); };
-			return m.render().then((formNode) => rejectRecovery ? E([], [ rejectRecovery, formNode ]) : formNode);
+			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget, probeGate); };
+			return m.render().then((formNode) => {
+				probeGate.bindForm(formNode);
+				return rejectRecovery ? E([], [ rejectRecovery, formNode ]) : formNode;
+			});
 		}
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
@@ -952,20 +1008,22 @@ return view.extend({
 		o.editable = !summaryOnly;
 
 		o = s.option(form.Button, '_connect_speedtest', _('Connection test'));
+		o.depends('enabled', '1');
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
 		o.write = function() {};
 		o.remove = function() {};
-		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, false, ev.currentTarget); };
+		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, false, ev.currentTarget, probeGate); };
 
 		o = s.option(form.Button, '_download_speedtest', _('Download test'));
+		o.depends('enabled', '1');
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
 		o.write = function() {};
 		o.remove = function() {};
-		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget); };
+		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget, probeGate); };
 
 		o = s.option(form.Value, 'name', _('Name'));
 		o.rmempty = true;
@@ -997,7 +1055,8 @@ return view.extend({
 
 		return m.render().then((formNode) => {
 			const contents = [ renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
-			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds);
+			probeGate.bindForm(formNode);
+			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds, probeGate);
 			if (batchSpeedtests)
 				contents.push(batchSpeedtests);
 			if (activeNodeGroup == manualNodeGroup)

@@ -12,6 +12,7 @@ const callCommitCandidate = rpc.declare({ object: 'luci.steer', method: 'commit_
 const callIntentPreview = rpc.declare({ object: 'luci.steer', method: 'intent_preview', params: [ 'reveal' ], expect: { '': {} } });
 const callRuntime = rpc.declare({ object: 'luci.steer', method: 'runtime', expect: { '': {} } });
 const callLogs = rpc.declare({ object: 'luci.steer', method: 'logs', expect: { '': {} } });
+const callDiagnostics = rpc.declare({ object: 'luci.steer', method: 'diagnostics', expect: { '': {} } });
 const callGeodataCatalog = rpc.declare({ object: 'luci.steer', method: 'geodata_catalog', expect: { '': {} } });
 const callSubscriptions = rpc.declare({ object: 'luci.steer', method: 'subscriptions', expect: { '': {} } });
 const callSubscriptionUpdate = rpc.declare({ object: 'luci.steer', method: 'subscription_update', params: [ 'id' ], expect: { '': {} } });
@@ -61,6 +62,7 @@ return baseclass.extend({
 	intentPreview: function(reveal) { return L.resolveDefault(callIntentPreview(reveal === true), {}); },
 	runtime: function() { return L.resolveDefault(callRuntime(), {}); },
 	logs: function() { return L.resolveDefault(callLogs(), {}); },
+	diagnostics: function() { return L.resolveDefault(callDiagnostics(), {}); },
 	geodataCatalog: function() { return L.resolveDefault(callGeodataCatalog(), {}); },
 	subscriptions: function() { return L.resolveDefault(callSubscriptions(), {}); },
 	updateSubscription: function(id) { return callSubscriptionUpdate(id); },
@@ -107,6 +109,7 @@ return baseclass.extend({
 				return uci.changes()
 					.then((changes) => ui.changes.renderChangeIndicator(changes))
 					.then(() => {
+						window.dispatchEvent?.(new Event('steer-uci-state-changed'));
 						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
 						return waitForApply(previousSequence, 240);
 					})

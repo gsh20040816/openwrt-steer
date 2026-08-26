@@ -14,6 +14,7 @@ import (
 
 	"github.com/gsh20040816/steer/go/internal/geodata"
 	macosplatform "github.com/gsh20040816/steer/go/internal/platform/macos"
+	"github.com/gsh20040816/steer/go/internal/probe"
 )
 
 type probeSelection struct {
@@ -30,6 +31,29 @@ type probeResponse struct {
 	macosplatform.TestReport
 	ActiveGeneration string `json:"active_generation,omitempty"`
 	ActiveDigest     string `json:"active_digest,omitempty"`
+}
+
+func runDiagnostics(args []string, stdoutWriter interface{ Write([]byte) (int, error) }) error {
+	flags := flag.NewFlagSet("_diagnostics", flag.ContinueOnError)
+	socketPath := flags.String("socket", defaultControlSocket, "root control service socket")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("_diagnostics accepts flags only")
+	}
+	response, err := sendControlRequest(*socketPath, controlRequest{SchemaVersion: controlSchemaVersion, Operation: "diagnostics"})
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	var diagnostics probe.Diagnostics
+	if err := decodeStrictJSON(response.Payload, &diagnostics); err != nil {
+		return fmt.Errorf("decode diagnostics response: %w", err)
+	}
+	return writeJSON(stdoutWriter, diagnostics)
 }
 
 func runProbe(args []string, stdoutWriter interface{ Write([]byte) (int, error) }) error {

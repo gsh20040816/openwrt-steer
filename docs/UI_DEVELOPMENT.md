@@ -76,7 +76,7 @@ Canonical Intent / Validate / Compiler
 - 总览只展示运行状态、执行模型、规模摘要和快捷操作，不承载长期配置表单。
 - 基础设置只编辑 Main、探测目标、DNS cache 和 Bootstrap。
 - 节点与路由必须是独立页面；订阅状态和更新不能塞入节点页。
-- 诊断统一容纳 overview/node/route probe 入口或结果、Validate 和日志入口。
+- 诊断统一容纳 overview/node/route 的完整 sanitized probe 报告、Validate、最近 Apply 和相关日志，并提供 Refresh。
 - 系统统一展示版本、schema、generation、Geo seed、平台路径和平台特有的安装/升级能力。
 - 高级页在 JSON 平台提供 Canonical 编辑，在 OpenWrt 提供 Canonical 只读预览；它不能成为结构化 UI 缺字段的常规兜底。
 - 平台特有能力放在最接近的共享页面内，不得创建只在单一平台存在的顶层导航层级。
@@ -110,8 +110,8 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 
 - 节点必须按“手动节点 / 订阅”分组；订阅节点只读，不得显示可用但无效的编辑、删除或状态开关。
 - 节点行和 Single Route 行必须同时提供连接测试与下载测速；批量测试只针对当前可见分组中已启用的节点。
-- 单行测试、批量测试、订阅更新和 stale 清理不得禁用整张表或阻断滚动；只禁用当前正在执行的操作。
-- 普通列表只显示“失败”与“详细原因请查看诊断日志”；临时核心名称、outbound ID、命令行和完整后端错误链只能出现在诊断日志。
+- 单行测试、批量测试、订阅更新和 stale 清理不得禁用整张表或阻断滚动；只禁用当前正在执行的操作。disabled 对象不得提供后端必拒绝的动作；LuCI 存在 pending UCI 时不得用 committed Node/Route 执行测试。
+- 普通列表只显示“失败”与“详细原因请查看诊断日志”。Diagnostics 展示 tested_at、scope/object、URL、TCP/TLS/TTFB/HTTP/bytes/rate 中实际存在的安全字段；临时核心名称、outbound ID、命令行和完整后端错误链不得进入报告 UI。
 - Direct 是系统必需且始终启用的固定路由；Reject 是固定类型但可启停。二者均不得显示删除、拖拽排序或类型转换操作，新建路由只能是 Single。Reject 只能编译为 sing-box route/DNS `reject` action，不得生成已废弃的 `type=block` outbound。
 - 删除订阅时必须先检查其节点是否被 Route 引用；无引用时订阅与其生成节点必须一起从工作副本移除。
 - 节点导入统一使用共享后端解析器，支持多行分享链接和 Base64 包装文档；文案不得声称在浏览器本地解析。

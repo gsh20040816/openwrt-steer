@@ -540,29 +540,11 @@ msgstr "前置路由"
 msgid "Direct connection"
 msgstr "直接连接"
 
-msgid "Direct test"
-msgstr "直连测试"
-
-msgid "Downloads the configured speed-test URL through the current running rules."
-msgstr "通过当前运行规则下载已配置的测速地址。"
-
 msgid "Missing route"
 msgstr "路由缺失"
 
 msgid "Not tested"
 msgstr "尚未测试"
-
-msgid "Proxy speed test"
-msgstr "代理速度测试"
-
-msgid "Proxy test"
-msgstr "代理测试"
-
-msgid "Requests the configured direct URL through the current running rules."
-msgstr "通过当前运行规则访问已配置的直连测试地址。"
-
-msgid "Requests the configured proxy URL through the current running rules."
-msgstr "通过当前运行规则访问已配置的代理测试地址。"
 
 msgid "Run test"
 msgstr "开始测试"
@@ -698,6 +680,81 @@ msgstr "%d 当前 / %d stale / %d 已跳过"
 
 msgid "Disabled subscriptions cannot be updated. Enable and save this subscription first."
 msgstr "已停用的订阅不能更新。请先启用并保存该订阅。"
+
+msgid "Apply or discard pending Steer changes before testing the committed configuration."
+msgstr "测试已提交配置前，请先应用或丢弃待处理的 Steer 修改。"
+
+msgid "Attempts"
+msgstr "尝试次数"
+
+msgid "Bytes"
+msgstr "字节"
+
+msgid "Connectivity targets"
+msgstr "连通性目标"
+
+msgid "Direct target"
+msgstr "直连目标"
+
+msgid "Download target"
+msgstr "下载目标"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "No saved probe reports."
+msgstr "尚无已保存的探测报告。"
+
+msgid "Pending Steer changes must be applied or discarded before testing committed Nodes or Routes."
+msgstr "测试已提交的节点或路由前，必须先应用或丢弃待处理的 Steer 修改。"
+
+msgid "Probe is locked"
+msgstr "探测已锁定"
+
+msgid "Proxy target"
+msgstr "代理目标"
+
+msgid "Rate"
+msgstr "速率"
+
+msgid "Recent Apply"
+msgstr "最近 Apply"
+
+msgid "Recent Overview, Node and Route probe reports"
+msgstr "最近的 Overview、节点与路由探测报告"
+
+msgid "Refresh diagnostics"
+msgstr "刷新诊断"
+
+msgid "Result"
+msgstr "结果"
+
+msgid "Sequence"
+msgstr "序列"
+
+msgid "Stale"
+msgstr "已过期"
+
+msgid "Succeeded"
+msgstr "成功"
+
+msgid "Targets are visited under the current Active rules. Success only proves that the URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks."
+msgstr "目标按当前 Active 规则访问。成功仅表示该 URL 当时可达，不证明具体 outbound、DNS resolver，也不证明 DNS 无泄漏。"
+
+msgid "The committed configuration is valid."
+msgstr "已提交配置校验通过。"
+
+msgid "Validation"
+msgstr "校验"
+
+msgid "Visits the configured direct test target under the current Active rules."
+msgstr "按当前 Active 规则访问配置的直连测试目标。"
+
+msgid "Visits the configured download test target under the current Active rules."
+msgstr "按当前 Active 规则访问配置的下载测试目标。"
+
+msgid "Visits the configured proxy test target under the current Active rules."
+msgstr "按当前 Active 规则访问配置的代理测试目标。"
 
 msgid "Inventory updated: added %d, current %d, stale %d, skipped %d. Running configuration was not changed."
 msgstr "节点库已更新：新增 %d，当前 %d，stale %d，跳过 %d。运行配置未改变。"

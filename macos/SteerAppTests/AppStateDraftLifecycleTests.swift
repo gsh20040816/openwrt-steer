@@ -41,6 +41,7 @@ private actor DraftLifecycleBackend: BackendClient {
     private var saveCount = 0
     private var applyCount = 0
     private var installCount = 0
+    private var probeCount = 0
     private var failNextApply = false
     private var loadFailuresRemaining = 0
     private var nextLoadGate: DraftOperationGate?
@@ -143,7 +144,8 @@ private actor DraftLifecycleBackend: BackendClient {
     func versions() async throws -> RuntimeVersions { RuntimeVersions() }
     func parseNodes(document: String) async throws -> NodeImportResult { NodeImportResult(nodes: [], skipped: 0) }
     func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
-        ProbeReport(
+        probeCount += 1
+        return ProbeReport(
             ok: true,
             scope: nodeID == nil && routeID == nil ? "overview" : (nodeID == nil ? "routes" : "nodes"),
             objectID: nodeID ?? routeID,
@@ -164,8 +166,8 @@ private actor DraftLifecycleBackend: BackendClient {
     func cleanSubscription(id: String, nodeID: String) async throws {}
     func geoCatalog(kind: String) async throws -> [String] { [] }
 
-    func counts() -> (loads: Int, saves: Int, applies: Int, installs: Int) {
-        (loadCount, saveCount, applyCount, installCount)
+    func counts() -> (loads: Int, saves: Int, applies: Int, installs: Int, probes: Int) {
+        (loadCount, saveCount, applyCount, installCount, probeCount)
     }
 
     func savedSnapshot() -> ConfigurationSnapshot { snapshot }
@@ -535,6 +537,40 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertFalse(model.hasActiveGeneration)
         XCTAssertTrue(model.overviewProbeIsStale("proxy"))
         XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("已过期") == true)
+    }
+
+    func testDisabledAndDirtyNodeRouteProbesNeverReachBackendAndResumeAfterSave() async throws {
+        let document = """
+        {"main":{"schema_version":1,"enabled":true},"nodes":[{"id":"node-disabled","enabled":false,"type":"socks","server":"node.example","server_port":1080}],"routes":[{"id":"route-disabled","enabled":false,"kind":"single","node":"node-disabled"}],"dns_profiles":[],"rules":[],"subscriptions":[],"local_proxies":[]}
+        """
+        let backend = DraftLifecycleBackend(document: document)
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy && model.hasInitializedDraft }
+
+        model.runProbe(kind: "speedtest", nodeID: "node-disabled")
+        model.runProbe(kind: "speedtest", routeID: "route-disabled")
+        var counts = await backend.counts()
+        XCTAssertEqual(counts.probes, 0)
+
+        model.setDraftItemEnabled(in: "nodes", at: 0, enabled: true)
+        model.runProbe(kind: "speedtest", nodeID: "node-disabled")
+        counts = await backend.counts()
+        XCTAssertEqual(counts.probes, 0, "dirty Draft must not probe the committed disabled Node")
+        model.saveDraft()
+        try await waitUntil { !model.isBusy && !model.isDirty }
+        model.runProbe(kind: "speedtest", nodeID: "node-disabled")
+        try await waitUntil { !model.probeInProgress(scope: "nodes", objectID: "node-disabled", download: false) }
+        counts = await backend.counts()
+        XCTAssertEqual(counts.probes, 1)
+
+        model.setDraftItemEnabled(in: "routes", at: 0, enabled: true)
+        model.saveDraft()
+        try await waitUntil { !model.isBusy && !model.isDirty }
+        model.runProbe(kind: "speedtest", routeID: "route-disabled")
+        try await waitUntil { !model.probeInProgress(scope: "routes", objectID: "route-disabled", download: false) }
+        counts = await backend.counts()
+        XCTAssertEqual(counts.probes, 2)
     }
 
     func testTerminationGuardCancelAndSaveReplyWithoutApplying() async throws {
