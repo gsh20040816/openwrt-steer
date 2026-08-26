@@ -12,13 +12,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,16 +56,13 @@ type controlResponse struct {
 }
 
 type controlService struct {
-	configPath      string
-	adminGID        int
-	options         macosplatform.BackendOptions
-	mu              sync.Mutex
-	write           func(string, []byte, int) error
-	apply           func(model.Intent, macosplatform.BackendOptions) error
-	status          func(macosplatform.BackendOptions) macosplatform.Status
-	discoverLAN     func() ([]string, error)
-	currentLAN      func(string) ([]string, error)
-	monitorInterval time.Duration
+	configPath string
+	adminGID   int
+	options    macosplatform.BackendOptions
+	mu         sync.Mutex
+	write      func(string, []byte, int) error
+	apply      func(model.Intent, macosplatform.BackendOptions) error
+	status     func(macosplatform.BackendOptions) macosplatform.Status
 }
 
 func runControlClient(args []string, stdout io.Writer) error {
@@ -183,9 +178,6 @@ func runControlService(args []string) error {
 		return fmt.Errorf("set control socket mode: %w", err)
 	}
 	service := &controlService{configPath: *configPath, adminGID: adminGID, options: options.value()}
-	service.discoverLAN = macosplatform.DiscoverActiveLANPrefixes
-	service.currentLAN = macosplatform.CurrentLANPrefixes
-	go service.monitorLANPrefixes(context.Background())
 	connections := make(chan struct{}, maxControlConnections)
 	for {
 		connection, err := listener.AcceptUnix()
@@ -202,77 +194,6 @@ func runControlService(args []string) error {
 			_ = connection.Close()
 		}
 	}
-}
-
-func (service *controlService) monitorLANPrefixes(ctx context.Context) {
-	interval := service.monitorInterval
-	if interval <= 0 {
-		interval = 5 * time.Second
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := service.reconcileLANPrefixes(); err != nil {
-			log.Printf("reconcile active LAN routes: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (service *controlService) reconcileLANPrefixes() error {
-	discover := service.discoverLAN
-	if discover == nil {
-		discover = macosplatform.DiscoverActiveLANPrefixes
-	}
-	active, err := discover()
-	if err != nil {
-		return err
-	}
-	current := service.currentLAN
-	if current == nil {
-		current = macosplatform.CurrentLANPrefixes
-	}
-	previous, currentErr := current(service.options.RunDirectory)
-	if currentErr == nil && slices.Equal(previous, active) {
-		return nil
-	}
-	if _, err := os.Stat(filepath.Join(service.options.RunDirectory, "current.json")); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	if service.options.RunDirectory != "" {
-		lock, err := acquireLock(service.options.RunDirectory)
-		if err != nil {
-			return err
-		}
-		defer lock.Close()
-	}
-	value, err := loadIntent(service.configPath)
-	if err != nil {
-		return err
-	}
-	if !value.Main.Enabled {
-		return nil
-	}
-	options := service.options
-	options.LANPrefixes = append([]string{}, active...)
-	apply := service.apply
-	if apply == nil {
-		apply = applyControlConfiguration
-	}
-	if err := apply(value, options); err != nil {
-		return err
-	}
-	log.Printf("updated active LAN routes: %s", strings.Join(active, ", "))
-	return nil
 }
 
 func (service *controlService) serve(connection *net.UnixConn) {
@@ -441,9 +362,6 @@ func setControlStatePermissions(path string, adminGID int) error {
 func applyControlConfiguration(value model.Intent, options macosplatform.BackendOptions) error {
 	return runApplyOperation(options.RunDirectory, func() (coreapply.Result, error) {
 		backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, options)
-		if err := backend.PlanningError(); err != nil {
-			return coreapply.Result{}, err
-		}
 		return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 	}, io.Discard)
 }

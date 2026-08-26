@@ -34,10 +34,7 @@ func Prepare(value model.Intent, paths Paths) (PreparedGeneration, error) {
 	if err := paths.Ensure(); err != nil {
 		return PreparedGeneration{}, err
 	}
-	plan, err := NewPlanForHost(value)
-	if err != nil {
-		return PreparedGeneration{}, err
-	}
+	plan := NewPlan(value)
 	compiled := compiler.Compile(value, plan.CompilerOptions(paths.StateDirectory))
 	candidate, err := generation.Create(paths.GenerationsDirectory, value, compiled.SingBox)
 	if err != nil {

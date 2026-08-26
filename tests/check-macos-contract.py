@@ -35,9 +35,15 @@ def main() -> None:
     assert 'DNSCaptureInboundHijack' in compiler
     assert 'DNSCaptureTUNPort53Hijack' in macos_plan
     assert '"dns_mode": "disabled"' in macos_plan
-    assert 'DiscoverActiveLANPrefixes' in read("go/internal/platform/macos/lan.go")
     assert 'DirectRouteAddress' in macos_plan
-    assert 'monitorLANPrefixes' in control and 'reconcileLANPrefixes' in control
+    for private_prefix in ("10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"):
+        assert private_prefix in macos_plan
+    assert '"fe80::/10"' in macos_plan
+    for retired_lan_state in ("DiscoverActiveLANPrefixes", "ActiveLANPrefixes", "LANPrefixes", "monitorLANPrefixes", "reconcileLANPrefixes"):
+        assert retired_lan_state not in macos_plan
+        assert retired_lan_state not in macos_backend
+        assert retired_lan_state not in control
+    assert not (ROOT / "go/internal/platform/macos/lan.go").exists()
     assert '"auto_route": true' in macos_plan
     assert '"auto_redirect"' not in macos_plan
     assert 'launchctl' in macos_backend

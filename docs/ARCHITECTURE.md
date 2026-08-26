@@ -75,9 +75,9 @@ Steer 不写全局 `dns.strategy`，也不写 DNS rule action 的 query-level `s
 
 ## macOS 数据面
 
-macOS 使用 LaunchDaemon 下的 sing-box Darwin TUN，不修改系统 DNS，不使用 pf 或 Network Extension。平台层从当前 UP 的非回环、非 point-to-point 接口发现实际 IPv4 私网/CGNAT 和 IPv6 ULA 子网，将它们加入 TUN `route_address`，并从宽泛的私网 `route_exclude_address` 中精确扣除。回环、链路本地、组播、Apple peer-to-peer 接口和 utun 地址不会被当作 LAN 接管。
+macOS 使用 LaunchDaemon 下的 sing-box Darwin TUN，不修改系统 DNS，不使用 pf 或 Network Extension。平台 plan 静态把 IPv4 RFC1918、CGNAT 与 IPv6 ULA 全部加入 TUN `route_address`，并且不再把这些范围放入 `route_exclude_address`。回环、IPv4/IPv6 链路本地、组播和文档/保留地址仍按明确集合排除；普通 global IPv6 on-link 地址不属于“私网”特例，仍按公网规则与 Default 处理。
 
-macOS route 顺序为：① `inbound=steer-tun + network=[tcp,udp] + port=[53] -> hijack-dns`；② 当前活动 LAN 子网 `-> Direct`；③ sniff；④ 用户公网规则。`port` 是目标端口，不使用 `source_port` 或 `protocol=dns`。这保证 DHCP DNS 和硬编码 LAN Do53 被截获，其他 LAN 单播流量虽经过用户态核心仍固定 Direct；DoH/DoT 按普通流量处理。常驻 control LaunchDaemon 对活动子网与 generation 进行定期对账，接口或 DHCP 子网变化时在 operation lock 内重新 Apply。
+macOS route 顺序为：① `inbound=steer-tun + network=[tcp,udp] + port=[53] -> hijack-dns`；② RFC1918、CGNAT 与 ULA `-> Direct`；③ sniff；④用户公网规则。`port` 是目标端口，不使用 `source_port` 或 `protocol=dns`。这保证上述私网内的 DHCP DNS 和硬编码 Do53 先被 Steer DNS Router 接管，其他私网单播流量固定 Direct；DoH/DoT 按普通流量处理。该 plan 不依赖接口、Wi-Fi 或 DHCP 状态，网络变化不会创建 generation，也不会从 Saved config 隐式触发 Apply。
 
 ## Apply
 

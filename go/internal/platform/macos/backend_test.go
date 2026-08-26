@@ -5,6 +5,8 @@ package macos
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,7 +61,6 @@ func TestBackendBootsOutRegisteredInactiveLaunchDaemon(t *testing.T) {
 		RunDirectory: root + "/run", StateDirectory: root + "/state", SingBoxBinary: "/test/sing-box",
 		LaunchctlBinary: "/test/launchctl", LaunchDaemonLabel: DefaultLaunchDaemonLabel,
 		LaunchDaemonPlist: root + "/steer.plist", CheckTUN: func([]string) error { return nil },
-		LANPrefixes: []string{},
 	})
 	candidate, err := backend.Prepare(context.Background(), value, compiler.Compile(value, backend.CompilerOptions()))
 	if err != nil {
@@ -81,7 +82,6 @@ func TestBackendUsesLaunchdGenerationLifecycle(t *testing.T) {
 		RunDirectory: root + "/run", StateDirectory: root + "/state", SingBoxBinary: "/test/sing-box",
 		LaunchctlBinary: "/test/launchctl", LaunchDaemonLabel: DefaultLaunchDaemonLabel,
 		LaunchDaemonPlist: root + "/steer.plist", CheckTUN: func([]string) error { return nil },
-		LANPrefixes: []string{},
 	})
 	compiled := compiler.Compile(value, backend.CompilerOptions())
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
@@ -101,8 +101,11 @@ func TestBackendUsesLaunchdGenerationLifecycle(t *testing.T) {
 	if err != nil || current.GenerationID == "" || current.Directory == "" {
 		t.Fatalf("unexpected current generation: %#v %v", current, err)
 	}
-	prefixes, err := CurrentLANPrefixes(root + "/run")
-	if err != nil || len(prefixes) != 0 {
-		t.Fatalf("unexpected persisted active LAN prefixes: %#v %v", prefixes, err)
+	platformPlan, err := os.ReadFile(filepath.Join(root, "run", "generations", current.Directory, "platform.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(platformPlan), "active_lan_prefixes") {
+		t.Fatalf("generation persisted retired active-LAN state: %s", platformPlan)
 	}
 }

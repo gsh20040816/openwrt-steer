@@ -70,6 +70,6 @@ swift run SteerApp
 
 ## TUN、DNS 和 Geo
 
-sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf，也不修改系统 DNS。平台层发现当前 UP 的非 point-to-point LAN 接口，将实际 IPv4 私网/CGNAT 与 IPv6 ULA 子网加入 TUN，而不粗暴接管所有私网范围。route 顺序固定为：`steer-tun + TCP/UDP + 目标端口 53 -> hijack-dns`、活动 LAN 子网 `-> Direct`、sniff、用户公网规则。回环、链路本地、组播和 TUN 自身地址仍排除；DoH/DoT 不属于 Do53 劫持。control LaunchDaemon 定期对账活动子网，接口或 DHCP 网段变化时自动重新 Apply。
+sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf，也不修改系统 DNS。平台层静态接管 IPv4 RFC1918、CGNAT 与 IPv6 ULA。route 顺序固定为：`steer-tun + TCP/UDP + 目标端口 53 -> hijack-dns`、上述私网 `-> Direct`、sniff、用户公网规则。回环、链路本地、组播和文档/保留地址仍排除；普通 global IPv6 on-link 地址按公网规则处理，DoH/DoT 不属于 Do53 劫持。该 plan 不依赖接口或 DHCP 状态，网络变化不会隐式 Apply Saved config。
 
 Geo 不是 macOS 语义限制。正式 DMG 已内置并校验 tag workflow 使用的精确 `geodata-seed/`；源码开发需把相同 seed 放入 `/Library/Application Support/Steer/geodata-seed/`。Apply 会按 manifest 校验所需 SRS；目标机不安装 geoview，也不读取 DAT。
