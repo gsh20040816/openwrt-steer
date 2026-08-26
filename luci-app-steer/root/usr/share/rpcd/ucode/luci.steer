@@ -68,52 +68,210 @@ function validation_failure(message) {
 	};
 }
 
-function validate_candidate(request) {
+function session_id(request) {
 	const session = request?.args?.ubus_rpc_session;
 	if (type(session) != 'string' || match(session, /^[0-9a-f]{32}$/) == null)
-		return validation_failure('The LuCI UCI session is unavailable.');
+		return null;
+	return session;
+}
 
-	const deltaDirectory = '/var/run/rpcd/uci-' + session;
-	const process = popen([ '/sbin/uci', '-q', '-P', deltaDirectory, 'export', 'steer' ], 'r');
-	if (!process)
-		return validation_failure('Unable to export the pending Steer configuration.');
-	const exported = process.read('all') || '';
-	const status = process.close();
-	const lines = split(exported, '\n');
-	if (status != 0 || lines[0] != 'package steer')
-		return validation_failure('Unable to export the pending Steer configuration.');
+function candidate_document(reply) {
+	const sections = reply?.values;
+	if (type(sections) != 'object' || sections == null)
+		return null;
 
-	const directory = mkdtemp('/tmp/steer-validate-XXXXXX');
+	const sectionNames = keys(sections);
+	sort(sectionNames, (left, right) =>
+		(sections[left]?.['.index'] || 0) - (sections[right]?.['.index'] || 0));
+	const lines = [];
+	for (let sectionName in sectionNames) {
+		const section = sections[sectionNames[sectionName]];
+		const sectionType = section?.['.type'];
+		const sectionID = section?.['.name'] || sectionNames[sectionName];
+		if (type(sectionType) != 'string' || type(sectionID) != 'string')
+			return null;
+		push(lines, 'config ' + shellquote(sectionType) + ' ' + shellquote(sectionID));
+
+		const optionNames = keys(section);
+		sort(optionNames);
+		for (let optionIndex in optionNames) {
+			const option = optionNames[optionIndex];
+			if (substr(option, 0, 1) == '.')
+				continue;
+			const value = section[option];
+			if (type(value) == 'array') {
+				for (let itemIndex in value)
+					push(lines, '\tlist ' + shellquote(option) + ' ' + shellquote(value[itemIndex]));
+			}
+			else if (value != null) {
+				push(lines, '\toption ' + shellquote(option) + ' ' + shellquote(value));
+			}
+		}
+		push(lines, '');
+	}
+	return join('\n', lines);
+}
+
+function with_candidate(request, callback) {
+	const session = session_id(request);
+	if (!session) {
+		callback('The LuCI UCI session is unavailable.');
+		return;
+	}
+	return ubus.defer('uci', 'get', {
+		config: 'steer',
+		ubus_rpc_session: session
+	}, function(code, reply) {
+		const document = code == 0 ? candidate_document(reply) : null;
+		if (!document)
+			callback('Unable to read the pending Steer configuration.');
+		else
+			callback(null, { session, document });
+	});
+}
+
+function run_candidate(document, action) {
+	const directory = mkdtemp('/tmp/steer-candidate-XXXXXX');
 	if (!directory)
-		return validation_failure('Unable to create a private validation directory.');
+		return null;
 	const path = directory + '/steer';
 	const file = open(path, 'w');
 	if (!file) {
 		rmdir(directory);
-		return validation_failure('Unable to create the pending Steer configuration.');
+		return null;
 	}
-	file.write(join('\n', slice(lines, 1)));
+	file.write(document);
 	file.close();
-	const result = command_json('/usr/sbin/steer validate --config ' + shellquote(path));
+	const result = command_json('/usr/sbin/steer ' + action + ' --config ' + shellquote(path));
 	unlink(path);
 	rmdir(directory);
 	return result;
 }
 
-function commit_candidate(request) {
-	const validation = validate_candidate(request);
-	if (validation?.ok !== true)
-		return { committed: false, validation };
+function validate_candidate(request, callback) {
+	return with_candidate(request, function(error, candidate) {
+		if (error) {
+			callback(validation_failure(error), null);
+			return;
+		}
+		const validation = run_candidate(candidate.document, 'validate');
+		callback(validation?.errors ? validation : validation_failure('Unable to validate the pending Steer configuration.'), candidate);
+	});
+}
 
-	const session = request.args.ubus_rpc_session;
-	return ubus.defer('uci', 'commit', {
+function commit_candidate(request) {
+	return validate_candidate(request, function(validation, validatedCandidate) {
+		if (validation?.ok !== true) {
+			request.reply({ committed: false, validation });
+			return;
+		}
+		/* rpcd exposes no revision/CAS primitive here. This re-read rejects
+		 * changes already observable after validation, but it is deliberately
+		 * not claimed as an atomic guard for the final commit window. */
+		return with_candidate(request, function(error, currentCandidate) {
+			if (error || currentCandidate.document != validatedCandidate.document) {
+				request.reply({
+					committed: false,
+					validation: validation_failure(error || 'The pending Steer configuration changed during validation. Please review and retry.')
+				});
+				return;
+			}
+			return ubus.defer('uci', 'commit', {
+				config: 'steer',
+				ubus_rpc_session: currentCandidate.session
+			}, function(code, reply) {
+				request.reply({
+					committed: code == 0,
+					validation,
+					error: code == 0 ? null : 'Unable to commit the validated Steer configuration.'
+				});
+			});
+		});
+	});
+}
+
+function secret_option(key) {
+	return key == 'uuid' || key == 'private_key' || key == 'url' || key == 'extra_args' || key == 'plugin_options' ||
+		match(key, /(^|_)(password|token)$/) != null;
+}
+
+function redact_secrets(value) {
+	const valueType = type(value);
+	if ((valueType != 'array' && valueType != 'object') || value == null)
+		return value;
+
+	const redacted = valueType == 'array' ? [] : {};
+	for (let key in value) {
+		const item = value[key];
+		redacted[key] = secret_option(key) && item != null && `${item}` != ''
+			? '[REDACTED]'
+			: redact_secrets(item);
+	}
+	return redacted;
+}
+
+function preview_failure(message) {
+	return { ok: false, source: 'unavailable', redacted: true, error: message };
+}
+
+function pending_preview() {
+	return {
+		ok: true,
+		source: 'unavailable',
+		pending: true,
+		available: false,
+		redacted: true,
+		intent: null
+	};
+}
+
+function intent_preview(request) {
+	const session = session_id(request);
+	if (!session)
+		return preview_failure('The LuCI UCI session is unavailable.');
+
+	return ubus.defer('uci', 'changes', {
 		config: 'steer',
 		ubus_rpc_session: session
 	}, function(code, reply) {
-		request.reply({
-			committed: code == 0,
-			validation,
-			error: code == 0 ? null : 'Unable to commit the validated Steer configuration.'
+		const changes = reply?.changes;
+		if (code != 0 || type(changes) != 'array') {
+			request.reply(preview_failure('Unable to inspect the pending Steer configuration.'));
+			return;
+		}
+		/* Never substitute the committed intent for a pending Apply input. */
+		if (length(changes) > 0) {
+			request.reply(pending_preview());
+			return;
+		}
+
+		const intent = command_json('/usr/sbin/steer _export-intent');
+		if (!intent || intent?.error != null) {
+			request.reply(preview_failure('Unable to decode the Steer configuration preview.'));
+			return;
+		}
+		return ubus.defer('uci', 'changes', {
+			config: 'steer',
+			ubus_rpc_session: session
+		}, function(code, reply) {
+			const latestChanges = reply?.changes;
+			if (code != 0 || type(latestChanges) != 'array') {
+				request.reply(preview_failure('Unable to inspect the pending Steer configuration.'));
+				return;
+			}
+			if (length(latestChanges) > 0) {
+				request.reply(pending_preview());
+				return;
+			}
+			const reveal = request?.args?.reveal == true;
+			request.reply({
+				ok: true,
+				source: 'committed',
+				pending: false,
+				available: true,
+				redacted: !reveal,
+				intent: reveal ? intent : redact_secrets(intent)
+			});
 		});
 	});
 }
@@ -132,10 +290,9 @@ const methods = {
 	commit_candidate: {
 		call: commit_candidate
 	},
-	intent: {
-		call: function() {
-			return command_json('/usr/sbin/steer _export-intent');
-		}
+	intent_preview: {
+		args: { reveal: false },
+		call: intent_preview
 	},
 	runtime: {
 		call: function() {

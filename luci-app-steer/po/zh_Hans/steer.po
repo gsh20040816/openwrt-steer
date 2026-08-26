@@ -591,8 +591,53 @@ msgstr "%d 个节点可以导入"
 msgid "Advanced"
 msgstr "高级"
 
-msgid "Canonical Intent preview"
-msgstr "Canonical Intent 预览"
+msgid "Canonical Preview"
+msgstr "Canonical 预览"
+
+msgid "Canonical Preview unavailable"
+msgstr "Canonical 预览不可用"
+
+msgid "Committed snapshot"
+msgstr "已提交快照"
+
+msgid "Configured secret is hidden. Leave this field blank to keep it unchanged."
+msgstr "已配置的 Secret 处于隐藏状态；留空即可保持原值不变。"
+
+msgid "Hide secrets"
+msgstr "隐藏 Secrets"
+
+msgid "No pending Steer changes exist. This preview is the committed UCI snapshot."
+msgstr "当前没有待提交的 Steer 更改；此预览来自已提交的 UCI 快照。"
+
+msgid "Pending candidate preview unavailable"
+msgstr "待提交候选配置预览不可用"
+
+msgid "Pending UCI changes exist. No Canonical JSON is shown because a trustworthy preview of the Apply input is unavailable."
+msgstr "存在待提交的 UCI 更改。由于无法可靠预览 Apply 将接收的输入，因此不显示 Canonical JSON。"
+
+msgid "Reveal configured secret"
+msgstr "临时显示已配置的 Secret"
+
+msgid "Clear configured secret"
+msgstr "清除已配置的 Secret"
+
+msgid "Secret will be cleared on save"
+msgstr "保存时将清除 Secret"
+
+msgid "Reveal secrets temporarily"
+msgstr "临时显示 Secrets"
+
+msgid "Revealed until this editor is closed"
+msgstr "将在关闭此编辑器后恢复隐藏"
+
+msgid "Secret reveal failed."
+msgstr "Secret 显示失败。"
+
+msgid "Secrets are hidden by default. Reveal is temporary and resets when you leave this page."
+msgstr "Secrets 默认隐藏；临时显示状态会在离开此页面后重置。"
+
+msgid "Unable to export the Canonical preview."
+msgstr "无法导出 Canonical 预览。"
 
 msgid "Canonical schema"
 msgstr "Canonical schema"
@@ -611,9 +656,6 @@ msgstr "没有 Steer 日志。"
 
 msgid "No valid node was returned."
 msgstr "未返回有效节点。"
-
-msgid "OpenWrt keeps UCI as its only configuration source. This read-only Canonical preview shows exactly what the shared compiler receives."
-msgstr "OpenWrt 仍以 UCI 作为唯一配置源；此只读 Canonical 预览展示共享编译器实际收到的内容。"
 
 msgid "Parsing and validating nodes…"
 msgstr "正在解析并校验节点…"

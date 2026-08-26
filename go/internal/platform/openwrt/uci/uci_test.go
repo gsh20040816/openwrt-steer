@@ -54,3 +54,13 @@ func TestParseSystemConfigAcceptsAnonymousSections(t *testing.T) {
 		t.Fatalf("unexpected system UCI document: %#v", doc)
 	}
 }
+
+func TestParsePreservesMultilineSingleQuotedOption(t *testing.T) {
+	doc, err := Parse(strings.NewReader("config node 'ssh_key'\n\toption private_key 'line one\nline two\n'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Sections[0].Options["private_key"]; got != "line one\nline two\n" {
+		t.Fatalf("multiline private key changed: %q", got)
+	}
+}

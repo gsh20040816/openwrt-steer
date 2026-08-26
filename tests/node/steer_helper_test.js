@@ -79,6 +79,10 @@ function loadHelper(runtime) {
 					error: code == null || code === 0 ? null : `commit status ${code}; reply ${JSON.stringify(reply)}`
 				});
 			}
+			if (method == 'intent_preview') {
+				runtime.previewCalls.push(args[0]);
+				return Promise.resolve(runtime.previewResponse);
+			}
 			if (method == 'overview_probe' || method == 'route_speedtest' || method == 'node_speedtest') {
 				runtime.testCalls.push({ method, args });
 				return Promise.resolve({ ok: true });
@@ -129,6 +133,8 @@ async function main() {
 		statusCalls: 0,
 		validationCalls: 0,
 		commitCalls: 0,
+		previewCalls: [],
+		previewResponse: { ok: true, source: 'committed', redacted: true, intent: {} },
 		testCalls: [],
 		sequence: [],
 		notifications: [],
@@ -137,6 +143,10 @@ async function main() {
 		}
 	};
 	const helper = loadHelper(runtime);
+	await helper.intentPreview(false);
+	await helper.intentPreview(true);
+	assert.deepEqual(runtime.previewCalls, [ false, true ],
+		'Canonical Preview forwards only the explicit temporary reveal decision');
 	const addedSections = [];
 	const namedSection = {
 		sectiontype: 'rule',

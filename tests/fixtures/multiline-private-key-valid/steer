@@ -1,0 +1,38 @@
+config steer 'main'
+	option schema_version '9'
+	option enabled '1'
+	option log_level 'warn'
+	option probe_direct 'https://www.baidu.com/'
+	option probe_proxy 'https://www.google.com/generate_204'
+	option speedtest_proxy 'https://speed.cloudflare.com/__down?bytes=1000000'
+
+config bootstrap 'bootstrap'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+	option strategy 'prefer_ipv4'
+
+config node 'ssh_key'
+	option enabled '1'
+	option type 'ssh'
+	option server 'ssh.example'
+	option server_port '22'
+	option username 'root'
+	option private_key '-----BEGIN OPENSSH PRIVATE KEY-----
+owner'\''s line
+line two
+-----END OPENSSH PRIVATE KEY-----
+'
+
+config route 'direct'
+	option kind 'direct'
+
+config dns_profile 'direct_dns'
+	option protocol 'udp'
+	option server '1.1.1.1'
+	option server_port '53'
+
+config rule 'default'
+	option default '1'
+	option dns_profile 'direct_dns'
+	option route 'direct'
