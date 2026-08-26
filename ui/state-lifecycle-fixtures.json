@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "fresh",
+      "draft": { "dirty": false, "enabled": false },
+      "saved": { "enabled": false, "revision": "saved-fresh" },
+      "active": { "running": false, "healthy": false, "generation": null, "digest": null, "last_apply_ok": null },
+      "pending_apply": false
+    },
+    {
+      "name": "pending-disable",
+      "draft": { "dirty": true, "enabled": false },
+      "saved": { "enabled": true, "revision": "saved-enabled" },
+      "active": { "running": true, "healthy": true, "generation": "generation-old", "digest": "active-old", "last_apply_ok": true },
+      "pending_apply": false
+    },
+    {
+      "name": "failed-apply",
+      "draft": { "dirty": false, "enabled": true },
+      "saved": { "enabled": true, "revision": "saved-new" },
+      "active": { "running": true, "healthy": true, "generation": "generation-old", "digest": "active-old", "last_apply_ok": false },
+      "pending_apply": true
+    },
+    {
+      "name": "active",
+      "draft": { "dirty": false, "enabled": true },
+      "saved": { "enabled": true, "revision": "saved-active" },
+      "active": { "running": true, "healthy": true, "generation": "generation-active", "digest": "active-current", "last_apply_ok": true },
+      "pending_apply": false
+    }
+  ]
+}

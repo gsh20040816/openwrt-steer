@@ -785,3 +785,108 @@ msgstr "清理期间出现了可见编辑；已保留这些修改，页面未重
 
 msgid "Visible edits appeared while the update was running; they were preserved and the page was not reloaded."
 msgstr "更新期间出现了可见编辑；已保留这些修改，页面未重新加载。"
+
+msgid "Active runtime"
+msgstr "Active 运行态"
+
+msgid "Apply result"
+msgstr "Apply 结果"
+
+msgid "Discard pending changes"
+msgstr "丢弃待处理修改"
+
+msgid "Draft / Saved / Active"
+msgstr "Draft / Saved / Active"
+
+msgid "Healthy"
+msgstr "健康"
+
+msgid "Invalid"
+msgstr "无效"
+
+msgid "No"
+msgstr "否"
+
+msgid "Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d"
+msgstr "节点 %d · 路由 %d · DNS %d · 本地代理 %d · 规则 %d"
+
+msgid "Objects"
+msgstr "对象"
+
+msgid "Pending"
+msgstr "待处理"
+
+msgid "Pending changes were discarded."
+msgstr "待处理修改已丢弃。"
+
+msgid "Pending changes were saved and applied."
+msgstr "待处理修改已保存并应用。"
+
+msgid "Pending desired"
+msgstr "Pending desired"
+
+msgid "Pending desired values differ from Saved. Active traffic is unchanged until Save & Apply succeeds."
+msgstr "Pending desired 与 Saved 不同。在保存并应用成功前，Active 流量不会改变。"
+
+msgid "Pending warning: %s · %s"
+msgstr "Pending 警告：%s · %s"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Save & Apply pending changes"
+msgstr "保存并应用待处理修改"
+
+msgid "Saved configuration"
+msgstr "Saved 配置"
+
+msgid "Saved desired"
+msgstr "Saved desired"
+
+msgid "Saved revision"
+msgstr "Saved revision"
+
+msgid "Saved warning: %s · %s"
+msgstr "Saved 警告：%s · %s"
+
+msgid "Subscription inventory refreshes do not change Route or Rule selection and do not create pending Apply by themselves."
+msgstr "订阅节点库刷新不会改变 Route 或 Rule 选择，也不会自行产生 pending Apply。"
+
+msgid "The last Apply failed. Saved remains committed and Active remains the generation shown above."
+msgstr "最近一次 Apply 失败。Saved 仍已提交，Active 仍是上方显示的 generation。"
+
+msgid "There are no pending Steer changes. Desired and Saved are aligned."
+msgstr "当前没有待处理的 Steer 修改；Desired 与 Saved 一致。"
+
+msgid "Valid"
+msgstr "有效"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "Apply Saved configuration"
+msgstr "Apply Saved 配置"
+
+msgid "Operation failed."
+msgstr "操作失败。"
+
+msgid "Saved configuration was applied."
+msgstr "Saved 配置已应用。"
+
+msgid "Active %s"
+msgstr "Active %s"
+
+msgid "Draft clean"
+msgstr "Draft clean"
+
+msgid "Operation failed"
+msgstr "操作失败"
+
+msgid "Pending Draft"
+msgstr "Pending Draft"
+
+msgid "Saved %s"
+msgstr "Saved %s"
+
+msgid "stopped"
+msgstr "已停止"

@@ -7,6 +7,8 @@
 'require ui';
 
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
+const callOverviewState = rpc.declare({ object: 'luci.steer', method: 'overview_state', expect: { '': {} } });
+const callApplySaved = rpc.declare({ object: 'luci.steer', method: 'apply_saved', expect: { '': {} } });
 const callValidate = rpc.declare({ object: 'luci.steer', method: 'validate', expect: { '': {} } });
 const callCommitCandidate = rpc.declare({ object: 'luci.steer', method: 'commit_candidate', expect: { '': {} } });
 const callIntentPreview = rpc.declare({ object: 'luci.steer', method: 'intent_preview', params: [ 'reveal' ], expect: { '': {} } });
@@ -51,12 +53,59 @@ function waitForApply(sequence, attempts) {
 
 return baseclass.extend({
 	loadStyle: function() {
-		if (document.getElementById('steer-stylesheet'))
-			return;
-		document.head.appendChild(E('link', { id: 'steer-stylesheet', rel: 'stylesheet', href: L.resource('steer/steer.css') }));
+		if (!document.getElementById('steer-stylesheet'))
+			document.head.appendChild(E('link', { id: 'steer-stylesheet', rel: 'stylesheet', href: L.resource('steer/steer.css') }));
+		this.mountLifecycleBar();
+	},
+
+	mountLifecycleBar: function() {
+		const existing = document.getElementById('steer-lifecycle-global');
+		existing?.remove();
+		const page = (window.location.pathname || '').split('/').pop();
+		if ([ 'overview', 'steer', 'diagnostics', 'system' ].includes(page)) return;
+		const host = document.getElementById('maincontent');
+		if (!host?.prepend) return;
+		this.overviewState().then((state) => {
+			if (state?.ok !== true) return;
+			const active = state.active || {};
+			const actions = [];
+			const run = (button, operation) => {
+				button.disabled = true;
+				operation().then((result) => {
+					if (result?.ok === false) throw new Error(result.error || _('Operation failed.'));
+					window.location.reload();
+				}).catch((error) => {
+					button.disabled = false;
+					ui.addNotification(_('Operation failed'), E('p', {}, String(error)), 'danger');
+				});
+			};
+			if (state.pending) {
+				const apply = E('button', { 'class': 'btn cbi-button-positive' }, _('Save & Apply pending changes'));
+				const discard = E('button', { 'class': 'btn cbi-button-negative' }, _('Discard pending changes'));
+				apply.addEventListener('click', () => run(apply, () => this.applyPending()));
+				discard.addEventListener('click', () => run(discard, () => this.discardPending()));
+				actions.push(apply, ' ', discard);
+			}
+			else if (state.pending_apply) {
+				const applySaved = E('button', { 'class': 'btn cbi-button-positive' }, _('Apply Saved configuration'));
+				applySaved.addEventListener('click', () => run(applySaved, () => this.applySaved()));
+				actions.push(applySaved);
+			}
+			const bar = E('section', { id: 'steer-lifecycle-global', 'class': 'cbi-section' }, [
+				E('strong', {}, _('Draft / Saved / Active')),
+				E('span', {}, ' · ' + (state.pending ? _('Pending Draft') : _('Draft clean'))),
+				E('span', {}, ' · ' + _('Saved %s').format(state.saved?.digest ? state.saved.digest.slice(0, 12) : '—')),
+				E('span', {}, ' · ' + _('Active %s').format(active.generation || _('stopped'))),
+				state.pending_apply ? E('span', { 'class': 'label warning' }, ' pending_apply') : '',
+				...actions
+			]);
+			host.prepend(bar);
+		});
 	},
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },
+	overviewState: function() { return L.resolveDefault(callOverviewState(), {}); },
+	applySaved: function() { return callApplySaved(); },
 	validate: function() { return L.resolveDefault(callValidate(), {}); },
 	commitCandidate: function() { return L.resolveDefault(callCommitCandidate(), {}); },
 	intentPreview: function(reveal) { return L.resolveDefault(callIntentPreview(reveal === true), {}); },
@@ -125,6 +174,46 @@ return baseclass.extend({
 						return result;
 					});
 			});
+	},
+
+	applyPending: function() {
+		let previousSequence = '';
+		return L.resolveDefault(callStatus(), {})
+			.then((status) => { previousSequence = status?.last_apply?.sequence || ''; })
+			.then(() => this.commitCandidate())
+			.then((commit) => {
+				const validation = commit?.validation;
+				if (commit?.committed !== true) {
+					const result = { ok: false, saved: false, validation, error: commit?.error };
+					ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
+					return result;
+				}
+				return uci.changes()
+					.then((changes) => ui.changes.renderChangeIndicator(changes))
+					.then(() => {
+						window.dispatchEvent?.(new Event('steer-uci-state-changed'));
+						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
+						return waitForApply(previousSequence, 240);
+					})
+					.then(({ result, status }) => {
+						if (status) this.refreshStatus(status, validation);
+						ui.hideModal();
+						if (!result?.ok) {
+							ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
+							return result;
+						}
+						ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
+						return result;
+					});
+			});
+	},
+
+	discardPending: function() {
+		return uci.revert('steer')
+			.then(() => uci.load('steer'))
+			.then(() => uci.changes())
+			.then((changes) => ui.changes.renderChangeIndicator(changes))
+			.then(() => window.dispatchEvent?.(new Event('steer-uci-state-changed')));
 	},
 
 	refreshStatus: function(status, validation) {

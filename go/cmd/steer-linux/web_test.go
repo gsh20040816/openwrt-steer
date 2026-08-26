@@ -225,12 +225,13 @@ func TestWebOverviewMarksEnabledSavedConfigPendingWithoutCurrent(t *testing.T) {
 	app.handleOverview(response, httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil))
 	var overview struct {
 		PendingApply bool                 `json:"pending_apply"`
+		SavedEnabled bool                 `json:"saved_enabled"`
 		Status       linuxplatform.Status `json:"status"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &overview); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != http.StatusOK || !overview.PendingApply || overview.Status.Generation != "" {
+	if response.Code != http.StatusOK || !overview.PendingApply || !overview.SavedEnabled || overview.Status.Generation != "" {
 		t.Fatalf("enabled saved config pending overview = %#v body=%s", overview, response.Body.String())
 	}
 }

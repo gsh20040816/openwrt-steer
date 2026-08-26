@@ -13,7 +13,9 @@ import (
 	"testing"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/compiler"
 	"github.com/gsh20040816/steer/go/internal/generation"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 type fakeRunner map[string]string
@@ -27,15 +29,20 @@ func (runner fakeRunner) Output(_ context.Context, name string, args ...string) 
 	return []byte(value), nil
 }
 
-func TestStatusContainsOnlyHealthAndLastApply(t *testing.T) {
+func TestStatusSeparatesActiveIdentityFromLastApply(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer listener.Close()
 	runDirectory := t.TempDir()
+	intent := model.Intent{Main: model.Main{Enabled: true}}
+	candidate, err := generation.Create(filepath.Join(runDirectory, "generations"), intent, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	current := filepath.Join(runDirectory, "current")
-	if err := os.Mkdir(current, 0o700); err != nil {
+	if err := os.Symlink(candidate.Directory, current); err != nil {
 		t.Fatal(err)
 	}
 	plan := Plan{SchemaVersion: 1, Resources: Resources{TunInterface: TunInterface, DNSPort: listener.Addr().(*net.TCPAddr).Port}}
@@ -52,7 +59,7 @@ func TestStatusContainsOnlyHealthAndLastApply(t *testing.T) {
 		"/test/nft -j list table inet steer":      `{}`,
 	}
 	status := ReadStatus(context.Background(), runner, runDirectory, "/test/nft")
-	if !status.Healthy || status.LastApply == nil || status.LastApply.Sequence != "1" {
+	if !status.Healthy || status.Generation != filepath.Base(candidate.Directory) || status.IntentDigest != compiler.IntentDigest(intent) || status.RuntimeDigest == "" || status.LastApply == nil || status.LastApply.Sequence != "1" {
 		t.Fatalf("unexpected minimal status: %#v", status)
 	}
 	encoded, err := json.Marshal(status)
@@ -63,7 +70,7 @@ func TestStatusContainsOnlyHealthAndLastApply(t *testing.T) {
 	if err := json.Unmarshal(encoded, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 2 || fields["healthy"] != true || fields["last_apply"] == nil {
-		t.Fatalf("public status contract expanded: %s", encoded)
+	if len(fields) != 5 || fields["healthy"] != true || fields["generation"] == nil || fields["intent_digest"] == nil || fields["runtime_digest"] == nil || fields["last_apply"] == nil {
+		t.Fatalf("public status lifecycle facts drifted: %s", encoded)
 	}
 }

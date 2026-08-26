@@ -20,6 +20,7 @@ const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json
 const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
 const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
 const probeDiagnosticsFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/probe-diagnostics-fixtures.json'), 'utf8'));
+const stateLifecycleFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/state-lifecycle-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -309,6 +310,7 @@ function createEnvironment(sections) {
 			return section;
 		},
 		status: () => Promise.resolve({}),
+		overviewState: () => Promise.resolve(environment.lifecycleState),
 		validate: () => Promise.resolve({ ok: true, errors: [], warnings: [] }),
 		geodataCatalog: () => Promise.resolve({}),
 		diagnostics: () => Promise.resolve(environment.diagnosticsResult),
@@ -337,6 +339,9 @@ function createEnvironment(sections) {
 			overviewProbeCalls.push(kind);
 			return Promise.resolve({ ok: true, results: [ { url: 'https://test.example/', ok: true, first_byte_milliseconds: 20 } ] });
 		},
+		applyPending: () => Promise.resolve({ ok: true }),
+		applySaved: () => Promise.resolve({ ok: true }),
+		discardPending: () => Promise.resolve(),
 		apply: () => Promise.resolve()
 	};
 	const ui = {
@@ -358,6 +363,12 @@ function createEnvironment(sections) {
 		cleanSubscriptionResult: { ok: true },
 		updateSubscriptionResult: { ok: true, subscriptions: [] },
 		diagnosticsResult: probeDiagnosticsFixtures.diagnostics,
+		lifecycleState: {
+			ok: true, pending: false,
+			desired: { available: true, enabled: true, digest: 'saved-a', counts: {}, validation: { ok: true, errors: [], warnings: [] } },
+			saved: { available: true, enabled: true, digest: 'saved-a', counts: {}, validation: { ok: true, errors: [], warnings: [] } },
+			active: { healthy: true, generation: 'generation-a', intent_digest: 'active-a' }
+		},
 		speedtestResult: { ok: true, results: [ {
 			url: 'https://speed.example/', ok: true, status: 204, attempts: 1,
 			first_byte_milliseconds: 42, downloaded_bytes: 1000000, download_milliseconds: 1000
@@ -398,9 +409,13 @@ function loadUcodeRPC(runtime) {
 		runtime.commands.push(command);
 		if (typeof(command) != 'string')
 			throw new Error(`unexpected process ${JSON.stringify(command)}`);
-		const result = command.includes(' validate --config ')
+		const result = command == '/usr/sbin/steer apply'
+			? (runtime.applyResult || { ok: true })
+			: command.includes(' validate --config ')
 			? runtime.validation
-			: (command.includes(' _export-intent') ? runtime.intent : {});
+			: (command.includes(' _state')
+				? (command.includes(' --config ') ? runtime.desiredState : runtime.savedState)
+				: (command.includes(' _export-intent') ? runtime.intent : {}));
 		return { read: () => JSON.stringify(result), close: () => 0 };
 	};
 	const open = (file, mode) => {
@@ -531,6 +546,39 @@ function testCommittedUcodePreviewAndObservedCandidateGuard() {
 	runtime.onUbusCall = null;
 }
 
+function testOverviewStateSeparatesPendingSavedAndActiveFacts() {
+	const active = {
+		healthy: true, generation: 'generation-active', intent_digest: 'active-digest',
+		last_apply: { sequence: '10', result: { ok: true, generation: 'generation-active' } }
+	};
+	const desired = {
+		available: true, enabled: false, digest: 'desired-digest', counts: { nodes: 2, routes: 3, dns_profiles: 1, local_proxies: 1, rules: 4 },
+		validation: { ok: true, errors: [], warnings: [] }
+	};
+	const saved = {
+		available: true, enabled: true, digest: 'saved-digest', counts: { nodes: 1, routes: 3, dns_profiles: 1, local_proxies: 1, rules: 4 },
+		validation: { ok: true, errors: [], warnings: [] }
+	};
+	const runtime = {
+		values: { main: { '.type': 'steer', '.name': 'main', '.index': 0, enabled: '0' } },
+		changes: [ [ 'set', 'main', 'enabled', '0' ] ],
+		desiredState: { saved: desired, active, pending_apply: false }, savedState: { saved, active, pending_apply: false },
+		validation: { ok: true, errors: [], warnings: [] }, intent: {},
+		ubusCalls: [], commands: [], documents: [], commitCalls: 0
+	};
+	const methods = loadUcodeRPC(runtime);
+	const state = callUcodeMethod(methods.overview_state, {});
+	assert.equal(state.ok, true);
+	assert.equal(state.pending, true);
+	assert.equal(state.pending_apply, false);
+	assert.equal(state.desired.enabled, false);
+	assert.equal(state.saved.enabled, true);
+	assert.equal(state.active.generation, 'generation-active');
+	assert.equal(state.active.healthy, true);
+	assert.ok(runtime.commands.some((command) => command.includes(' _state --saved-only --config ')));
+	assert.ok(runtime.commands.some((command) => command == '/usr/sbin/steer _state'));
+}
+
 function testSubscriptionRPCRejectsPendingSession() {
 	const runtime = {
 		values: {},
@@ -540,6 +588,7 @@ function testSubscriptionRPCRejectsPendingSession() {
 	};
 	const methods = loadUcodeRPC(runtime);
 	for (const [ method, args ] of [
+		[ methods.apply_saved, {} ],
 		[ methods.subscription_update, { id: 'feed' } ],
 		[ methods.subscription_clean, { id: 'feed', node: 'feed_stale' } ],
 		[ methods.node_speedtest, { node: 'node_a', download: false } ],
@@ -555,6 +604,9 @@ function testSubscriptionRPCRejectsPendingSession() {
 	callUcodeMethod(methods.subscription_update, { id: 'feed' });
 	assert.equal(runtime.commands.length, 1);
 	assert.ok(runtime.commands[0].includes('subscription update --id'));
+	const applied = callUcodeMethod(methods.apply_saved, {});
+	assert.equal(applied.ok, true);
+	assert.equal(runtime.commands[1], '/usr/sbin/steer apply');
 }
 
 function allOptions(environment) {
@@ -662,8 +714,9 @@ async function renderLocalProxies(sections) {
 	return environment;
 }
 
-async function renderOverview(sections, page = 'general') {
+async function renderOverview(sections, page = 'general', lifecycleState) {
 	const environment = createEnvironment(sections);
+	if (lifecycleState) environment.lifecycleState = lifecycleState;
 	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
 	const view = loadView(
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js',
@@ -679,7 +732,7 @@ async function renderOverview(sections, page = 'general') {
 			_: environment.translate
 		}
 	);
-	environment.rendered = await view.render([ null, {}, { ok: true, errors: [], warnings: [] }, environment.diagnosticsResult, { steer: [] } ]);
+	environment.rendered = await view.render([ null, environment.lifecycleState, { ok: true, errors: [], warnings: [] }, environment.diagnosticsResult, { steer: [] } ]);
 	return environment;
 }
 
@@ -696,6 +749,7 @@ function assertExplicitIdsAndOptionalNames(environment, message) {
 
 async function main() {
 	testCommittedUcodePreviewAndObservedCandidateGuard();
+	testOverviewStateSeparatesPendingSavedAndActiveFacts();
 	testSubscriptionRPCRejectsPendingSession();
 	const freshSections = parseUCIConfig(fs.readFileSync(path.join(root, 'steer/files/etc/config/steer'), 'utf8'));
 	assert.deepEqual(freshSections.route.map((route) => [ route['.name'], route.enabled, route.kind ]), [
@@ -1426,8 +1480,40 @@ async function main() {
 	environment = await renderOverview({}, 'steer');
 	assert.equal(environment.maps.length, 0,
 		'The Steer root resolves to Overview instead of accidentally rendering General');
-	assert.equal(environment.statusRenderCalls, 1,
-		'The Steer root renders exactly one overview status panel');
+	assert.equal(environment.statusRenderCalls, 0,
+		'The Steer root uses the lifecycle panel instead of the legacy mixed status headline');
+	for (const expected of [ 'Draft / Saved / Active', 'Pending desired', 'Saved configuration', 'Active runtime', 'generation-a' ])
+		assert.ok(elementText(environment.rendered).includes(expected), `Overview lifecycle panel must render ${expected}`);
+	for (const fixture of stateLifecycleFixtures.cases) {
+		const lifecycle = {
+			ok: true,
+			pending: fixture.draft.dirty,
+			pending_apply: fixture.pending_apply,
+			desired: { available: true, enabled: fixture.draft.enabled, digest: 'desired', counts: {}, validation: { ok: true, errors: [], warnings: [] } },
+			saved: { available: true, enabled: fixture.saved.enabled, digest: fixture.saved.revision, counts: {}, validation: { ok: true, errors: [], warnings: [] } },
+			active: {
+				healthy: fixture.active.healthy,
+				generation: fixture.active.generation || '',
+				intent_digest: fixture.active.digest || '',
+				last_apply: fixture.active.last_apply_ok == null ? null : { sequence: '1', result: { ok: fixture.active.last_apply_ok, error: fixture.active.last_apply_ok ? '' : 'activation failed' } }
+			}
+		};
+		const lifecycleEnvironment = await renderOverview({}, 'overview', lifecycle);
+		const lifecycleText = elementText(lifecycleEnvironment.rendered);
+		for (const expected of [ 'Pending desired', 'Saved configuration', 'Active runtime' ])
+			assert.ok(lifecycleText.includes(expected), `${fixture.name} must render ${expected}`);
+		if (fixture.name == 'pending-disable') {
+			assert.ok(lifecycleText.includes('generation-old') && /Healthy\s+Yes/.test(lifecycleText),
+				'pending disable must keep the still-running Active generation visible');
+			assert.ok(lifecycleText.includes('Save & Apply pending changes') && lifecycleText.includes('Discard pending changes'));
+		}
+		if (fixture.name == 'failed-apply') {
+			assert.ok(lifecycleText.includes('The last Apply failed') && lifecycleText.includes('generation-old'),
+				'failed Apply keeps Saved and the old Active identity separate');
+			assert.ok(lifecycleText.includes('Apply Saved configuration'),
+				'clean failed Apply exposes an Apply Saved retry without manufacturing pending UCI');
+		}
+	}
 	environment = await renderNodes({ subscription: [], node: [], route: [] }, '', { subscriptions: [] }, 'subscriptions');
 	assertExplicitIdsAndOptionalNames(environment, 'Subscriptions');
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');

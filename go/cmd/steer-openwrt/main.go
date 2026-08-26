@@ -71,11 +71,92 @@ func run(args []string) error {
 		return runRuntime(args[1:])
 	case "_diagnostics":
 		return runDiagnostics(args[1:])
+	case "_state":
+		return runUIState(args[1:])
 	case "_start":
 		return runServiceStart(args[1:])
 	default:
 		return usage()
 	}
+}
+
+type uiIntentCounts struct {
+	Nodes         int `json:"nodes"`
+	Subscriptions int `json:"subscriptions"`
+	Routes        int `json:"routes"`
+	DNSProfiles   int `json:"dns_profiles"`
+	LocalProxies  int `json:"local_proxies"`
+	Rules         int `json:"rules"`
+}
+
+type uiIntentState struct {
+	Available     bool             `json:"available"`
+	Enabled       bool             `json:"enabled"`
+	Digest        string           `json:"digest,omitempty"`
+	RuntimeDigest string           `json:"runtime_digest,omitempty"`
+	Counts        uiIntentCounts   `json:"counts"`
+	Validation    model.Validation `json:"validation"`
+}
+
+type uiLifecycleState struct {
+	Saved        uiIntentState  `json:"saved"`
+	Active       openwrt.Status `json:"active"`
+	PendingApply bool           `json:"pending_apply"`
+}
+
+func runUIState(args []string) error {
+	flags := flag.NewFlagSet("_state", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
+	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
+	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
+	nftBinary := flags.String("nft", "/usr/sbin/nft", "nft binary")
+	savedOnly := flags.Bool("saved-only", false, "omit Active runtime inspection")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("_state accepts flags only")
+	}
+	value, decodeValidation := loadIntent(*configPath)
+	saved := uiIntentState{Counts: uiIntentCounts{}, Validation: decodeValidation}
+	if decodeValidation.OK {
+		validation := openwrt.ValidateWithGeoDataDirectory(value, *seedDirectory)
+		compiled := compiler.Compile(value, compiler.Options{
+			StateDirectory: *stateDirectory, GeoDataDirectory: *seedDirectory,
+			Target: openwrt.NewPlan(value).CompilerTarget(),
+		})
+		saved = uiIntentState{
+			Available: true, Enabled: value.Main.Enabled, Digest: compiled.IntentDigest, RuntimeDigest: compiled.RuntimeDigest, Validation: validation,
+			Counts: uiIntentCounts{
+				Nodes: len(value.Nodes), Subscriptions: len(value.Subscriptions), Routes: len(value.Routes),
+				DNSProfiles: len(value.DNSProfiles), LocalProxies: len(value.LocalProxies), Rules: len(value.Rules),
+			},
+		}
+	}
+	active := openwrt.Status{}
+	if !*savedOnly {
+		active = openwrt.ReadStatus(context.Background(), openwrt.ExecRunner{}, *runDirectory, *nftBinary)
+	}
+	pendingApply := uiPendingApply(saved, active)
+	writeJSON(uiLifecycleState{Saved: saved, Active: active, PendingApply: pendingApply})
+	return nil
+}
+
+func uiPendingApply(saved uiIntentState, active openwrt.Status) bool {
+	if !saved.Available || !saved.Validation.OK {
+		return false
+	}
+	if saved.Enabled {
+		if active.Generation == "" || active.RuntimeDigest != saved.RuntimeDigest {
+			return true
+		}
+	} else if active.Generation != "" {
+		return true
+	}
+	lastApply := active.LastApply
+	return lastApply != nil && !lastApply.Result.OK && lastApply.Result.RuntimeDigest != "" && lastApply.Result.RuntimeDigest == saved.RuntimeDigest
 }
 
 func runDiagnostics(args []string) error {

@@ -61,6 +61,8 @@ Advanced JSON textarea 是同一个浏览器 Draft 的原文视图，不是第�
 
 状态条、总览和诊断中的 Active generation/digest 只读取 `/run/steer/current`。最近 Apply 作为带时间、candidate 和错误摘要的独立记录展示；失败 candidate 不会被冒充为 Active。Diagnostics 同时读取 sanitized Overview/Node/Route 报告，并聚合 `steer`、`steer-web`、`steer-subscription` 三个 systemd unit 的日志。订阅更新只改变未引用节点库存时显示 warning，不制造 pending Apply。
 
+页面可见时每 30 秒低频刷新 Saved revision 与 Active status，顶部也提供显式 Refresh。检测到 CLI、timer 或其他页面改写 Saved 时，dirty Draft 始终保留并显示 revision 冲突；clean Draft 提供“一键重载最新 Saved”，成功后同步 Intent、revision、overview 与当前对象页。刷新运行状态本身不会自动替换 Draft。
+
 Web Bearer token 的唯一配置源是严格 schema 1 的 `/etc/steer/web.json`。用户直接设置 `token`（32–256 个无空格可见 ASCII 字符）；`steer web-token` 只读取并输出当前配置，不生成、不迁移、不维护第二份 token 文件。
 
 `geo-catalog` 从包内 manifest 返回完整 category/attribute selector。Web“系统”页只显示 seed 版本、规则数量和运行时事实，不再维护无内容的 `/api/v1/platform`。配置编辑器离线加载同一 catalog，未知 selector 在保存/Apply 前失败。

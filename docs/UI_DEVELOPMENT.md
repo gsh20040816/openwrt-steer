@@ -145,11 +145,15 @@ Linux Advanced JSON 与结构化页面必须共享同一个 Draft。textarea 输
 
 Linux store 为每次 Draft mutation 分配递增 epoch。Save 必须发送不可变快照；响应只允许清理与请求 epoch 相同的 Draft，期间新增修改继续保持 dirty。Save、Apply Saved 与 reload 互斥，重复点击或乱序响应不得覆盖较新的 Intent/revision。订阅 update/clean 同样记录开始 epoch；若请求期间 Draft 变化，只刷新 inventory 提示，不自动 reload，也不得让离页后的旧 render 覆盖当前路由。
 
+Linux 页面可见时低频刷新服务器 Saved revision 与 Active status。外部 revision 与 Draft 基线不同时只能设置冲突事实：dirty Draft 不得被替换，clean Draft 由用户显式一键 reload。显式 Refresh、周期刷新和 Save 后 overview 刷新必须走同一比较语义。
+
 最近 Apply 是独立的操作记录。其 candidate、时间、成功/失败和错误摘要必须持久显示，但 candidate 不得作为 Active generation 的兜底来源。
 
 macOS Load 必须同时返回 Saved revision，Save/Apply 必须携带 `expected_revision`。revision conflict 不得修改 Saved、Active 或本地 Draft；UI 必须提供 Reload Saved、保留本地 Draft 和显式覆盖。订阅手动更新完成时只能在 Draft 未发生变化的情况下自动 reload，否则保留 Draft 并进入同一冲突选择；订阅库存变更始终不自动 Apply。
 
 macOS 每个 App 生命周期只初始化一次 Draft。所有页面与菜单栏共用 Save、Apply Saved、Save and Apply；Apply Saved 只部署磁盘 Saved，不得夹带 dirty Draft。Reload、安装/Repair 和退出等会替换或结束 Draft 的动作必须走同一个 Save / Discard / Cancel guard，dirty 时 Enable 必须禁用或显式确认全部副作用。安装完成默认保留编辑中的 Draft，Apply 失败时 Active 只显示后端实际 generation。
+
+LuCI Overview 必须从当前 rpcd session 的 candidate、committed UCI 与 `/run/steer/current` 分别构造 Pending desired、Saved 与 Active。pending disable 不能隐藏仍运行的 Active generation；失败 Apply 在无 pending UCI 时必须提供 Apply Saved 重试。`pending_apply` 比较编译运行投影，不能由全文 Intent digest 推导，因此未引用的订阅节点库存变化只显示 inventory warning。
 
 ## 生成与测试门
 
