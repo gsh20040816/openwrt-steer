@@ -2,6 +2,7 @@
 package intent
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -216,6 +217,45 @@ func TestRejectVLESSURISecurityLeakingIntoCanonicalModel(t *testing.T) {
 	validation := Validate(intent)
 	if validation.OK || !hasIssue(validation, "UNSUPPORTED_NODE_OPTION") {
 		t.Fatalf("VLESS URI security leaked into canonical model: %#v", validation.Errors)
+	}
+}
+
+func TestValidateVLESSRealityRequiresCompleteFields(t *testing.T) {
+	tests := []struct {
+		name           string
+		tls            NodeTLS
+		missingOptions []string
+	}{
+		{name: "unconfigured"},
+		{name: "ordinary TLS", tls: NodeTLS{TLSServerName: "proxy.example"}},
+		{name: "public key only", tls: NodeTLS{RealityPublicKey: "public-key"}, missingOptions: []string{"tls_server_name", "reality_short_id"}},
+		{name: "short ID only", tls: NodeTLS{RealityShortID: "0123456789abcdef"}, missingOptions: []string{"tls_server_name", "reality_public_key"}},
+		{name: "TLS name and public key", tls: NodeTLS{TLSServerName: "proxy.example", RealityPublicKey: "public-key"}, missingOptions: []string{"reality_short_id"}},
+		{name: "TLS name and short ID", tls: NodeTLS{TLSServerName: "proxy.example", RealityShortID: "0123456789abcdef"}, missingOptions: []string{"reality_public_key"}},
+		{name: "public key and short ID", tls: NodeTLS{RealityPublicKey: "public-key", RealityShortID: "0123456789abcdef"}, missingOptions: []string{"tls_server_name"}},
+		{name: "complete", tls: NodeTLS{TLSServerName: "proxy.example", RealityPublicKey: "public-key", RealityShortID: "0123456789abcdef"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			node := validIntent().Nodes[0]
+			node.NodeTLS = test.tls
+			validation := ValidateNode(node)
+			var missingOptions []string
+			for _, issue := range validation.Errors {
+				if issue.Code == "INCOMPLETE_REALITY" {
+					if issue.ObjectType != "node" || issue.ObjectID != node.ID {
+						t.Fatalf("Reality error has the wrong location: %#v", issue)
+					}
+					missingOptions = append(missingOptions, issue.Option)
+				}
+			}
+			if !reflect.DeepEqual(missingOptions, test.missingOptions) {
+				t.Fatalf("unexpected missing Reality fields: got %v, want %v; errors=%#v", missingOptions, test.missingOptions, validation.Errors)
+			}
+			if validation.OK != (len(test.missingOptions) == 0) {
+				t.Fatalf("unexpected validation result: %#v", validation)
+			}
+		})
 	}
 }
 

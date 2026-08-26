@@ -328,8 +328,16 @@ func validateNode(value Node, err, warn issueFn) {
 		if value.PacketEncoding != "" && !oneOf(value.PacketEncoding, "xudp", "packetaddr") {
 			err("INVALID_PACKET_ENCODING", "node", value.ID, "packet_encoding", "packet encoding must be xudp or packetaddr")
 		}
-		if value.RealityPublicKey != "" && (value.TLSServerName == "" || value.RealityShortID == "") {
-			err("INCOMPLETE_REALITY", "node", value.ID, "reality_public_key", "Reality requires TLS server name and short ID")
+		if value.RealityPublicKey != "" || value.RealityShortID != "" {
+			if value.TLSServerName == "" {
+				err("INCOMPLETE_REALITY", "node", value.ID, "tls_server_name", "Reality TLS server name is required")
+			}
+			if value.RealityPublicKey == "" {
+				err("INCOMPLETE_REALITY", "node", value.ID, "reality_public_key", "Reality public key is required")
+			}
+			if value.RealityShortID == "" {
+				err("INCOMPLETE_REALITY", "node", value.ID, "reality_short_id", "Reality short ID is required")
+			}
 		}
 		validateTransport(value, err)
 	case "hysteria2":
