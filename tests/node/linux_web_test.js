@@ -44,6 +44,12 @@ function find(value, predicate) {
   return null;
 }
 
+function findAll(value, predicate) {
+  if (!(value instanceof Element)) return [];
+  const matches = predicate(value) ? [value] : [];
+  return matches.concat(value.children.flatMap((child) => findAll(child, predicate)));
+}
+
 function text(value) {
   if (!(value instanceof Element)) return String(value ?? '');
   return value.children.map(text).join('');
@@ -98,6 +104,78 @@ function createEnvironment(save) {
   return { S, body, get touchCount() { return touchCount; } };
 }
 
+function createRulesEnvironment(intent) {
+  const rootElement = new Element('main');
+  const document = {
+    querySelector(selector) {
+      if (selector === '#view') return rootElement;
+      throw new Error(`unexpected selector ${selector}`);
+    },
+    querySelectorAll() { return []; }
+  };
+  const h = (tag, attributes = {}, ...children) => {
+    const element = new Element(tag);
+    for (const [name, value] of Object.entries(attributes)) {
+      if (value == null || value === false) continue;
+      if (name === 'class') element.className = value;
+      else if (name === 'dataset') Object.assign(element.dataset, value);
+      else if (name.startsWith('on')) element.addEventListener(name.slice(2), value);
+      else element.setAttribute(name, value === true ? '' : value);
+    }
+    element.append(...children);
+    return element;
+  };
+  let nextID = 1;
+  let touchCount = 0;
+  const ui = {
+    beginRender: (root) => root.replaceChildren(),
+    viewHead: (title, subtitle, actions) => h('header', {}, title, subtitle, actions),
+    input: ({ value }) => Object.assign(new Element('input'), { value }),
+    toggle: () => new Element('button'),
+    selectWithMissing: (options) => options,
+    select: (options, value) => Object.assign(new Element('select'), { value }),
+    chips: () => new Element('div'),
+    matchEditor: ({ value }) => ({ el: new Element('textarea'), value: value || [] }),
+    field: (label, control, help) => h('label', {}, label, control, help),
+    toast: () => {},
+    drawer(options) {
+      const editor = options.renderBody(new Element('div'));
+      const rule = editor.submit();
+      if (rule !== false) options.onSubmit(rule);
+    }
+  };
+  const S = {
+    uiSpec,
+    h,
+    asList: (value) => value == null ? [] : (Array.isArray(value) ? value : [value]),
+    uid: () => `rule_${nextID++}`,
+    api: { geodata: () => Promise.resolve({ readable: true, names: [], count: 0 }) },
+    ui,
+    store: {
+      intent,
+      touch() { touchCount++; }
+    }
+  };
+  const window = { S };
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/rules.js'), 'utf8');
+  new Function('window', 'document', source)(window, document);
+
+  return {
+    S,
+    root: rootElement,
+    render: () => S.views.rules.render(rootElement),
+    async addRule() {
+      const button = find(rootElement, (element) => element.tag === 'button' && text(element) === '添加规则');
+      assert.ok(button, 'Rules view must expose its add action');
+      button.listeners.click();
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+    renderedRuleIDs: () => findAll(rootElement, (element) => element.className.split(' ').includes('rule-row'))
+      .map((element) => element.dataset.ruleId),
+    get touchCount() { return touchCount; }
+  };
+}
+
 async function testFailedToggleRestoresDraft() {
   const environment = createEnvironment(async () => { throw new Error('network failed'); });
   await environment.S.ui.onToggleEnabled(false);
@@ -127,9 +205,44 @@ async function testConflictRestoresUntilOverwriteIsChosen() {
   assert.strictEqual(calls, 2, 'overwrite must issue one forced save after the conflicted save');
 }
 
+async function testNewRulesAreStoredBeforeDefault() {
+  const defaultRule = { id: 'default', enabled: true, default: true, dns_profile: 'direct_dns', route: 'direct' };
+  let environment = createRulesEnvironment({
+    rules: [defaultRule],
+    dns_profiles: [{ id: 'direct_dns', name: 'Direct DNS' }],
+    routes: [{ id: 'direct', name: 'Direct' }]
+  });
+  environment.render();
+  await environment.addRule();
+  await environment.addRule();
+  assert.deepEqual(environment.S.store.intent.rules.map((rule) => rule.id), ['rule_1', 'rule_2', 'default'],
+    'A default-only draft stores consecutive new rules in first-match order before Default');
+  assert.deepEqual(environment.renderedRuleIDs(), ['rule_1', 'rule_2'],
+    'The rendered ordinary-rule order matches the JSON draft order');
+  assert.strictEqual(environment.touchCount, 2, 'Each inserted rule marks the draft dirty once');
+
+  environment = createRulesEnvironment({
+    rules: [
+      { id: 'existing_a', enabled: true, name: 'Existing A', dns_profile: 'direct_dns', route: 'direct' },
+      { id: 'existing_b', enabled: true, name: 'Existing B', dns_profile: 'direct_dns', route: 'direct' },
+      { ...defaultRule }
+    ],
+    dns_profiles: [{ id: 'direct_dns', name: 'Direct DNS' }],
+    routes: [{ id: 'direct', name: 'Direct' }]
+  });
+  environment.render();
+  await environment.addRule();
+  assert.deepEqual(environment.S.store.intent.rules.map((rule) => rule.id),
+    ['existing_a', 'existing_b', 'rule_1', 'default'],
+    'A new rule follows existing ordinary rules while remaining before Default');
+  assert.deepEqual(environment.renderedRuleIDs(), ['existing_a', 'existing_b', 'rule_1'],
+    'Existing and newly inserted rules retain the same storage and display order');
+}
+
 Promise.resolve()
   .then(testFailedToggleRestoresDraft)
   .then(testConflictRestoresUntilOverwriteIsChosen)
+  .then(testNewRulesAreStoredBeforeDefault)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);

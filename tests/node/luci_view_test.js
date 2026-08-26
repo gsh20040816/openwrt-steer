@@ -187,10 +187,11 @@ function createEnvironment(sections) {
 	let statusRenderCalls = 0;
 	const steer = {
 		loadStyle: () => {},
-		configureNamedSection: (section, defaults) => {
+		configureNamedSection: (section, defaults, beforeSectionId) => {
 			section.anonymous = false;
 			section.handleAdd = function() {};
 			section.addDefaults = defaults || {};
+			section.addBeforeSectionId = beforeSectionId;
 			return section;
 		},
 		status: () => Promise.resolve({}),
@@ -386,6 +387,10 @@ async function main() {
 		'Rules expose a validated source MAC field without asking users for IP aliases');
 	const defaultSection = environment.maps[0].sections.find((section) =>
 		section.filter?.('default'));
+	const ordinaryRuleSection = environment.maps[0].sections.find((section) =>
+		section.sectionType == 'rule' && section.filter?.('default') === false);
+	assert.equal(ordinaryRuleSection?.addBeforeSectionId, 'default',
+		'A first LuCI rule created from a Default-only config is explicitly ordered before Default');
 	assert.ok(defaultSection &&
 		defaultSection.options.map((option) => option.name).join(',') == 'dns_profile,route',
 		'Default is a fixed non-modal row that exposes only DNS profile and route');
