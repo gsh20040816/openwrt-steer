@@ -140,6 +140,49 @@ async function main() {
 	assert.deepEqual(addedSections, [ [ 'steer', 'rule', 'laptop_direct' ] ],
 		'Valid section IDs are persisted as named UCI sections');
 
+	const ruleOrder = [ 'default' ];
+	const savedRuleOrders = [];
+	const moveCalls = [];
+	const orderedRuleSection = {
+		sectiontype: 'rule',
+		map: {
+			config: 'steer',
+			data: {
+				add: (config, type, sectionId) => {
+					assert.deepEqual([ config, type ], [ 'steer', 'rule' ]);
+					ruleOrder.push(sectionId);
+					return sectionId;
+				},
+				set: () => {},
+				move: (config, sectionId, targetId, after) => {
+					moveCalls.push([ config, sectionId, targetId, after ]);
+					const from = ruleOrder.indexOf(sectionId);
+					if (from < 0) return false;
+					ruleOrder.splice(from, 1);
+					const target = ruleOrder.indexOf(targetId);
+					if (target < 0) return false;
+					ruleOrder.splice(target + (after ? 1 : 0), 0, sectionId);
+					return true;
+				}
+			},
+			save: () => {
+				savedRuleOrders.push([ ...ruleOrder ]);
+				return Promise.resolve('saved');
+			}
+		}
+	};
+	helper.configureNamedSection(orderedRuleSection, null, 'default');
+	await orderedRuleSection.handleAdd(null, 'first_rule');
+	await orderedRuleSection.handleAdd(null, 'second_rule');
+	assert.deepEqual(savedRuleOrders, [
+		[ 'first_rule', 'default' ],
+		[ 'first_rule', 'second_rule', 'default' ]
+	], 'Default-only and existing-rule UCI drafts save each new rule immediately before Default');
+	assert.deepEqual(moveCalls, [
+		[ 'steer', 'first_rule', 'default', false ],
+		[ 'steer', 'second_rule', 'default', false ]
+	], 'Named rule creation explicitly moves each new UCI section before Default');
+
 	let rendered = helper.renderStatus({ healthy: false }, runtime.validation, false);
 	assert.ok(textContent(rendered).includes('Steer is disabled'),
 		'An intentionally disabled Steer reports a disabled state');

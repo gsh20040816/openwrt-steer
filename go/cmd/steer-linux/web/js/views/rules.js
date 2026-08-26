@@ -114,7 +114,11 @@
         };
       },
       onSubmit(rule) {
-        if (isNew) S.store.intent.rules.push(rule);
+        if (isNew) {
+          const rules = S.store.intent.rules;
+          const defaultIndex = rules.findIndex((candidate) => candidate.default);
+          rules.splice(defaultIndex < 0 ? rules.length : defaultIndex, 0, rule);
+        }
         S.store.touch();
         ui.toast(`规则 ${rule.name} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
         view.render(document.querySelector('#view'));

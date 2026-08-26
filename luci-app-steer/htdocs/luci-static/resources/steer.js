@@ -69,7 +69,7 @@ return baseclass.extend({
 	overviewProbe: function(kind) { return callOverviewProbe(kind); },
 	importNodes: function(document) { return callNodeImport(document); },
 
-	configureNamedSection: function(section, defaults) {
+	configureNamedSection: function(section, defaults, beforeSectionId) {
 		section.anonymous = false;
 		section.handleAdd = function(ev, sectionId) {
 			if (!sectionIDPattern.test(sectionId)) {
@@ -79,6 +79,8 @@ return baseclass.extend({
 			const config = this.uciconfig || this.map.config;
 			this.map.data.add(config, this.sectiontype, sectionId);
 			Object.entries(defaults || {}).forEach((entry) => this.map.data.set(config, sectionId, entry[0], entry[1]));
+			if (beforeSectionId)
+				this.map.data.move(config, sectionId, beforeSectionId, false);
 			return this.map.save(null, true);
 		};
 		return section;

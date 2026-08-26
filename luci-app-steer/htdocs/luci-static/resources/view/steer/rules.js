@@ -262,6 +262,7 @@ return view.extend({
 		const dnsProfiles = uci.sections('steer', 'dns_profile');
 		const routes = uci.sections('steer', 'route');
 		const localProxies = uci.sections('steer', 'local_proxy');
+		const defaultRule = rules.find((rule) => rule.default == '1');
 		const dnsReferences = collectReferences(dnsProfiles, rules, 'dns_profile');
 		const routeReferences = collectReferences(routes, rules, 'route');
 		const inboundReferences = collectReferences(localProxies, rules, 'inbound');
@@ -269,7 +270,7 @@ return view.extend({
 		m = new form.Map('steer', _('Rules'));
 
 		s = m.section(form.GridSection, 'rule', _('Ordered steering rules'));
-		steer.configureNamedSection(s);
+		steer.configureNamedSection(s, null, defaultRule?.['.name']);
 		s.addremove = true;
 		s.sortable = true;
 		s.nodescriptions = true;
