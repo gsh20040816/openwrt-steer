@@ -33,6 +33,26 @@
   };
   const NODE_OPTION_KEYS = new Set(S.uiSpec.node_fields.map((field) => field.key));
   function fieldsFor(type) { return S.uiSpec.node_fields.filter((field) => field.types.includes(type)); }
+  function requiresRemoteEndpoint(type) {
+    const keys = new Set(fieldsFor(type).map((field) => field.key));
+    return keys.has('server') && keys.has('server_port');
+  }
+
+  function formatEndpoint(hostValue, portValue) {
+    const host = String(hostValue || '').trim();
+    const port = Number(portValue);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return '端点不可用';
+    const displayHost = host.includes(':') && !(host.startsWith('[') && host.endsWith(']')) ? `[${host}]` : host;
+    return `${displayHost}:${port}`;
+  }
+
+  function nodeEndpoint(node) {
+    if (!requiresRemoteEndpoint(node.type)) {
+      if (node.type === 'tor') return node.executable_path ? `本地 Tor · ${node.executable_path}` : '本地 Tor';
+      return '本地执行 · 无远端端点';
+    }
+    return formatEndpoint(node.server, node.server_port);
+  }
 
   function groupOf(node) { return node.source_subscription || MANUAL; }
   function groups(intent) {
@@ -236,8 +256,8 @@
           listControls = [];
           specBox.replaceChildren();
           endpoint.replaceChildren();
-          endpoint.hidden = draft.type === 'tor';
-          if (draft.type !== 'tor') endpoint.append(ui.field('服务器', server, null, 'server'), ui.field('端口', port, null, 'server_port'));
+          endpoint.hidden = !requiresRemoteEndpoint(draft.type);
+          if (requiresRemoteEndpoint(draft.type)) endpoint.append(ui.field('服务器', server, null, 'server'), ui.field('端口', port, null, 'server_port'));
           for (const field of fieldsFor(draft.type).filter((candidate) => !['enabled', 'name', 'server', 'server_port'].includes(candidate.key))) {
             if (field.when && !field.when.values.includes(String(draft[field.when.field] ?? ''))) continue;
             specBox.append(ui.field(
@@ -265,7 +285,7 @@
             const trim = (v) => String(v ?? '').trim();
             if (!trim(name.value)) { ui.toast('名称不能为空', 'err'); return false; }
             draft.name = trim(name.value);
-            if (draft.type === 'tor') {
+            if (!requiresRemoteEndpoint(draft.type)) {
               delete draft.server;
               delete draft.server_port;
             } else {
@@ -319,7 +339,7 @@
       }, h('span', {}, g.label), h('span', { class: 'count' }, String(g.count)))));
 
       const table = h('table', { class: 'table' }, [
-        h('thead', {}, h('tr', {}, ['状态', '节点', '协议', '服务器', '测试', '操作'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['状态', '节点', '协议', '端点', '测试', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, nodes.map((node) => {
           const eligible = node.enabled !== false;
           const conn = testButton('连接', false, node.id, eligible);
@@ -342,7 +362,7 @@
             })()),
             h('td', {}, h('div', {}, h('div', {}, h('strong', {}, node.name || node.id)), h('div', { class: 'mono' }, node.id), node.pinned_stale ? h('span', { class: 'badge badge--stale' }, 'stale') : null)),
             h('td', {}, h('span', { class: `badge protocol-badge protocol--${node.type}` }, PROTOCOL_LABEL[node.type] || node.type)),
-            h('td', { class: 'mono' }, `${node.server}:${node.server_port}`),
+            h('td', { class: 'mono' }, nodeEndpoint(node)),
             h('td', {}, h('div', { class: 'row-actions' }, conn, down)),
             h('td', {}, h('div', { class: 'row-actions' }, edit, del))
           ]);

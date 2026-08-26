@@ -371,10 +371,40 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	}
 }
 
+func TestWebListenAcceptsOnlyNormalizedLoopbackEndpoints(t *testing.T) {
+	valid := map[string]string{
+		"127.0.0.1:9080": "127.0.0.1:9080",
+		"127.0.0.2:9443": "127.0.0.2:9443",
+		"[::1]:10443":    "[::1]:10443",
+	}
+	for input, expected := range valid {
+		actual, err := normalizeWebListen(input)
+		if err != nil || actual != expected {
+			t.Errorf("normalizeWebListen(%q) = %q, %v; want %q", input, actual, err, expected)
+		}
+	}
+
+	invalid := []string{
+		"localhost:9080",
+		"0.0.0.0:9080",
+		"[::]:9080",
+		"192.0.2.1:9080",
+		"127.0.0.1:0",
+		"127.0.0.1:65536",
+		"127.0.0.1:http",
+		"::1:9080",
+	}
+	for _, input := range invalid {
+		if actual, err := normalizeWebListen(input); err == nil {
+			t.Errorf("normalizeWebListen(%q) = %q; want an explicit rejection", input, actual)
+		}
+	}
+}
+
 func TestWebRuntimeReportsInstalledToolVersions(t *testing.T) {
 	root := t.TempDir()
 	seedDirectory := writeWebSeed(t, root)
-	app := webApplication{Runner: webRuntimeRunner{}, SeedDirectory: seedDirectory}
+	app := webApplication{Runner: webRuntimeRunner{}, SeedDirectory: seedDirectory, ListenAddress: "[::1]:9443"}
 	response := httptest.NewRecorder()
 	app.handleRuntime(response, httptest.NewRequest(http.MethodGet, "/api/v1/runtime", nil))
 	if response.Code != http.StatusOK {
@@ -384,7 +414,7 @@ func TestWebRuntimeReportsInstalledToolVersions(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &value); err != nil {
 		t.Fatalf("runtime response is not JSON: %v", err)
 	}
-	if value.Steer != version || value.SingBox.Version != "1.14.0-rc.1" || value.GeoData.Version != "test" || value.GeoData.RuleCount != 1 || value.CanonicalSchema != model.SchemaVersion {
+	if value.Steer != version || value.SingBox.Version != "1.14.0-rc.1" || value.GeoData.Version != "test" || value.GeoData.RuleCount != 1 || value.CanonicalSchema != model.SchemaVersion || value.WebListen != "[::1]:9443" {
 		t.Fatalf("runtime response = %#v", value)
 	}
 	if value.SingBox.Error != "" || value.GeoData.Error != "" || strings.Join(value.SingBox.Tags, ",") != "with_quic,with_utls" {

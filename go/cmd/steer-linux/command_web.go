@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"strings"
 )
 
 func runWeb(args []string) error {
@@ -22,9 +21,6 @@ func runWeb(args []string) error {
 	}
 	if flags.NArg() != 0 {
 		return errors.New("web accepts flags only")
-	}
-	if !strings.HasPrefix(*listen, "127.0.0.1:") && !strings.HasPrefix(*listen, "[::1]:") {
-		return errors.New("web listen address must be loopback")
 	}
 	return serveWeb(*listen, *webConfigPath, *configPath, *runDirectory, *stateDirectory, *seedDirectory)
 }
