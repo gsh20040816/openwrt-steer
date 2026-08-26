@@ -319,6 +319,36 @@
     return wrapper;
   }
 
+  function textarea({ value = '', placeholder = '', rows = 6, disabled = false, sensitive = false, oninput }) {
+    const control = h('textarea', {
+      class: `textarea ${sensitive ? 'sensitive-textarea is-masked' : ''}`,
+      placeholder, rows, disabled, spellcheck: 'false', autocomplete: sensitive ? 'off' : null, oninput
+    });
+    /* textarea does not reflect a value attribute like input; assign the value property to preserve newlines. */
+    control.value = String(value ?? '');
+    if (!sensitive) return control;
+
+    const button = h('button', {
+      class: 'input-reveal__button', type: 'button', 'aria-pressed': 'false', 'aria-label': '显示敏感内容',
+      onclick: () => {
+        const visible = !control.classList.contains('is-masked');
+        control.classList.toggle('is-masked', visible);
+        button.setAttribute('aria-pressed', String(!visible));
+        button.setAttribute('aria-label', visible ? '显示敏感内容' : '隐藏敏感内容');
+        button.textContent = visible ? '显示' : '隐藏';
+      }
+    }, '显示');
+    const wrapper = h('div', { class: 'input-reveal input-reveal--multiline' }, control, button);
+    Object.defineProperty(wrapper, 'value', {
+      configurable: false,
+      enumerable: true,
+      get: () => control.value,
+      set: (next) => { control.value = String(next ?? ''); }
+    });
+    wrapper.inputControl = control;
+    return wrapper;
+  }
+
   function select(options, value, onchange) {
     return h('select', { class: 'select', onchange: (e) => onchange?.(e.target.value) },
       options.map(([v, label]) => h('option', { value: v, selected: String(v) === String(value) }, label)));
@@ -342,7 +372,7 @@
     return row;
   }
 
-  /* chips：动态列表（逗号 / 回车添加，× 删除） */
+  /* chips：动态列表（回车 / 失焦 / 显式添加提交 pending token，× 删除） */
   function chips(values = [], { placeholder = '', onchange } = {}) {
     let current = asList(values).map(String);
     const box = h('div', { class: 'chips' });
@@ -350,14 +380,25 @@
     const inp = h('input', {
       class: 'chips__input', placeholder,
       onkeydown: (e) => {
-        if (e.key === 'Enter' || e.key === ',') {
+        if (e.key === 'Enter') {
           e.preventDefault();
-          const v = inp.value.trim();
-          if (v && !current.includes(v)) { current.push(v); render(); onchange?.(current.slice()); }
-          inp.value = '';
+          commitPending();
         }
-      }
+      },
+      onblur: commitPending
     });
+    const add = h('button', {
+      class: 'chips__add', type: 'button', 'aria-label': '添加当前项', onclick: commitPending
+    }, '添加');
+    function commitPending() {
+      const value = inp.value.trim();
+      inp.value = '';
+      if (!value || current.includes(value)) return false;
+      current.push(value);
+      render();
+      onchange?.(current.slice());
+      return true;
+    }
     function render() {
       list.replaceChildren();
       current.forEach((v, i) => list.append(h('span', { class: 'chip' }, v, h('button', {
@@ -366,7 +407,8 @@
       }, '×'))));
     }
     render();
-    box.append(list, inp);
+    box.append(list, inp, add);
+    box.commitPending = commitPending;
     return box;
   }
 
@@ -479,5 +521,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, onValidate, onToggleEnabled, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, onValidate, onToggleEnabled, jumpToObject } });
 })();

@@ -239,6 +239,11 @@ body {
 }
 .chips:focus-within { border-color: var(--route); box-shadow: 0 0 0 3px var(--route-bg); }
 .chips__input { flex: 1; min-width: 90px; background: none; border: 0; color: var(--text); font: 12px var(--mono); outline: none; padding: 3px; }
+.chips__add {
+  flex: 0 0 auto; border: 0; border-left: 1px solid var(--line-2); background: none;
+  color: var(--faint); cursor: pointer; font: 11px var(--sans); padding: 3px 4px 3px 9px;
+}
+.chips__add:hover { color: var(--route); }
 
 .switch {
   position: relative; width: 30px; height: 17px; flex: 0 0 auto;
@@ -260,6 +265,13 @@ body {
 }
 .input-reveal { position: relative; display: flex; align-items: center; min-width: 0; }
 .input-reveal > .input { flex: 1 1 auto; min-width: 0; padding-right: 54px; }
+.input-reveal--multiline { align-items: flex-start; }
+.input-reveal--multiline > .textarea { min-height: 118px; padding-right: 54px; }
+.input-reveal--multiline > .input-reveal__button { top: 7px; transform: none; }
+.sensitive-textarea.is-masked { -webkit-text-security: disc; }
+@supports not (-webkit-text-security: disc) {
+  .sensitive-textarea.is-masked { color: transparent; caret-color: var(--text); }
+}
 .input-reveal__button {
   position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
   border: 0; background: none; color: var(--faint); cursor: pointer;

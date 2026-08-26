@@ -17,21 +17,68 @@ class Element {
     this.dataset = {};
     this.listeners = {};
     this.className = '';
-    this.classList = { add() {}, remove() {}, toggle() {} };
+    this.value = '';
+    this.classList = {
+      add: (...names) => this.setClasses([...classSet(this), ...names]),
+      remove: (...names) => this.setClasses([...classSet(this)].filter((name) => !names.includes(name))),
+      toggle: (name, force) => {
+        const names = classSet(this);
+        const enabled = force == null ? !names.has(name) : !!force;
+        if (enabled) names.add(name); else names.delete(name);
+        this.setClasses([...names]);
+        return enabled;
+      },
+      contains: (name) => classSet(this).has(name)
+    };
   }
 
-  append(...children) { this.children.push(...children.flat(Infinity).filter((child) => child != null)); }
-  replaceChildren(...children) { this.children = children.flat(Infinity).filter((child) => child != null); }
-  setAttribute(name, value) { this.attributes[name] = String(value); }
+  setClasses(names) { this.className = [...new Set(names.filter(Boolean))].join(' '); }
+  append(...children) {
+    this.children.push(...children.flat(Infinity).filter((child) => child != null));
+    this.syncSelectValue();
+  }
+  replaceChildren(...children) {
+    this.children = children.flat(Infinity).filter((child) => child != null);
+    this.syncSelectValue();
+  }
+  setAttribute(name, value) {
+    const normalized = String(value);
+    this.attributes[name] = normalized;
+    if (['value', 'type', 'placeholder', 'rows', 'id'].includes(name)) this[name] = normalized;
+    if (name === 'selected') this.selected = true;
+    if (name === 'disabled') this.disabled = true;
+    if (name === 'hidden') this.hidden = true;
+  }
   getAttribute(name) { return this.attributes[name]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   removeEventListener() {}
   remove() { this.removed = true; }
+  focus() {}
+  setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
+
+  syncSelectValue() {
+    if (this.tag !== 'select') return;
+    const options = this.children.filter((child) => child instanceof Element && child.tag === 'option');
+    const selected = options.find((option) => option.selected) || options[0];
+    if (selected) this.value = selected.value;
+  }
 
   querySelector(selector) {
-    if (selector === '.strip__toggle .switch') return find(this, (element) => element.className === 'switch');
-    return null;
+    return find(this, (element) => element !== this && matches(element, selector));
   }
+
+  querySelectorAll(selector) { return findAll(this, (element) => element !== this && matches(element, selector)); }
+}
+
+function classSet(element) {
+  return new Set(String(element.className || '').split(/\s+/).filter(Boolean));
+}
+
+function matches(element, selector) {
+  const simple = selector.trim().split(/\s+/).pop();
+  if (simple.startsWith('.')) return simple.slice(1).split('.').every((name) => classSet(element).has(name));
+  if (simple.startsWith('#')) return element.attributes.id === simple.slice(1);
+  return element.tag === simple;
 }
 
 function find(value, predicate) {
@@ -55,18 +102,21 @@ function text(value) {
   return value.children.map(text).join('');
 }
 
-function createEnvironment(save) {
+function createEnvironment(save, intent = { main: { enabled: true } }) {
   const strip = new Element('div');
   const toasts = new Element('div');
+  const view = new Element('main');
+  const drawerRoot = new Element('div');
   const body = new Element('body');
+  strip.setAttribute('id', 'strip');
+  toasts.setAttribute('id', 'toasts');
+  view.setAttribute('id', 'view');
+  drawerRoot.setAttribute('id', 'drawer-root');
+  body.append(strip, toasts, view, drawerRoot);
   const document = {
     body,
-    querySelector(selector) {
-      if (selector === '#strip') return strip;
-      if (selector === '#toasts') return toasts;
-      throw new Error(`unexpected selector ${selector}`);
-    },
-    querySelectorAll() { return []; },
+    querySelector: (selector) => body.querySelector(selector),
+    querySelectorAll: (selector) => body.querySelectorAll(selector),
     addEventListener() {},
     removeEventListener() {}
   };
@@ -89,8 +139,14 @@ function createEnvironment(save) {
     icon: () => new Element('span'),
     asList: (value) => value || [],
     fmtRevision: (value) => value,
+    fmtReport: () => ({ ok: true, label: 'ok', detail: '' }),
+    uid: (prefix) => `${prefix}-test`,
+    api: {
+      async geodata() { return { names: [], readable: false, count: 0 }; },
+      async speedtestNode() { return { results: [] }; }
+    },
     store: {
-      intent: { main: { enabled: true } },
+      intent,
       overview: {},
       revision: 'revision-1',
       dirty: false,
@@ -100,8 +156,24 @@ function createEnvironment(save) {
   };
   const window = { S };
   const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/ui.js'), 'utf8');
-  new Function('window', 'document', 'setTimeout', source)(window, document, () => 0);
-  return { S, body, get touchCount() { return touchCount; } };
+  new Function('window', 'document', 'setTimeout', 'requestAnimationFrame', source)(window, document, () => 0, (callback) => callback());
+  return { S, window, document, body, view, drawerRoot, get touchCount() { return touchCount; } };
+}
+
+function loadView(environment, name) {
+  const source = fs.readFileSync(path.join(root, `go/cmd/steer-linux/web/js/views/${name}.js`), 'utf8');
+  new Function('window', 'document', 'setTimeout', source)(environment.window, environment.document, () => 0);
+}
+
+function fieldWithLabel(rootElement, label) {
+  return findAll(rootElement, (element) => classSet(element).has('field')).find((element) => {
+    const labelElement = element.children.find((child) => child instanceof Element && child.tag === 'label');
+    return labelElement && text(labelElement) === label;
+  });
+}
+
+function buttonWithText(rootElement, label) {
+  return find(rootElement, (element) => element.tag === 'button' && text(element) === label);
 }
 
 function createRulesEnvironment(intent) {
@@ -134,7 +206,7 @@ function createRulesEnvironment(intent) {
     toggle: () => new Element('button'),
     selectWithMissing: (options) => options,
     select: (options, value) => Object.assign(new Element('select'), { value }),
-    chips: () => new Element('div'),
+    chips: () => Object.assign(new Element('div'), { commitPending: () => false }),
     matchEditor: ({ value }) => ({ el: new Element('textarea'), value: value || [] }),
     field: (label, control, help) => h('label', {}, label, control, help),
     toast: () => {},
@@ -239,10 +311,151 @@ async function testNewRulesAreStoredBeforeDefault() {
     'Existing and newly inserted rules retain the same storage and display order');
 }
 
+function testChipsCommitPendingTokensConsistently() {
+  const environment = createEnvironment(async () => ({ ok: true }));
+  const updates = [];
+  const control = environment.S.ui.chips(['existing'], { onchange: (values) => updates.push(values) });
+  const input = find(control, (element) => classSet(element).has('chips__input'));
+  const add = find(control, (element) => classSet(element).has('chips__add'));
+
+  input.value = 'blurred';
+  input.listeners.blur();
+  assert.deepStrictEqual(updates.at(-1), ['existing', 'blurred'], 'blur must commit the pending token');
+
+  const updateCount = updates.length;
+  input.value = '  ';
+  input.listeners.blur();
+  input.value = 'existing';
+  add.listeners.click();
+  assert.strictEqual(updates.length, updateCount, 'blank and duplicate tokens must not be added');
+
+  let commaPrevented = false;
+  input.value = 'literal,comma';
+  input.listeners.keydown({ key: ',', preventDefault() { commaPrevented = true; } });
+  assert.strictEqual(commaPrevented, false, 'comma must not act as a global chip delimiter');
+  input.listeners.blur();
+  assert.deepStrictEqual(updates.at(-1), ['existing', 'blurred', 'literal,comma'], 'commas in field content must survive');
+
+  input.value = 'added';
+  add.listeners.click();
+  assert.deepStrictEqual(updates.at(-1), ['existing', 'blurred', 'literal,comma', 'added'], 'explicit Add must share the commit path');
+
+  let enterPrevented = false;
+  input.value = 'entered';
+  input.listeners.keydown({ key: 'Enter', preventDefault() { enterPrevented = true; } });
+  assert.ok(enterPrevented, 'Enter must submit the pending token without submitting the surrounding form');
+  assert.deepStrictEqual(updates.at(-1), ['existing', 'blurred', 'literal,comma', 'added', 'entered'], 'Enter must share the commit path');
+}
+
+function representativeIntent(privateKey) {
+  return {
+    main: { enabled: true },
+    subscriptions: [],
+    nodes: [{
+      id: 'ssh-node', enabled: true, name: 'SSH node', type: 'ssh', server: 'ssh.example', server_port: 22,
+      username: 'root', password: 'password-secret', private_key: privateKey,
+      host_key_algorithms: ['ssh-ed25519']
+    }],
+    routes: [{ id: 'direct', enabled: true, kind: 'direct' }],
+    dns_profiles: [{ id: 'public', enabled: true, name: 'Public' }],
+    local_proxies: [],
+    rules: [
+      { id: 'rule-one', enabled: true, name: 'Rule one', dns_profile: 'public', route: 'direct' },
+      { id: 'default', enabled: true, default: true, name: 'Default', dns_profile: 'public', route: 'direct' }
+    ]
+  };
+}
+
+function openOnlyEditor(environment, viewName) {
+  environment.S.views[viewName].render(environment.view);
+  const edit = buttonWithText(environment.view, '编辑');
+  assert.ok(edit, `${viewName} view must expose its editor`);
+  return edit.listeners.click();
+}
+
+function testNodeStringListSubmitAndPrivateKeyRoundTrip() {
+  const originalKey = '-----BEGIN OPENSSH PRIVATE KEY-----\noriginal\n-----END OPENSSH PRIVATE KEY-----\n';
+  const editedKey = '-----BEGIN OPENSSH PRIVATE KEY-----\nline one\n\nline two  \n-----END OPENSSH PRIVATE KEY-----\n';
+  const environment = createEnvironment(async () => ({ ok: true }), representativeIntent(originalKey));
+  loadView(environment, 'nodes');
+  openOnlyEditor(environment, 'nodes');
+
+  let privateKeyField = fieldWithLabel(environment.drawerRoot, '私钥');
+  let privateKeyInput = find(privateKeyField, (element) => element.tag === 'textarea');
+  assert.ok(privateKeyInput, 'multiline sensitive private_key must render as a textarea');
+  assert.ok(privateKeyInput.classList.contains('is-masked'), 'private_key must be masked by default');
+  assert.strictEqual(privateKeyInput.value, originalKey, 'the editor must preserve the loaded key including its trailing newline');
+
+  const reveal = find(privateKeyField, (element) => classSet(element).has('input-reveal__button'));
+  reveal.listeners.click();
+  assert.ok(!privateKeyInput.classList.contains('is-masked'), 'private_key must reveal only after the explicit control is used');
+  assert.strictEqual(reveal.getAttribute('aria-pressed'), 'true', 'reveal state must be exposed accessibly');
+
+  privateKeyInput.value = editedKey;
+  privateKeyInput.listeners.input({ target: privateKeyInput });
+
+  const algorithmsField = fieldWithLabel(environment.drawerRoot, 'Host key algorithms');
+  const pendingAlgorithm = find(algorithmsField, (element) => classSet(element).has('chips__input'));
+  pendingAlgorithm.value = 'ssh-rsa';
+
+  const protocolField = fieldWithLabel(environment.drawerRoot, '协议');
+  const protocol = find(protocolField, (element) => element.tag === 'select');
+  protocol.value = 'trojan';
+  protocol.listeners.change({ target: protocol });
+  protocol.value = 'ssh';
+  protocol.listeners.change({ target: protocol });
+
+  privateKeyField = fieldWithLabel(environment.drawerRoot, '私钥');
+  privateKeyInput = find(privateKeyField, (element) => element.tag === 'textarea');
+  assert.strictEqual(privateKeyInput.value, editedKey, 'switching SSH authentication fields must not clear private_key');
+  const passwordField = fieldWithLabel(environment.drawerRoot, '密码');
+  const password = find(passwordField, (element) => element.tag === 'input');
+  assert.strictEqual(password.value, 'password-secret', 'switching away from and back to SSH must not clear password');
+
+  const currentAlgorithmsField = fieldWithLabel(environment.drawerRoot, 'Host key algorithms');
+  const finalPending = find(currentAlgorithmsField, (element) => classSet(element).has('chips__input'));
+  finalPending.value = 'rsa-sha2-512';
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+
+  const savedNode = environment.S.store.intent.nodes[0];
+  assert.strictEqual(savedNode.private_key, editedKey, 'drawer submit must preserve private_key bytes and newlines');
+  assert.strictEqual(savedNode.password, 'password-secret', 'saving private-key authentication must not clear the password secret');
+  assert.deepStrictEqual(
+    savedNode.host_key_algorithms,
+    ['ssh-ed25519', 'ssh-rsa', 'rsa-sha2-512'],
+    'node string-list pending tokens must flush on rebuild and drawer submit'
+  );
+
+  const reloaded = createEnvironment(async () => ({ ok: true }), JSON.parse(JSON.stringify(environment.S.store.intent)));
+  loadView(reloaded, 'nodes');
+  openOnlyEditor(reloaded, 'nodes');
+  const reloadedKey = find(fieldWithLabel(reloaded.drawerRoot, '私钥'), (element) => element.tag === 'textarea');
+  assert.strictEqual(reloadedKey.value, editedKey, 'save and reload must retain every private-key newline');
+  assert.ok(reloadedKey.classList.contains('is-masked'), 'a reloaded private key must return to the masked state');
+}
+
+async function testRuleStringListFlushesOnDrawerSubmit() {
+  const environment = createEnvironment(async () => ({ ok: true }), representativeIntent('key'));
+  loadView(environment, 'rules');
+  await openOnlyEditor(environment, 'rules');
+  const inbound = fieldWithLabel(environment.drawerRoot, 'inbound（本地代理端点）');
+  const pending = find(inbound, (element) => classSet(element).has('chips__input'));
+  pending.value = 'proxy-last';
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.deepStrictEqual(
+    environment.S.store.intent.rules[0].inbound,
+    ['proxy-last'],
+    'rule drawer submit must atomically flush its last pending chip'
+  );
+}
+
 Promise.resolve()
   .then(testFailedToggleRestoresDraft)
   .then(testConflictRestoresUntilOverwriteIsChosen)
   .then(testNewRulesAreStoredBeforeDefault)
+  .then(testChipsCommitPendingTokensConsistently)
+  .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
+  .then(testRuleStringListFlushesOnDrawerSubmit)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);
