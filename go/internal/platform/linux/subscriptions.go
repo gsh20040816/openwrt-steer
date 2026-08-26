@@ -16,19 +16,8 @@ import (
 )
 
 type SubscriptionSnapshot = subscription.Snapshot
-
-type SubscriptionStatus struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name,omitempty"`
-	URL            string    `json:"url"`
-	Enabled        bool      `json:"enabled"`
-	UpdateInterval string    `json:"update_interval,omitempty"`
-	FetchedAt      time.Time `json:"fetched_at,omitempty"`
-	NodeCount      int       `json:"node_count"`
-	Skipped        int       `json:"skipped"`
-	StaleNodeIDs   []string  `json:"stale_node_ids,omitempty"`
-	Error          string    `json:"error,omitempty"`
-}
+type SubscriptionStatus = subscription.Status
+type SubscriptionUpdateError = subscription.UpdateError
 
 func SubscriptionSnapshotPath(stateDirectory, id string) string {
 	if stateDirectory == "" {
@@ -44,19 +33,12 @@ func ReadSubscriptionStatus(configPath, stateDirectory string) ([]SubscriptionSt
 	}
 	statuses := make([]SubscriptionStatus, 0, len(intent.Subscriptions))
 	for _, configured := range intent.Subscriptions {
-		status := SubscriptionStatus{ID: configured.ID, Name: configured.Name, URL: configured.URL, Enabled: configured.Enabled, UpdateInterval: configured.UpdateInterval}
 		snapshot, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, configured.ID))
-		if readErr != nil {
-			status.Error = "not fetched: " + readErr.Error()
-		} else {
-			status.FetchedAt, status.NodeCount, status.Skipped = snapshot.FetchedAt, len(snapshot.Nodes), snapshot.Skipped
-			for _, node := range snapshot.Nodes {
-				if node.PinnedStale {
-					status.StaleNodeIDs = append(status.StaleNodeIDs, node.ID)
-				}
-			}
+		var saved *SubscriptionSnapshot
+		if readErr == nil {
+			saved = &snapshot
 		}
-		statuses = append(statuses, status)
+		statuses = append(statuses, subscription.BuildStatus(configured, intent.Nodes, intent.Routes, saved, readErr))
 	}
 	return statuses, nil
 }
@@ -73,9 +55,13 @@ func UpdateConfiguredSubscriptions(ctx context.Context, client *http.Client, con
 		if !configured.Enabled || (id != "" && configured.ID != id) {
 			continue
 		}
+		var previous *SubscriptionSnapshot
+		if saved, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, configured.ID)); readErr == nil {
+			previous = &saved
+		}
 		if id == "" {
 			var fetchedAt time.Time
-			if previous, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, configured.ID)); readErr == nil {
+			if previous != nil {
 				fetchedAt = previous.FetchedAt
 			}
 			due, scheduleErr := subscription.AutomaticUpdateDue(configured.UpdateInterval, fetchedAt, scheduleTime)
@@ -88,7 +74,11 @@ func UpdateConfiguredSubscriptions(ctx context.Context, client *http.Client, con
 		}
 		fetched, err := subscription.Fetch(ctx, client, configured)
 		if err != nil {
-			return nil, fmt.Errorf("update subscription %s: %w", configured.ID, err)
+			failure := subscription.FailedSnapshot(configured, previous, err, time.Now())
+			if saveErr := saveSubscriptionSnapshot(stateDirectory, failure); saveErr != nil {
+				return nil, subscription.NewUpdateError(configured.ID, saveErr)
+			}
+			return nil, subscription.NewUpdateError(configured.ID, err)
 		}
 		old := make([]model.Node, 0)
 		for _, node := range value.Nodes {
@@ -101,9 +91,7 @@ func UpdateConfiguredSubscriptions(ctx context.Context, client *http.Client, con
 			merged = subscription.Merge(configured.ID, old, fetched.Nodes)
 		}
 		value.Nodes = subscription.Replace(value.Nodes, configured.ID, merged)
-		snapshots = append(snapshots, SubscriptionSnapshot{
-			SubscriptionID: configured.ID, URL: configured.URL, FetchedAt: time.Now().UTC(), Nodes: merged, Skipped: fetched.Skipped,
-		})
+		snapshots = append(snapshots, subscription.SuccessfulSnapshot(configured, previous, old, merged, fetched, time.Now()))
 	}
 	if id != "" && len(snapshots) == 0 {
 		return nil, fmt.Errorf("enabled subscription %q was not found", id)

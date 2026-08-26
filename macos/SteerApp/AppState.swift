@@ -232,24 +232,55 @@ struct ProbeReport: Decodable, Sendable {
     }
 }
 
+struct SubscriptionFailure: Decodable, Sendable {
+    let at: String?
+    let summary: String
+}
+
+struct SubscriptionReference: Decodable, Sendable, Identifiable {
+    let objectType: String
+    let id: String
+    let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case objectType = "object_type"
+    }
+}
+
+struct SubscriptionStaleNode: Decodable, Sendable, Identifiable {
+    let id: String
+    let name: String?
+    let referencedBy: [SubscriptionReference]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case referencedBy = "referenced_by"
+    }
+}
+
 struct SubscriptionRuntimeStatus: Decodable, Identifiable, Sendable {
     let id: String
     let name: String?
     let url: String
     let enabled: Bool
     let updateInterval: String?
-    let fetchedAt: String?
+    let neverFetched: Bool
+    let lastSuccess: String?
+    let lastFailure: SubscriptionFailure?
     let nodeCount: Int
+    let current: Int
+    let added: Int
     let skipped: Int
-    let staleNodeIDs: [String]
-    let error: String?
+    let stale: [SubscriptionStaleNode]
 
     enum CodingKeys: String, CodingKey {
-        case id, name, url, enabled, skipped, error
+        case id, name, url, enabled, current, added, skipped, stale
         case updateInterval = "update_interval"
-        case fetchedAt = "fetched_at"
+        case neverFetched = "never_fetched"
+        case lastSuccess = "last_success"
+        case lastFailure = "last_failure"
         case nodeCount = "node_count"
-        case staleNodeIDs = "stale_node_ids"
     }
 
     init(from decoder: Decoder) throws {
@@ -259,11 +290,37 @@ struct SubscriptionRuntimeStatus: Decodable, Identifiable, Sendable {
         url = try container.decode(String.self, forKey: .url)
         enabled = try container.decode(Bool.self, forKey: .enabled)
         updateInterval = try container.decodeIfPresent(String.self, forKey: .updateInterval)
-        fetchedAt = try container.decodeIfPresent(String.self, forKey: .fetchedAt)
+        neverFetched = try container.decodeIfPresent(Bool.self, forKey: .neverFetched) ?? true
+        lastSuccess = try container.decodeIfPresent(String.self, forKey: .lastSuccess)
+        lastFailure = try container.decodeIfPresent(SubscriptionFailure.self, forKey: .lastFailure)
         nodeCount = try container.decodeIfPresent(Int.self, forKey: .nodeCount) ?? 0
+        current = try container.decodeIfPresent(Int.self, forKey: .current) ?? 0
+        added = try container.decodeIfPresent(Int.self, forKey: .added) ?? 0
         skipped = try container.decodeIfPresent(Int.self, forKey: .skipped) ?? 0
-        staleNodeIDs = try container.decodeIfPresent([String].self, forKey: .staleNodeIDs) ?? []
-        error = try container.decodeIfPresent(String.self, forKey: .error)
+        stale = try container.decodeIfPresent([SubscriptionStaleNode].self, forKey: .stale) ?? []
+    }
+
+    var stateLabel: String {
+        if !enabled { return "已停用" }
+        if lastFailureIsLatest {
+            return neverFetched ? "抓取失败" : "最近失败"
+        }
+        if neverFetched { return "未抓取" }
+        if skipped > 0 { return "成功 · 跳过 \(skipped)" }
+        return "成功"
+    }
+
+    var inventorySummary: String {
+        "added \(added) · current \(current) · stale \(stale.count) · skipped \(skipped)"
+    }
+
+    private var lastFailureIsLatest: Bool {
+        guard let failure = lastFailure else { return false }
+        guard let success = lastSuccess, let failureAt = failure.at else { return true }
+        let formatter = ISO8601DateFormatter()
+        guard let successDate = formatter.date(from: success),
+              let failureDate = formatter.date(from: failureAt) else { return true }
+        return failureDate > successDate
     }
 }
 
@@ -1564,6 +1621,10 @@ final class AppModel: ObservableObject {
     func updateSubscription(_ id: String) {
         let operationID = "update:\(id)"
         guard pendingDraftAction == nil else { return }
+        guard subscriptionStatus(id)?.enabled != false else {
+            message = "已停用的订阅不能更新；请先启用并保存配置"
+            return
+        }
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
         let startingWasDirty = isDirty
         let startingDraftSequence = draftMutationSequence
@@ -1574,14 +1635,19 @@ final class AppModel: ObservableObject {
                 try await backend.updateSubscription(id: id)
                 let snapshot = try await backend.loadConfiguration()
                 subscriptionRuntime = try await backend.subscriptionStatuses()
+                let updateSummary = subscriptionStatus(id)?.inventorySummary ?? "节点库存已更新"
                 if !startingWasDirty && draftMutationSequence == startingDraftSequence {
                     replaceDraft(with: snapshot)
-                    message = "订阅已更新；运行态未自动 Apply"
+                    message = "订阅已更新：\(updateSummary)；运行配置未改变，未自动 Apply"
                 } else {
                     presentSubscriptionInventoryConflict(snapshot)
                 }
             } catch {
-                message = "订阅更新失败：\(error.localizedDescription)"
+                if let refreshed = try? await backend.subscriptionStatuses() {
+                    subscriptionRuntime = refreshed
+                }
+                let summary = subscriptionStatus(id)?.lastFailure?.summary ?? error.localizedDescription
+                message = "订阅更新失败：\(summary)"
             }
         }
     }
@@ -1606,6 +1672,9 @@ final class AppModel: ObservableObject {
                     presentSubscriptionInventoryConflict(snapshot)
                 }
             } catch {
+                if let refreshed = try? await backend.subscriptionStatuses() {
+                    subscriptionRuntime = refreshed
+                }
                 message = "stale 节点清理失败：\(error.localizedDescription)"
             }
         }
@@ -1633,12 +1702,14 @@ final class AppModel: ObservableObject {
                 ?? (object["default"]?.boolValue == true ? "default" : "")
             let detail = draftItemDetail(key: key, object: object)
             let sourceSubscription = object["source_subscription"]?.stringValue
+            let pinnedStale = object["pinned_stale"]?.boolValue ?? false
             return DraftItem(
                 id: "\(key):\(identifier)", index: index, identifier: identifier,
                 title: name.isEmpty ? draftItemFallbackTitle(key: key, kind: kind) : name, kind: kind,
                 detail: detail, enabled: enabled,
                 subscriptionOwned: sourceSubscription?.isEmpty == false,
-                sourceSubscription: sourceSubscription?.isEmpty == false ? sourceSubscription : nil
+                sourceSubscription: sourceSubscription?.isEmpty == false ? sourceSubscription : nil,
+                pinnedStale: pinnedStale
             )
         }
     }
@@ -2063,6 +2134,7 @@ struct DraftItem: Identifiable {
     let enabled: Bool
     let subscriptionOwned: Bool
     let sourceSubscription: String?
+    let pinnedStale: Bool
 }
 
 private extension JSONEncoder {

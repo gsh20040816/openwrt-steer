@@ -440,24 +440,40 @@ func runSubscription(args []string) error {
 		if *id == "" || *nodeID == "" {
 			return errors.New("subscription clean requires --id and --node")
 		}
-		snapshot, err := openwrt.CleanSubscriptionNode(*configPath, *stateDirectory, *id, *nodeID)
+		_, err := openwrt.CleanSubscriptionNode(*configPath, *stateDirectory, *id, *nodeID)
+		if err != nil {
+			writeJSON(struct {
+				OK    bool   `json:"ok"`
+				Error string `json:"error"`
+			}{false, err.Error()})
+			return err
+		}
+		statuses, err := openwrt.ReadSubscriptionStatus(*configPath, *stateDirectory)
 		if err != nil {
 			return err
 		}
 		writeJSON(struct {
-			OK       bool                         `json:"ok"`
-			Snapshot openwrt.SubscriptionSnapshot `json:"snapshot"`
-		}{true, snapshot})
+			OK            bool                         `json:"ok"`
+			Subscriptions []openwrt.SubscriptionStatus `json:"subscriptions"`
+		}{true, statuses})
 		return nil
 	}
-	snapshots, err := openwrt.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
+	_, err := openwrt.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
+	if err != nil {
+		writeJSON(struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}{false, err.Error()})
+		return err
+	}
+	statuses, err := openwrt.ReadSubscriptionStatus(*configPath, *stateDirectory)
 	if err != nil {
 		return err
 	}
 	writeJSON(struct {
-		OK        bool                           `json:"ok"`
-		Snapshots []openwrt.SubscriptionSnapshot `json:"snapshots"`
-	}{true, snapshots})
+		OK            bool                         `json:"ok"`
+		Subscriptions []openwrt.SubscriptionStatus `json:"subscriptions"`
+	}{true, statuses})
 	return nil
 }
 

@@ -130,6 +130,6 @@ Linux `status` 从 `current` generation 的实际 `intent.json` 与 `sing-box.js
 
 ## 订阅与测试
 
-共享订阅逻辑只依赖窄 `Store`：替换一组订阅节点或删除一个节点。OpenWrt Store 生成单次 UCI batch；未来 JSON Store 可以原子写配置文件。订阅只改变节点，提交后不主动 Apply。
+共享订阅逻辑只依赖窄 `Store`：替换一组订阅节点或删除一个节点。OpenWrt Store 生成单次 UCI batch；JSON Store 使用 revision-guarded 原子写入。订阅只改变 Saved 节点库，提交后不主动 Apply。三端状态都由 `subscription.Status` 生成：最近成功 snapshot 与最近失败独立保存，失败摘要不含 URL/响应内容，stale 节点携带阻止 clean 的 Route 引用。UI 更新响应也使用该状态 DTO，不返回包含节点凭据的内部 snapshot。
 
 共享 probe 负责 HTTP/TLS 测量。OpenWrt 概览测试读取当前 generation 的 `intent.json`，节点和路由测试读取磁盘 UCI并临时启动环回 sing-box。macOS GUI 的概览请求经受限 control socket 由 root daemon 读取 Active generation，不以 Saved config 兜底；结果绑定 Active generation/digest 与测试时间，GUI 在 Active 改变或停用后把旧结果标为过期。概览请求按 Active 规则访问，不声称命中了某个 outbound。测试报告不会进入配置或编译输入。

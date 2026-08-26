@@ -181,13 +181,26 @@ func runSubscription(args []string, stdoutWriter interface{ Write([]byte) (int, 
 				return err
 			}
 		}
+		statuses, err := macosplatform.ReadSubscriptionStatus(*configPath, *stateDirectory)
+		if err != nil {
+			return err
+		}
 		return writeJSON(stdoutWriter, struct {
-			OK       bool                               `json:"ok"`
-			Snapshot macosplatform.SubscriptionSnapshot `json:"snapshot"`
-		}{true, snapshot})
+			OK            bool                               `json:"ok"`
+			Subscriptions []macosplatform.SubscriptionStatus `json:"subscriptions"`
+		}{true, statuses})
 	}
 	snapshots, err := macosplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
 	if err != nil {
+		if os.Geteuid() == 0 {
+			adminGID, lookupErr := lookupAdminGID()
+			if lookupErr != nil {
+				return lookupErr
+			}
+			if permissionErr := setFailedSubscriptionStatePermissions(*stateDirectory, *id, adminGID, err); permissionErr != nil {
+				return permissionErr
+			}
+		}
 		return err
 	}
 	if os.Geteuid() == 0 {
@@ -204,8 +217,12 @@ func runSubscription(args []string, stdoutWriter interface{ Write([]byte) (int, 
 			}
 		}
 	}
+	statuses, err := macosplatform.ReadSubscriptionStatus(*configPath, *stateDirectory)
+	if err != nil {
+		return err
+	}
 	return writeJSON(stdoutWriter, struct {
-		OK        bool                                 `json:"ok"`
-		Snapshots []macosplatform.SubscriptionSnapshot `json:"snapshots"`
-	}{true, snapshots})
+		OK            bool                               `json:"ok"`
+		Subscriptions []macosplatform.SubscriptionStatus `json:"subscriptions"`
+	}{true, statuses})
 }

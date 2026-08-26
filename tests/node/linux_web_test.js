@@ -9,6 +9,7 @@ const path = require('path');
 const root = path.resolve(__dirname, '../..');
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
+const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -156,6 +157,7 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
     icon: () => new Element('span'),
     asList: (value) => value || [],
     fmtDuration: () => '—',
+    fmtTime: (value) => String(value),
     fmtRevision: (value) => value,
     fmtReport: () => ({ ok: true, label: 'ok', detail: '' }),
     uid: (prefix) => `${prefix}-test`,
@@ -800,13 +802,20 @@ function createDraftBackend() {
     async speedtestNode() { state.nodeTests++; return { results: [] }; },
     async speedtestRoute() { state.routeTests++; return { results: [] }; },
     async subscriptions() {
-      return { subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h', node_count: 1, skipped: 0, stale_node_ids: ['feed_stale'] }] };
+      return { subscriptions: [{
+        id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h',
+        never_fetched: false, last_success: '2026-08-26T01:00:00Z', last_failure: null,
+        node_count: 1, current: 0, added: 0, skipped: 0,
+        stale: [{ id: 'feed_stale', name: 'Stale', referenced_by: [] }]
+      }] };
     },
     async updateSubscription() {
       state.subscriptionUpdates++;
-      return { snapshots: [{ node_count: 1, skipped: 0 }] };
+      return { subscriptions: [{
+        id: 'feed', enabled: true, node_count: 1, current: 1, added: 1, skipped: 0, stale: []
+      }] };
     },
-    async cleanNode() { state.subscriptionCleans++; return { snapshot: {} }; }
+    async cleanNode() { state.subscriptionCleans++; return { subscriptions: [] }; }
   };
   return state;
 }
@@ -1102,7 +1111,9 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   await buttonWithText(environment.view, '链测试').listeners.click();
   environment.S.router('subscriptions');
   await flushUI();
-  await buttonWithText(environment.view, '立即更新').listeners.click();
+  const resumedUpdate = buttonWithText(environment.view, '立即更新');
+  assert.ok(resumedUpdate, `subscription view failed to render: ${text(environment.view)}`);
+  await resumedUpdate.listeners.click();
   await flushUI();
   assert.strictEqual(backend.nodeTests, 1, 'node testing must resume immediately after Discard');
   assert.strictEqual(backend.routeTests, 1, 'route testing must resume immediately after Discard');
@@ -1186,7 +1197,7 @@ async function testSubscriptionAsyncWorkPreservesNewDraftAndRoute() {
   backend.api.updateSubscription = async () => {
     backend.subscriptionUpdates++;
     await updateGate.promise;
-    return { snapshots: [{ node_count: 1, skipped: 0 }] };
+    return { subscriptions: [{ id: 'feed', node_count: 1, current: 1, added: 0, skipped: 0, stale: [] }] };
   };
   const configCallsBeforeUpdate = backend.configCalls;
   const updating = buttonWithText(environment.view, '立即更新').listeners.click();
@@ -1249,7 +1260,7 @@ async function testSubscriptionAsyncWorkReloadsLatestAfterDiscard() {
     await updateGate.promise;
     backend.intent.main.log_level = 'warn';
     backend.revision = '"revision-update-latest"';
-    return { snapshots: [{ node_count: 1, skipped: 0 }] };
+    return { subscriptions: [{ id: 'feed', node_count: 1, current: 1, added: 0, skipped: 0, stale: [] }] };
   };
   const configCallsBeforeUpdate = backend.configCalls;
   const updating = buttonWithText(environment.view, '立即更新').listeners.click();
@@ -1458,6 +1469,54 @@ function testLocalProxyBlocksRemovingAuthenticationFromExposedListener() {
   assert.strictEqual(environment.touchCount, 0, 'blocked removal must not mark the Draft dirty');
 }
 
+async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
+  const statuses = subscriptionStatusFixtures.cases.map((fixture) => fixture.status);
+  const intent = draftLifecycleIntent();
+  intent.subscriptions = statuses.map((status) => ({
+    id: status.id, enabled: status.enabled, name: status.name, url: status.url, update_interval: status.update_interval
+  }));
+  intent.nodes.push(
+    { id: 'failed_blocked', enabled: true, name: 'Blocked stale', type: 'socks', server: 'blocked.example', server_port: 1080, source_subscription: 'failed', pinned_stale: true },
+    { id: 'failed_removable', enabled: true, name: 'Removable stale', type: 'socks', server: 'removable.example', server_port: 1080, source_subscription: 'failed', pinned_stale: true }
+  );
+  let updates = 0;
+  const environment = createEnvironment(async () => ({ ok: true }), intent, { api: {
+    subscriptions: async () => ({ subscriptions: statuses }),
+    updateSubscription: async (id) => {
+      updates++;
+      return { subscriptions: statuses.filter((status) => status.id === id) };
+    },
+    cleanNode: async () => ({ subscriptions: statuses })
+  } });
+  environment.S.store.draftEpoch = 0;
+  environment.S.store.reload = async () => ({ ok: true });
+  environment.S.store.refreshOverview = async () => ({});
+  loadView(environment, 'subscriptions');
+  await environment.S.views.subscriptions.render(environment.view);
+
+  const rendered = text(environment.view);
+  for (const expected of ['未抓取', '成功', '成功 · 有跳过', '最近失败', '已停用', 'subscription server returned HTTP 503']) {
+    assert.match(rendered, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      `Linux subscription UI must render shared state ${expected}`);
+  }
+  assert.match(rendered, /3 \(1 current\)/, 'failed-after-success keeps the last successful inventory');
+  assert.match(rendered, /1 \/ 2/, 'skipped and stale counts remain persistent');
+
+  const updateButtons = findAll(environment.view, (element) => element.tag === 'button' && text(element) === '立即更新');
+  assert.strictEqual(updateButtons.length, statuses.length);
+  const disabledIndex = statuses.findIndex((status) => status.id === 'disabled');
+  assert.ok(Object.hasOwn(updateButtons[disabledIndex].attributes, 'disabled'),
+    'disabled subscription Update is visibly disabled');
+  await updateButtons[disabledIndex].listeners.click();
+  assert.strictEqual(updates, 0, 'disabled subscription Update never reaches the backend');
+
+  const successIndex = statuses.findIndex((status) => status.id === 'success');
+  await updateButtons[successIndex].listeners.click();
+  assert.strictEqual(updates, 1);
+  assert.match(text(environment.toasts), /added 2 · current 2 · stale 0 · skipped 0/,
+    'update toast uses the same status contract and all inventory counters');
+}
+
 Promise.resolve()
   .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
@@ -1484,6 +1543,7 @@ Promise.resolve()
   .then(testLocalProxyReplacesAndRemovesAuthentication)
   .then(testLocalProxyBlocksExposedUnauthenticatedDraftAndCreatesCredentials)
   .then(testLocalProxyBlocksRemovingAuthenticationFromExposedListener)
+  .then(testSharedSubscriptionStatusLifecycleAndDisabledUpdate)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);

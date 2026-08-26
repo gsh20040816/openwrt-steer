@@ -306,6 +306,10 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 	if request.Operation == "subscription-update" {
 		snapshots, err := macosplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, service.configPath, service.options.StateDirectory, request.ID)
 		if err != nil {
+			if permissionErr := setFailedSubscriptionStatePermissions(service.options.StateDirectory, request.ID, service.adminGID, err); permissionErr != nil {
+				response.Error = permissionErr.Error()
+				return response
+			}
 			response.Error = err.Error()
 			return response
 		}
@@ -319,9 +323,14 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 				return response
 			}
 		}
+		statuses, err := macosplatform.ReadSubscriptionStatus(service.configPath, service.options.StateDirectory)
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
 		response.Payload, _ = json.Marshal(struct {
-			Snapshots []macosplatform.SubscriptionSnapshot `json:"snapshots"`
-		}{snapshots})
+			Subscriptions []macosplatform.SubscriptionStatus `json:"subscriptions"`
+		}{statuses})
 		response.OK = true
 		return response
 	}
@@ -339,9 +348,14 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			response.Error = err.Error()
 			return response
 		}
+		statuses, err := macosplatform.ReadSubscriptionStatus(service.configPath, service.options.StateDirectory)
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
 		response.Payload, _ = json.Marshal(struct {
-			Snapshot macosplatform.SubscriptionSnapshot `json:"snapshot"`
-		}{snapshot})
+			Subscriptions []macosplatform.SubscriptionStatus `json:"subscriptions"`
+		}{statuses})
 		response.OK = true
 		return response
 	}
@@ -462,6 +476,25 @@ func setControlStatePermissions(path string, adminGID int) error {
 		return fmt.Errorf("set subscription state mode: %w", err)
 	}
 	return nil
+}
+
+func setFailedSubscriptionStatePermissions(stateDirectory, requestedID string, adminGID int, updateErr error) error {
+	id := requestedID
+	var typed macosplatform.SubscriptionUpdateError
+	if errors.As(updateErr, &typed) && typed.SubscriptionID != "" {
+		id = typed.SubscriptionID
+	}
+	if id == "" {
+		return nil
+	}
+	path := filepath.Join(stateDirectory, "subscriptions", id+".json")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return setControlStatePermissions(path, adminGID)
 }
 
 func applyControlConfiguration(value model.Intent, options macosplatform.BackendOptions) error {

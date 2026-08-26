@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "never-fetched",
+      "status": {
+        "id": "never",
+        "name": "Never fetched",
+        "url": "https://example.test/never",
+        "enabled": true,
+        "update_interval": "6h",
+        "never_fetched": true,
+        "last_success": null,
+        "last_failure": null,
+        "node_count": 0,
+        "current": 0,
+        "added": 0,
+        "skipped": 0,
+        "stale": []
+      }
+    },
+    {
+      "name": "success",
+      "status": {
+        "id": "success",
+        "name": "Successful",
+        "url": "https://example.test/success",
+        "enabled": true,
+        "update_interval": "6h",
+        "never_fetched": false,
+        "last_success": "2026-08-26T01:00:00Z",
+        "last_failure": null,
+        "node_count": 2,
+        "current": 2,
+        "added": 2,
+        "skipped": 0,
+        "stale": []
+      }
+    },
+    {
+      "name": "success-with-skipped",
+      "status": {
+        "id": "skipped",
+        "name": "Skipped invalid nodes",
+        "url": "https://example.test/skipped",
+        "enabled": true,
+        "update_interval": "6h",
+        "never_fetched": false,
+        "last_success": "2026-08-26T01:30:00Z",
+        "last_failure": null,
+        "node_count": 1,
+        "current": 1,
+        "added": 1,
+        "skipped": 2,
+        "stale": []
+      }
+    },
+    {
+      "name": "failed-after-success-with-partial-stale-block",
+      "status": {
+        "id": "failed",
+        "name": "Failed after success",
+        "url": "https://example.test/failed",
+        "enabled": true,
+        "update_interval": "6h",
+        "never_fetched": false,
+        "last_success": "2026-08-26T02:00:00Z",
+        "last_failure": {
+          "at": "2026-08-26T03:00:00Z",
+          "summary": "subscription server returned HTTP 503"
+        },
+        "node_count": 3,
+        "current": 1,
+        "added": 0,
+        "skipped": 1,
+        "stale": [
+          {
+            "id": "failed_blocked",
+            "name": "Blocked stale",
+            "referenced_by": [
+              { "object_type": "route", "id": "proxy", "name": "Proxy route" }
+            ]
+          },
+          {
+            "id": "failed_removable",
+            "name": "Removable stale",
+            "referenced_by": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "disabled",
+      "status": {
+        "id": "disabled",
+        "name": "Disabled",
+        "url": "https://example.test/disabled",
+        "enabled": false,
+        "update_interval": "6h",
+        "never_fetched": true,
+        "last_success": null,
+        "last_failure": null,
+        "node_count": 0,
+        "current": 0,
+        "added": 0,
+        "skipped": 0,
+        "stale": []
+      }
+    }
+  ]
+}

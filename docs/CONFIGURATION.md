@@ -144,7 +144,9 @@ steer subscription clean --id public --node <node-id>
 
 三端新增订阅的默认更新周期统一为 `6h`。`update_interval` 留空时订阅仅允许手动更新；平台每 15 分钟运行一次轻量调度器，只有非空周期首次抓取或已到期时才下载。带 `--id` 的显式更新属于手动操作，始终忽略周期限制。
 
-URL 必须是可访问的 HTTP 或 HTTPS 地址，允许私网地址和正常重定向。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。单条无效节点会被跳过并计数；如果没有任何有效节点，更新会提交空节点集并删除该订阅此前生成的节点。非空更新使用稳定 ID，保留本地启用状态；上游消失的节点标为 `pinned_stale`，必须显式 clean。订阅提交节点后不自动 Apply。
+URL 必须是可访问的 HTTP 或 HTTPS 地址，允许私网地址和正常重定向。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。单条无效节点会被跳过并计数；如果没有任何有效节点，更新失败并保留上次成功节点库。非空更新使用稳定 ID，保留本地启用状态；上游消失的节点标为 `pinned_stale`，必须显式 clean。订阅提交节点后不自动 Apply。
+
+三端共用同一状态契约：`never_fetched`、可空的 `last_success`、独立的 `last_failure`、`node_count`、`current`、`added`、`skipped` 和逐节点 `stale`。失败只写入时间与脱敏摘要，不覆盖上次成功时间和节点库；`stale.referenced_by` 列出阻止清理的 Route。已停用订阅不能 Update。
 
 ## Apply、状态和测试
 

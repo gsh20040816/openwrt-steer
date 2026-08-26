@@ -425,52 +425,142 @@ function renderNodeGroupNavigation(groups, activeGroup) {
 	}));
 }
 
-function renderSubscriptionStatus(result) {
+function hasPendingSteerChanges(changes) {
+	if (Array.isArray(changes))
+		return changes.length > 0;
+	if (Array.isArray(changes?.steer))
+		return changes.steer.length > 0;
+	return changes?.steer != null && Object.keys(changes.steer).length > 0;
+}
+
+function subscriptionOperationGate(initialChanges, formNode) {
+	let formDirty = false;
+	let pending = hasPendingSteerChanges(initialChanges);
+	let version = 0;
+	const buttons = [];
+	const refresh = function() {
+		buttons.forEach((entry) => {
+			const reason = entry.disabledReason || (formDirty
+				? _('The visible subscription form has unsaved input.')
+				: (pending ? _('Pending Steer changes must be applied or discarded first.') : ''));
+			entry.button.disabled = reason != '';
+			entry.button.title = reason;
+		});
+	};
+	const markDirty = function() {
+		formDirty = true;
+		version++;
+		refresh();
+	};
+	formNode?.addEventListener?.('input', markDirty);
+	formNode?.addEventListener?.('change', markDirty);
+
+	return {
+		bind: function(button, disabledReason) {
+			buttons.push({ button, disabledReason: disabledReason || '' });
+			refresh();
+			return button;
+		},
+		version: function() { return version; },
+		blockedReason: function(disabledReason) {
+			if (disabledReason)
+				return Promise.resolve(disabledReason);
+			if (formDirty)
+				return Promise.resolve(_('The visible subscription form has unsaved input. Save and apply or discard it first.'));
+			return uci.changes().then((changes) => {
+				pending = hasPendingSteerChanges(changes);
+				refresh();
+				return pending ? _('Pending Steer changes must be applied or discarded before changing subscription inventory.') : '';
+			});
+		},
+		mayReload: function(startVersion) {
+			if (formDirty || version != startVersion)
+				return Promise.resolve(false);
+			return uci.changes().then((changes) => !hasPendingSteerChanges(changes));
+		}
+	};
+}
+
+function renderSubscriptionStatus(result, gate) {
 	const subscriptions = result?.subscriptions || [];
 	return E('section', { 'class': 'steer-subscription-status' }, [
 		E('h3', {}, _('Subscription status')),
 		subscriptions.length ? E('div', { 'class': 'table' }, [
 			E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('Name')), E('div', { 'class': 'th' }, _('Last update')), E('div', { 'class': 'th' }, _('Nodes')), E('div', { 'class': 'th' }, _('Action')) ]),
 			...subscriptions.map((subscription) => {
-				const stale = subscription.stale_node_ids || [];
-				const last = subscription.fetched_at ? new Date(subscription.fetched_at).toLocaleString() : (subscription.error ? _('Update failed') : _('Not fetched'));
-				const actions = [ E('button', {
+				const stale = subscription.stale || [];
+				const last = subscription.last_success ? new Date(subscription.last_success).toLocaleString() : _('Not fetched');
+				const failure = subscription.last_failure;
+				const disabledUpdate = subscription.enabled ? '' : _('Disabled subscriptions cannot be updated. Enable and save this subscription first.');
+				const updateButton = E('button', {
 					'class': 'btn cbi-button-action',
 					'click': function() {
-						ui.showModal(_('Updating subscription'), [ E('p', { 'class': 'spinning' }, _('Downloading and validating every node.')) ]);
-						return steer.updateSubscription(subscription.id).then((update) => {
+						return gate.blockedReason(disabledUpdate).then((reason) => {
+							if (reason) {
+								ui.addNotification(_('Subscription inventory is locked'), E('p', {}, reason), 'warning');
+								return;
+							}
+							const startVersion = gate.version();
+							ui.showModal(_('Updating subscription'), [ E('p', { 'class': 'spinning' }, _('Downloading and validating every node.')) ]);
+							return steer.updateSubscription(subscription.id).then((update) => {
 							ui.hideModal();
 							if (!update?.ok) {
 								ui.addNotification(_('Subscription update failed'), E('p', {}, update?.error || _('Unknown error')), 'danger');
-								return update;
+								return gate.mayReload(startVersion).then((reload) => {
+									if (reload && update?.error_code != 'PENDING_CHANGES') window.location.reload();
+									return update;
+								});
 							}
-							const skipped = (update.snapshots || []).reduce((count, snapshot) => count + (snapshot.skipped || 0), 0);
-							const message = skipped
-								? _('Subscription updated; %d invalid nodes skipped.').format(skipped)
-								: _('Subscription updated.');
-							ui.addNotification(null, E('p', {}, message), skipped ? 'warning' : 'info');
-							window.location.reload();
-							return update;
+							const status = (update.subscriptions || []).find((item) => item.id == subscription.id) || {};
+							const message = _('Inventory updated: added %d, current %d, stale %d, skipped %d. Running configuration was not changed.').format(
+								status.added || 0, status.current || 0, (status.stale || []).length, status.skipped || 0);
+							ui.addNotification(null, E('p', {}, message), 'warning');
+							return gate.mayReload(startVersion).then((reload) => {
+								if (reload) window.location.reload();
+								else ui.addNotification(null, E('p', {}, _('Visible edits appeared while the update was running; they were preserved and the page was not reloaded.')), 'warning');
+								return update;
+							});
+						});
 						});
 					}
-				}, _('Update now')) ];
-				stale.forEach((node) => actions.push(' ', E('button', {
+				}, _('Update now'));
+				gate.bind(updateButton, disabledUpdate);
+				const actions = [ updateButton ];
+				stale.forEach((node) => {
+					const cleanButton = E('button', {
 					'class': 'btn cbi-button-negative',
 					'click': function() {
-						return steer.cleanSubscription(subscription.id, node).then((clean) => {
+						return gate.blockedReason('').then((reason) => {
+							if (reason) {
+								ui.addNotification(_('Subscription inventory is locked'), E('p', {}, reason), 'warning');
+								return;
+							}
+							const startVersion = gate.version();
+							return steer.cleanSubscription(subscription.id, node.id).then((clean) => {
 							if (!clean?.ok) {
 								ui.addNotification(_('Subscription node removal failed'), E('p', {}, clean?.error || _('Unknown error')), 'danger');
 								return clean;
 							}
-							window.location.reload();
-							return clean;
+							ui.addNotification(null, E('p', {}, _('Stale node removed from Saved inventory. Running configuration was not changed.')), 'warning');
+							return gate.mayReload(startVersion).then((reload) => {
+								if (reload) window.location.reload();
+								else ui.addNotification(null, E('p', {}, _('Visible edits appeared while cleanup was running; they were preserved and the page was not reloaded.')), 'warning');
+								return clean;
+							});
+						});
 						});
 					}
-				}, _('Remove %s').format(node))));
+				}, _('Remove %s').format(node.id));
+					gate.bind(cleanButton, '');
+					actions.push(' ', cleanButton);
+				});
+				const failureDetail = failure
+					? _('Last failure: %s · %s').format(failure.at ? new Date(failure.at).toLocaleString() : '—', failure.summary)
+					: '';
 				return E('div', { 'class': 'tr' }, [
 					E('div', { 'class': 'td' }, subscription.name || subscription.id),
-					E('div', { 'class': 'td' }, last),
-					E('div', { 'class': 'td' }, stale.length ? _('%d (%d stale)').format(subscription.node_count, stale.length) : String(subscription.node_count || 0)),
+					E('div', { 'class': 'td', 'title': failureDetail }, failureDetail ? [ last, E('br'), failureDetail ] : last),
+					E('div', { 'class': 'td' }, _('%d current / %d stale / %d skipped').format(subscription.current || 0, stale.length, subscription.skipped || 0)),
 					E('div', { 'class': 'td' }, actions)
 				]);
 			})
@@ -727,7 +817,7 @@ function showImportDialog() {
 
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.subscriptions() ]);
+		return Promise.all([ uci.load('steer'), steer.subscriptions(), uci.changes() ]);
 	},
 
 	render: function(data) {
@@ -762,7 +852,10 @@ return view.extend({
 			o = s.option(form.Value, 'name', _('Name')); o.rmempty = true; o.optional = true; o.modalonly = true;
 			o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
 			o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = uiSpec.subscription_update_interval_default; o.modalonly = true;
-			return m.render().then((formNode) => E([], [ renderSubscriptionStatus(data?.[1]), formNode ]));
+			return m.render().then((formNode) => {
+				const gate = subscriptionOperationGate(data?.[2], formNode);
+				return E([], [ renderSubscriptionStatus(data?.[1], gate), formNode ]);
+			});
 		}
 
 		if (page == 'routes') {

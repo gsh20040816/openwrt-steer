@@ -44,33 +44,39 @@ func runSubscription(args []string) error {
 		if *id == "" || *nodeID == "" {
 			return errors.New("subscription clean requires --id and --node")
 		}
-		var snapshot linuxplatform.SubscriptionSnapshot
 		err := withOperationLock(*runDirectory, func() error {
 			var err error
-			snapshot, err = linuxplatform.CleanSubscriptionNode(*configPath, *stateDirectory, *id, *nodeID)
+			_, err = linuxplatform.CleanSubscriptionNode(*configPath, *stateDirectory, *id, *nodeID)
 			return err
 		})
 		if err != nil {
 			return err
 		}
+		statuses, err := linuxplatform.ReadSubscriptionStatus(*configPath, *stateDirectory)
+		if err != nil {
+			return err
+		}
 		writeJSON(struct {
-			OK       bool                               `json:"ok"`
-			Snapshot linuxplatform.SubscriptionSnapshot `json:"snapshot"`
-		}{true, snapshot})
+			OK            bool                               `json:"ok"`
+			Subscriptions []linuxplatform.SubscriptionStatus `json:"subscriptions"`
+		}{true, statuses})
 		return nil
 	}
-	var snapshots []linuxplatform.SubscriptionSnapshot
 	err := withOperationLock(*runDirectory, func() error {
 		var err error
-		snapshots, err = linuxplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
+		_, err = linuxplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, *configPath, *stateDirectory, *id)
 		return err
 	})
 	if err != nil {
 		return err
 	}
+	statuses, err := linuxplatform.ReadSubscriptionStatus(*configPath, *stateDirectory)
+	if err != nil {
+		return err
+	}
 	writeJSON(struct {
-		OK        bool                                 `json:"ok"`
-		Snapshots []linuxplatform.SubscriptionSnapshot `json:"snapshots"`
-	}{true, snapshots})
+		OK            bool                               `json:"ok"`
+		Subscriptions []linuxplatform.SubscriptionStatus `json:"subscriptions"`
+	}{true, statuses})
 	return nil
 }

@@ -112,3 +112,34 @@ func TestConfiguredSubscriptionUpdatePersistsStatus(t *testing.T) {
 		t.Fatalf("unexpected subscription status: %#v %v", statuses, err)
 	}
 }
+
+func TestFailedRefreshKeepsLastSuccessfulSubscriptionStatus(t *testing.T) {
+	var fail atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		if fail.Load() {
+			http.Error(writer, "temporary", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = writer.Write([]byte("socks://user:pass@127.0.0.1:1080#Imported\n"))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	stateDirectory := filepath.Join(root, "state")
+	value := validIntent()
+	value.Subscriptions = []model.Subscription{{ID: "public", Enabled: true, URL: server.URL}}
+	if _, err := (IntentStore{Paths: Paths{ConfigPath: configPath}}).Save(value, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpdateConfiguredSubscriptions(context.Background(), server.Client(), configPath, stateDirectory, "public"); err != nil {
+		t.Fatal(err)
+	}
+	fail.Store(true)
+	if _, err := UpdateConfiguredSubscriptions(context.Background(), server.Client(), configPath, stateDirectory, "public"); err == nil || err.Error() != "update subscription public: subscription server returned HTTP 503" {
+		t.Fatalf("unexpected safe update failure: %v", err)
+	}
+	statuses, err := ReadSubscriptionStatus(configPath, stateDirectory)
+	if err != nil || len(statuses) != 1 || statuses[0].LastSuccess == nil || statuses[0].LastFailure == nil || statuses[0].NodeCount != 1 {
+		t.Fatalf("failed refresh destroyed successful facts: %#v %v", statuses, err)
+	}
+}
