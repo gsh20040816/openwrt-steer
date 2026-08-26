@@ -45,6 +45,23 @@ type Snapshot struct {
 	Skipped        int          `json:"skipped"`
 }
 
+// AutomaticUpdateDue applies the shared scheduling semantics used by every
+// platform dispatcher. An empty interval is manual-only, while a configured
+// interval is due on the first fetch and at the exact interval boundary.
+func AutomaticUpdateDue(updateInterval string, fetchedAt, now time.Time) (bool, error) {
+	if updateInterval == "" {
+		return false, nil
+	}
+	interval, err := time.ParseDuration(updateInterval)
+	if err != nil {
+		return false, err
+	}
+	if interval <= 0 {
+		return false, fmt.Errorf("duration must be positive")
+	}
+	return fetchedAt.IsZero() || !now.Before(fetchedAt.Add(interval)), nil
+}
+
 const maxSubscriptionBytes = 16 << 20
 
 func Fetch(ctx context.Context, client *http.Client, configured model.Subscription) (ParseResult, error) {

@@ -9,9 +9,39 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
+
+func TestAutomaticUpdateDue(t *testing.T) {
+	now := time.Date(2026, time.August, 26, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		interval  string
+		fetchedAt time.Time
+		wantDue   bool
+		wantErr   bool
+	}{
+		{name: "empty interval is manual only"},
+		{name: "empty interval ignores old snapshot", fetchedAt: now.Add(-24 * time.Hour)},
+		{name: "first scheduled fetch", interval: "6h", wantDue: true},
+		{name: "not due", interval: "6h", fetchedAt: now.Add(-6*time.Hour + time.Nanosecond)},
+		{name: "exactly due", interval: "6h", fetchedAt: now.Add(-6 * time.Hour), wantDue: true},
+		{name: "overdue", interval: "6h", fetchedAt: now.Add(-7 * time.Hour), wantDue: true},
+		{name: "invalid duration", interval: "later", wantErr: true},
+		{name: "zero duration", interval: "0s", wantErr: true},
+		{name: "negative duration", interval: "-1h", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			due, err := AutomaticUpdateDue(test.interval, test.fetchedAt, now)
+			if (err != nil) != test.wantErr || due != test.wantDue {
+				t.Fatalf("AutomaticUpdateDue(%q, %v, %v) = %v, %v; want due=%v err=%v", test.interval, test.fetchedAt, now, due, err, test.wantDue, test.wantErr)
+			}
+		})
+	}
+}
 
 func TestFetchHTTPSubscription(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {

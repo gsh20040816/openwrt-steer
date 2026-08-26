@@ -1198,7 +1198,7 @@ final class AppModel: ObservableObject {
         case "dns_profiles":
             return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新 DNS Profile"), "protocol": .string("https"), "server": .string(""), "server_port": .number(443), "path": .string("/dns-query")])
         case "subscriptions":
-            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新订阅"), "url": .string(""), "update_interval": .string("6h")])
+            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新订阅"), "url": .string(""), "update_interval": .string(SteerUISpec.contract.subscriptionUpdateIntervalDefault)])
         case "local_proxies":
             return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新本地代理"), "protocol": .string("mixed"), "listen": .string("127.0.0.1"), "listen_port": .number(1090 + Double(itemCount(for: key)))])
         case "rules":

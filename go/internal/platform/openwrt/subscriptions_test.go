@@ -9,12 +9,73 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	"github.com/gsh20040816/steer/go/internal/platform/openwrt/uci"
 	"github.com/gsh20040816/steer/go/internal/subscription"
 )
+
+func TestConfiguredSubscriptionSchedule(t *testing.T) {
+	tests := []struct {
+		name        string
+		interval    string
+		manualID    string
+		snapshotAge time.Duration
+		wantFetch   bool
+	}{
+		{name: "automatic empty interval"},
+		{name: "manual empty interval", manualID: "public", wantFetch: true},
+		{name: "first scheduled fetch", interval: "1h", wantFetch: true},
+		{name: "automatic before due", interval: "1h", snapshotAge: 30 * time.Minute},
+		{name: "automatic just due", interval: "1h", snapshotAge: time.Hour, wantFetch: true},
+		{name: "manual before due", interval: "1h", manualID: "public", snapshotAge: 30 * time.Minute, wantFetch: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				_, _ = writer.Write([]byte("socks://user:pass@127.0.0.1:1080#Imported\n"))
+			}))
+			defer server.Close()
+
+			root := t.TempDir()
+			configPath := filepath.Join(root, "steer")
+			stateDirectory := filepath.Join(root, "state")
+			config := validSubscriptionConfig(server.URL)
+			if test.interval != "" {
+				config = strings.Replace(config, "\toption url '"+server.URL+"'\n", "\toption url '"+server.URL+"'\n\toption update_interval '"+test.interval+"'\n", 1)
+			}
+			if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if test.snapshotAge != 0 {
+				if err := saveSubscriptionSnapshot(stateDirectory, SubscriptionSnapshot{SubscriptionID: "public", URL: server.URL, FetchedAt: time.Now().Add(-test.snapshotAge)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			commits := 0
+			snapshots, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, stateDirectory, test.manualID, func(context.Context, string) error {
+				commits++
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantCount := int32(0)
+			if test.wantFetch {
+				wantCount = 1
+			}
+			if got := requests.Load(); got != wantCount || len(snapshots) != int(wantCount) || commits != int(wantCount) {
+				t.Fatalf("requests=%d snapshots=%d commits=%d, want %d", got, len(snapshots), commits, wantCount)
+			}
+		})
+	}
+}
 
 func TestSubscriptionDisappearanceIsPinnedStale(t *testing.T) {
 	old := model.Node{ID: "public_old", Enabled: false, Type: "vless", Server: "old.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}}

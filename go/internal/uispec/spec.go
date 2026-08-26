@@ -52,23 +52,24 @@ type NavigationGroup struct {
 }
 
 type Contract struct {
-	SchemaVersion        int                             `json:"schema_version"`
-	CanonicalSchema      int                             `json:"canonical_schema"`
-	NodeTypes            []Choice                        `json:"node_types"`
-	NodeFields           []Field                         `json:"node_fields"`
-	LogLevels            []Choice                        `json:"log_levels"`
-	BootstrapProtocols   []Choice                        `json:"bootstrap_protocols"`
-	BootstrapStrategies  []Choice                        `json:"bootstrap_strategies"`
-	RouteKinds           []Choice                        `json:"route_kinds"`
-	DNSProtocols         []Choice                        `json:"dns_protocols"`
-	LocalProxyProtocols  []Choice                        `json:"local_proxy_protocols"`
-	RuleNetworks         []Choice                        `json:"rule_networks"`
-	RuleProtocols        []Choice                        `json:"rule_protocols"`
-	RuleMatchFields      []string                        `json:"rule_match_fields"`
-	DomainPrefixes       []string                        `json:"domain_prefixes"`
-	IPPrefixes           []string                        `json:"ip_prefixes"`
-	PlatformCapabilities map[string]PlatformCapabilities `json:"platform_capabilities"`
-	Navigation           []NavigationGroup               `json:"navigation"`
+	SchemaVersion                     int                             `json:"schema_version"`
+	CanonicalSchema                   int                             `json:"canonical_schema"`
+	SubscriptionUpdateIntervalDefault string                          `json:"subscription_update_interval_default"`
+	NodeTypes                         []Choice                        `json:"node_types"`
+	NodeFields                        []Field                         `json:"node_fields"`
+	LogLevels                         []Choice                        `json:"log_levels"`
+	BootstrapProtocols                []Choice                        `json:"bootstrap_protocols"`
+	BootstrapStrategies               []Choice                        `json:"bootstrap_strategies"`
+	RouteKinds                        []Choice                        `json:"route_kinds"`
+	DNSProtocols                      []Choice                        `json:"dns_protocols"`
+	LocalProxyProtocols               []Choice                        `json:"local_proxy_protocols"`
+	RuleNetworks                      []Choice                        `json:"rule_networks"`
+	RuleProtocols                     []Choice                        `json:"rule_protocols"`
+	RuleMatchFields                   []string                        `json:"rule_match_fields"`
+	DomainPrefixes                    []string                        `json:"domain_prefixes"`
+	IPPrefixes                        []string                        `json:"ip_prefixes"`
+	PlatformCapabilities              map[string]PlatformCapabilities `json:"platform_capabilities"`
+	Navigation                        []NavigationGroup               `json:"navigation"`
 }
 
 func choices(values ...string) []Choice {
@@ -106,8 +107,9 @@ func ContractValue() Contract {
 	tlsTypes := []string{"http", "vmess", "hysteria", "vless", "hysteria2", "trojan", "shadowtls", "tuic", "anytls", "naive"}
 	transportTypes := []string{"vmess", "vless", "trojan"}
 	contract := Contract{
-		SchemaVersion:   SchemaVersion,
-		CanonicalSchema: 9,
+		SchemaVersion:                     SchemaVersion,
+		CanonicalSchema:                   9,
+		SubscriptionUpdateIntervalDefault: "6h",
 		NodeTypes: choices(
 			"socks", "SOCKS", "http", "HTTP CONNECT", "shadowsocks", "Shadowsocks",
 			"vmess", "VMess", "vless", "VLESS", "trojan", "Trojan",

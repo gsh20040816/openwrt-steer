@@ -39,19 +39,20 @@
     ui.drawer({
       eyebrow: `订阅 · ${isNew ? '新建' : sub.id}`, title: sub?.name || '新订阅', submitLabel: '保存到工作副本',
       renderBody(body) {
-        const draft = sub ? JSON.parse(JSON.stringify(sub)) : { id: '', enabled: true, name: '', url: '', update_interval: '12h' };
+        const defaultInterval = S.uiSpec.subscription_update_interval_default;
+        const draft = sub ? JSON.parse(JSON.stringify(sub)) : { id: '', enabled: true, name: '', url: '', update_interval: defaultInterval };
         const id = ui.input({ value: draft.id, placeholder: 'acme', disabled: !isNew });
         const name = ui.input({ value: draft.name || '', placeholder: '订阅名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
         const url = ui.input({ value: draft.url || '', placeholder: 'https://sub.example.com/all' });
-        const interval = ui.input({ value: draft.update_interval || '', placeholder: '12h' });
+        const interval = ui.input({ value: draft.update_interval || '', placeholder: defaultInterval });
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '订阅'), [
             ui.field('ID', id, isNew ? '1–32 位小写字母开头（稳定 ID，创建后不可改）' : '稳定 ID · 不可修改'),
             ui.field('名称', name),
             ui.field('启用', enabled),
             ui.field('订阅 URL', url),
-            ui.field('更新间隔', interval, 'systemd timer 使用 · 留空表示不自动更新')
+            ui.field('更新间隔', interval, '定时调度使用 · 留空表示仅手动更新')
           ])
         );
         return {

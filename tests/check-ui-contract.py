@@ -70,11 +70,14 @@ if node_types != {
 route_kind_labels = {item["value"]: item["label"] for item in contract["route_kinds"]}
 if route_kind_labels.get("block") != "Reject":
     raise SystemExit("check-ui-contract: deprecated Block label returned instead of Reject")
+if contract.get("subscription_update_interval_default") != "6h":
+    raise SystemExit("check-ui-contract: shared subscription interval default drifted")
 
 linux_ui = (ROOT / "go/cmd/steer-linux/web/js/ui.js").read_text()
 linux_lib = (ROOT / "go/cmd/steer-linux/web/js/lib.js").read_text()
 linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
 linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
+linux_subscriptions = (ROOT / "go/cmd/steer-linux/web/js/views/subscriptions.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
 mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
 mac_state = (ROOT / "macos/SteerApp/AppState.swift").read_text()
@@ -89,6 +92,12 @@ require(luci_nodes, "addGeneratedNodeField", "LuCI generated controls")
 require(mac_content, "SteerUISpec.contract.navigation", "macOS navigation")
 require(mac_editors, "SharedNodeDraftForm", "macOS node form")
 require(mac_editors, "SteerUISpec.nodeFields", "macOS field matrix")
+require(linux_subscriptions, "S.uiSpec.subscription_update_interval_default", "Linux subscription default")
+require(linux_subscriptions, "update_interval: defaultInterval", "Linux subscription creation")
+require(luci_nodes, "uiSpec.subscription_update_interval_default", "LuCI subscription default")
+require(luci_nodes, "update_interval: uiSpec.subscription_update_interval_default", "LuCI subscription creation")
+require(mac_state, "SteerUISpec.contract.subscriptionUpdateIntervalDefault", "macOS subscription default")
+require(mac_state, '"update_interval": .string(SteerUISpec.contract.subscriptionUpdateIntervalDefault)', "macOS subscription creation")
 
 for content, owner in (
     (linux_nodes, "Linux nodes"),

@@ -84,6 +84,7 @@ struct UINavigationGroup: Decodable, Identifiable {
 struct UIContract: Decodable {
     let schemaVersion: Int
     let canonicalSchema: Int
+    let subscriptionUpdateIntervalDefault: String
     let nodeTypes: [UIChoice]
     let nodeFields: [UIFieldSpec]
     let logLevels: [UIChoice]
@@ -103,6 +104,7 @@ struct UIContract: Decodable {
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case canonicalSchema = "canonical_schema"
+        case subscriptionUpdateIntervalDefault = "subscription_update_interval_default"
         case nodeTypes = "node_types"
         case nodeFields = "node_fields"
         case logLevels = "log_levels"

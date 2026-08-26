@@ -67,17 +67,22 @@ func UpdateConfiguredSubscriptions(ctx context.Context, client *http.Client, con
 	if err != nil {
 		return nil, err
 	}
+	scheduleTime := time.Now()
 	var snapshots []SubscriptionSnapshot
 	for _, configured := range value.Subscriptions {
 		if !configured.Enabled || (id != "" && configured.ID != id) {
 			continue
 		}
-		if id == "" && configured.UpdateInterval != "" {
-			interval, parseErr := time.ParseDuration(configured.UpdateInterval)
-			if parseErr != nil {
-				return nil, fmt.Errorf("subscription %s has invalid update interval: %w", configured.ID, parseErr)
+		if id == "" {
+			var fetchedAt time.Time
+			if previous, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, configured.ID)); readErr == nil {
+				fetchedAt = previous.FetchedAt
 			}
-			if previous, readErr := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, configured.ID)); readErr == nil && !previous.FetchedAt.IsZero() && time.Since(previous.FetchedAt) < interval {
+			due, scheduleErr := subscription.AutomaticUpdateDue(configured.UpdateInterval, fetchedAt, scheduleTime)
+			if scheduleErr != nil {
+				return nil, fmt.Errorf("subscription %s has invalid update interval: %w", configured.ID, scheduleErr)
+			}
+			if !due {
 				continue
 			}
 		}

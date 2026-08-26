@@ -65,6 +65,12 @@ func TestPlatformCapabilitiesAreExplicit(t *testing.T) {
 	}
 }
 
+func TestSubscriptionCreationDefaultIsShared(t *testing.T) {
+	if value := ContractValue().SubscriptionUpdateIntervalDefault; value != "6h" {
+		t.Fatalf("unexpected subscription update interval default %q", value)
+	}
+}
+
 func TestNodeFieldsCoverCanonicalUserOptions(t *testing.T) {
 	canonical := map[string]bool{}
 	collectJSONFields(reflect.TypeOf(model.Node{}), canonical)
