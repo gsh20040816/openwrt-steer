@@ -140,8 +140,10 @@ struct DraftItemEditor: View {
             let proto = draftString(value, "protocol")
             if draftString(value, "server").isEmpty { return "DNS 服务器不能为空" }
             if !validPort(draftInt(value, "server_port")) { return "DNS 端口必须是 1…65535" }
-            if ["tls", "https", "quic", "h3"].contains(proto), draftString(value, "tls_server_name").isEmpty {
-                return "加密 DNS 需要 TLS 服务器名"
+            if let protocolSpec = SteerUISpec.dnsProtocol(proto) {
+                for field in protocolSpec.requiredFields where draftString(value, field).isEmpty {
+                    return "加密 DNS 需要 TLS 服务器名"
+                }
             }
         case "local_proxies":
             if draftString(value, "listen").isEmpty { return "监听地址不能为空" }
@@ -383,26 +385,41 @@ private struct RouteDraftForm: View {
 private struct DNSDraftForm: View {
     @Binding var object: [String: JSONValue]
     private var proto: String { draftString(object, "protocol") }
+    private var protocolSpec: UIDNSProtocolSpec? { SteerUISpec.dnsProtocol(proto) }
+    private var protocolBinding: Binding<String> {
+        Binding(
+            get: { proto },
+            set: { value in
+                var updated = object
+                SteerUISpec.applyDNSProtocol(value, to: &updated)
+                object = updated
+            }
+        )
+    }
 
     var body: some View {
         Section("DNS Profile") {
             Toggle("启用 Profile", isOn: boolBinding($object, "enabled", defaultValue: true))
             TextField("名称", text: stringBinding($object, "name"))
-            Picker("协议", selection: stringBinding($object, "protocol", required: true, defaultValue: "https")) {
+            Picker("协议", selection: protocolBinding) {
                 ForEach(SteerUISpec.contract.dnsProtocols) { option in
                     Text(option.label).tag(option.value)
                 }
             }
             TextField("服务器", text: stringBinding($object, "server", required: true), prompt: Text("1.1.1.1"))
-            TextField("端口", value: intBinding($object, "server_port", defaultValue: 443), format: .number)
+            TextField("端口", value: intBinding($object, "server_port", defaultValue: protocolSpec?.defaultPort ?? 0), format: .number)
         }
-        if ["tls", "https", "quic", "h3"].contains(proto) {
+        if protocolSpec?.fields.isEmpty == false {
             Section("加密传输") {
-                TextField("TLS 服务器名", text: stringBinding($object, "tls_server_name", required: true), prompt: Text("one.one.one.one"))
-                if ["https", "h3"].contains(proto) {
+                if protocolSpec?.fields.contains("tls_server_name") == true {
+                    TextField("TLS 服务器名", text: stringBinding($object, "tls_server_name", required: true), prompt: Text("one.one.one.one"))
+                }
+                if protocolSpec?.fields.contains("path") == true {
                     TextField("HTTP 路径", text: stringBinding($object, "path"), prompt: Text("/dns-query"))
                 }
-                Toggle("跳过证书验证", isOn: boolBinding($object, "insecure"))
+                if protocolSpec?.fields.contains("insecure") == true {
+                    Toggle("跳过证书验证", isOn: boolBinding($object, "insecure"))
+                }
             }
         }
     }
@@ -738,6 +755,9 @@ private func normalizedObject(_ source: [String: JSONValue], key: String) -> [St
     }
     if key == "nodes" {
         normalizeNodeOptionsFromSpec(&object)
+    }
+    if key == "dns_profiles" {
+        SteerUISpec.normalizeDNSProfile(&object)
     }
     if key == "rules", draftBool(object, "default") {
         for field in ruleMatchKeys { object.removeValue(forKey: field) }

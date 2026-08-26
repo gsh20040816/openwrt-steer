@@ -1196,7 +1196,10 @@ final class AppModel: ObservableObject {
         case "routes":
             return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新路由"), "kind": .string("single"), "node": .string(firstNode)])
         case "dns_profiles":
-            return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新 DNS Profile"), "protocol": .string("https"), "server": .string(""), "server_port": .number(443), "path": .string("/dns-query")])
+            let protocolSpec = SteerUISpec.dnsProtocol("https") ?? SteerUISpec.contract.dnsProtocols[0]
+            var profile: [String: JSONValue] = ["id": .string(id), "enabled": .bool(true), "name": .string("新 DNS Profile"), "protocol": .string(protocolSpec.value), "server": .string(""), "server_port": .number(Double(protocolSpec.defaultPort))]
+            if protocolSpec.fields.contains("path") { profile["path"] = .string("/dns-query") }
+            return .object(profile)
         case "subscriptions":
             return .object(["id": .string(id), "enabled": .bool(true), "name": .string("新订阅"), "url": .string(""), "update_interval": .string(SteerUISpec.contract.subscriptionUpdateIntervalDefault)])
         case "local_proxies":

@@ -167,6 +167,42 @@ func TestAllFrozenDNSTransportsValidate(t *testing.T) {
 	}
 }
 
+func TestRejectDNSOptionsOutsideProtocolMatrix(t *testing.T) {
+	testCases := []struct {
+		name     string
+		protocol string
+		option   string
+		apply    func(*DNSProfile)
+	}{
+		{name: "udp TLS name", protocol: "udp", option: "tls_server_name", apply: func(profile *DNSProfile) { profile.TLSServerName = "dns.example" }},
+		{name: "udp insecure", protocol: "udp", option: "insecure", apply: func(profile *DNSProfile) { profile.Insecure = true }},
+		{name: "tcp insecure", protocol: "tcp", option: "insecure", apply: func(profile *DNSProfile) { profile.Insecure = true }},
+		{name: "udp HTTP path", protocol: "udp", option: "path", apply: func(profile *DNSProfile) { profile.Path = "/dns-query" }},
+		{name: "tcp TLS name", protocol: "tcp", option: "tls_server_name", apply: func(profile *DNSProfile) { profile.TLSServerName = "dns.example" }},
+		{name: "tcp HTTP path", protocol: "tcp", option: "path", apply: func(profile *DNSProfile) { profile.Path = "/dns-query" }},
+		{name: "DoT HTTP path", protocol: "tls", option: "path", apply: func(profile *DNSProfile) { profile.Path = "/dns-query" }},
+		{name: "DoQ HTTP path", protocol: "quic", option: "path", apply: func(profile *DNSProfile) { profile.Path = "/dns-query" }},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			intent := validIntent()
+			profile := &intent.DNSProfiles[0]
+			profile.Protocol = testCase.protocol
+			profile.TLSServerName = ""
+			profile.Path = ""
+			profile.Insecure = false
+			if oneOf(testCase.protocol, "tls", "quic") {
+				profile.TLSServerName = "dns.example"
+			}
+			testCase.apply(profile)
+			validation := Validate(intent)
+			if validation.OK || !hasIssueForOption(validation, "UNSUPPORTED_DNS_OPTION", testCase.option) {
+				t.Fatalf("unsupported %s option was accepted: %#v", testCase.protocol, validation.Errors)
+			}
+		})
+	}
+}
+
 func TestAllSingBox113ProxyOutboundsValidate(t *testing.T) {
 	cases := []struct {
 		name string
@@ -303,6 +339,15 @@ func TestValidateWarnsWhenDNSRejectProjectionWouldWiden(t *testing.T) {
 func hasIssue(validation Validation, code string) bool {
 	for _, issue := range validation.Errors {
 		if issue.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func hasIssueForOption(validation Validation, code, option string) bool {
+	for _, issue := range validation.Errors {
+		if issue.Code == code && issue.Option == option {
 			return true
 		}
 	}

@@ -505,9 +505,35 @@ async function main() {
 
 	environment = await renderDns({ dns_profile: [] });
 	assertNamedIds(environment, 'DNS profiles');
-	const dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
+	let dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
 	assert.deepEqual(dnsProtocol.values.map((value) => value[0]), [ 'udp', 'tcp', 'tls', 'https', 'quic', 'h3' ],
 		'DNS profiles expose exactly the six M1 transports');
+	const dnsSection = environment.maps[0].sections.find((section) => section.sectionType == 'dns_profile');
+	assert.deepEqual(dnsSection.addDefaults, { enabled: '1', protocol: 'udp', server_port: '53' },
+		'new DNS profiles use the shared default protocol and common port');
+	for (const field of [ 'tls_server_name', 'path', 'insecure' ]) {
+		const option = allOptions(environment).find((candidate) => candidate.name == field);
+		const expected = uiSpec.dns_protocols.filter((protocol) => protocol.fields.includes(field)).map((protocol) => protocol.value);
+		assert.deepEqual(option.dependencies.map((dependency) => dependency[1]), expected,
+			`${field} visibility must come from the shared DNS field matrix`);
+	}
+	assert.equal(allOptions(environment).find((option) => option.name == 'tls_server_name').rmempty, false,
+		'LuCI derives the encrypted DNS required field from the shared matrix');
+
+	const dnsProfiles = {
+		dns_profile: [
+			{ '.name': 'default_port', protocol: 'https', server_port: '443', tls_server_name: 'dns.example', path: '/dns-query', insecure: '1' },
+			{ '.name': 'custom_port', protocol: 'https', server_port: '8443', tls_server_name: 'dns.example', path: '/custom', insecure: '1' }
+		]
+	};
+	environment = await renderDns(dnsProfiles);
+	dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
+	dnsProtocol.write('default_port', 'udp');
+	assert.deepEqual(dnsProfiles.dns_profile[0], { '.name': 'default_port', protocol: 'udp', server_port: '53' },
+		'DoH to UDP clears inapplicable UCI fields and translates the prior default port');
+	dnsProtocol.write('custom_port', 'udp');
+	assert.deepEqual(dnsProfiles.dns_profile[1], { '.name': 'custom_port', protocol: 'udp', server_port: '8443' },
+		'DNS protocol switching preserves an explicit custom UCI port while clearing stale security fields');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertNamedIds(environment, 'Local proxies');
 	const groupedFixture = {

@@ -73,15 +73,33 @@ if route_kind_labels.get("block") != "Reject":
 if contract.get("subscription_update_interval_default") != "6h":
     raise SystemExit("check-ui-contract: shared subscription interval default drifted")
 
+expected_dns_protocols = {
+    "udp": ([], [], 53),
+    "tcp": ([], [], 53),
+    "tls": (["tls_server_name", "insecure"], ["tls_server_name"], 853),
+    "https": (["tls_server_name", "path", "insecure"], ["tls_server_name"], 443),
+    "quic": (["tls_server_name", "insecure"], ["tls_server_name"], 853),
+    "h3": (["tls_server_name", "path", "insecure"], ["tls_server_name"], 443),
+}
+actual_dns_protocols = {
+    item["value"]: (item["fields"], item["required_fields"], item["default_port"])
+    for item in contract["dns_protocols"]
+}
+if actual_dns_protocols != expected_dns_protocols:
+    raise SystemExit(f"check-ui-contract: DNS protocol field matrix drift: {actual_dns_protocols!r}")
+
 linux_ui = (ROOT / "go/cmd/steer-linux/web/js/ui.js").read_text()
 linux_lib = (ROOT / "go/cmd/steer-linux/web/js/lib.js").read_text()
 linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
 linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
 linux_subscriptions = (ROOT / "go/cmd/steer-linux/web/js/views/subscriptions.js").read_text()
+linux_dns = (ROOT / "go/cmd/steer-linux/web/js/views/dns.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
+luci_dns = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/dns.js").read_text()
 mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
 mac_state = (ROOT / "macos/SteerApp/AppState.swift").read_text()
 mac_editors = (ROOT / "macos/SteerApp/DraftEditors.swift").read_text()
+mac_ui_spec = (ROOT / "macos/SteerApp/UISpec.swift").read_text()
 
 require(linux_ui, "S.uiSpec.navigation", "Linux navigation")
 require(linux_nodes, "S.uiSpec.node_fields", "Linux node form")
@@ -98,6 +116,14 @@ require(luci_nodes, "uiSpec.subscription_update_interval_default", "LuCI subscri
 require(luci_nodes, "update_interval: uiSpec.subscription_update_interval_default", "LuCI subscription creation")
 require(mac_state, "SteerUISpec.contract.subscriptionUpdateIntervalDefault", "macOS subscription default")
 require(mac_state, '"update_interval": .string(SteerUISpec.contract.subscriptionUpdateIntervalDefault)', "macOS subscription creation")
+require(linux_dns, "item.fields", "Linux DNS field matrix")
+require(linux_dns, "next.default_port", "Linux DNS port matrix")
+require(luci_dns, "protocol.fields", "LuCI DNS field matrix")
+require(luci_dns, "next.default_port", "LuCI DNS port matrix")
+require(mac_ui_spec, "UIDNSProtocolSpec", "macOS DNS field matrix")
+require(mac_ui_spec, "next.defaultPort", "macOS DNS port matrix")
+require(mac_ui_spec, "currentPort == $0.defaultPort", "macOS DNS custom-port preservation")
+require(mac_editors, "protocolSpec?.fields.contains", "macOS DNS field visibility")
 
 for content, owner in (
     (linux_nodes, "Linux nodes"),

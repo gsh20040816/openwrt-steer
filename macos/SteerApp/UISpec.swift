@@ -8,6 +8,21 @@ struct UIChoice: Decodable, Identifiable {
     var id: String { value }
 }
 
+struct UIDNSProtocolSpec: Decodable, Identifiable {
+    let value: String
+    let label: String
+    let fields: [String]
+    let requiredFields: [String]
+    let defaultPort: Int
+    var id: String { value }
+
+    enum CodingKeys: String, CodingKey {
+        case value, label, fields
+        case requiredFields = "required_fields"
+        case defaultPort = "default_port"
+    }
+}
+
 struct UICondition: Decodable {
     let field: String
     let values: [String]
@@ -91,7 +106,7 @@ struct UIContract: Decodable {
     let bootstrapProtocols: [UIChoice]
     let bootstrapStrategies: [UIChoice]
     let routeKinds: [UIChoice]
-    let dnsProtocols: [UIChoice]
+    let dnsProtocols: [UIDNSProtocolSpec]
     let localProxyProtocols: [UIChoice]
     let ruleNetworks: [UIChoice]
     let ruleProtocols: [UIChoice]
@@ -137,5 +152,29 @@ enum SteerUISpec {
         contract.nodeFields.filter { field in
             field.types.contains(nodeType) && (section == nil || field.section == section)
         }
+    }
+
+    static func dnsProtocol(_ value: String) -> UIDNSProtocolSpec? {
+        contract.dnsProtocols.first { $0.value == value }
+    }
+
+    static func normalizeDNSProfile(_ object: inout [String: JSONValue]) {
+        guard let protocolSpec = dnsProtocol(object["protocol"]?.stringValue ?? "") else { return }
+        let allowed = Set(protocolSpec.fields)
+        let conditionalFields = Set(contract.dnsProtocols.flatMap(\.fields))
+        for field in conditionalFields where !allowed.contains(field) {
+            object.removeValue(forKey: field)
+        }
+    }
+
+    static func applyDNSProtocol(_ value: String, to object: inout [String: JSONValue]) {
+        guard let next = dnsProtocol(value) else { return }
+        let previous = dnsProtocol(object["protocol"]?.stringValue ?? "")
+        let currentPort = Int(object["server_port"]?.numberValue ?? 0)
+        object["protocol"] = .string(next.value)
+        if currentPort < 1 || previous.map({ currentPort == $0.defaultPort }) == true {
+            object["server_port"] = .number(Double(next.defaultPort))
+        }
+        normalizeDNSProfile(&object)
     }
 }
