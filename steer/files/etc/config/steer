@@ -16,6 +16,10 @@ config bootstrap 'bootstrap'
 config route 'direct'
 	option kind 'direct'
 
+config route 'block'
+	option enabled '0'
+	option kind 'block'
+
 config dns_profile 'direct_dns'
 	option protocol 'udp'
 	option server '1.1.1.1'

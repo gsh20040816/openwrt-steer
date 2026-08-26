@@ -105,8 +105,11 @@ msgstr "连接测速"
 msgid "Batch connection test"
 msgstr "批量连接测速"
 
-msgid "Create a proxy node before adding a single-node route."
-msgstr "请先创建代理节点，再添加单节点路由。"
+msgid "Create or enable a proxy node before adding a single-node route."
+msgstr "请先创建或启用代理节点，再添加单节点路由。"
+
+msgid "Create Reject route"
+msgstr "创建 Reject 路由"
 
 msgid "Credentials"
 msgstr "凭据"
@@ -575,6 +578,9 @@ msgstr "开始测试"
 
 msgid "The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours."
 msgstr "将先通过所选单节点路由拨号。前置路由缺失、禁用、不是单节点或形成环时，Apply 会拒绝配置。"
+
+msgid "This older configuration has no Reject route. Create the fixed disabled system route once, then enable it when needed."
+msgstr "此旧配置缺少 Reject 路由。请一次性创建固定且默认禁用的系统路由，并在需要时启用。"
 
 msgid "%d invalid node(s) were skipped."
 msgstr "已跳过 %d 个无效节点。"

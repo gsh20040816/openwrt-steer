@@ -5,7 +5,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +15,61 @@ import (
 	"time"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
+
+func TestExportPackagedFreshDefaultsAsCanonicalIntent(t *testing.T) {
+	configPath := filepath.Join("..", "..", "..", "steer", "files", "etc", "config", "steer")
+	output := captureStdout(t, func() error {
+		return runExportIntent([]string{"--config", configPath})
+	})
+	var value model.Intent
+	if err := json.Unmarshal(output, &value); err != nil {
+		t.Fatalf("decode Canonical export: %v\n%s", err, output)
+	}
+	if validation := model.Validate(value); !validation.OK {
+		t.Fatalf("fresh Canonical export is invalid: %#v", validation.Errors)
+	}
+	if len(value.Routes) != 2 || value.Routes[0] != (model.Route{ID: "direct", Enabled: true, Kind: "direct"}) ||
+		value.Routes[1] != (model.Route{ID: "block", Enabled: false, Kind: "block"}) {
+		t.Fatalf("unexpected fresh Canonical routes: %#v", value.Routes)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range document["routes"].([]any) {
+		if _, exists := raw.(map[string]any)["name"]; exists {
+			t.Fatalf("optional empty route name leaked into Canonical export: %s", output)
+		}
+	}
+}
+
+func captureStdout(t *testing.T, run func() error) []byte {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = writer
+	runErr := run()
+	os.Stdout = original
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output, readErr := io.ReadAll(reader)
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return output
+}
 
 func TestApplyRecordFailurePreservesOperationError(t *testing.T) {
 	runDirectory := t.TempDir()

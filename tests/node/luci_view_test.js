@@ -18,6 +18,28 @@ if (typeof String.prototype.format != 'function') {
 const root = path.resolve(__dirname, '../..');
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 
+function parseUCIConfig(content) {
+	const sections = {};
+	let current = null;
+	for (const raw of String(content).split(/\r?\n/)) {
+		const line = raw.trim();
+		let match = line.match(/^config\s+(\w+)\s+'([^']+)'$/);
+		if (match) {
+			current = { '.name': match[2] };
+			(sections[match[1]] ||= []).push(current);
+			continue;
+		}
+		match = line.match(/^(option|list)\s+(\w+)\s+'([^']*)'$/);
+		if (!match || !current)
+			continue;
+		if (match[1] == 'list')
+			(current[match[2]] ||= []).push(match[3]);
+		else
+			current[match[2]] = match[3];
+	}
+	return sections;
+}
+
 function element(tag, attributes, children) {
 	if (Array.isArray(tag)) {
 		children = attributes;
@@ -31,13 +53,46 @@ function element(tag, attributes, children) {
 
 	const values = children == null ? [] : (Array.isArray(children) ? children : [ children ]);
 	assert.ok(!values.includes(null), 'LuCI element children must not contain null');
-	return {
+	const node = {
 		tag,
 		attributes: attributes || {},
 		children: values,
-		disabled: false,
-		replaceChildren: function(...replacement) { this.children = replacement; }
+		disabled: !!attributes?.disabled,
+		hidden: attributes?.hidden != null,
+		title: attributes?.title || '',
+		value: attributes?.value || '',
+		listeners: {},
+		replaceChildren: function(...replacement) { this.children = replacement; },
+		appendChild: function(child) { this.children.push(child); return child; },
+		addEventListener: function(name, listener) {
+			(this.listeners[name] ||= []).push(listener);
+		},
+		setAttribute: function(name, value) { this.attributes[name] = String(value); },
+		querySelector: function(selector) {
+			if (!selector.startsWith('.')) return null;
+			const className = selector.slice(1);
+			return findElements(this, (candidate) => String(candidate.attributes?.class || '').split(/\s+/).includes(className))[0] || null;
+		}
 	};
+	node.classList = {
+		contains: (name) => String(node.attributes.class || '').split(/\s+/).includes(name),
+		add: (...names) => {
+			const values = new Set(String(node.attributes.class || '').split(/\s+/).filter(Boolean));
+			names.forEach((name) => values.add(name));
+			node.attributes.class = [ ...values ].join(' ');
+		},
+		remove: (...names) => {
+			const removed = new Set(names);
+			node.attributes.class = String(node.attributes.class || '').split(/\s+/)
+				.filter((name) => name && !removed.has(name)).join(' ');
+		},
+		toggle: (name, force) => {
+			const enabled = force == null ? !node.classList.contains(name) : !!force;
+			if (enabled) node.classList.add(name); else node.classList.remove(name);
+			return enabled;
+		}
+	};
+	return node;
 }
 
 function findElements(root, predicate) {
@@ -123,6 +178,13 @@ function createEnvironment(sections) {
 		taboption(tab, type, name) {
 			return this.option(type, name);
 		}
+
+		renderSectionAdd() {
+			const input = element('input', { 'class': 'cbi-section-create-name' });
+			const button = element('button', { 'class': 'cbi-button-add', disabled: true }, 'Add');
+			input.addEventListener('keyup', () => { button.disabled = input.value == ''; });
+			return element('div', { 'class': 'cbi-section-create' }, [ input, button ]);
+		}
 	}
 
 	class Map {
@@ -134,7 +196,13 @@ function createEnvironment(sections) {
 		section(type, ...arguments_) {
 			const sectionType = type == 'NamedSection' ? arguments_[1] : arguments_[0];
 			const section = new Section(type, sectionType);
-			if (type == 'NamedSection') section.sectionId = arguments_[0];
+			if (type == 'NamedSection') {
+				section.sectionId = arguments_[0];
+				section.title = arguments_[2];
+			}
+			else {
+				section.title = arguments_[1];
+			}
 			this.sections.push(section);
 			return section;
 		}
@@ -162,6 +230,20 @@ function createEnvironment(sections) {
 	const uci = {
 		load: () => Promise.resolve(),
 		sections: (config, type) => (sections[type] || []).map((section) => ({ ...section })),
+		add: (config, type, sectionId) => {
+			if (Object.values(sections).flat().some((section) => section['.name'] == sectionId))
+				throw new Error(`section ${sectionId} already exists`);
+			const section = { '.name': sectionId };
+			(sections[type] ||= []).push(section);
+			return sectionId;
+		},
+		remove: (config, sectionId) => {
+			for (const values of Object.values(sections)) {
+				const index = values.findIndex((section) => section['.name'] == sectionId);
+				if (index >= 0) values.splice(index, 1);
+			}
+		},
+		save: () => Promise.resolve(),
 		get: (config, sectionId, option) => {
 			const section = Object.values(sections).flat()
 				.find((candidate) => candidate['.name'] == sectionId);
@@ -352,18 +434,24 @@ async function renderOverview(sections, page = 'general') {
 	return environment;
 }
 
-function assertNamedIds(environment, message) {
+function assertExplicitIdsAndOptionalNames(environment, message) {
 	const addable = environment.maps.flatMap((map) => map.sections)
 		.filter((section) => section.addremove);
 	assert.ok(addable.length > 0, message + ': expected at least one addable section');
 	assert.ok(addable.every((section) => section.anonymous === false && typeof section.handleAdd == 'function'),
 		message + ': addable entities must require validated explicit UCI IDs');
 	assert.ok(addable.every((section) => section.options.some((option) =>
-		option.name == 'name' && option.rmempty === false)),
-		message + ': every addable entity must require a user-facing name');
+		option.name == 'name' && option.rmempty === true && option.optional === true)),
+		message + ': every Canonical optional name must remain optional in LuCI');
 }
 
 async function main() {
+	const freshSections = parseUCIConfig(fs.readFileSync(path.join(root, 'steer/files/etc/config/steer'), 'utf8'));
+	assert.deepEqual(freshSections.route.map((route) => [ route['.name'], route.enabled, route.kind ]), [
+		[ 'direct', undefined, 'direct' ],
+		[ 'block', '0', 'block' ]
+	], 'The packaged fresh UCI keeps Direct before a disabled Reject route');
+
 	let environment = await renderRules({
 		rule: [ {
 			'.name': 'default',
@@ -377,7 +465,7 @@ async function main() {
 		local_proxy: [],
 	});
 	let options = allOptions(environment);
-	assertNamedIds(environment, 'Rules');
+	assertExplicitIdsAndOptionalNames(environment, 'Rules');
 	assert.equal(options.some((option) => option.name == 'inbound'), false,
 		'Rules must not create a choice-only MultiValue without candidates');
 	const summary = options.find((option) => option.name == '_match');
@@ -470,25 +558,119 @@ async function main() {
 	assert.ok(inbound, 'A dangling inbound reference must remain visible for repair');
 	assert.deepEqual(inbound.values, [ [ 'missing_proxy', 'Missing: missing_proxy' ] ]);
 
-	environment = await renderNodes({
-		node: [],
-		route: [
-			{ '.name': 'direct', kind: 'direct' },
-			{ '.name': 'block', kind: 'block' }
-		]
-	}, '', undefined, 'routes');
+	environment = await renderNodes(freshSections, '', undefined, 'routes');
 	options = allOptions(environment);
-	assertNamedIds(environment, 'Nodes and routes');
+	assertExplicitIdsAndOptionalNames(environment, 'Fresh routes');
 	const systemRoutes = environment.maps[0].sections.filter((section) => section.type == 'NamedSection');
 	assert.deepEqual(systemRoutes.map((section) => section.sectionId), [ 'direct', 'block' ],
 		'Direct and Reject render as fixed system-route sections');
+	assert.deepEqual(systemRoutes.map((section) => section.title), [ 'Direct', 'Reject' ],
+		'Unnamed system routes use stable localized kind labels');
+	assert.ok(systemRoutes.every((section) => section.addremove === false),
+		'System routes cannot be removed');
+	const rejectSection = systemRoutes.find((section) => section.sectionId == 'block');
+	const rejectEnabled = rejectSection.options.find((option) => option.name == 'enabled');
+	assert.equal(rejectEnabled?.type, 'Flag',
+		'Reject remains explicitly enableable');
+	assert.equal(environment.uci.get('steer', 'block', 'enabled'), '0',
+		'Fresh Reject starts disabled');
+	await rejectEnabled.submit('block', '1');
+	assert.equal(environment.uci.get('steer', 'block', 'enabled'), '1',
+		'Reject can be enabled without changing its fixed kind');
+	assert.ok(systemRoutes.every((section) => {
+		const name = section.options.find((option) => option.name == 'name');
+		return name?.rmempty === true && name?.optional === true;
+	}), 'Fresh Direct and Reject can be saved without optional names');
+	await systemRoutes.find((section) => section.sectionId == 'direct').options
+		.find((option) => option.name == 'name').submit('direct', '');
+	assert.equal(environment.uci.get('steer', 'direct', 'name'), undefined,
+		'Saving fresh Direct preserves its absent optional name');
 	const emptyRoutes = environment.maps[0].sections.find((section) => section.type == 'GridSection' && section.sectionType == 'route');
 	assert.deepEqual(emptyRoutes.addDefaults, { enabled: '1', kind: 'single' },
 		'New route rows are always initialized as enabled single-node routes');
+	assert.equal(emptyRoutes.addremove, true,
+		'Disabling Single creation must not remove repair/delete controls for existing routes');
 	assert.equal(options.some((option) => option.name == 'kind'), false,
 		'The route UI cannot create or convert another Direct or Reject route');
 	assert.equal(options.some((option) => option.name == 'node'), false,
 		'Routes must not create a ListValue without node candidates');
+	assert.equal(rejectSection.options.some((option) => option.name == 'detour'), false,
+		'Reject cannot be used as or configured with a detour');
+	assert.equal(findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Create Reject route').length, 0,
+		'Fresh UCI does not offer a duplicate Reject creation action');
+	const freshAddRow = emptyRoutes.renderSectionAdd();
+	const freshAddButton = freshAddRow.querySelector('.cbi-button-add');
+	const freshAddReason = findElements(freshAddRow,
+		(node) => node.tag == 'p' && node.children?.[0] == 'Create or enable a proxy node before adding a single-node route.')[0];
+	assert.equal(freshAddButton.disabled, true,
+		'Add Single remains disabled when no enabled Node exists');
+	assert.ok(freshAddReason && freshAddReason.hidden === false,
+		'The disabled Add Single control explains how to enable it');
+
+	const legacySections = {
+		node: [],
+		route: [ { '.name': 'direct', kind: 'direct' } ]
+	};
+	environment = await renderNodes(legacySections, '', undefined, 'routes');
+	const createReject = findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Create Reject route')[0];
+	assert.ok(createReject, 'An older config without Reject exposes the one-time recovery action');
+	await createReject.attributes.click({ preventDefault: () => {} });
+	assert.deepEqual(legacySections.route.map((route) => [ route['.name'], route.enabled, route.kind ]), [
+		[ 'direct', undefined, 'direct' ],
+		[ 'block', '0', 'block' ]
+	], 'Reject recovery appends one disabled fixed block route after Direct');
+	assert.equal(environment.window.location.reloadCount, 1,
+		'Successful Reject recovery reloads the form once');
+	environment = await renderNodes(legacySections, '', undefined, 'routes');
+	assert.equal(findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Create Reject route').length, 0,
+		'Reject recovery disappears after the system route exists');
+	const collisionSections = {
+		node: [ { '.name': 'node_a', enabled: '1' } ],
+		route: [
+			{ '.name': 'direct', kind: 'direct' },
+			{ '.name': 'block', kind: 'single', node: 'node_a' }
+		]
+	};
+	environment = await renderNodes(collisionSections, '', undefined, 'routes');
+	const createCollisionReject = findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Create Reject route')[0];
+	await createCollisionReject.attributes.click({ preventDefault: () => {} });
+	assert.deepEqual(collisionSections.route.map((route) => [ route['.name'], route.kind ]), [
+		[ 'direct', 'direct' ], [ 'block', 'single' ], [ 'block_2', 'block' ]
+	], 'Reject recovery chooses a stable free ID when block is already occupied');
+
+	const disabledNodeSections = parseUCIConfig(fs.readFileSync(path.join(root, 'steer/files/etc/config/steer'), 'utf8'));
+	disabledNodeSections.node = [ { '.name': 'subscription_node', enabled: '0', source_subscription: 'feed' } ];
+	environment = await renderNodes(disabledNodeSections, '', undefined, 'routes');
+	const guardedRoutes = environment.maps[0].sections.find((section) => section.type == 'GridSection' && section.sectionType == 'route');
+	const guardedAddRow = guardedRoutes.renderSectionAdd();
+	const guardedInput = guardedAddRow.querySelector('.cbi-section-create-name');
+	const guardedButton = guardedAddRow.querySelector('.cbi-button-add');
+	assert.equal(guardedButton.disabled, true,
+		'A disabled subscription Node is not eligible for Add Single');
+	environment.uci.set('steer', 'subscription_node', 'enabled', '1');
+	guardedInput.value = 'route_proxy';
+	guardedInput.listeners.keyup.forEach((listener) => listener());
+	assert.equal(guardedButton.disabled, null,
+		'An enabled Node restores Add Single without reloading the page');
+	assert.equal(environment.window.location.reloadCount, 0,
+		'Dynamic Add Single recovery does not reload the page');
+
+	freshSections.route.push(
+		{ '.name': 'single_a', enabled: '1', kind: 'single', node: 'node_a' },
+		{ '.name': 'single_b', enabled: '1', kind: 'single', node: 'node_b' }
+	);
+	environment = await renderRules(freshSections);
+	const routePicker = allOptions(environment).find((option) => option.name == 'route');
+	assert.deepEqual(routePicker.values, [
+		[ 'direct', 'Direct' ], [ 'block', 'Reject' ], [ 'single_a', 'single_a' ], [ 'single_b', 'single_b' ]
+	], 'Rules use localized system fallbacks while unnamed Single routes remain distinguishable by stable ID');
+	await rejectEnabled.submit('block', '0');
+	assert.equal(freshSections.route.find((route) => route['.name'] == 'block').enabled, '0',
+		'Reject can be disabled again without deletion or kind mutation');
 
 	environment = await renderNodes({
 		node: [],
@@ -500,7 +682,7 @@ async function main() {
 	assert.deepEqual(missingNode.values, [ [ 'missing_node', 'Missing: missing_node', 'Group: Missing references' ] ]);
 
 	environment = await renderDns({ dns_profile: [] });
-	assertNamedIds(environment, 'DNS profiles');
+	assertExplicitIdsAndOptionalNames(environment, 'DNS profiles');
 	let dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
 	assert.deepEqual(dnsProtocol.values.map((value) => value[0]), [ 'udp', 'tcp', 'tls', 'https', 'quic', 'h3' ],
 		'DNS profiles expose exactly the six M1 transports');
@@ -531,7 +713,7 @@ async function main() {
 	assert.deepEqual(dnsProfiles.dns_profile[1], { '.name': 'custom_port', protocol: 'udp', server_port: '8443' },
 		'DNS protocol switching preserves an explicit custom UCI port while clearing stale security fields');
 	environment = await renderLocalProxies({ local_proxy: [] });
-	assertNamedIds(environment, 'Local proxies');
+	assertExplicitIdsAndOptionalNames(environment, 'Local proxies');
 	const groupedFixture = {
 		node: [
 			{ '.name': 'cfg_manual', name: 'Manual', type: 'hysteria2' },
@@ -539,11 +721,13 @@ async function main() {
 		],
 		route: [
 			{ '.name': 'route_proxy', kind: 'single', node: 'jdub_0123456789ab', detour: 'route_jp' },
-			{ '.name': 'route_jp', kind: 'single', node: 'cfg_manual' }
+			{ '.name': 'route_jp', kind: 'single', node: 'cfg_manual' },
+			{ '.name': 'block', enabled: '1', kind: 'block' }
 		],
 		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
 	};
 	environment = await renderNodes(groupedFixture);
+	assertExplicitIdsAndOptionalNames(environment, 'Nodes');
 	const groupedNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
 	assert.ok(groupedNodes && groupedNodes.addremove === true && groupedNodes.filter('cfg_manual') && !groupedNodes.filter('jdub_0123456789ab'),
 		'The default node group shows only manually added nodes');
@@ -566,8 +750,13 @@ async function main() {
 	const detourPicker = routeSection.options.find((option) => option.name == 'detour');
 	assert.deepEqual(detourPicker.values[0], [ '', 'Direct connection' ],
 		'Detour picker can clear an existing detour and dial the node directly');
-	assert.ok(detourPicker.values.some((value) => value[0] == 'route_proxy'),
-		'Detour picker shows every single-node route, including the current route for backend cycle diagnostics');
+	assert.ok(detourPicker.values.some((value) => value[0] == 'route_proxy' && value[1] == 'route_proxy') &&
+		detourPicker.values.some((value) => value[0] == 'route_jp' && value[1] == 'route_jp'),
+		'Unnamed Single detours remain distinguishable by stable route ID');
+	assert.equal(routeSection.sectiontitle('route_proxy'), 'route_proxy',
+		'Unnamed Single route summaries use the stable route ID');
+	assert.equal(detourPicker.values.some((value) => value[0] == 'block'), false,
+		'Reject is never offered as a detour');
 	await detourPicker.submit('route_proxy', '');
 	assert.equal(environment.uci.get('steer', 'route_proxy', 'detour'), undefined,
 		'An empty RichListValue is valid and removes the detour UCI option on save');
@@ -671,6 +860,7 @@ async function main() {
 	assert.equal(environment.statusRenderCalls, 1,
 		'The Steer root renders exactly one overview status panel');
 	environment = await renderNodes({ subscription: [], node: [], route: [] }, '', { subscriptions: [] }, 'subscriptions');
+	assertExplicitIdsAndOptionalNames(environment, 'Subscriptions');
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
 		'Subscriptions require an explicit stable UCI section ID');

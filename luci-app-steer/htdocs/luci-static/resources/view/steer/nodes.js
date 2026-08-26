@@ -73,7 +73,7 @@ function nodeReferenceLabel(references, nodeId) {
 function collectRouteReferences(routes) {
 	const references = routes.filter((route) => route.kind == 'single').map((route) => ({
 		id: route['.name'],
-		label: route.name || route['.name']
+		label: routeLabel(route)
 	}));
 	const known = Object.fromEntries(references.map((reference) => [ reference.id, true ]));
 	routes.forEach((route) => {
@@ -85,11 +85,28 @@ function collectRouteReferences(routes) {
 	return references;
 }
 
+function routeKindLabel(kind) {
+	switch (kind) {
+	case 'direct': return _('Direct');
+	case 'block': return _('Reject');
+	case 'single': return _('Single node');
+	default: return _('Route');
+	}
+}
+
+function routeLabel(route) {
+	if (route?.name)
+		return route.name;
+	if (route?.kind == 'direct' || route?.kind == 'block')
+		return routeKindLabel(route.kind);
+	return route?.['.name'] || routeKindLabel(route?.kind);
+}
+
 function addSystemRouteSection(map, route) {
 	if (!route)
 		return;
 	const direct = route.kind == 'direct';
-	let section = map.section(form.NamedSection, route['.name'], 'route', direct ? _('Direct') : _('Reject'));
+	let section = map.section(form.NamedSection, route['.name'], 'route', routeLabel(route));
 	section.addremove = false;
 	section.anonymous = true;
 	section.nodescriptions = true;
@@ -103,9 +120,91 @@ function addSystemRouteSection(map, route) {
 		option.default = '1';
 	}
 	option = section.option(form.Value, 'name', _('Name'));
-	option.rmempty = false;
+	option.rmempty = true;
+	option.optional = true;
 	option = section.option(form.DummyValue, '_system_kind', _('Kind'));
 	option.textvalue = function() { return direct ? _('Direct') : _('Reject'); };
+}
+
+function nextRejectRouteID() {
+	let id = 'block';
+	let index = 2;
+	while (uci.get('steer', id))
+		id = 'block_' + index++;
+	return id;
+}
+
+function renderMissingRejectAction(routes, map) {
+	if (routes.some((route) => route.kind == 'block'))
+		return null;
+	const message = _('This older configuration has no Reject route. Create the fixed disabled system route once, then enable it when needed.');
+	const button = E('button', {
+		'class': 'cbi-button cbi-button-add',
+		'type': 'button',
+		'disabled': map.readonly || null,
+		'click': function(ev) {
+			ev.preventDefault();
+			button.disabled = true;
+			const sectionId = nextRejectRouteID();
+			return Promise.resolve().then(() => {
+				uci.add('steer', 'route', sectionId);
+				uci.set('steer', sectionId, 'enabled', '0');
+				uci.set('steer', sectionId, 'kind', 'block');
+				return uci.save();
+			}).then(() => window.location.reload()).catch((error) => {
+				uci.remove('steer', sectionId);
+				button.disabled = false;
+				ui.addNotification(_('Create Reject route'), E('p', {}, String(error)), 'danger');
+			});
+		}
+	}, _('Create Reject route'));
+	return E('section', { 'class': 'cbi-section steer-reject-recovery' }, [
+		E('h3', {}, _('Reject')),
+		E('p', {}, message),
+		button
+	]);
+}
+
+function hasEnabledNode() {
+	return uci.sections('steer', 'node').some((node) => node.enabled != '0');
+}
+
+function configureSingleRouteCreation(section) {
+	const unavailable = _('Create or enable a proxy node before adding a single-node route.');
+	const handleAdd = section.handleAdd;
+	section.handleAdd = function(ev, sectionId) {
+		if (!hasEnabledNode()) {
+			ui.addNotification(_('Add single-node route'), E('p', {}, unavailable), 'warning');
+			return;
+		}
+		return handleAdd.call(this, ev, sectionId);
+	};
+
+	const renderSectionAdd = section.renderSectionAdd;
+	section.renderSectionAdd = function(extraClass) {
+		const row = renderSectionAdd.call(this, extraClass);
+		const button = row.querySelector?.('.cbi-button-add');
+		const input = row.querySelector?.('.cbi-section-create-name');
+		if (!button || !input)
+			return row;
+		const reason = E('p', { 'class': 'cbi-section-descr alert-message warning' }, unavailable);
+		const refresh = function() {
+			const available = hasEnabledNode();
+			reason.hidden = available;
+			button.title = available ? _('Add single-node route') : unavailable;
+			if (section.map?.readonly === true || !available)
+				button.disabled = true;
+			else if (input.value != '' && !input.classList.contains('cbi-input-invalid'))
+				button.disabled = null;
+		};
+		input.addEventListener('keyup', refresh);
+		input.addEventListener('input', refresh);
+		input.addEventListener('focus', refresh);
+		input.addEventListener('blur', refresh);
+		row.appendChild(reason);
+		refresh();
+		return row;
+	};
 }
 
 function configureSubscriptionRemoval(section, nodes, routes) {
@@ -559,7 +658,7 @@ return view.extend({
 				return uci.get('steer', sectionId, 'name') || uci.get('steer', sectionId, 'url') || _('Unnamed');
 			};
 			o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
-			o = s.option(form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
+			o = s.option(form.Value, 'name', _('Name')); o.rmempty = true; o.optional = true; o.modalonly = true;
 			o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
 			o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = uiSpec.subscription_update_interval_default; o.modalonly = true;
 			return m.render().then((formNode) => E([], [ renderSubscriptionStatus(data?.[1]), formNode ]));
@@ -568,76 +667,77 @@ return view.extend({
 		if (page == 'routes') {
 			addSystemRouteSection(m, routes.find((route) => route.kind == 'direct'));
 			addSystemRouteSection(m, routes.find((route) => route.kind == 'block'));
+			const rejectRecovery = renderMissingRejectAction(routes, m);
 
-		s = m.section(form.GridSection, 'route', _('Single-node routes'));
-		steer.configureNamedSection(s, { enabled: '1', kind: 'single' });
-		s.addremove = true;
-		s.nodescriptions = true;
-		s.addbtntitle = _('Add single-node route');
-		s.filter = function(sectionId) {
-			return uci.get('steer', sectionId, 'kind') == 'single';
-		};
-		s.sectiontitle = function(sectionId) {
-			return uci.get('steer', sectionId, 'name') || _('Unnamed');
-		};
-
-		o = s.option(form.Flag, 'enabled', _('Enabled'));
-		o.default = '1';
-		o.editable = true;
-
-		o = s.option(form.Value, 'name', _('Name'));
-		o.rmempty = false;
-		o.modalonly = true;
-
-		o = s.option(form.DummyValue, '_single_kind', _('Kind'));
-		o.textvalue = function() { return _('Single node'); };
-		if (!nodeReferences.length)
-			o.description = _('Create a proxy node before adding a single-node route.');
-
-		if (nodeReferences.length) {
-			o = s.option(form.RichListValue, 'node', _('Node'));
-			o.depends('kind', 'single');
-			o.rmempty = false;
-			addNodeValues(o, nodeReferences);
-			o.textvalue = function(sectionId) {
-				return nodeReferenceLabel(nodeReferences, uci.get('steer', sectionId, 'node'));
+			s = m.section(form.GridSection, 'route', _('Single-node routes'));
+			steer.configureNamedSection(s, { enabled: '1', kind: 'single' });
+			configureSingleRouteCreation(s);
+			s.addremove = true;
+			s.nodescriptions = true;
+			s.addbtntitle = _('Add single-node route');
+			s.filter = function(sectionId) {
+				return uci.get('steer', sectionId, 'kind') == 'single';
 			};
-		}
+			s.sectiontitle = function(sectionId) {
+				return uci.get('steer', sectionId, 'name') || sectionId;
+			};
 
-		if (routeReferences.length) {
-			o = s.option(form.RichListValue, 'detour', _('Detour route'));
-			o.depends('kind', 'single');
-			o.optional = true;
+			o = s.option(form.Flag, 'enabled', _('Enabled'));
+			o.default = '1';
+			o.editable = true;
+
+			o = s.option(form.Value, 'name', _('Name'));
 			o.rmempty = true;
-			o.value('', _('Direct connection'));
-			routeReferences.forEach((reference) => o.value(reference.id, reference.label));
-			o.textvalue = function(sectionId) {
-				const detour = uci.get('steer', sectionId, 'detour');
-				if (!detour)
-					return _('Direct connection');
-				return routeReferences.find((reference) => reference.id == detour)?.label || _('Missing route');
-			};
-			o.description = _('The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours.');
-		}
+			o.optional = true;
+			o.modalonly = true;
 
-		o = s.option(form.Button, '_route_connect_test', _('Chain connection test'));
-		o.depends({ kind: 'single', enabled: '1' });
-		o.editable = true;
-		o.inputtitle = _('Test');
-		o.inputstyle = 'action';
-		o.write = function() {};
-		o.remove = function() {};
-		o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, false, ev.currentTarget); };
+			o = s.option(form.DummyValue, '_single_kind', _('Kind'));
+			o.textvalue = function() { return _('Single node'); };
 
-		o = s.option(form.Button, '_route_download_test', _('Chain download test'));
-		o.depends({ kind: 'single', enabled: '1' });
-		o.editable = true;
-		o.inputtitle = _('Test');
-		o.inputstyle = 'action';
-		o.write = function() {};
-		o.remove = function() {};
-		o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget); };
-			return m.render();
+			if (nodeReferences.length) {
+				o = s.option(form.RichListValue, 'node', _('Node'));
+				o.depends('kind', 'single');
+				o.rmempty = false;
+				addNodeValues(o, nodeReferences);
+				o.textvalue = function(sectionId) {
+					return nodeReferenceLabel(nodeReferences, uci.get('steer', sectionId, 'node'));
+				};
+			}
+
+			if (routeReferences.length) {
+				o = s.option(form.RichListValue, 'detour', _('Detour route'));
+				o.depends('kind', 'single');
+				o.optional = true;
+				o.rmempty = true;
+				o.value('', _('Direct connection'));
+				routeReferences.forEach((reference) => o.value(reference.id, reference.label));
+				o.textvalue = function(sectionId) {
+					const detour = uci.get('steer', sectionId, 'detour');
+					if (!detour)
+						return _('Direct connection');
+					return routeReferences.find((reference) => reference.id == detour)?.label || _('Missing route');
+				};
+				o.description = _('The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours.');
+			}
+
+			o = s.option(form.Button, '_route_connect_test', _('Chain connection test'));
+			o.depends({ kind: 'single', enabled: '1' });
+			o.editable = true;
+			o.inputtitle = _('Test');
+			o.inputstyle = 'action';
+			o.write = function() {};
+			o.remove = function() {};
+			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, false, ev.currentTarget); };
+
+			o = s.option(form.Button, '_route_download_test', _('Chain download test'));
+			o.depends({ kind: 'single', enabled: '1' });
+			o.editable = true;
+			o.inputtitle = _('Test');
+			o.inputstyle = 'action';
+			o.write = function() {};
+			o.remove = function() {};
+			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget); };
+			return m.render().then((formNode) => rejectRecovery ? E([], [ rejectRecovery, formNode ]) : formNode);
 		}
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
@@ -674,7 +774,8 @@ return view.extend({
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget); };
 
 		o = s.option(form.Value, 'name', _('Name'));
-		o.rmempty = false;
+		o.rmempty = true;
+		o.optional = true;
 		o.modalonly = true;
 
 		o = s.option(form.ListValue, 'type', _('Protocol'));

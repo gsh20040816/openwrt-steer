@@ -15,12 +15,12 @@ function asList(value) {
 	return Array.isArray(value) ? value : [ value ];
 }
 
-function collectReferences(objects, rules, field) {
+function collectReferences(objects, rules, field, label) {
 	const known = {};
 	const references = [];
 	objects.forEach((object) => {
 		known[object['.name']] = true;
-		references.push([ object['.name'], object.name || object['.name'] ]);
+		references.push([ object['.name'], label ? label(object) : (object.name || object['.name']) ]);
 	});
 	rules.forEach((rule) => {
 		asList(rule[field]).forEach((value) => {
@@ -31,6 +31,16 @@ function collectReferences(objects, rules, field) {
 		});
 	});
 	return references;
+}
+
+function routeReferenceLabel(route) {
+	if (route.name)
+		return route.name;
+	switch (route.kind) {
+	case 'direct': return _('Direct');
+	case 'block': return _('Reject');
+	default: return route['.name'];
+	}
 }
 
 function addReferences(option, references) {
@@ -254,7 +264,7 @@ return view.extend({
 		const localProxies = uci.sections('steer', 'local_proxy');
 		const defaultRule = rules.find((rule) => rule.default == '1');
 		const dnsReferences = collectReferences(dnsProfiles, rules, 'dns_profile');
-		const routeReferences = collectReferences(routes, rules, 'route');
+		const routeReferences = collectReferences(routes, rules, 'route', routeReferenceLabel);
 		const inboundReferences = collectReferences(localProxies, rules, 'inbound');
 
 		m = new form.Map('steer', _('Rules'));
@@ -279,7 +289,8 @@ return view.extend({
 		o.editable = true;
 
 		o = s.taboption('intent', form.Value, 'name', _('Name'));
-		o.rmempty = false;
+		o.rmempty = true;
+		o.optional = true;
 		o.modalonly = true;
 
 		o = s.taboption('intent', form.DummyValue, '_match', _('Match'));
