@@ -159,10 +159,27 @@ struct UINavigationGroup: Decodable, Identifiable {
     var id: String { key }
 }
 
+struct UIIDPolicy: Decodable {
+    let pattern: String
+    let maxLength: Int
+    let autoGenerate: Bool
+    let collectionPrefixes: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case pattern
+        case maxLength = "max_length"
+        case autoGenerate = "auto_generate"
+        case collectionPrefixes = "collection_prefixes"
+    }
+}
+
 struct UIContract: Decodable {
     let schemaVersion: Int
     let canonicalSchema: Int
     let subscriptionUpdateIntervalDefault: String
+    let idPolicy: UIIDPolicy
+    let creationDefaults: [String: [String: JSONValue]]
+    let creationRequiredFields: [String: [String]]
     let inputFormats: [String: UIInputFormat]
     let nodeTypes: [UIChoice]
     let nodeFields: [UIFieldSpec]
@@ -186,6 +203,9 @@ struct UIContract: Decodable {
         case schemaVersion = "schema_version"
         case canonicalSchema = "canonical_schema"
         case subscriptionUpdateIntervalDefault = "subscription_update_interval_default"
+        case idPolicy = "id_policy"
+        case creationDefaults = "creation_defaults"
+        case creationRequiredFields = "creation_required_fields"
         case inputFormats = "input_formats"
         case nodeTypes = "node_types"
         case nodeFields = "node_fields"
@@ -223,8 +243,26 @@ enum SteerUISpec {
         }
     }
 
+    static func creationObject(
+        for collection: String,
+        id: String? = nil,
+        overrides: [String: JSONValue] = [:]
+    ) -> [String: JSONValue] {
+        var object = contract.creationDefaults[collection] ?? [:]
+        if let id { object["id"] = .string(id) }
+        for (key, value) in overrides { object[key] = value }
+        return object
+    }
+
     static func dnsProtocol(_ value: String) -> UIDNSProtocolSpec? {
         contract.dnsProtocols.first { $0.value == value }
+    }
+
+    static func applyNodeType(_ value: String, to object: inout [String: JSONValue]) {
+        object["type"] = .string(value)
+        for field in nodeFields(for: value) where object[field.key] == nil {
+            if let defaultValue = field.defaultValue { object[field.key] = defaultValue }
+        }
     }
 
     static func normalizeDNSProfile(_ object: inout [String: JSONValue]) {

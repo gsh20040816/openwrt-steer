@@ -20,17 +20,20 @@ function collectReferences(objects, rules, field, label) {
 	const references = [];
 	objects.forEach((object) => {
 		known[object['.name']] = true;
-		references.push([ object['.name'], label ? label(object) : (object.name || object['.name']) ]);
+		const detail = object.server && object.server_port ? '%s:%s'.format(object.server, object.server_port)
+			: (object.listen && object.listen_port ? '%s:%s'.format(object.listen, object.listen_port)
+				: (object.kind == 'single' ? _('Node: %s').format(object.node || _('not selected')) : ''));
+		references.push({ id: object['.name'], label: label ? label(object) : (object.name || object['.name']), detail });
 	});
 	rules.forEach((rule) => {
 		asList(rule[field]).forEach((value) => {
 			if (value && !known[value]) {
 				known[value] = true;
-				references.push([ value, _('Missing: %s').format(value) ]);
+				references.push({ id: value, label: _('Missing: %s').format(value) });
 			}
 		});
 	});
-	return references;
+	return steer.disambiguateReferences(references).map((reference) => [ reference.id, reference.label ]);
 }
 
 function routeReferenceLabel(route) {
@@ -290,7 +293,12 @@ return view.extend({
 		m = new form.Map('steer', _('Rules'));
 
 		s = m.section(form.GridSection, 'rule', _('Ordered steering rules'));
-		steer.configureNamedSection(s, null, defaultRule?.['.name']);
+		const directRoute = routes.find((route) => route.kind == 'direct' && route.enabled != '0')
+			|| routes.find((route) => route.enabled != '0');
+		const initialDNS = dnsProfiles.find((profile) => profile.enabled != '0');
+		steer.configureNamedSection(s, steer.creationDefaults('rules', {
+			dns_profile: initialDNS?.['.name'] || '', route: directRoute?.['.name'] || ''
+		}), defaultRule?.['.name']);
 		const orderedSection = s;
 		s.addremove = true;
 		s.sortable = true;

@@ -4,6 +4,119 @@
   "schema_version": 1,
   "canonical_schema": 9,
   "subscription_update_interval_default": "6h",
+  "id_policy": {
+    "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+    "max_length": 32,
+    "auto_generate": true,
+    "collection_prefixes": {
+      "dns_profiles": "dns",
+      "local_proxies": "proxy",
+      "nodes": "node",
+      "routes": "route",
+      "rules": "rule",
+      "subscriptions": "subscription"
+    }
+  },
+  "creation_defaults": {
+    "bootstrap": {
+      "protocol": "udp",
+      "server": "1.1.1.1",
+      "server_port": 53,
+      "strategy": "prefer_ipv4"
+    },
+    "dns_profiles": {
+      "enabled": true,
+      "protocol": "udp",
+      "server": "",
+      "server_port": 53
+    },
+    "local_proxies": {
+      "enabled": true,
+      "listen": "127.0.0.1",
+      "listen_port": 1090,
+      "protocol": "mixed"
+    },
+    "main": {
+      "enabled": false,
+      "log_level": "warn",
+      "schema_version": 9
+    },
+    "nodes": {
+      "enabled": true,
+      "server": "",
+      "server_port": 1080,
+      "type": "socks"
+    },
+    "routes": {
+      "enabled": true,
+      "kind": "single",
+      "node": ""
+    },
+    "rules": {
+      "default": false,
+      "dns_profile": "",
+      "enabled": true,
+      "route": "direct"
+    },
+    "subscriptions": {
+      "enabled": true,
+      "update_interval": "6h",
+      "url": ""
+    }
+  },
+  "creation_required_fields": {
+    "bootstrap": [
+      "protocol",
+      "server",
+      "server_port",
+      "strategy"
+    ],
+    "dns_profiles": [
+      "id",
+      "enabled",
+      "protocol",
+      "server",
+      "server_port"
+    ],
+    "local_proxies": [
+      "id",
+      "enabled",
+      "protocol",
+      "listen",
+      "listen_port"
+    ],
+    "main": [
+      "schema_version",
+      "enabled",
+      "log_level"
+    ],
+    "nodes": [
+      "id",
+      "enabled",
+      "type",
+      "server",
+      "server_port"
+    ],
+    "routes": [
+      "id",
+      "enabled",
+      "kind",
+      "node"
+    ],
+    "rules": [
+      "id",
+      "enabled",
+      "default",
+      "dns_profile",
+      "route"
+    ],
+    "subscriptions": [
+      "id",
+      "enabled",
+      "url",
+      "update_interval"
+    ]
+  },
   "input_formats": {
     "dns_http_path": {
       "kind": "string",
@@ -120,22 +233,6 @@
       "control": "text",
       "section": "general",
       "types": [
-        "socks",
-        "http",
-        "shadowsocks",
-        "vmess",
-        "vless",
-        "trojan",
-        "hysteria",
-        "hysteria2",
-        "shadowtls",
-        "tuic",
-        "anytls",
-        "naive",
-        "ssh",
-        "tor"
-      ],
-      "required_types": [
         "socks",
         "http",
         "shadowsocks",

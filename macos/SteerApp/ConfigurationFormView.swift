@@ -10,7 +10,10 @@ struct ConfigurationFormView: View {
             Form {
                 Section("运行") {
                     LabeledContent("Canonical schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
-                    Picker("日志级别", selection: stringBinding("main", "log_level", defaultValue: "warn")) {
+                    Picker("日志级别", selection: stringBinding("main", "log_level", required: true)) {
+                        if model.draftValue(in: "main", key: "log_level")?.stringValue == nil {
+                            Text("缺失（需修复）").foregroundStyle(.red).tag("")
+                        }
                         ForEach(SteerUISpec.contract.logLevels) { option in
                             Text(option.label).tag(option.value)
                         }
@@ -36,14 +39,20 @@ struct ConfigurationFormView: View {
                 }
 
                 Section("Bootstrap DNS") {
-                    Picker("协议", selection: stringBinding("bootstrap", "protocol", required: true, defaultValue: "udp")) {
+                    Picker("协议", selection: stringBinding("bootstrap", "protocol", required: true)) {
+                        if model.draftValue(in: "bootstrap", key: "protocol")?.stringValue == nil {
+                            Text("缺失（需修复）").foregroundStyle(.red).tag("")
+                        }
                         ForEach(SteerUISpec.contract.bootstrapProtocols) { option in
                             Text(option.label).tag(option.value)
                         }
                     }
                     TextField("服务器", text: stringBinding("bootstrap", "server", required: true), prompt: Text("1.1.1.1"))
-                    TextField("端口", value: intBinding("bootstrap", "server_port", defaultValue: 53), format: .number)
-                    Picker("地址策略", selection: stringBinding("bootstrap", "strategy", required: true, defaultValue: "prefer_ipv4")) {
+                    TextField("端口", value: intBinding("bootstrap", "server_port"), format: .number)
+                    Picker("地址策略", selection: stringBinding("bootstrap", "strategy", required: true)) {
+                        if model.draftValue(in: "bootstrap", key: "strategy")?.stringValue == nil {
+                            Text("缺失（需修复）").foregroundStyle(.red).tag("")
+                        }
                         ForEach(SteerUISpec.contract.bootstrapStrategies) { option in
                             Text(option.label).tag(option.value)
                         }
@@ -78,13 +87,11 @@ struct ConfigurationFormView: View {
     private func stringBinding(
         _ section: String,
         _ key: String,
-        required: Bool = false,
-        defaultValue: String = ""
+        required: Bool = false
     ) -> Binding<String> {
         Binding(
             get: {
-                let value = model.draftValue(in: section, key: key)?.stringValue ?? ""
-                return value.isEmpty ? defaultValue : value
+                model.draftValue(in: section, key: key)?.stringValue ?? ""
             },
             set: { value in
                 model.setDraftValue(
@@ -103,14 +110,14 @@ struct ConfigurationFormView: View {
         )
     }
 
-    private func intBinding(_ section: String, _ key: String, defaultValue: Int = 0) -> Binding<Int> {
+    private func intBinding(_ section: String, _ key: String) -> Binding<Int> {
         Binding(
-            get: { Int(model.draftValue(in: section, key: key)?.numberValue ?? Double(defaultValue)) },
+            get: { Int(model.draftValue(in: section, key: key)?.numberValue ?? 0) },
             set: { value in
                 model.setDraftValue(
                     in: section,
                     key: key,
-                    value: value == 0 && defaultValue == 0 ? nil : .number(Double(value))
+                    value: value == 0 ? nil : .number(Double(value))
                 )
             }
         )

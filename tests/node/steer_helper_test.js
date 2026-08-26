@@ -18,6 +18,7 @@ if (typeof String.prototype.format != 'function') {
 const root = path.resolve(__dirname, '../..');
 const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/validation-issue-fixtures.json'), 'utf8'));
 const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
+const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 
 function element(tag, attributes, children) {
@@ -175,6 +176,20 @@ async function main() {
 		assert.equal(helper.validateInput(fixture.format, fixture.value) === true, fixture.valid,
 			`${fixture.format} must classify ${JSON.stringify(fixture.value)} from the shared fixture`);
 	}
+	for (const fixture of creationPolicyFixtures.cases) {
+		const expected = { ...fixture.expected };
+		delete expected.id;
+		const expectedUCI = Object.fromEntries(Object.entries(expected).map(([key, value]) => [
+			key, typeof value == 'boolean' ? (value ? '1' : '0') : String(value)
+		]));
+		assert.deepEqual(helper.creationDefaults(fixture.collection, fixture.overrides), expectedUCI,
+			`${fixture.collection} helper defaults must match the shared Canonical fixture`);
+	}
+	const ambiguous = helper.disambiguateReferences(creationPolicyFixtures.ambiguous_references.nodes.map((node) => ({
+		id: node.id, label: node.name, detail: `${node.server}:${node.server_port}`
+	})));
+	assert.equal(ambiguous.find((item) => item.id == 'node-unique').label, 'Unique');
+	assert.match(ambiguous.find((item) => item.id == 'node-a1b2c3').label, /Same · a\.example:1080 · #a1b2c3/);
 	runtime.permissions.node_import = false;
 	assert.deepEqual(await helper.permissions([ 'node_import', 'node_speedtest' ]), {
 		node_import: false, node_speedtest: true
@@ -234,14 +249,17 @@ async function main() {
 		}
 	};
 	helper.configureNamedSection(namedSection, { enabled: '1' });
-	assert.equal(namedSection.anonymous, false, 'Steer-owned sections require explicit IDs');
+	assert.equal(namedSection.anonymous, false, 'Steer-owned sections retain stable named IDs');
+	assert.equal(namedSection.autoIDs, true, 'regular Add generates the stable ID instead of asking the user');
 	assert.equal(namedSection.handleAdd(null, 'Rule-A'), undefined,
 		'Invalid UCI section IDs fail before saving');
 	assert.equal(runtime.notifications.at(-1).level, 'danger');
 	await namedSection.handleAdd(null, 'laptop_direct');
 	assert.deepEqual(addedSections, [ [ 'steer', 'rule', 'laptop_direct' ] ],
 		'Valid section IDs create one provisional named UCI section');
-	assert.deepEqual(modalSections, [ { sectionId: 'laptop_direct', values: { enabled: '1' } } ],
+	assert.deepEqual(modalSections, [ { sectionId: 'laptop_direct', values: {
+		enabled: '1', default: '0', dns_profile: '', route: 'direct'
+	} } ],
 		'Grid Add opens the native editor modal with defaults already available');
 	namedSection.handleModalCancel(null, null, false);
 	assert.deepEqual(removedSections, [ 'laptop_direct' ],

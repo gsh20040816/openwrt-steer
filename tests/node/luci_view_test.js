@@ -25,6 +25,7 @@ const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/v
 const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
 const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-reference-fixtures.json'), 'utf8'));
 const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
+const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -63,6 +64,12 @@ function canonicalFixtureSections(intent) {
 		});
 	}
 	return result;
+}
+
+function environmentForCreationDefaults(collection, overrides) {
+	return Object.fromEntries(Object.entries({
+		...(uiSpec.creation_defaults[collection] || {}), ...(overrides || {})
+	}).map(([key, value]) => [key, typeof value == 'boolean' ? (value ? '1' : '0') : String(value)]));
 }
 
 function element(tag, attributes, children) {
@@ -329,12 +336,23 @@ function createEnvironment(sections) {
 		issueText: (issue) => `[${issue.code}] ${issue.object_type}/${issue.object_id}/${issue.option}`,
 		rpcErrorText: (result) => result?.error_code || result?.error || 'Operation failed.',
 		validateInput: (_format, _value) => true,
+		creationDefaults: (collection, overrides) => Object.fromEntries(Object.entries({
+			...(uiSpec.creation_defaults[collection] || {}), ...(overrides || {})
+		}).map(([key, value]) => [key, typeof value == 'boolean' ? (value ? '1' : '0') : String(value)])),
+		disambiguateReferences: (references) => {
+			const counts = {};
+			references.forEach((reference) => { counts[reference.label] = (counts[reference.label] || 0) + 1; });
+			return references.map((reference) => ({ ...reference, label: counts[reference.label] > 1
+				? `${reference.label}${reference.detail ? ` · ${reference.detail}` : ''} · #${reference.id.slice(-6)}`
+				: reference.label }));
+		},
 		permissions: (methods, includeUCIWrite) => Promise.resolve({
 			...Object.fromEntries(methods.map((method) => [ method, environment.permissions[method] !== false ])),
 			...(includeUCIWrite ? { uci_write: environment.permissions.uci_write !== false } : {})
 		}),
 		configureNamedSection: (section, defaults, beforeSectionId) => {
 			section.anonymous = false;
+			section.autoIDs = true;
 			section.handleAdd = function() {};
 			section.addDefaults = defaults || {};
 			section.addBeforeSectionId = beforeSectionId;
@@ -817,12 +835,12 @@ async function renderOverview(sections, page = 'general', lifecycleState, permis
 	return environment;
 }
 
-function assertExplicitIdsAndOptionalNames(environment, message) {
+function assertAutomaticIdsAndOptionalNames(environment, message) {
 	const addable = environment.maps.flatMap((map) => map.sections)
 		.filter((section) => section.addremove);
 	assert.ok(addable.length > 0, message + ': expected at least one addable section');
-	assert.ok(addable.every((section) => section.anonymous === false && typeof section.handleAdd == 'function'),
-		message + ': addable entities must require validated explicit UCI IDs');
+	assert.ok(addable.every((section) => section.anonymous === false && section.autoIDs && typeof section.handleAdd == 'function'),
+		message + ': addable entities keep named UCI sections but generate IDs automatically');
 	assert.ok(addable.every((section) => section.options.some((option) =>
 		option.name == 'name' && option.rmempty === true && option.optional === true)),
 		message + ': every Canonical optional name must remain optional in LuCI');
@@ -830,6 +848,17 @@ function assertExplicitIdsAndOptionalNames(environment, message) {
 
 async function main() {
 	assert.equal(formInputFixtures.schema_version, 1);
+	assert.equal(creationPolicyFixtures.schema_version, 1);
+	assert.equal(uiSpec.id_policy.auto_generate, true);
+	for (const fixture of creationPolicyFixtures.cases) {
+		const actual = environmentForCreationDefaults(fixture.collection, fixture.overrides);
+		const expected = { ...fixture.expected };
+		delete expected.id;
+		const expectedUCI = Object.fromEntries(Object.entries(expected).map(([key, value]) => [
+			key, typeof value == 'boolean' ? (value ? '1' : '0') : String(value)
+		]));
+		assert.deepEqual(actual, expectedUCI, `${fixture.collection} UCI creation defaults match Canonical fixture`);
+	}
 	assert.ok(formInputFixtures.cases.every((fixture) => uiSpec.input_formats[fixture.format]),
 		'LuCI loads the shared form input fixtures and generated format metadata');
 	testCommittedUcodePreviewAndObservedCandidateGuard();
@@ -889,7 +918,7 @@ async function main() {
 		local_proxy: [],
 	});
 	let options = allOptions(environment);
-	assertExplicitIdsAndOptionalNames(environment, 'Rules');
+	assertAutomaticIdsAndOptionalNames(environment, 'Rules');
 	assert.equal(options.some((option) => option.name == 'inbound'), false,
 		'Rules must not create a choice-only MultiValue without candidates');
 	const summary = options.find((option) => option.name == '_match');
@@ -984,7 +1013,7 @@ async function main() {
 
 	environment = await renderNodes(freshSections, '', undefined, 'routes');
 	options = allOptions(environment);
-	assertExplicitIdsAndOptionalNames(environment, 'Fresh routes');
+	assertAutomaticIdsAndOptionalNames(environment, 'Fresh routes');
 	const systemRoutes = environment.maps[0].sections.filter((section) => section.type == 'NamedSection');
 	assert.deepEqual(systemRoutes.map((section) => section.sectionId), [ 'direct', 'block' ],
 		'Direct and Reject render as fixed system-route sections');
@@ -1010,7 +1039,7 @@ async function main() {
 	assert.equal(environment.uci.get('steer', 'direct', 'name'), undefined,
 		'Saving fresh Direct preserves its absent optional name');
 	const emptyRoutes = environment.maps[0].sections.find((section) => section.type == 'GridSection' && section.sectionType == 'route');
-	assert.deepEqual(emptyRoutes.addDefaults, { enabled: '1', kind: 'single' },
+	assert.deepEqual(emptyRoutes.addDefaults, { enabled: '1', kind: 'single', node: '' },
 		'New route rows are always initialized as enabled single-node routes');
 	assert.equal(emptyRoutes.addremove, true,
 		'Disabling Single creation must not remove repair/delete controls for existing routes');
@@ -1106,12 +1135,12 @@ async function main() {
 	assert.deepEqual(missingNode.values, [ [ 'missing_node', 'Missing: missing_node', 'Group: Missing references' ] ]);
 
 	environment = await renderDns({ dns_profile: [] });
-	assertExplicitIdsAndOptionalNames(environment, 'DNS profiles');
+	assertAutomaticIdsAndOptionalNames(environment, 'DNS profiles');
 	let dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
 	assert.deepEqual(dnsProtocol.values.map((value) => value[0]), [ 'udp', 'tcp', 'tls', 'https', 'quic', 'h3' ],
 		'DNS profiles expose exactly the six M1 transports');
 	const dnsSection = environment.maps[0].sections.find((section) => section.sectionType == 'dns_profile');
-	assert.deepEqual(dnsSection.addDefaults, { enabled: '1', protocol: 'udp', server_port: '53' },
+	assert.deepEqual(dnsSection.addDefaults, { enabled: '1', protocol: 'udp', server: '', server_port: '53' },
 		'new DNS profiles use the shared default protocol and common port');
 	for (const field of [ 'tls_server_name', 'path', 'insecure' ]) {
 		const option = allOptions(environment).find((candidate) => candidate.name == field);
@@ -1212,7 +1241,7 @@ async function main() {
 		'a pending change observed during Reveal immediately removes the stale committed JSON');
 	assert.equal(transitionReveal.hidden, true, 'Reveal becomes unavailable when pending changes appear');
 	environment = await renderLocalProxies({ local_proxy: [] });
-	assertExplicitIdsAndOptionalNames(environment, 'Local proxies');
+	assertAutomaticIdsAndOptionalNames(environment, 'Local proxies');
 	environment = await renderLocalProxies({ local_proxy: [ {
 		'.name': 'entry', enabled: '1', name: 'Entry', protocol: 'mixed', listen: '127.0.0.1', listen_port: '1080'
 	} ] });
@@ -1269,7 +1298,7 @@ async function main() {
 		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
 	};
 	environment = await renderNodes(groupedFixture);
-	assertExplicitIdsAndOptionalNames(environment, 'Nodes');
+	assertAutomaticIdsAndOptionalNames(environment, 'Nodes');
 	const groupedNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
 	assert.ok(groupedNodes && groupedNodes.addremove === true && groupedNodes.filter('cfg_manual') && !groupedNodes.filter('jdub_0123456789ab'),
 		'The default node group shows only manually added nodes');
@@ -1650,12 +1679,12 @@ async function main() {
 		}
 	}
 	environment = await renderNodes({ subscription: [], node: [], route: [] }, '', { subscriptions: [] }, 'subscriptions');
-	assertExplicitIdsAndOptionalNames(environment, 'Subscriptions');
+	assertAutomaticIdsAndOptionalNames(environment, 'Subscriptions');
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
-		'Subscriptions require an explicit stable UCI section ID');
+		'Subscriptions retain stable named UCI sections');
 	assert.equal(typeof subscriptionSection.handleAdd, 'function',
-		'Subscription creation validates the stricter Steer ID syntax');
+		'Subscription creation uses the automatic stable ID path');
 	assert.equal(typeof subscriptionSection.handleRemove, 'function',
 		'Subscription removal uses the shared reference guard and generated-node cascade');
 	assert.equal(subscriptionSection.addDefaults.update_interval, uiSpec.subscription_update_interval_default,

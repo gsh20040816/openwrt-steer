@@ -399,11 +399,22 @@ struct NodeImportSheet: View {
 private struct SharedNodeDraftForm: View {
     @Binding var object: [String: JSONValue]
 
-    private var type: String { draftString(object, "type").isEmpty ? "vless" : draftString(object, "type") }
+    private var type: String { draftString(object, "type") }
+    private var typeBinding: Binding<String> {
+        Binding(
+            get: { type },
+            set: { value in
+                var updated = object
+                SteerUISpec.applyNodeType(value, to: &updated)
+                object = updated
+            }
+        )
+    }
 
     var body: some View {
         Section("基本信息") {
-            Picker("协议", selection: stringBinding($object, "type", required: true, defaultValue: "vless")) {
+            Picker("协议", selection: typeBinding) {
+                if type.isEmpty { Text("缺失（需修复）").foregroundStyle(.red).tag("") }
                 ForEach(SteerUISpec.contract.nodeTypes) { option in
                     Text(option.label).tag(option.value)
                 }
@@ -436,15 +447,15 @@ private struct SharedNodeDraftForm: View {
         let label = localizedLabel(field)
         switch field.control {
         case "boolean":
-            Toggle(label, isOn: boolBinding($object, field.key, defaultValue: field.defaultValue?.boolValue ?? false))
+            Toggle(label, isOn: boolBinding($object, field.key))
         case "integer":
-            TextField(label, value: intBinding($object, field.key, defaultValue: Int(field.defaultValue?.numberValue ?? 0)), format: .number)
+            TextField(label, value: intBinding($object, field.key), format: .number)
         case "select":
-            Picker(label, selection: stringBinding($object, field.key, defaultValue: field.defaultValue?.stringValue ?? "")) {
+            Picker(label, selection: stringBinding($object, field.key)) {
                 ForEach(field.options) { option in Text(option.label).tag(option.value) }
             }
         case "select-integer":
-            Picker(label, selection: intBinding($object, field.key, defaultValue: Int(field.defaultValue?.numberValue ?? 0))) {
+            Picker(label, selection: intBinding($object, field.key)) {
                 ForEach(field.options) { option in Text(option.label).tag(Int(option.value) ?? 0) }
             }
         case "string-list":
@@ -469,9 +480,7 @@ private struct SharedNodeDraftForm: View {
     private func visible(_ field: UIFieldSpec) -> Bool {
         guard let condition = field.when else { return true }
         let current = draftString(object, condition.field)
-        if !current.isEmpty { return condition.values.contains(current) }
-        let fallback = SteerUISpec.nodeFields(for: type).first { $0.key == condition.field }?.defaultValue?.stringValue ?? ""
-        return condition.values.contains(fallback)
+        return condition.values.contains(current)
     }
 
     private func hasVisibleFields(section: String) -> Bool {
@@ -516,11 +525,17 @@ private struct RouteDraftForm: View {
     private var selectableDetours: [DraftItem] { model.routeDetourCandidates(editingRouteID: routeID) }
 
     private func nodeLabel(_ identifier: String) -> String {
-        model.draftItems(for: "nodes").first(where: { $0.identifier == identifier })?.title ?? identifier
+        guard let item = model.draftItems(for: "nodes").first(where: { $0.identifier == identifier }) else {
+            return identifier
+        }
+        return model.draftReferenceLabel(item, in: "nodes")
     }
 
     private func detourLabel(_ identifier: String) -> String {
-        model.draftItems(for: "routes").first(where: { $0.identifier == identifier })?.title ?? identifier
+        guard let item = model.draftItems(for: "routes").first(where: { $0.identifier == identifier }) else {
+            return identifier
+        }
+        return model.draftReferenceLabel(item, in: "routes")
     }
 
     var body: some View {
@@ -531,13 +546,19 @@ private struct RouteDraftForm: View {
                         .foregroundStyle(.green)
                 }
             } else {
-                Toggle("启用路由", isOn: boolBinding($object, "enabled", defaultValue: true))
+                Toggle("启用路由", isOn: boolBinding($object, "enabled"))
             }
             TextField("名称", text: stringBinding($object, "name"))
             if isSystemRoute {
                 LabeledContent("类型", value: kind == "direct" ? "Direct" : "Reject")
             } else {
-                LabeledContent("类型", value: "Single 节点")
+                LabeledContent("类型") {
+                    if kind == "single" {
+                        Text("Single 节点")
+                    } else {
+                        Text("缺失（需修复）").foregroundStyle(.red)
+                    }
+                }
             }
             if isSystemRoute {
                 Text("系统路由类型固定；可以修改显示名称。")
@@ -550,7 +571,7 @@ private struct RouteDraftForm: View {
                 Picker("节点", selection: stringBinding($object, "node", required: true)) {
                     Text("请选择节点").tag("")
                     ForEach(selectableNodes) { item in
-                        Text("\(item.title) · \(item.kind.uppercased())").tag(item.identifier)
+                        Text(model.draftReferenceLabel(item, in: "nodes")).tag(item.identifier)
                     }
                     if !selectedNodeID.isEmpty,
                        !selectableNodes.contains(where: { $0.identifier == selectedNodeID }) {
@@ -566,7 +587,7 @@ private struct RouteDraftForm: View {
                 Picker("前置路由 (detour)", selection: stringBinding($object, "detour")) {
                     Text("直连（无前置）").tag("")
                     ForEach(selectableDetours) { item in
-                        Text(item.title).tag(item.identifier)
+                        Text(model.draftReferenceLabel(item, in: "routes")).tag(item.identifier)
                     }
                     if !selectedDetourID.isEmpty,
                        !selectableDetours.contains(where: { $0.identifier == selectedDetourID }) {
@@ -604,15 +625,16 @@ private struct DNSDraftForm: View {
 
     var body: some View {
         Section("DNS Profile") {
-            Toggle("启用 Profile", isOn: boolBinding($object, "enabled", defaultValue: true))
+            Toggle("启用 Profile", isOn: boolBinding($object, "enabled"))
             TextField("名称", text: stringBinding($object, "name"))
             Picker("协议", selection: protocolBinding) {
+                if proto.isEmpty { Text("缺失（需修复）").foregroundStyle(.red).tag("") }
                 ForEach(SteerUISpec.contract.dnsProtocols) { option in
                     Text(option.label).tag(option.value)
                 }
             }
             TextField("服务器", text: stringBinding($object, "server", required: true), prompt: Text("1.1.1.1"))
-            TextField("端口", value: intBinding($object, "server_port", defaultValue: protocolSpec?.defaultPort ?? 0), format: .number)
+            TextField("端口", value: intBinding($object, "server_port"), format: .number)
         }
         if protocolSpec?.fields.isEmpty == false {
             Section("加密传输") {
@@ -637,15 +659,18 @@ private struct LocalProxyDraftForm: View {
 
     var body: some View {
         Section("本地入口") {
-            Toggle("启用入口", isOn: boolBinding($object, "enabled", defaultValue: true))
+            Toggle("启用入口", isOn: boolBinding($object, "enabled"))
             TextField("名称", text: stringBinding($object, "name"))
-            Picker("协议", selection: stringBinding($object, "protocol", required: true, defaultValue: "mixed")) {
+            Picker("协议", selection: stringBinding($object, "protocol", required: true)) {
+                if draftString(object, "protocol").isEmpty {
+                    Text("缺失（需修复）").foregroundStyle(.red).tag("")
+                }
                 ForEach(SteerUISpec.contract.localProxyProtocols) { option in
                     Text(option.label).tag(option.value)
                 }
             }
             TextField("监听地址", text: stringBinding($object, "listen", required: true), prompt: Text("127.0.0.1"))
-            TextField("监听端口", value: intBinding($object, "listen_port", defaultValue: 1090), format: .number)
+            TextField("监听端口", value: intBinding($object, "listen_port"), format: .number)
         }
         if listenClassification == .nonLoopback {
             Section {
@@ -797,13 +822,13 @@ private struct RuleDecisionSection: View {
             Picker("Route", selection: stringBinding($object, "route", required: true)) {
                 Text("请选择 Route").tag("")
                 ForEach(model.draftItems(for: "routes")) { item in
-                    Text(item.title).tag(item.identifier)
+                    Text(model.draftReferenceLabel(item, in: "routes")).tag(item.identifier)
                 }
             }
             Picker("DNS Profile", selection: stringBinding($object, "dns_profile", required: true)) {
                 Text("请选择 DNS Profile").tag("")
                 ForEach(model.draftItems(for: "dns_profiles")) { item in
-                    Text(item.title).tag(item.identifier)
+                    Text(model.draftReferenceLabel(item, in: "dns_profiles")).tag(item.identifier)
                 }
             }
         }
@@ -839,7 +864,7 @@ private struct RuleDraftForm: View {
 
     var body: some View {
         Section("规则") {
-            Toggle("启用规则", isOn: boolBinding($object, "enabled", defaultValue: true))
+            Toggle("启用规则", isOn: boolBinding($object, "enabled"))
             TextField("名称", text: stringBinding($object, "name"))
             LabeledContent("类型", value: "普通 first-match 规则")
         }
@@ -878,7 +903,7 @@ private struct RuleDraftForm: View {
             } else {
                 DisclosureGroup("本地入口") {
                     ForEach(model.draftItems(for: "local_proxies")) { item in
-                        Toggle(item.title, isOn: membershipBinding($object, "inbound", item.identifier))
+                        Toggle(model.draftReferenceLabel(item, in: "local_proxies"), isOn: membershipBinding($object, "inbound", item.identifier))
                     }
                 }
             }
@@ -912,7 +937,7 @@ private struct SubscriptionDraftForm: View {
 
     var body: some View {
         Section("订阅源") {
-            Toggle("启用订阅", isOn: boolBinding($object, "enabled", defaultValue: true))
+            Toggle("启用订阅", isOn: boolBinding($object, "enabled"))
             TextField("名称", text: stringBinding($object, "name"))
             TextField("URL", text: stringBinding($object, "url", required: true), prompt: Text("https://example.com/subscription"))
             TextField("更新间隔", text: stringBinding($object, "update_interval"), prompt: Text(SteerUISpec.contract.subscriptionUpdateIntervalDefault))
@@ -926,14 +951,10 @@ private struct SubscriptionDraftForm: View {
 private func stringBinding(
     _ object: Binding<[String: JSONValue]>,
     _ key: String,
-    required: Bool = false,
-    defaultValue: String = ""
+    required: Bool = false
 ) -> Binding<String> {
     Binding(
-        get: {
-            let value = draftString(object.wrappedValue, key)
-            return value.isEmpty ? defaultValue : value
-        },
+        get: { draftString(object.wrappedValue, key) },
         set: { value in
             var copy = object.wrappedValue
             if value.isEmpty && !required {
@@ -948,11 +969,10 @@ private func stringBinding(
 
 private func boolBinding(
     _ object: Binding<[String: JSONValue]>,
-    _ key: String,
-    defaultValue: Bool = false
+    _ key: String
 ) -> Binding<Bool> {
     Binding(
-        get: { object.wrappedValue[key]?.boolValue ?? defaultValue },
+        get: { object.wrappedValue[key]?.boolValue ?? false },
         set: { value in
             var copy = object.wrappedValue
             copy[key] = .bool(value)
@@ -963,14 +983,13 @@ private func boolBinding(
 
 private func intBinding(
     _ object: Binding<[String: JSONValue]>,
-    _ key: String,
-    defaultValue: Int = 0
+    _ key: String
 ) -> Binding<Int> {
     Binding(
-        get: { Int(object.wrappedValue[key]?.numberValue ?? Double(defaultValue)) },
+        get: { Int(object.wrappedValue[key]?.numberValue ?? 0) },
         set: { value in
             var copy = object.wrappedValue
-            if value == 0 && defaultValue == 0 {
+            if value == 0 {
                 copy.removeValue(forKey: key)
             } else {
                 copy[key] = .number(Double(value))

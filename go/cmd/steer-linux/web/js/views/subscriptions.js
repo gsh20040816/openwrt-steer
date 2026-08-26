@@ -54,15 +54,15 @@
       eyebrow: `订阅 · ${isNew ? '新建' : sub.id}`, title: sub?.name || '新订阅', submitLabel: '保存到工作副本',
       renderBody(body) {
         const defaultInterval = S.uiSpec.subscription_update_interval_default;
-        const draft = sub ? JSON.parse(JSON.stringify(sub)) : { id: '', enabled: true, name: '', url: '', update_interval: defaultInterval };
-        const id = ui.input({ value: draft.id, placeholder: 'acme', disabled: !isNew });
+        const draft = sub ? JSON.parse(JSON.stringify(sub)) : ui.creationDraft('subscriptions');
+        const id = ui.input({ value: draft.id, disabled: true });
         const name = ui.input({ value: draft.name || '', placeholder: '订阅名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
         const url = ui.input({ value: draft.url || '', placeholder: 'https://sub.example.com/all' });
         const interval = ui.input({ value: draft.update_interval || '', placeholder: defaultInterval });
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '订阅'), [
-            ui.field('ID', id, isNew ? '1–32 位小写字母开头（稳定 ID，创建后不可改）' : '稳定 ID · 不可修改', 'id'),
+            ui.field('ID', id, isNew ? '已按共享策略自动生成；创建后保持稳定' : '稳定 ID · 不可修改', 'id'),
             ui.field('名称', name, null, 'name'),
             ui.field('启用', enabled, null, 'enabled'),
             ui.field('订阅 URL', url, null, 'url'),
@@ -72,10 +72,9 @@
         return {
           submit() {
             if (!/^[a-z][a-z0-9_]{0,31}$/.test(id.value.trim())) { ui.toast('ID 必须 1–32 位小写字母开头', 'err'); return false; }
-            if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
             if (!/^https?:\/\//.test(url.value.trim())) { ui.toast('订阅 URL 必须是 http(s)://', 'err'); return false; }
             draft.id = id.value.trim();
-            draft.name = name.value.trim();
+            draft.name = name.value.trim() || undefined;
             draft.url = url.value.trim();
             draft.update_interval = interval.value.trim() || undefined;
             if (isNew) S.store.intent.subscriptions.push(draft);
@@ -86,7 +85,7 @@
       },
       onSubmit(sub) {
         S.store.touch();
-        ui.toast(`订阅 ${sub.name} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
+        ui.toast(`订阅 ${sub.name || sub.id} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
         view.render(document.querySelector('#view'));
         return true;
       }

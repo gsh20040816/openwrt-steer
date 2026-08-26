@@ -104,9 +104,9 @@
         const name = ui.input({ value: draft.name || '', placeholder: '路由名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
         draft.kind = 'single';
-        const nodeOpts = intent.nodes.map((n) => [n.id, `${n.name || n.id}（${n.type}）`]);
+        const nodeOpts = ui.referenceOptions('nodes', intent.nodes);
         const nodeSel = ui.select(ui.selectWithMissing(nodeOpts, draft.node, '缺失节点'), draft.node ?? '', (v) => { draft.node = v; });
-        const detourOpts = [['', '直连（无前置）'], ...intent.routes.filter((r) => r.kind === 'single').map((r) => [r.id, r.name || r.id])];
+        const detourOpts = [['', '直连（无前置）'], ...ui.referenceOptions('routes', intent.routes.filter((r) => r.kind === 'single'))];
         const detourSel = ui.select(ui.selectWithMissing(detourOpts, draft.detour ?? ''), draft.detour ?? '', (v) => { draft.detour = v; });
         const warn = h('div', {});
         const check = () => {
@@ -138,8 +138,7 @@
         );
         return {
           submit() {
-            if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
-            draft.name = name.value.trim();
+            draft.name = name.value.trim() || undefined;
             draft.kind = 'single';
             draft.node = nodeSel.value || undefined;
             draft.detour = detourSel.value || undefined;
@@ -203,7 +202,9 @@
             class: 'btn btn--primary',
             disabled: intent.nodes.length === 0,
             title: intent.nodes.length === 0 ? '请先添加节点' : '添加 Single 路由',
-            onclick: () => openRouteEditor({ id: S.uid('route'), enabled: true, name: '', kind: 'single', node: '', detour: '' })
+            onclick: () => openRouteEditor(ui.creationDraft('routes', {
+              node: intent.nodes.find((node) => node.enabled !== false)?.id || ''
+            }))
           }, '添加 Single 路由')
         ]),
         h('div', { class: 'grid-2' }, [

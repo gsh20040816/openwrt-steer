@@ -21,7 +21,9 @@
         let authAction = hasSavedPassword ? 'keep' : 'remove';
         const name = ui.input({ value: draft.name || '', placeholder: '端点名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const protocol = ui.select(S.uiSpec.local_proxy_protocols.map((item) => [item.value, item.label]), draft.protocol, (v) => { draft.protocol = v; });
+        const protocolOptions = S.uiSpec.local_proxy_protocols.map((item) => [item.value, item.label]);
+        if (!draft.protocol) protocolOptions.unshift(['', '缺失（需修复）']);
+        const protocol = ui.select(protocolOptions, draft.protocol || '', (v) => { draft.protocol = v; });
         const listen = ui.input({ value: draft.listen || '', placeholder: '127.0.0.1', oninput: updateExposure });
         const port = ui.input({ type: 'number', value: draft.listen_port || '', placeholder: '1080' });
         const username = ui.input({ value: draft.username || '', placeholder: '（可选）' });
@@ -70,8 +72,8 @@
         );
         return {
           submit() {
-            if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
             if (!listen.value.trim()) { ui.toast('监听地址不能为空', 'err'); return false; }
+            if (!S.uiSpec.local_proxy_protocols.some((item) => item.value === draft.protocol)) { ui.toast('请选择代理协议', 'err'); return false; }
             const listenAddress = listen.value.trim();
             const listenClass = ui.classifyLocalProxyListen(listenAddress);
             if (listenClass === 'invalid') { ui.toast('监听地址必须是 IP literal，不能使用 hostname', 'err'); return false; }
@@ -96,7 +98,7 @@
               return false;
             }
 
-            draft.name = name.value.trim();
+            draft.name = name.value.trim() || undefined;
             draft.listen = listenAddress;
             draft.listen_port = p;
             if (nextUsername) {
@@ -116,7 +118,7 @@
       onSubmit(proxy) {
         if (isNew) S.store.intent.local_proxies.push(proxy);
         S.store.touch();
-        ui.toast(`本地代理 ${proxy.name} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
+        ui.toast(`本地代理 ${proxy.name || proxy.id} 已${isNew ? '创建' : '更新'} · 未保存`, 'info');
         view.render(document.querySelector('#view'));
         return true;
       }
@@ -153,7 +155,7 @@
 
       root.append(
         ui.viewHead('本地代理', '规则可用 inbound 把匹配限制到指定端点；无法与源 MAC 组合（平台级限制）', [
-          h('button', { class: 'btn btn--primary', onclick: () => openEditor({ id: S.uid('proxy'), enabled: true, name: '', protocol: 'socks', listen: '127.0.0.1', listen_port: 1080 }) }, '添加端点')
+          h('button', { class: 'btn btn--primary', onclick: () => openEditor(ui.creationDraft('local_proxies')) }, '添加端点')
         ]),
         intent.local_proxies.length
           ? h('section', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table))

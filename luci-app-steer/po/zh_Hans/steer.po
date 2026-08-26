@@ -492,9 +492,6 @@ msgstr "立即更新"
 msgid "Updating subscription"
 msgstr "正在更新订阅"
 
-msgid "Use 1–32 lowercase characters beginning with a letter."
-msgstr "请输入 1–32 个字符，以小写字母开头。"
-
 msgid "Remove %s"
 msgstr "移除 %s"
 
@@ -1436,3 +1433,18 @@ msgstr "当前 Active generation：%s"
 
 msgid "The configuration was committed to Saved, but activation failed after Active state changed. Check Diagnostics before relying on traffic stability."
 msgstr "配置已提交到 Saved，但 Active 状态变化后激活失败。确认流量稳定性前请检查 Diagnostics。"
+
+msgid "Internal ID is generated automatically: %s"
+msgstr "内部 ID 已自动生成：%s"
+
+msgid "Node: %s"
+msgstr "节点：%s"
+
+msgid "Subscription: %s"
+msgstr "订阅：%s"
+
+msgid "Use the shared 1–32 character lowercase ID policy."
+msgstr "使用共享的 1–32 字符小写 ID 规则。"
+
+msgid "not selected"
+msgstr "未选择"

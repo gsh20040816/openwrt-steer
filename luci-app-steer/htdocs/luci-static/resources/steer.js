@@ -27,7 +27,37 @@ const callNodeImport = rpc.declare({ object: 'luci.steer', method: 'node_import'
 const callSessionAccess = rpc.declare({
 	object: 'session', method: 'access', params: [ 'scope', 'object', 'function' ], expect: { access: false }
 });
-const sectionIDPattern = /^[a-z][a-z0-9_]{0,31}$/;
+const sectionIDPattern = new RegExp(uiSpec.id_policy.pattern);
+const collectionBySectionType = {
+	node: 'nodes', route: 'routes', dns_profile: 'dns_profiles', local_proxy: 'local_proxies',
+	rule: 'rules', subscription: 'subscriptions'
+};
+
+function uciCreationDefaults(collection, overrides) {
+	const values = Object.assign({}, uiSpec.creation_defaults?.[collection] || {}, overrides || {});
+	return Object.fromEntries(Object.entries(values).map(([ key, value ]) => {
+		if (typeof(value) == 'boolean') return [ key, value ? '1' : '0' ];
+		if (typeof(value) == 'number') return [ key, String(value) ];
+		return [ key, value ];
+	}));
+}
+
+function nextSectionID(collection) {
+	const prefix = uiSpec.id_policy?.collection_prefixes?.[collection] || 'item';
+	let index = 1;
+	while (uci.get('steer', prefix + '_' + index)) index++;
+	return prefix + '_' + index;
+}
+
+function disambiguateReferences(references) {
+	const counts = {};
+	references.forEach((reference) => { counts[reference.label] = (counts[reference.label] || 0) + 1; });
+	return references.map((reference) => Object.assign({}, reference, {
+		label: counts[reference.label] > 1
+			? '%s%s · #%s'.format(reference.label, reference.detail ? ' · ' + reference.detail : '', String(reference.id).slice(-6))
+			: reference.label
+	}));
+}
 
 const validationMessages = {
 	DANGLING_NODE: _('The referenced Node does not exist.'),
@@ -331,13 +361,32 @@ return baseclass.extend({
 	routeSpeedtest: function(route, download) { return callRouteSpeedtest(route, download); },
 	overviewProbe: function(kind) { return callOverviewProbe(kind); },
 	importNodes: function(document) { return callNodeImport(document); },
+	creationDefaults: function(collection, overrides) { return uciCreationDefaults(collection, overrides); },
+	disambiguateReferences: function(references) { return disambiguateReferences(references); },
 
 	configureNamedSection: function(section, defaults, beforeSectionId) {
 		const handleAdd = section.handleAdd;
+		const collection = collectionBySectionType[section.sectiontype || section.sectionType];
+		const resolvedDefaults = Object.assign(uciCreationDefaults(collection), defaults || {});
 		section.anonymous = false;
+		section.autoIDs = true;
+		const renderSectionAdd = section.renderSectionAdd;
+		section.renderSectionAdd = function(extraClass) {
+			const row = renderSectionAdd.call(this, extraClass);
+			const input = row.querySelector?.('.cbi-section-create-name');
+			const button = row.querySelector?.('.cbi-button-add');
+			if (!input || !button)
+				return row;
+			input.value = nextSectionID(collection);
+			input.type = 'hidden';
+			input.hidden = true;
+			button.disabled = this.map?.readonly === true ? true : null;
+			row.appendChild(E('span', { 'class': 'cbi-value-description' }, _('Internal ID is generated automatically: %s').format(input.value)));
+			return row;
+		};
 		section.handleAdd = function(ev, sectionId) {
 			if (typeof(sectionId) != 'string' || !sectionIDPattern.test(sectionId)) {
-				ui.addNotification(_('Invalid section ID'), E('p', {}, _('Use 1–32 lowercase characters beginning with a letter.')), 'danger');
+				ui.addNotification(_('Invalid section ID'), E('p', {}, _('Use the shared 1–32 character lowercase ID policy.')), 'danger');
 				return;
 			}
 			/* Keep GridSection's native provisional-section lifecycle so Add opens
@@ -350,7 +399,7 @@ return baseclass.extend({
 			data.add = function(config, type, name) {
 				const addedSection = nativeAdd.call(this, config, type, name);
 				try {
-					Object.entries(defaults || {}).forEach((entry) => this.set(config, addedSection, entry[0], entry[1]));
+					Object.entries(resolvedDefaults).forEach((entry) => this.set(config, addedSection, entry[0], entry[1]));
 					if (beforeSectionId)
 						this.move(config, addedSection, beforeSectionId, false);
 					return addedSection;

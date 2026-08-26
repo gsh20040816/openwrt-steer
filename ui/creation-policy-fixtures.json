@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "collection": "nodes",
+      "id": "node-example",
+      "expected": {
+        "id": "node-example",
+        "enabled": true,
+        "type": "socks",
+        "server": "",
+        "server_port": 1080
+      }
+    },
+    {
+      "collection": "routes",
+      "id": "route-example",
+      "overrides": { "node": "node-existing" },
+      "expected": {
+        "id": "route-example",
+        "enabled": true,
+        "kind": "single",
+        "node": "node-existing"
+      }
+    },
+    {
+      "collection": "dns_profiles",
+      "id": "dns-example",
+      "expected": {
+        "id": "dns-example",
+        "enabled": true,
+        "protocol": "udp",
+        "server": "",
+        "server_port": 53
+      }
+    },
+    {
+      "collection": "local_proxies",
+      "id": "proxy-example",
+      "expected": {
+        "id": "proxy-example",
+        "enabled": true,
+        "protocol": "mixed",
+        "listen": "127.0.0.1",
+        "listen_port": 1090
+      }
+    },
+    {
+      "collection": "rules",
+      "id": "rule-example",
+      "overrides": { "dns_profile": "dns-existing", "route": "direct" },
+      "expected": {
+        "id": "rule-example",
+        "enabled": true,
+        "default": false,
+        "dns_profile": "dns-existing",
+        "route": "direct"
+      }
+    },
+    {
+      "collection": "subscriptions",
+      "id": "subscription-example",
+      "expected": {
+        "id": "subscription-example",
+        "enabled": true,
+        "url": "",
+        "update_interval": "6h"
+      }
+    }
+  ],
+  "ambiguous_references": {
+    "nodes": [
+      { "id": "node-a1b2c3", "name": "Same", "server": "a.example", "server_port": 1080 },
+      { "id": "node-d4e5f6", "name": "Same", "server": "b.example", "server_port": 1080 },
+      { "id": "node-unique", "name": "Unique", "server": "c.example", "server_port": 1080 }
+    ],
+    "routes": [
+      { "id": "route-a1b2c3", "name": "Same", "kind": "single", "node": "node-a" },
+      { "id": "route-d4e5f6", "name": "Same", "kind": "single", "node": "node-b" }
+    ],
+    "dns_profiles": [
+      { "id": "dns-a1b2c3", "name": "Same", "protocol": "udp", "server": "1.1.1.1", "server_port": 53 },
+      { "id": "dns-d4e5f6", "name": "Same", "protocol": "udp", "server": "8.8.8.8", "server_port": 53 }
+    ],
+    "local_proxies": [
+      { "id": "proxy-a1b2c3", "name": "Same", "protocol": "mixed", "listen": "127.0.0.1", "listen_port": 1090 },
+      { "id": "proxy-d4e5f6", "name": "Same", "protocol": "mixed", "listen": "127.0.0.1", "listen_port": 1091 }
+    ]
+  }
+}
