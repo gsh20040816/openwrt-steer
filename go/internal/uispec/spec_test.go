@@ -71,6 +71,40 @@ func TestSubscriptionCreationDefaultIsShared(t *testing.T) {
 	}
 }
 
+func TestDNSProtocolFieldAndPortMatrix(t *testing.T) {
+	expected := map[string]struct {
+		fields []string
+		port   int
+	}{
+		"udp":   {fields: []string{}, port: 53},
+		"tcp":   {fields: []string{}, port: 53},
+		"tls":   {fields: []string{"tls_server_name", "insecure"}, port: 853},
+		"https": {fields: []string{"tls_server_name", "path", "insecure"}, port: 443},
+		"quic":  {fields: []string{"tls_server_name", "insecure"}, port: 853},
+		"h3":    {fields: []string{"tls_server_name", "path", "insecure"}, port: 443},
+	}
+	protocols := ContractValue().DNSProtocols
+	if len(protocols) != len(expected) {
+		t.Fatalf("DNS protocol matrix has %d entries, want %d", len(protocols), len(expected))
+	}
+	for _, protocol := range protocols {
+		want, exists := expected[protocol.Value]
+		if !exists {
+			t.Fatalf("unexpected DNS protocol %q", protocol.Value)
+		}
+		if !reflect.DeepEqual(protocol.Fields, want.fields) || protocol.DefaultPort != want.port {
+			t.Fatalf("DNS protocol %q matrix drifted: %#v", protocol.Value, protocol)
+		}
+		wantRequired := []string{}
+		if len(protocol.Fields) > 0 {
+			wantRequired = []string{"tls_server_name"}
+		}
+		if !reflect.DeepEqual(protocol.RequiredFields, wantRequired) {
+			t.Fatalf("DNS protocol %q required fields drifted: %#v", protocol.Value, protocol.RequiredFields)
+		}
+	}
+}
+
 func TestNodeFieldsCoverCanonicalUserOptions(t *testing.T) {
 	canonical := map[string]bool{}
 	collectJSONFields(reflect.TypeOf(model.Node{}), canonical)

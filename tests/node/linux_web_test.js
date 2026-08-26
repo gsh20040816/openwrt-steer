@@ -248,6 +248,37 @@ function createRulesEnvironment(intent) {
   };
 }
 
+function loadDNSView() {
+  const S = { uiSpec, h: () => ({}), ui: {}, views: {} };
+  const window = { S };
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/dns.js'), 'utf8');
+  new Function('window', source)(window);
+  return S.views.dns;
+}
+
+function testDNSProtocolSwitchUsesSharedMatrix() {
+  const view = loadDNSView();
+  const staleDoH = {
+    protocol: 'https', server_port: 443, tls_server_name: 'dns.example', path: '/dns-query', insecure: true
+  };
+  const udpDraft = JSON.parse(JSON.stringify(staleDoH));
+  view.applyProtocol(udpDraft, 'udp');
+  view.commitProfile(staleDoH, udpDraft);
+  assert.deepStrictEqual(staleDoH, { protocol: 'udp', server_port: 53 },
+    'DoH to UDP must clear TLS/HTTP fields and move the old default port to the UDP default');
+
+  const customPort = {
+    protocol: 'https', server_port: 8443, tls_server_name: 'dns.example', path: '/custom', insecure: true
+  };
+  view.applyProtocol(customPort, 'udp');
+  assert.strictEqual(customPort.server_port, 8443,
+    'protocol switching must preserve an explicit non-default port');
+  for (const field of ['tls_server_name', 'path', 'insecure']) {
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(customPort, field), false,
+      `UDP cleanup must remove ${field} using the shared field matrix`);
+  }
+}
+
 async function testFailedToggleRestoresDraft() {
   const environment = createEnvironment(async () => { throw new Error('network failed'); });
   await environment.S.ui.onToggleEnabled(false);
@@ -461,6 +492,7 @@ function testSubscriptionCreationDefaultUsesSharedSpec() {
 }
 
 Promise.resolve()
+  .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
   .then(testConflictRestoresUntilOverwriteIsChosen)
   .then(testNewRulesAreStoredBeforeDefault)

@@ -14,6 +14,17 @@ type Choice struct {
 	Label string `json:"label"`
 }
 
+// DNSProtocol describes the protocol-dependent DNS Profile fields shared by
+// every frontend. Fields contains only conditional options; server and port
+// remain common to every protocol.
+type DNSProtocol struct {
+	Value          string   `json:"value"`
+	Label          string   `json:"label"`
+	Fields         []string `json:"fields"`
+	RequiredFields []string `json:"required_fields"`
+	DefaultPort    int      `json:"default_port"`
+}
+
 type Condition struct {
 	Field  string   `json:"field"`
 	Values []string `json:"values"`
@@ -61,7 +72,7 @@ type Contract struct {
 	BootstrapProtocols                []Choice                        `json:"bootstrap_protocols"`
 	BootstrapStrategies               []Choice                        `json:"bootstrap_strategies"`
 	RouteKinds                        []Choice                        `json:"route_kinds"`
-	DNSProtocols                      []Choice                        `json:"dns_protocols"`
+	DNSProtocols                      []DNSProtocol                   `json:"dns_protocols"`
 	LocalProxyProtocols               []Choice                        `json:"local_proxy_protocols"`
 	RuleNetworks                      []Choice                        `json:"rule_networks"`
 	RuleProtocols                     []Choice                        `json:"rule_protocols"`
@@ -120,7 +131,14 @@ func ContractValue() Contract {
 		BootstrapProtocols:  choices("udp", "UDP", "tcp", "TCP"),
 		BootstrapStrategies: choices("prefer_ipv4", "Prefer IPv4", "prefer_ipv6", "Prefer IPv6", "ipv4_only", "IPv4 only", "ipv6_only", "IPv6 only"),
 		RouteKinds:          choices("direct", "Direct", "block", "Reject", "single", "Single node"),
-		DNSProtocols:        choices("udp", "UDP", "tcp", "TCP", "tls", "DoT", "https", "DoH", "quic", "DoQ", "h3", "DoH3"),
+		DNSProtocols: []DNSProtocol{
+			{Value: "udp", Label: "UDP", Fields: []string{}, RequiredFields: []string{}, DefaultPort: 53},
+			{Value: "tcp", Label: "TCP", Fields: []string{}, RequiredFields: []string{}, DefaultPort: 53},
+			{Value: "tls", Label: "DoT", Fields: []string{"tls_server_name", "insecure"}, RequiredFields: []string{"tls_server_name"}, DefaultPort: 853},
+			{Value: "https", Label: "DoH", Fields: []string{"tls_server_name", "path", "insecure"}, RequiredFields: []string{"tls_server_name"}, DefaultPort: 443},
+			{Value: "quic", Label: "DoQ", Fields: []string{"tls_server_name", "insecure"}, RequiredFields: []string{"tls_server_name"}, DefaultPort: 853},
+			{Value: "h3", Label: "DoH3", Fields: []string{"tls_server_name", "path", "insecure"}, RequiredFields: []string{"tls_server_name"}, DefaultPort: 443},
+		},
 		LocalProxyProtocols: choices("mixed", "Mixed (SOCKS + HTTP)", "socks", "SOCKS", "http", "HTTP CONNECT"),
 		RuleNetworks:        choices("tcp", "TCP", "udp", "UDP"),
 		RuleProtocols: choices(

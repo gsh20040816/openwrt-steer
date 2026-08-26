@@ -50,6 +50,27 @@ func TestDecodeCanonicalIntent(t *testing.T) {
 	}
 }
 
+func TestDecodedUCIDNSProfileOptionsRemainSubjectToSemanticValidation(t *testing.T) {
+	config := strings.Replace(minimalConfig, "option server_port '53'\n\nconfig rule", "option server_port '53'\n\toption tls_server_name 'stale.example'\n\toption path '/dns-query'\n\toption insecure '1'\n\nconfig rule", 1)
+	intent, err := Decode(strings.NewReader(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	validation := model.Validate(intent)
+	for _, option := range []string{"tls_server_name", "path", "insecure"} {
+		found := false
+		for _, issue := range validation.Errors {
+			if issue.Code == "UNSUPPORTED_DNS_OPTION" && issue.Option == option {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("raw UCI retained unsupported %q without a stable error: %#v", option, validation.Errors)
+		}
+	}
+}
+
 func TestDecodeSubscriptionConfiguration(t *testing.T) {
 	config := minimalConfig + `
 config subscription 'example'

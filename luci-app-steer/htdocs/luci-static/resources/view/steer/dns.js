@@ -7,15 +7,45 @@
 'require steer as steer';
 'require steer.ui-spec as uiSpec';
 
+const dnsFields = Array.from(new Set(uiSpec.dns_protocols.flatMap((item) => item.fields)));
+
+function dnsProtocol(value) {
+	return uiSpec.dns_protocols.find((item) => item.value == value);
+}
+
+function clearUnsupportedDNSFields(sectionId, protocol) {
+	if (!protocol)
+		return;
+	dnsFields.forEach((field) => {
+		if (!protocol.fields.includes(field))
+			uci.unset('steer', sectionId, field);
+	});
+}
+
+function dependOnDNSField(option, field) {
+	uiSpec.dns_protocols
+		.filter((protocol) => protocol.fields.includes(field))
+		.forEach((protocol) => option.depends('protocol', protocol.value));
+	if (uiSpec.dns_protocols.some((protocol) => protocol.required_fields.includes(field)))
+		option.rmempty = false;
+	option.write = function(sectionId, value) {
+		const protocol = dnsProtocol(uci.get('steer', sectionId, 'protocol'));
+		if (!protocol?.fields.includes(field))
+			return uci.unset('steer', sectionId, field);
+		uci.set('steer', sectionId, field, value);
+	};
+}
+
 return view.extend({
 	load: function() { return uci.load('steer'); },
 
 	render: function() {
 		let m, s, o;
+		const defaultProtocol = uiSpec.dns_protocols[0];
 		steer.loadStyle();
 		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
-		steer.configureNamedSection(s);
+		steer.configureNamedSection(s, { enabled: '1', protocol: defaultProtocol.value, server_port: String(defaultProtocol.default_port) });
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add DNS profile');
@@ -28,14 +58,24 @@ return view.extend({
 		o = s.taboption('general', form.ListValue, 'protocol', _('Protocol'));
 		uiSpec.dns_protocols.forEach((item) => o.value(item.value, item.label));
 		o.rmempty = false; o.editable = true;
+		o.write = function(sectionId, value) {
+			const previous = dnsProtocol(uci.get('steer', sectionId, 'protocol'));
+			const next = dnsProtocol(value);
+			const currentPort = Number(uci.get('steer', sectionId, 'server_port'));
+			uci.set('steer', sectionId, 'protocol', value);
+			if (next && (!Number.isInteger(currentPort) || currentPort < 1 || (previous && currentPort == previous.default_port)))
+				uci.set('steer', sectionId, 'server_port', String(next.default_port));
+			clearUnsupportedDNSFields(sectionId, next);
+		};
 		o = s.taboption('general', form.Value, 'server', _('Server')); o.rmempty = false; o.editable = true;
 		o = s.taboption('general', form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false; o.modalonly = true;
-		o = s.taboption('general', form.Value, 'path', _('HTTP path')); o.placeholder = '/dns-query'; o.modalonly = true; o.depends('protocol', 'https'); o.depends('protocol', 'h3');
+		o = s.taboption('general', form.Value, 'path', _('HTTP path')); o.placeholder = '/dns-query'; o.modalonly = true;
+		dependOnDNSField(o, 'path');
 
 		o = s.taboption('tls', form.Value, 'tls_server_name', _('TLS server name')); o.modalonly = true;
-		[ 'tls', 'https', 'quic', 'h3' ].forEach((protocol) => o.depends('protocol', protocol));
+		dependOnDNSField(o, 'tls_server_name');
 		o = s.taboption('tls', form.Flag, 'insecure', _('Skip certificate verification')); o.default = '0'; o.modalonly = true;
-		[ 'tls', 'https', 'quic', 'h3' ].forEach((protocol) => o.depends('protocol', protocol));
+		dependOnDNSField(o, 'insecure');
 
 		return m.render();
 	},

@@ -33,3 +33,25 @@ func TestJSONRejectsUnknownAndTrailingValues(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONDNSProfileOptionsRemainSubjectToSemanticValidation(t *testing.T) {
+	value := validIntent()
+	value.DNSProfiles[0].Protocol = "udp"
+	value.DNSProfiles[0].TLSServerName = "stale.example"
+	value.DNSProfiles[0].Path = "/dns-query"
+	value.DNSProfiles[0].Insecure = true
+	var encoded bytes.Buffer
+	if err := EncodeJSON(&encoded, value); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeJSON(&encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validation := Validate(decoded)
+	for _, option := range []string{"tls_server_name", "path", "insecure"} {
+		if !hasIssueForOption(validation, "UNSUPPORTED_DNS_OPTION", option) {
+			t.Fatalf("raw JSON retained unsupported %q without a stable error: %#v", option, validation.Errors)
+		}
+	}
+}

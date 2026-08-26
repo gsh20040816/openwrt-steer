@@ -965,27 +965,67 @@ return baseclass.extend({
   "dns_protocols": [
     {
       "value": "udp",
-      "label": "UDP"
+      "label": "UDP",
+      "fields": [],
+      "required_fields": [],
+      "default_port": 53
     },
     {
       "value": "tcp",
-      "label": "TCP"
+      "label": "TCP",
+      "fields": [],
+      "required_fields": [],
+      "default_port": 53
     },
     {
       "value": "tls",
-      "label": "DoT"
+      "label": "DoT",
+      "fields": [
+        "tls_server_name",
+        "insecure"
+      ],
+      "required_fields": [
+        "tls_server_name"
+      ],
+      "default_port": 853
     },
     {
       "value": "https",
-      "label": "DoH"
+      "label": "DoH",
+      "fields": [
+        "tls_server_name",
+        "path",
+        "insecure"
+      ],
+      "required_fields": [
+        "tls_server_name"
+      ],
+      "default_port": 443
     },
     {
       "value": "quic",
-      "label": "DoQ"
+      "label": "DoQ",
+      "fields": [
+        "tls_server_name",
+        "insecure"
+      ],
+      "required_fields": [
+        "tls_server_name"
+      ],
+      "default_port": 853
     },
     {
       "value": "h3",
-      "label": "DoH3"
+      "label": "DoH3",
+      "fields": [
+        "tls_server_name",
+        "path",
+        "insecure"
+      ],
+      "required_fields": [
+        "tls_server_name"
+      ],
+      "default_port": 443
     }
   ],
   "local_proxy_protocols": [

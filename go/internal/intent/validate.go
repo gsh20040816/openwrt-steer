@@ -513,20 +513,32 @@ func validateHysteria(value Node, err issueFn) {
 }
 
 func validateDNSProfile(value DNSProfile, err, warn issueFn) {
-	if !oneOf(value.Protocol, "udp", "tcp", "tls", "https", "quic", "h3") {
+	supported := oneOf(value.Protocol, "udp", "tcp", "tls", "https", "quic", "h3")
+	encrypted := oneOf(value.Protocol, "tls", "https", "quic", "h3")
+	httpPath := oneOf(value.Protocol, "https", "h3")
+	if !supported {
 		err("UNSUPPORTED_DNS_PROTOCOL", "dns_profile", value.ID, "protocol", "DNS protocol must be udp, tcp, tls, https, quic or h3")
 	}
 	if !validHost(value.Server) {
 		err("INVALID_DNS_SERVER", "dns_profile", value.ID, "server", "invalid DNS server")
 	}
 	validPort(value.ServerPort, "dns_profile", value.ID, "server_port", err)
-	if oneOf(value.Protocol, "tls", "https", "quic", "h3") && value.TLSServerName == "" {
+	if supported && !encrypted && value.TLSServerName != "" {
+		err("UNSUPPORTED_DNS_OPTION", "dns_profile", value.ID, "tls_server_name", "TLS server name is only supported by encrypted DNS protocols")
+	}
+	if supported && !encrypted && value.Insecure {
+		err("UNSUPPORTED_DNS_OPTION", "dns_profile", value.ID, "insecure", "skip certificate verification is only supported by encrypted DNS protocols")
+	}
+	if supported && !httpPath && value.Path != "" {
+		err("UNSUPPORTED_DNS_OPTION", "dns_profile", value.ID, "path", "HTTP path is only supported by DoH and DoH3")
+	}
+	if encrypted && value.TLSServerName == "" {
 		err("REQUIRED", "dns_profile", value.ID, "tls_server_name", "encrypted DNS requires a TLS server name")
 	}
-	if oneOf(value.Protocol, "https", "h3") && value.Path != "" && !strings.HasPrefix(value.Path, "/") {
+	if httpPath && value.Path != "" && !strings.HasPrefix(value.Path, "/") {
 		err("INVALID_DNS_PATH", "dns_profile", value.ID, "path", "DoH path must start with /")
 	}
-	if value.Insecure {
+	if encrypted && value.Insecure {
 		warn("INSECURE_TLS", "dns_profile", value.ID, "insecure", "DNS TLS certificate verification is disabled")
 	}
 }
