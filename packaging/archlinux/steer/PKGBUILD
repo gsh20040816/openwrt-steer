@@ -3,7 +3,7 @@
 pkgname=steer
 pkgver=0.8.2
 pkgrel=1
-_commit=32bb859d4cdc52707495c11ccebb844b709791b7
+_commit=ed43ba5b2544e8969f2e423eb02724054c5ba293
 pkgdesc='Transparent proxy policy compiler and Linux systemd adapter'
 arch=('x86_64' 'aarch64')
 url='https://github.com/gsh20040816/steer'
