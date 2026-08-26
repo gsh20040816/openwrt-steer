@@ -55,6 +55,10 @@ Web 默认只监听 `127.0.0.1:9080`，远程访问使用 SSH 端口转发；不
 
 Web 顶部状态条提供 Steer 启用/禁用开关。切换开关会立即保存 `/etc/steer/config.json` 并执行 Apply；Apply 失败会明确提示并保留已保存配置，禁用会清理运行态资源。所有配置页共享 Save、Save and Apply 与 `Apply 已保存配置`；后者不依赖浏览器工作副本的 dirty 状态，并在已保存运行投影待切换时保持可用。
 
+Advanced JSON textarea 是同一个浏览器 Draft 的原文视图，不是第二份编辑缓存。有效 JSON 与结构化页面双向同步；无效 JSON 原文会保留，并阻止 Save 与结构化导航。dirty 时顶部提供“放弃修改”，确认后重新载入 Saved Intent、revision 与 overview，并重绘当前页面；切页不会丢失 Draft，浏览器 reload/关闭继续使用统一的未保存保护。
+
+异步 Save 使用请求时的不可变 Intent 快照和 Draft epoch；请求期间继续编辑不会被旧响应清成 clean。Save、Apply Saved 与 reload 串行互斥。订阅更新或 stale 清理期间若 Draft 发生变化，Web 保留本地 Draft 并提示 inventory 已变化，不自动 reload，也不重绘已经离开的订阅页面。
+
 状态条、总览和诊断中的 Active generation/digest 只读取 `/run/steer/current`。最近 Apply 作为带时间、candidate 和错误摘要的独立记录展示；失败 candidate 不会被冒充为 Active。订阅更新只改变未引用节点库存时显示 warning，不制造 pending Apply。
 
 Web Bearer token 的唯一配置源是严格 schema 1 的 `/etc/steer/web.json`。用户直接设置 `token`（32–256 个无空格可见 ASCII 字符）；`steer web-token` 只读取并输出当前配置，不生成、不迁移、不维护第二份 token 文件。

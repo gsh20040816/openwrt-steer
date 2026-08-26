@@ -35,7 +35,7 @@ python3 tests/check-ui-contract.py
 - `internal/subscription` Go 测试：三端共享的代理 URI、多行与 Base64 解析；
 - `luci_view_test.js`：表单语义、detour 可清空、节点/路由/概览测试按钮；
 - `steer_helper_test.js`：UCI commit 后的 Apply 观察、独立 validate、最小 status；
-- `linux_web_test.js`：Linux Web 开关失败/冲突回滚、Rules/Node chips 原子提交与 SSH 私钥 DOM/换行往返；
+- `linux_web_test.js`：Linux Web 开关/冲突回滚、Rules/Node chips 与 SSH 私钥、Advanced JSON 单一 Draft、无效 JSON 导航保护及确认式 Discard；
 - Python 检查：中文覆盖、包所有权/版本/已删除接口、官方 SDK 缓存与 Linux 交付约束。
 
 ## OpenWrt VM

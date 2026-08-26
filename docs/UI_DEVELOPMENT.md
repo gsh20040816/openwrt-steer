@@ -141,6 +141,10 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 
 Linux Web 将 Draft、Saved 与 Active 分开显示：`dirty` 只表示浏览器工作副本，revision 属于已保存配置，Active generation/digest 只来自 `/run/steer/current`。Save 后即使 Draft 已 clean，只要已保存配置的编译运行投影与 Active 不同，或最近一次同投影 Apply 失败，全局 `Apply 已保存配置` 仍保持可用。订阅刷新产生但未被 Route 引用的节点库存不进入该运行投影，只显示库存 warning，不制造 pending Apply。
 
+Linux Advanced JSON 与结构化页面必须共享同一个 Draft。textarea 输入立即进入 store 并触发 dirty；语法无效时保留原文、阻止 Save 和结构化导航，不能退回一份旧的解析对象冒充当前表单。顶部与 Advanced 页内的 Save / Save and Apply 调用同一动作。dirty 时全局必须提供带确认的“放弃修改”，确认后通过唯一 reload 路径同步 Intent、JSON 文本、revision、overview 与当前页面；取消不得改变 Draft。
+
+Linux store 为每次 Draft mutation 分配递增 epoch。Save 必须发送不可变快照；响应只允许清理与请求 epoch 相同的 Draft，期间新增修改继续保持 dirty。Save、Apply Saved 与 reload 互斥，重复点击或乱序响应不得覆盖较新的 Intent/revision。订阅 update/clean 同样记录开始 epoch；若请求期间 Draft 变化，只刷新 inventory 提示，不自动 reload，也不得让离页后的旧 render 覆盖当前路由。
+
 最近 Apply 是独立的操作记录。其 candidate、时间、成功/失败和错误摘要必须持久显示，但 candidate 不得作为 Active generation 的兜底来源。
 
 macOS Load 必须同时返回 Saved revision，Save/Apply 必须携带 `expected_revision`。revision conflict 不得修改 Saved、Active 或本地 Draft；UI 必须提供 Reload Saved、保留本地 Draft 和显式覆盖。订阅手动更新完成时只能在 Draft 未发生变化的情况下自动 reload，否则保留 Draft 并进入同一冲突选择；订阅库存变更始终不自动 Apply。

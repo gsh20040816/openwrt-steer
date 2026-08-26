@@ -79,7 +79,7 @@
     });
   }
 
-  function openCleanup(subscription, nodes) {
+  function openCleanup(subscription, nodes, isCurrent, root) {
     const box = h('div', {});
     const renderList = () => {
       box.replaceChildren();
@@ -98,12 +98,24 @@
             return;
           }
           try {
+            const startedEpoch = S.store.draftEpoch;
             await S.api.cleanNode(subscription.id, node.id);
-            await S.store.reload();
-            const index = nodes.indexOf(node);
-            if (index >= 0) nodes.splice(index, 1);
-            ui.toast(`已清理 ${node.id}`, 'ok');
+            let reloaded = false;
+            if (S.store.draftEpoch !== startedEpoch && S.store.dirty) {
+              await S.store.refreshOverview();
+              ui.toast(`已清理服务器库存中的 ${node.id}；期间 Draft 已变化，已保留本地修改`, 'warn');
+            } else {
+              const reload = await S.store.reload();
+              reloaded = reload?.ok === true;
+              if (!reloaded) ui.toast(`已清理服务器库存中的 ${node.id}；Draft 未自动 reload`, 'warn');
+            }
+            if (reloaded) {
+              const index = nodes.indexOf(node);
+              if (index >= 0) nodes.splice(index, 1);
+              ui.toast(`已清理 ${node.id}`, 'ok');
+            }
             renderList();
+            if (isCurrent()) view.render(root);
           } catch (e) {
             ui.toast(`${e.code || 'ERROR'}: ${e.message}`, 'err');
           }
@@ -140,14 +152,23 @@
             updateBtn.classList.add('spinning');
             updateBtn.textContent = '更新中…';
             try {
+              const startedEpoch = S.store.draftEpoch;
               const res = await S.api.updateSubscription(s.id);
               const snap = res.snapshots?.[0];
-              await S.store.reload();
-              ui.toast(snap?.skipped
+              let reloaded = false;
+              if (S.store.draftEpoch !== startedEpoch && S.store.dirty) {
+                await S.store.refreshOverview();
+                ui.toast('节点库存已更新；期间 Draft 已变化，已保留本地修改且未自动 reload', 'warn');
+              } else {
+                const reload = await S.store.reload();
+                reloaded = reload?.ok === true;
+                if (!reloaded) ui.toast('节点库存已更新；Draft 未自动 reload，请稍后重试', 'warn');
+              }
+              if (reloaded) ui.toast(snap?.skipped
                 ? `节点库存已更新 · ${snap.node_count} 节点 · 跳过 ${snap.skipped} 个无效节点；不会自动 Apply`
                 : '节点库存已更新；不会自动 Apply，只有影响运行语义时才会提示待 Apply', 'warn');
               updateBtn.textContent = '立即更新';
-              view.render(root);
+              if (isCurrent()) view.render(root);
             } catch (e) {
               ui.toast(e.message, 'err');
               updateBtn.textContent = '立即更新';
@@ -157,8 +178,8 @@
           } }, '立即更新');
           const cleanupBtn = s.stale_node_ids?.length
             ? h('button', {
-                class: 'btn btn--sm btn--danger',
-                onclick: () => openCleanup(s, intent.nodes.filter((n) => n.source_subscription === s.id))
+              class: 'btn btn--sm btn--danger',
+                onclick: () => openCleanup(s, intent.nodes.filter((n) => n.source_subscription === s.id), isCurrent, root)
               }, `清理 stale ×${s.stale_node_ids.length}`)
             : null;
           return h('tr', { class: s.enabled === false ? 'is-disabled' : null }, [

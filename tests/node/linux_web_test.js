@@ -103,22 +103,38 @@ function text(value) {
 }
 
 function createEnvironment(save, intent = { main: { enabled: true } }, options = {}) {
+  const side = new Element('aside');
   const strip = new Element('div');
   const toasts = new Element('div');
   const view = new Element('main');
   const drawerRoot = new Element('div');
   const body = new Element('body');
+  side.setAttribute('id', 'side');
   strip.setAttribute('id', 'strip');
   toasts.setAttribute('id', 'toasts');
   view.setAttribute('id', 'view');
   drawerRoot.setAttribute('id', 'drawer-root');
-  body.append(strip, toasts, view, drawerRoot);
+  body.append(side, strip, toasts, view, drawerRoot);
+  const documentListeners = new Map();
+  const windowListeners = new Map();
+  const addListener = (registry, name, listener) => {
+    if (!registry.has(name)) registry.set(name, []);
+    registry.get(name).push(listener);
+  };
+  const removeListener = (registry, name, listener) => {
+    registry.set(name, (registry.get(name) || []).filter((candidate) => candidate !== listener));
+  };
+  const dispatch = async (registry, name, event = {}) => {
+    const results = (registry.get(name) || []).slice().map((listener) => listener(event));
+    await Promise.all(results);
+    return event;
+  };
   const document = {
     body,
     querySelector: (selector) => body.querySelector(selector),
     querySelectorAll: (selector) => body.querySelectorAll(selector),
-    addEventListener() {},
-    removeEventListener() {}
+    addEventListener: (name, listener) => addListener(documentListeners, name, listener),
+    removeEventListener: (name, listener) => removeListener(documentListeners, name, listener)
   };
   const h = (tag, attributes = {}, ...children) => {
     const element = new Element(tag);
@@ -158,15 +174,62 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
       touch() { touchCount++; this.dirty = true; }
     }
   };
-  const window = { S };
+  const window = {
+    S,
+    addEventListener: (name, listener) => addListener(windowListeners, name, listener),
+    removeEventListener: (name, listener) => removeListener(windowListeners, name, listener)
+  };
   const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/ui.js'), 'utf8');
   new Function('window', 'document', 'setTimeout', 'requestAnimationFrame', source)(window, document, () => 0, (callback) => callback());
-  return { S, window, document, body, strip, toasts, view, drawerRoot, get touchCount() { return touchCount; } };
+  return {
+    S, window, document, body, side, strip, toasts, view, drawerRoot,
+    dispatchDocument: (name, event) => dispatch(documentListeners, name, event),
+    dispatchWindow: (name, event) => dispatch(windowListeners, name, event),
+    get touchCount() { return touchCount; }
+  };
 }
 
 function loadView(environment, name) {
   const source = fs.readFileSync(path.join(root, `go/cmd/steer-linux/web/js/views/${name}.js`), 'utf8');
   new Function('window', 'document', 'setTimeout', source)(environment.window, environment.document, () => 0);
+}
+
+function attachRealStore(environment, api) {
+  environment.S.api = api;
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/store.js'), 'utf8');
+  new Function('window', source)(environment.window);
+}
+
+function loadApplication(environment, initialHash = '#/advanced') {
+  let hash = initialHash;
+  const location = {};
+  Object.defineProperty(location, 'hash', {
+    get: () => hash,
+    set: (next) => {
+      hash = String(next);
+      void environment.dispatchWindow('hashchange', {});
+    }
+  });
+  const history = {
+    replaceState(_state, _title, next) { hash = String(next); }
+  };
+  environment.window.location = location;
+  environment.S.auth = { logout() {}, show() {} };
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/app.js'), 'utf8');
+  new Function('window', 'document', 'location', 'history', source)(environment.window, environment.document, location, history);
+  return { location, history, start: () => environment.dispatchDocument('DOMContentLoaded', {}) };
+}
+
+async function flushUI() {
+  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  await Promise.resolve();
+}
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((onResolve, onReject) => { resolve = onResolve; reject = onReject; });
+  return { promise, resolve, reject };
 }
 
 function fieldWithLabel(rootElement, label) {
@@ -178,6 +241,10 @@ function fieldWithLabel(rootElement, label) {
 
 function buttonWithText(rootElement, label) {
   return find(rootElement, (element) => element.tag === 'button' && text(element) === label);
+}
+
+function lastButtonWithText(rootElement, label) {
+  return findAll(rootElement, (element) => element.tag === 'button' && text(element) === label).at(-1) || null;
 }
 
 function createRulesEnvironment(intent) {
@@ -292,10 +359,10 @@ async function testFailedToggleRestoresDraft() {
 }
 
 async function testConflictRestoresUntilOverwriteIsChosen() {
-  let calls = 0;
-  const environment = createEnvironment(async () => {
-    calls++;
-    if (calls === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
+  const calls = [];
+  const environment = createEnvironment(async (apply, force) => {
+    calls.push({ apply, force });
+    if (calls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
     return { ok: true, res: { applied: true } };
   });
   await environment.S.ui.onToggleEnabled(false);
@@ -309,7 +376,73 @@ async function testConflictRestoresUntilOverwriteIsChosen() {
 
   assert.strictEqual(environment.S.store.intent.main.enabled, false, 'overwrite must reapply the requested toggle');
   assert.strictEqual(environment.touchCount, 1, 'overwrite must mark the reapplied toggle dirty before saving');
-  assert.strictEqual(calls, 2, 'overwrite must issue one forced save after the conflicted save');
+  assert.deepStrictEqual(calls, [{ apply: true, force: undefined }, { apply: true, force: true }],
+    'Disable conflict overwrite must preserve Apply intent');
+}
+
+async function testConflictOverwritePreservesEverySaveIntent() {
+  async function exercise(apply) {
+    const calls = [];
+    const environment = createEnvironment(async (requestedApply, force) => {
+      calls.push({ apply: requestedApply, force });
+      if (calls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
+      return { ok: true, res: { applied: requestedApply } };
+    });
+    await environment.S.ui.onSave(apply);
+    lastButtonWithText(environment.body, '覆盖保存（保留本地修改）').listeners.click();
+    await flushUI();
+    return calls;
+  }
+
+  assert.deepStrictEqual(await exercise(false), [{ apply: false, force: undefined }, { apply: false, force: true }],
+    'ordinary Save conflict overwrite must remain Save-only');
+  assert.deepStrictEqual(await exercise(true), [{ apply: true, force: undefined }, { apply: true, force: true }],
+    'Save and Apply conflict overwrite must still Apply');
+
+  const enableCalls = [];
+  const enabled = createEnvironment(async (apply, force) => {
+    enableCalls.push({ apply, force });
+    if (enableCalls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
+    return { ok: true, res: { applied: true } };
+  }, { main: { enabled: false } });
+  await enabled.S.ui.onToggleEnabled(true);
+  lastButtonWithText(enabled.body, '覆盖保存（保留本地修改）').listeners.click();
+  await flushUI();
+  assert.deepStrictEqual(enableCalls, [{ apply: true, force: undefined }, { apply: true, force: true }],
+    'Enable conflict overwrite must preserve Apply intent');
+}
+
+async function testApplyFailureNotificationsTakePrecedenceOverStaleDraft() {
+  const failed = {
+    ok: true,
+    res: { applied: false, apply_result: { error: 'activate failed' } },
+    staleDraft: true
+  };
+
+  let environment = createEnvironment(async () => failed);
+  await environment.S.ui.onSave(true);
+  assert.match(text(environment.toasts), /快照已保存但 Apply 失败：activate failed；期间新修改仍未保存/,
+    'ordinary Save and Apply must report Apply failure before the stale Draft warning');
+  assert.doesNotMatch(text(environment.toasts), /已保存并 Apply/);
+
+  environment = createEnvironment(async () => failed);
+  await environment.S.ui.onToggleEnabled(false);
+  assert.match(text(environment.toasts), /已保存为禁用，但 Apply 失败：activate failed；期间新修改仍未保存/,
+    'Enable or Disable must not describe a failed Apply as successful when the Draft is also stale');
+  assert.doesNotMatch(text(environment.toasts), /已保存并 Apply 禁用/);
+
+  let calls = 0;
+  environment = createEnvironment(async () => {
+    calls++;
+    if (calls === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
+    return failed;
+  });
+  await environment.S.ui.onSave(true);
+  lastButtonWithText(environment.body, '覆盖保存（保留本地修改）').listeners.click();
+  await flushUI();
+  assert.match(text(environment.toasts), /快照已覆盖保存但 Apply 失败：activate failed；期间新修改仍未保存/,
+    'force overwrite must report Apply failure before the stale Draft warning');
+  assert.doesNotMatch(text(environment.toasts), /已覆盖保存并 Apply/);
 }
 
 async function testNewRulesAreStoredBeforeDefault() {
@@ -621,10 +754,563 @@ async function testActualGenerationAndPersistentApplyFixture() {
   assert.doesNotMatch(text(disabled.strip), /candidate\.last-apply/, 'disabled status must not invent Active from last Apply');
 }
 
+function draftLifecycleIntent() {
+  return {
+    main: {
+      id: 'main', schema_version: 9, enabled: true, log_level: 'warn',
+      probe_direct: 'https://direct.example/', probe_proxy: 'https://proxy.example/', speedtest_proxy: 'https://speed.example/'
+    },
+    bootstrap: { id: 'bootstrap', protocol: 'udp', server: '1.1.1.1', server_port: 53, strategy: 'prefer_ipv4' },
+    nodes: [
+      { id: 'node', enabled: true, name: 'Node', type: 'socks', server: 'node.example', server_port: 1080 },
+      { id: 'feed_stale', enabled: true, name: 'Stale', type: 'socks', server: 'stale.example', server_port: 1080, source_subscription: 'feed', pinned_stale: true }
+    ],
+    subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h' }],
+    routes: [
+      { id: 'direct', enabled: true, kind: 'direct' },
+      { id: 'proxy', enabled: true, name: 'Proxy', kind: 'single', node: 'node' },
+      { id: 'block', enabled: true, kind: 'block' }
+    ],
+    dns_profiles: [{ id: 'public', enabled: true, name: 'Public', protocol: 'udp', server: '1.1.1.1', server_port: 53 }],
+    local_proxies: [],
+    rules: [{ id: 'default', enabled: true, default: true, dns_profile: 'public', route: 'direct' }]
+  };
+}
+
+function createDraftBackend() {
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const state = {
+    intent: draftLifecycleIntent(), revision: '"revision-1"', configCalls: 0, puts: [],
+    nodeTests: 0, routeTests: 0, subscriptionUpdates: 0, subscriptionCleans: 0, applyCalls: 0
+  };
+  state.api = {
+    async config() { state.configCalls++; return { intent: clone(state.intent), revision: state.revision }; },
+    async overview() { return { pending_apply: true, status: { healthy: false } }; },
+    async runtime() { return {}; },
+    async geodata() { return { readable: true, names: [], count: 0 }; },
+    async validate() { return { ok: true, errors: [], warnings: [] }; },
+    async putConfig(intent, _revision, apply) {
+      state.intent = clone(intent);
+      state.puts.push({ intent: clone(intent), apply });
+      state.revision = `"revision-${state.puts.length + 2}"`;
+      return { saved: true, applied: !!apply, revision: state.revision, request_ok: true };
+    },
+    async applySaved() { state.applyCalls++; return { ok: true }; },
+    async speedtestNode() { state.nodeTests++; return { results: [] }; },
+    async speedtestRoute() { state.routeTests++; return { results: [] }; },
+    async subscriptions() {
+      return { subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h', node_count: 1, skipped: 0, stale_node_ids: ['feed_stale'] }] };
+    },
+    async updateSubscription() {
+      state.subscriptionUpdates++;
+      return { snapshots: [{ node_count: 1, skipped: 0 }] };
+    },
+    async cleanNode() { state.subscriptionCleans++; return { snapshot: {} }; }
+  };
+  return state;
+}
+
+async function testJSONDraftStoreLifecycle() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  await environment.S.store.init();
+
+  const changed = draftLifecycleIntent();
+  changed.main.log_level = 'debug';
+  const validText = JSON.stringify(changed, null, 4);
+  let result = environment.S.store.editJSON(validText);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(environment.S.store.dirty, true, 'Advanced input must immediately mark the shared Draft dirty');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'debug', 'valid JSON must update the same parsed Draft');
+  assert.strictEqual(environment.S.store.draftText, validText, 'valid Advanced formatting must remain in the shared Draft');
+
+  const lastValidIntent = environment.S.store.intent;
+  const invalidText = '{"main":';
+  result = environment.S.store.editJSON(invalidText);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(environment.S.store.draftText, invalidText, 'invalid JSON text must be retained verbatim');
+  assert.strictEqual(environment.S.store.intent, lastValidIntent, 'invalid JSON must not replace the last parseable Draft object');
+  await assert.rejects(() => environment.S.store.save(false), /JSON Draft 无效/);
+  assert.strictEqual(backend.puts.length, 0, 'invalid JSON must not reach the Save API');
+
+  backend.intent.main.log_level = 'error';
+  backend.revision = '"revision-server"';
+  await environment.S.store.reload();
+  assert.strictEqual(environment.S.store.dirty, false);
+  assert.strictEqual(environment.S.store.draftValid, true);
+  assert.strictEqual(environment.S.store.revision, '"revision-server"');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'error');
+  assert.match(environment.S.store.draftText, /"log_level": "error"/, 'reload must synchronize parsed Intent and Advanced text');
+
+  environment.S.store.intent.main.log_level = 'info';
+  environment.S.store.touch();
+  assert.match(environment.S.store.draftText, /"log_level": "info"/, 'structured edits must synchronize back to Advanced JSON');
+}
+
+async function testStoreSnapshotsAndAsyncOrdering() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  await environment.S.store.init();
+
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  const saveGate = deferred();
+  let capturedSnapshot = null;
+  let saveRequests = 0;
+  backend.api.putConfig = async (snapshot, revision, apply) => {
+    saveRequests++;
+    capturedSnapshot = snapshot;
+    assert.strictEqual(revision, '"revision-1"');
+    assert.strictEqual(apply, false);
+    await saveGate.promise;
+    return { saved: true, applied: false, revision: '"revision-saved"' };
+  };
+
+  const saving = environment.S.store.save(false);
+  await Promise.resolve();
+  assert.strictEqual(environment.S.store.saving, true);
+  assert.strictEqual(capturedSnapshot.main.log_level, 'debug');
+  const duplicate = await environment.S.store.save(false);
+  assert.strictEqual(duplicate.busy, true, 'double Save must not start a second request');
+  assert.strictEqual(saveRequests, 1);
+  const configCallsBeforeBusyReload = backend.configCalls;
+  const busyReload = await environment.S.store.reload();
+  assert.strictEqual(busyReload.busy, true, 'Discard/reload must not race an in-flight Save');
+  assert.strictEqual(backend.configCalls, configCallsBeforeBusyReload, 'busy reload must not read a stale server revision');
+
+  environment.S.store.intent.main.log_level = 'info';
+  environment.S.store.touch();
+  assert.strictEqual(capturedSnapshot.main.log_level, 'debug', 'Save request must hold an immutable Draft snapshot');
+  saveGate.resolve();
+  const saved = await saving;
+  assert.strictEqual(saved.ok, true);
+  assert.strictEqual(saved.staleDraft, true, 'Save response must detect edits made while it was in flight');
+  assert.strictEqual(environment.S.store.dirty, true, 'old Save response must not clean newer Draft edits');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'info');
+  assert.match(environment.S.store.draftText, /"log_level": "info"/, 'old Save response must not replace newer Draft text');
+  assert.strictEqual(environment.S.store.revision, '"revision-saved"', 'revision may advance only for the saved snapshot');
+
+  const reloadGate = deferred();
+  const serverIntent = draftLifecycleIntent();
+  serverIntent.main.log_level = 'warn';
+  backend.api.config = async () => reloadGate.promise;
+  const reloading = environment.S.store.reload();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'error';
+  environment.S.store.touch();
+  reloadGate.resolve({ intent: serverIntent, revision: '"revision-reloaded"' });
+  const reloadResult = await reloading;
+  assert.strictEqual(reloadResult.staleDraft, true, 'reload must detect edits made after it started');
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'error', 'stale reload response must preserve newer Draft Intent');
+  assert.strictEqual(environment.S.store.revision, '"revision-saved"', 'stale reload response must not replace the Draft base revision');
+
+  const applyGate = deferred();
+  let applyRequests = 0;
+  backend.api.applySaved = async () => { applyRequests++; await applyGate.promise; return { ok: true }; };
+  const applying = environment.S.store.applySaved();
+  await Promise.resolve();
+  assert.strictEqual(environment.S.store.applying, true);
+  assert.strictEqual((await environment.S.store.save(false)).busy, true, 'Save must not overlap Apply Saved');
+  assert.strictEqual((await environment.S.store.reload()).busy, true, 'reload must not overlap Apply Saved');
+  assert.strictEqual((await environment.S.store.applySaved()).busy, true, 'double Apply Saved must not start twice');
+  assert.strictEqual(applyRequests, 1);
+  applyGate.resolve();
+  assert.strictEqual((await applying).ok, true);
+}
+
+async function testSaveAndApplySurviveOverviewRefreshFailure() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  await environment.S.store.init();
+
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  let overviewGate = deferred();
+  backend.api.putConfig = async () => ({ saved: true, applied: false, revision: '"revision-clean"' });
+  backend.api.overview = async () => overviewGate.promise;
+  let saving = environment.S.store.save(false);
+  await flushUI();
+  assert.strictEqual(environment.S.store.saving, true, 'Save may still be refreshing overview after PUT succeeds');
+  assert.strictEqual(environment.S.store.revision, '"revision-clean"', 'successful PUT must adopt its revision before overview refresh');
+  assert.strictEqual(environment.S.store.dirty, false, 'a matching Draft must become clean before overview refresh');
+  overviewGate.reject(new Error('overview unavailable'));
+  let result = await saving;
+  assert.strictEqual(result.ok, true, 'overview refresh failure must not turn a successful Save into failure');
+  assert.match(result.overviewError.message, /overview unavailable/);
+  assert.strictEqual(environment.S.store.revision, '"revision-clean"');
+
+  environment.S.store.intent.main.log_level = 'info';
+  environment.S.store.touch();
+  const putGate = deferred();
+  overviewGate = deferred();
+  backend.api.putConfig = async () => {
+    await putGate.promise;
+    return { saved: true, applied: false, revision: '"revision-stale"' };
+  };
+  backend.api.overview = async () => overviewGate.promise;
+  saving = environment.S.store.save(false);
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'warn';
+  environment.S.store.touch();
+  putGate.resolve();
+  await flushUI();
+  assert.strictEqual(environment.S.store.revision, '"revision-stale"', 'stale Draft Save must still adopt the saved snapshot revision');
+  assert.strictEqual(environment.S.store.dirty, true, 'newer Draft edits must stay dirty after the older snapshot is saved');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'warn');
+  overviewGate.reject(new Error('overview unavailable again'));
+  result = await saving;
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.staleDraft, true);
+  assert.match(result.overviewError.message, /overview unavailable again/);
+
+  backend.api.applySaved = async () => ({ ok: true, generation: 'candidate-new' });
+  backend.api.overview = async () => { throw new Error('apply overview unavailable'); };
+  result = await environment.S.store.applySaved();
+  assert.strictEqual(result.ok, true, 'overview refresh failure must not turn a successful Apply into failure');
+  assert.strictEqual(result.generation, 'candidate-new');
+  assert.match(result.overviewError.message, /apply overview unavailable/);
+}
+
+async function testEnableConflictUsesCurrentDraftObject() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  await environment.S.store.init();
+  const conflictGate = deferred();
+  const requests = [];
+  backend.api.putConfig = async (snapshot, _revision, apply) => {
+    requests.push({ snapshot: JSON.parse(JSON.stringify(snapshot)), apply });
+    if (requests.length === 1) {
+      await conflictGate.promise;
+      const error = new Error('revision conflict');
+      error.code = 'CONFLICT';
+      error.serverRevision = '"revision-2"';
+      error.external = {};
+      throw error;
+    }
+    return { saved: true, applied: true, revision: '"revision-3"' };
+  };
+
+  const toggling = environment.S.ui.onToggleEnabled(false);
+  await Promise.resolve();
+  const replacement = draftLifecycleIntent();
+  replacement.main.enabled = true;
+  replacement.main.log_level = 'debug';
+  environment.S.store.editJSON(JSON.stringify(replacement, null, 2));
+  const currentMain = environment.S.store.intent.main;
+  conflictGate.resolve();
+  await toggling;
+  assert.strictEqual(environment.S.store.intent.main, currentMain, 'conflict must not roll back through a stale main object');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'debug', 'newer Advanced Draft must survive the conflict response');
+
+  lastButtonWithText(environment.body, '覆盖保存（保留本地修改）').listeners.click();
+  await flushUI();
+  assert.strictEqual(environment.S.store.intent.main, currentMain);
+  assert.strictEqual(environment.S.store.intent.main.enabled, false, 'overwrite callback must mutate the current Draft main');
+  assert.strictEqual(requests[1].snapshot.main.log_level, 'debug');
+  assert.strictEqual(requests[1].snapshot.main.enabled, false);
+  assert.strictEqual(requests[1].apply, true, 'Enable/Disable overwrite must retain Apply intent');
+}
+
+async function testAdvancedRouterDiscardAndGuardedActions() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  for (const name of ['config', 'general', 'nodes', 'routes', 'subscriptions']) loadView(environment, name);
+  const application = loadApplication(environment, '#/advanced');
+  await application.start();
+  await flushUI();
+
+  assert.strictEqual(environment.S.store.listenerCount, 2, 'status strip plus Advanced should own exactly two store listeners');
+  for (let index = 0; index < 3; index++) {
+    environment.S.router('general');
+    await flushUI();
+    assert.strictEqual(environment.S.store.listenerCount, 1, 'leaving Advanced must synchronously dispose its store listener');
+    environment.S.router('advanced');
+    await flushUI();
+    assert.strictEqual(environment.S.store.listenerCount, 2, 'returning to Advanced must add only one current listener');
+  }
+
+  let editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.ok(editor, 'Advanced view must render the shared Draft textarea');
+  const invalidText = '{"main":';
+  editor.value = invalidText;
+  editor.listeners.input({ target: editor });
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.draftValid, false);
+  assert.match(text(environment.strip), /JSON Draft 无效/);
+  assert.ok(buttonWithText(environment.strip, '保存').disabled, 'global Save must be blocked for invalid JSON');
+  assert.ok(buttonWithText(environment.view, '保存').disabled, 'Advanced Save must share the same invalid-Draft guard');
+
+  assert.strictEqual(environment.S.router('general'), false, 'invalid JSON must block structured routing');
+  assert.strictEqual(application.location.hash, '#/advanced');
+  assert.strictEqual(environment.S.store.draftText, invalidText, 'blocked navigation must retain invalid text');
+  application.location.hash = '#/routes';
+  await flushUI();
+  assert.strictEqual(application.location.hash, '#/advanced', 'browser hash navigation must return an invalid Draft to Advanced');
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.strictEqual(editor.value, invalidText, 'hash-route protection must rerender the retained invalid text');
+  const unload = { preventDefault() { this.prevented = true; } };
+  await environment.dispatchWindow('beforeunload', unload);
+  assert.strictEqual(unload.prevented, true, 'browser reload/close must protect the Advanced Draft');
+  assert.strictEqual(unload.returnValue, '', 'beforeunload must use the shared dirty state');
+
+  backend.intent.main.log_level = 'error';
+  backend.revision = '"revision-2"';
+  const callsBeforeDiscard = backend.configCalls;
+  buttonWithText(environment.strip, '放弃修改').listeners.click();
+  lastButtonWithText(environment.body, '取消').listeners.click();
+  assert.strictEqual(backend.configCalls, callsBeforeDiscard, 'Discard Cancel must not reload or mutate state');
+  assert.strictEqual(environment.S.store.draftText, invalidText);
+  assert.strictEqual(environment.S.store.dirty, true);
+
+  buttonWithText(environment.strip, '放弃修改').listeners.click();
+  await lastButtonWithText(environment.body, '放弃修改并重新载入').listeners.click();
+  await flushUI();
+  assert.strictEqual(environment.S.store.dirty, false);
+  assert.strictEqual(environment.S.store.draftValid, true);
+  assert.strictEqual(environment.S.store.revision, '"revision-2"');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'error');
+  assert.strictEqual(environment.S.store.pendingApply, true, 'Discard must not alter pending Apply semantics');
+  assert.strictEqual(buttonWithText(environment.strip, '放弃修改'), null, 'Discard must disappear after the Draft becomes clean');
+  assert.match(text(environment.strip), /revision-2/, 'Discard must synchronize the status strip revision');
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.match(editor.value, /"log_level": "error"/, 'Discard must rerender the current Advanced page from Saved');
+
+  const applyGate = deferred();
+  let applyRequests = 0;
+  backend.api.applySaved = async () => { applyRequests++; await applyGate.promise; return { ok: true }; };
+  const applying = environment.S.store.applySaved();
+  await Promise.resolve();
+  const busyApplyButton = buttonWithText(environment.strip, 'Apply 已保存配置');
+  assert.ok(busyApplyButton.disabled, 'Apply Saved button must disable during any control operation');
+  await busyApplyButton.listeners.click();
+  assert.strictEqual(applyRequests, 1, 'busy guard must prevent a concurrent Apply Saved request');
+  applyGate.resolve();
+  await applying;
+
+  environment.S.router('nodes');
+  await flushUI();
+  await buttonWithText(environment.view, '连接').listeners.click();
+  environment.S.router('routes');
+  await flushUI();
+  await buttonWithText(environment.view, '链测试').listeners.click();
+  environment.S.router('subscriptions');
+  await flushUI();
+  await buttonWithText(environment.view, '立即更新').listeners.click();
+  await flushUI();
+  assert.strictEqual(backend.nodeTests, 1, 'node testing must resume immediately after Discard');
+  assert.strictEqual(backend.routeTests, 1, 'route testing must resume immediately after Discard');
+  assert.strictEqual(backend.subscriptionUpdates, 1, 'subscription update must resume immediately after Discard');
+
+  environment.S.router('advanced');
+  await flushUI();
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  let parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'debug';
+  editor.value = JSON.stringify(parsed, null, 3);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.view, '保存').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'debug', 'Advanced page Save must use the shared JSON Draft');
+  assert.strictEqual(backend.puts.at(-1).apply, false);
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'info';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.strip, '保存').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'info', 'global Save must use the same Advanced JSON Draft');
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'error';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.view, '保存并 Apply').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'error', 'Advanced page Save and Apply must use the shared JSON Draft');
+  assert.strictEqual(backend.puts.at(-1).apply, true);
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'debug';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  await buttonWithText(environment.strip, '保存并 Apply').listeners.click();
+  assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'debug', 'global Save and Apply must use the same Advanced JSON Draft');
+  assert.strictEqual(backend.puts.at(-1).apply, true);
+
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'warn';
+  const roundTripText = JSON.stringify(parsed, null, 4);
+  editor.value = roundTripText;
+  editor.listeners.input({ target: editor });
+  assert.strictEqual(environment.S.router('general'), true);
+  await flushUI();
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'warn');
+  assert.strictEqual(environment.S.router('advanced'), true);
+  await flushUI();
+  editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
+  assert.strictEqual(editor.value, roundTripText, 'structured ↔ Advanced navigation must retain the one shared Draft text');
+
+  const reloadGate = deferred();
+  backend.api.config = async () => reloadGate.promise;
+  buttonWithText(environment.strip, '放弃修改').listeners.click();
+  const discardOverlay = findAll(environment.body, (element) => classSet(element).has('dialog-overlay')).at(-1);
+  const discarding = lastButtonWithText(environment.body, '放弃修改并重新载入').listeners.click();
+  await Promise.resolve();
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'info';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  reloadGate.resolve({ intent: backend.intent, revision: '"revision-too-old"' });
+  await discarding;
+  assert.strictEqual(environment.S.store.dirty, true, 'edit during Discard reload must remain dirty');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'info');
+  assert.notStrictEqual(discardOverlay.removed, true, 'stale Discard response must not close as if the Draft was discarded');
+  assert.match(text(environment.toasts), /reload 期间 Draft 又发生变化/);
+}
+
+async function testSubscriptionAsyncWorkPreservesNewDraftAndRoute() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  for (const name of ['general', 'subscriptions']) loadView(environment, name);
+  const application = loadApplication(environment, '#/subscriptions');
+  await application.start();
+  await flushUI();
+
+  const updateGate = deferred();
+  backend.api.updateSubscription = async () => {
+    backend.subscriptionUpdates++;
+    await updateGate.promise;
+    return { snapshots: [{ node_count: 1, skipped: 0 }] };
+  };
+  const configCallsBeforeUpdate = backend.configCalls;
+  const updating = buttonWithText(environment.view, '立即更新').listeners.click();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  environment.S.router('general');
+  await flushUI();
+  updateGate.resolve();
+  await updating;
+  await flushUI();
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'debug', 'subscription response must preserve edits made while it was in flight');
+  assert.strictEqual(backend.configCalls, configCallsBeforeUpdate, 'changed Draft must prevent unconditional subscription reload');
+  assert.strictEqual(application.location.hash, '#/general');
+  assert.match(text(environment.view), /基础设置/, 'stale subscription render must not overwrite the newer route');
+  assert.match(text(environment.toasts), /Draft 已变化/, 'inventory update must explain why Draft was preserved');
+
+  await environment.S.store.reload();
+  environment.S.renderCurrent();
+  await flushUI();
+  environment.S.router('subscriptions');
+  await flushUI();
+  const cleanGate = deferred();
+  backend.api.cleanNode = async () => {
+    backend.subscriptionCleans++;
+    await cleanGate.promise;
+    return { snapshot: {} };
+  };
+  buttonWithText(environment.view, '清理 stale ×1').listeners.click();
+  const configCallsBeforeClean = backend.configCalls;
+  const cleaning = lastButtonWithText(environment.body, '移除').listeners.click();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'info';
+  environment.S.store.touch();
+  environment.S.router('general');
+  await flushUI();
+  cleanGate.resolve();
+  await cleaning;
+  await flushUI();
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'info', 'clean response must preserve edits made while it was in flight');
+  assert.ok(environment.S.store.intent.nodes.some((node) => node.id === 'feed_stale'), 'preserved Draft must retain its local inventory object');
+  assert.strictEqual(backend.configCalls, configCallsBeforeClean, 'changed Draft must prevent unconditional clean reload');
+  assert.strictEqual(application.location.hash, '#/general');
+  assert.match(text(environment.view), /基础设置/, 'stale clean render must not overwrite the newer route');
+}
+
+async function testSubscriptionAsyncWorkReloadsLatestAfterDiscard() {
+  let backend = createDraftBackend();
+  let environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  loadView(environment, 'subscriptions');
+  await environment.S.store.init();
+  await environment.S.views.subscriptions.render(environment.view);
+
+  const updateGate = deferred();
+  backend.api.updateSubscription = async () => {
+    backend.subscriptionUpdates++;
+    await updateGate.promise;
+    backend.intent.main.log_level = 'warn';
+    backend.revision = '"revision-update-latest"';
+    return { snapshots: [{ node_count: 1, skipped: 0 }] };
+  };
+  const configCallsBeforeUpdate = backend.configCalls;
+  const updating = buttonWithText(environment.view, '立即更新').listeners.click();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  backend.intent.main.log_level = 'error';
+  backend.revision = '"revision-discard-base"';
+  await environment.S.store.reload();
+  assert.strictEqual(environment.S.store.dirty, false, 'Discard must leave a clean Draft while subscription update is in flight');
+  updateGate.resolve();
+  await updating;
+  await flushUI();
+  assert.strictEqual(backend.configCalls, configCallsBeforeUpdate + 2,
+    'epoch change with a clean Draft must reload once for Discard and once after subscription update');
+  assert.strictEqual(environment.S.store.revision, '"revision-update-latest"');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'warn',
+    'subscription completion must load the server state newer than the discarded Draft');
+
+  backend = createDraftBackend();
+  environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  loadView(environment, 'subscriptions');
+  await environment.S.store.init();
+  await environment.S.views.subscriptions.render(environment.view);
+
+  const cleanGate = deferred();
+  backend.api.cleanNode = async () => {
+    backend.subscriptionCleans++;
+    await cleanGate.promise;
+    backend.intent.nodes = backend.intent.nodes.filter((node) => node.id !== 'feed_stale');
+    backend.intent.main.log_level = 'warn';
+    backend.revision = '"revision-clean-latest"';
+    return { snapshot: {} };
+  };
+  buttonWithText(environment.view, '清理 stale ×1').listeners.click();
+  const configCallsBeforeClean = backend.configCalls;
+  const cleaning = lastButtonWithText(environment.body, '移除').listeners.click();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  backend.intent.main.log_level = 'error';
+  backend.revision = '"revision-clean-discard-base"';
+  await environment.S.store.reload();
+  assert.strictEqual(environment.S.store.dirty, false, 'Discard must leave a clean Draft while stale cleanup is in flight');
+  cleanGate.resolve();
+  await cleaning;
+  await flushUI();
+  assert.strictEqual(backend.configCalls, configCallsBeforeClean + 2,
+    'epoch change with a clean Draft must reload once for Discard and once after stale cleanup');
+  assert.strictEqual(environment.S.store.revision, '"revision-clean-latest"');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'warn');
+  assert.ok(!environment.S.store.intent.nodes.some((node) => node.id === 'feed_stale'),
+    'cleanup completion must load the latest server inventory after the discarded Draft');
+}
+
 Promise.resolve()
   .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
   .then(testConflictRestoresUntilOverwriteIsChosen)
+  .then(testConflictOverwritePreservesEverySaveIntent)
+  .then(testApplyFailureNotificationsTakePrecedenceOverStaleDraft)
   .then(testNewRulesAreStoredBeforeDefault)
   .then(testChipsCommitPendingTokensConsistently)
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
@@ -633,6 +1319,13 @@ Promise.resolve()
   .then(testApplySavedAPIKeepsStructuredFailure)
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)
+  .then(testJSONDraftStoreLifecycle)
+  .then(testStoreSnapshotsAndAsyncOrdering)
+  .then(testSaveAndApplySurviveOverviewRefreshFailure)
+  .then(testEnableConflictUsesCurrentDraftObject)
+  .then(testAdvancedRouterDiscardAndGuardedActions)
+  .then(testSubscriptionAsyncWorkPreservesNewDraftAndRoute)
+  .then(testSubscriptionAsyncWorkReloadsLatestAfterDiscard)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);

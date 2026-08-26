@@ -394,6 +394,7 @@ body {
 }
 .match-editor__item:hover, .match-editor__item.is-active { background: var(--route-bg); color: var(--route); }
 .match-editor__status { font: 10.5px var(--mono); color: var(--faint); margin-top: 4px; min-height: 14px; }
+.match-editor__status.is-err { color: var(--err); }
 
 /* ---------- 9. 抽屉 / 对话框 / 通知 ---------- */
 .drawer-root { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
