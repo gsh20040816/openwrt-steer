@@ -74,13 +74,47 @@ struct UIFieldSpec: Decodable, Identifiable {
 struct UIPlatformCapabilities: Decodable {
     let rawEditor: Bool
     let sourceMAC: Bool
+    let sourceMACReason: String?
     let systemComponents: Bool
 
     enum CodingKeys: String, CodingKey {
         case rawEditor = "raw_editor"
         case sourceMAC = "source_mac"
+        case sourceMACReason = "source_mac_reason"
         case systemComponents = "system_components"
     }
+}
+
+struct UICollectionReference: Decodable {
+    let targetCollection: String
+    let sourceCollection: String
+    let sourceObjectType: String
+    let field: String
+    let multiple: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case targetCollection = "target_collection"
+        case sourceCollection = "source_collection"
+        case sourceObjectType = "source_object_type"
+        case field, multiple
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        targetCollection = try container.decode(String.self, forKey: .targetCollection)
+        sourceCollection = try container.decode(String.self, forKey: .sourceCollection)
+        sourceObjectType = try container.decode(String.self, forKey: .sourceObjectType)
+        field = try container.decode(String.self, forKey: .field)
+        multiple = try container.decodeIfPresent(Bool.self, forKey: .multiple) ?? false
+    }
+}
+
+struct UIObjectReference: Equatable {
+    let sourceCollection: String
+    let sourceObjectType: String
+    let sourceID: String
+    let sourceLabel: String
+    let field: String
 }
 
 struct UINavigationItem: Decodable, Identifiable {
@@ -111,6 +145,8 @@ struct UIContract: Decodable {
     let ruleNetworks: [UIChoice]
     let ruleProtocols: [UIChoice]
     let ruleMatchFields: [String]
+    let ruleConnectionOnlyFields: [String]
+    let collectionReferences: [UICollectionReference]
     let domainPrefixes: [String]
     let ipPrefixes: [String]
     let platformCapabilities: [String: UIPlatformCapabilities]
@@ -131,6 +167,8 @@ struct UIContract: Decodable {
         case ruleNetworks = "rule_networks"
         case ruleProtocols = "rule_protocols"
         case ruleMatchFields = "rule_match_fields"
+        case ruleConnectionOnlyFields = "rule_connection_only_fields"
+        case collectionReferences = "collection_references"
         case domainPrefixes = "domain_prefixes"
         case ipPrefixes = "ip_prefixes"
         case platformCapabilities = "platform_capabilities"
@@ -176,5 +214,64 @@ enum SteerUISpec {
             object["server_port"] = .number(Double(next.defaultPort))
         }
         normalizeDNSProfile(&object)
+    }
+
+    static func ruleSummaryTokens(_ object: [String: JSONValue]) -> [String] {
+        if object["default"]?.boolValue == true { return ["default"] }
+        return contract.ruleMatchFields.compactMap { field in
+            let values = object[field]?.arrayValue ?? []
+            guard !values.isEmpty else { return nil }
+            if field == "network" || field == "protocol" {
+                return "\(field):\(values.compactMap(\.stringValue).joined(separator: "/"))"
+            }
+            return "\(field):\(values.count)"
+        }
+    }
+
+    static func ruleDNSContinues(_ object: [String: JSONValue]) -> Bool {
+        let populated = contract.ruleMatchFields.filter { !(object[$0]?.arrayValue ?? []).isEmpty }
+        return !populated.isEmpty && populated.allSatisfy(contract.ruleConnectionOnlyFields.contains)
+    }
+
+    static func inboundReferences(
+        root: [String: JSONValue], targetCollection: String, targetID: String
+    ) -> [UIObjectReference] {
+        if targetCollection == "subscriptions" {
+            let owned = Set((root["nodes"]?.arrayValue ?? []).compactMap { value -> String? in
+                guard let node = value.objectValue,
+                      node["source_subscription"]?.stringValue == targetID else { return nil }
+                return node["id"]?.stringValue
+            })
+            return (root["routes"]?.arrayValue ?? []).compactMap { value in
+                guard let route = value.objectValue,
+                      let node = route["node"]?.stringValue, owned.contains(node),
+                      let id = route["id"]?.stringValue else { return nil }
+                return UIObjectReference(
+                    sourceCollection: "routes", sourceObjectType: "route", sourceID: id,
+                    sourceLabel: route["name"]?.stringValue ?? id, field: "node"
+                )
+            }
+        }
+        return contract.collectionReferences
+            .filter { $0.targetCollection == targetCollection }
+            .flatMap { relation in
+                (root[relation.sourceCollection]?.arrayValue ?? []).compactMap { value in
+                    guard let source = value.objectValue,
+                          let id = source["id"]?.stringValue else { return nil }
+                    let matched: Bool
+                    if relation.multiple {
+                        matched = (source[relation.field]?.arrayValue ?? []).contains { $0.stringValue == targetID }
+                    } else {
+                        matched = source[relation.field]?.stringValue == targetID
+                    }
+                    guard matched else { return nil }
+                    return UIObjectReference(
+                        sourceCollection: relation.sourceCollection,
+                        sourceObjectType: relation.sourceObjectType,
+                        sourceID: id, sourceLabel: source["name"]?.stringValue ?? id,
+                        field: relation.field
+                    )
+                }
+            }
     }
 }

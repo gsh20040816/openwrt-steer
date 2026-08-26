@@ -1106,6 +1106,45 @@ enum GeneratedUISpec {
     "protocol",
     "port"
   ],
+  "rule_connection_only_fields": [
+    "ip_match",
+    "network",
+    "protocol",
+    "port"
+  ],
+  "collection_references": [
+    {
+      "target_collection": "nodes",
+      "source_collection": "routes",
+      "source_object_type": "route",
+      "field": "node"
+    },
+    {
+      "target_collection": "routes",
+      "source_collection": "rules",
+      "source_object_type": "rule",
+      "field": "route"
+    },
+    {
+      "target_collection": "routes",
+      "source_collection": "routes",
+      "source_object_type": "route",
+      "field": "detour"
+    },
+    {
+      "target_collection": "dns_profiles",
+      "source_collection": "rules",
+      "source_object_type": "rule",
+      "field": "dns_profile"
+    },
+    {
+      "target_collection": "local_proxies",
+      "source_collection": "rules",
+      "source_object_type": "rule",
+      "field": "inbound",
+      "multiple": true
+    }
+  ],
   "domain_prefixes": [
     "full:",
     "domain:",
@@ -1124,6 +1163,7 @@ enum GeneratedUISpec {
     "macos": {
       "raw_editor": true,
       "source_mac": false,
+      "source_mac_reason": "macOS utun traffic does not expose the original LAN neighbor MAC address",
       "system_components": true
     },
     "openwrt": {

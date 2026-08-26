@@ -12,6 +12,9 @@ const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-
 const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
 const probeDiagnosticsFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/probe-diagnostics-fixtures.json'), 'utf8'));
 const stateLifecycleFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/state-lifecycle-fixtures.json'), 'utf8'));
+const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/validation-issue-fixtures.json'), 'utf8'));
+const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-reference-fixtures.json'), 'utf8'));
+const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -282,14 +285,19 @@ function createRulesEnvironment(intent) {
     toggle: () => new Element('button'),
     selectWithMissing: (options) => options,
     select: (options, value) => Object.assign(new Element('select'), { value }),
+    multiChoice: (_options, values) => Object.assign(new Element('div'), { value: values || [], commitPending: () => false }),
     chips: () => Object.assign(new Element('div'), { commitPending: () => false }),
     matchEditor: ({ value }) => ({ el: new Element('textarea'), value: value || [] }),
     field: (label, control, help) => h('label', {}, label, control, help),
     toast: () => {},
+    guardCollectionDeletion: () => true,
+    takeObjectFocus: () => null,
+    focusDrawerOption: () => {},
     drawer(options) {
       const editor = options.renderBody(new Element('div'));
       const rule = editor.submit();
       if (rule !== false) options.onSubmit(rule);
+      return {};
     }
   };
   const S = {
@@ -607,18 +615,22 @@ function testNodeStringListSubmitAndPrivateKeyRoundTrip() {
   assert.ok(reloadedKey.classList.contains('is-masked'), 'a reloaded private key must return to the masked state');
 }
 
-async function testRuleStringListFlushesOnDrawerSubmit() {
-  const environment = createEnvironment(async () => ({ ok: true }), representativeIntent('key'));
+async function testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit() {
+  const intent = representativeIntent('key');
+  intent.local_proxies.push({ id: 'proxy-last', enabled: true, name: 'Local proxy', protocol: 'socks', listen: '127.0.0.1', listen_port: 1080 });
+  const environment = createEnvironment(async () => ({ ok: true }), intent);
   loadView(environment, 'rules');
   await openOnlyEditor(environment, 'rules');
   const inbound = fieldWithLabel(environment.drawerRoot, 'inbound（本地代理端点）');
-  const pending = find(inbound, (element) => classSet(element).has('chips__input'));
-  pending.value = 'proxy-last';
+  assert.equal(find(inbound, (element) => classSet(element).has('chips__input')), null,
+    'inbound no longer accepts arbitrary internal IDs');
+  const proxyChoice = buttonWithText(inbound, 'Local proxy');
+  proxyChoice.listeners.click();
   buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
   assert.deepStrictEqual(
     environment.S.store.intent.rules[0].inbound,
     ['proxy-last'],
-    'rule drawer submit must atomically flush its last pending chip'
+    'rule drawer persists only a selected Local Proxy reference'
   );
 }
 
@@ -926,6 +938,51 @@ async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
   const appSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/app.js'), 'utf8');
   assert.ok(appSource.includes('30_000') && appSource.includes('visibilitychange') && appSource.includes('refreshServerState'),
     'Linux app must refresh visible server state at a low frequency');
+}
+
+async function testSharedUISafetyContracts() {
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const environment = createEnvironment(async () => ({ ok: true }), clone(collectionReferenceFixtures.intent));
+  for (const fixture of collectionReferenceFixtures.cases) {
+    const actual = environment.S.ui.collectionReferences(
+      collectionReferenceFixtures.intent, fixture.target_collection, fixture.target_id
+    ).map((reference) => ({
+      source_collection: reference.source_collection,
+      source_object_type: reference.source_object_type,
+      source_id: reference.source_id,
+      field: reference.field
+    }));
+    assert.deepEqual(actual, fixture.references,
+      `Linux reference guard drifted for ${fixture.target_collection}/${fixture.target_id}`);
+  }
+  assert.equal(environment.S.ui.guardCollectionDeletion('nodes', 'node_used', 'Used node'), false);
+  assert.match(text(environment.body), /Used route \/ node/);
+  assert.equal(environment.S.ui.guardCollectionDeletion('nodes', 'node_free', 'Free node'), true);
+
+  const summaryEnvironment = createEnvironment(async () => ({ ok: true }), draftLifecycleIntent());
+  loadView(summaryEnvironment, 'rules');
+  for (const fixture of ruleSummaryFixtures.cases) {
+    assert.deepEqual(summaryEnvironment.S.views.rules.summaryTokens(fixture.rule), fixture.tokens, fixture.name);
+    assert.equal(summaryEnvironment.S.views.rules.dnsContinues(fixture.rule), fixture.dns_continues, fixture.name);
+  }
+
+  const validation = validationIssueFixtures.validation;
+  const renderedIssues = environment.S.ui.issueList([...validation.errors, ...validation.warnings], () => {});
+  const issueText = text(renderedIssues);
+  for (const issue of [...validation.errors, ...validation.warnings]) {
+    assert.ok(issueText.includes(issue.code) && issueText.includes(issue.object_id) && issueText.includes(issue.option));
+  }
+  for (const secret of validationIssueFixtures.forbidden_message_values) assert.ok(!issueText.includes(secret));
+
+  const failedWrite = createEnvironment(async () => {
+    const error = new Error('candidate rejected');
+    error.details = { validation };
+    throw error;
+  }, draftLifecycleIntent());
+  await failedWrite.S.ui.onSave(true);
+  const writePanel = text(failedWrite.body);
+  assert.ok(writePanel.includes('DANGLING_ROUTE') && writePanel.includes('DNS_PROJECTION_EMPTY'),
+    'Save/Apply failure must immediately render structured errors and warnings');
 }
 
 function createDraftBackend() {
@@ -1674,13 +1731,14 @@ Promise.resolve()
   .then(testNewRulesAreStoredBeforeDefault)
   .then(testChipsCommitPendingTokensConsistently)
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
-  .then(testRuleStringListFlushesOnDrawerSubmit)
+  .then(testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit)
   .then(testSubscriptionCreationDefaultUsesSharedSpec)
   .then(testApplySavedAPIKeepsStructuredFailure)
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)
   .then(testSharedProbeDiagnosticsAndDisabledActions)
   .then(testExternalRevisionRefreshPreservesDraftAndLifecycleFacts)
+  .then(testSharedUISafetyContracts)
   .then(testJSONDraftStoreLifecycle)
   .then(testStoreSnapshotsAndAsyncOrdering)
   .then(testSaveAndApplySurviveOverviewRefreshFailure)

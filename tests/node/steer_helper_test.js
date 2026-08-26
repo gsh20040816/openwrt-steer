@@ -16,6 +16,8 @@ if (typeof String.prototype.format != 'function') {
 }
 
 const root = path.resolve(__dirname, '../..');
+const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/validation-issue-fixtures.json'), 'utf8'));
+const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 
 function element(tag, attributes, children) {
 	if (Array.isArray(tag)) {
@@ -127,8 +129,8 @@ function loadHelper(runtime) {
 	};
 	const window = { setTimeout: (callback) => callback(), location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', reload: () => { runtime.reloaded = true; } } };
 
-	return new Function('baseclass', 'rpc', 'uci', 'ui', 'E', '_', 'L', 'document', 'window', source)(
-		baseclass, rpc, uci, ui, element, translate, L, document, window);
+	return new Function('baseclass', 'rpc', 'uci', 'ui', 'uiSpec', 'E', '_', 'L', 'document', 'window', source)(
+		baseclass, rpc, uci, ui, uiSpec, element, translate, L, document, window);
 }
 
 async function main() {
@@ -315,14 +317,16 @@ async function main() {
 	assert.deepEqual(runtime.loadedConfigs, [ 'steer' ]);
 
 	runtime.sequence = [];
-	runtime.candidateValidation = {
-		ok: false,
-		errors: [ {
-			code: 'GEO_CATEGORY_NOT_FOUND', object_type: 'rule', object_id: 'unknown',
-			option: 'domain_match', message: 'geosite category is unavailable'
-		} ],
-		warnings: []
-	};
+	runtime.commitCalls = 0;
+	runtime.candidateValidation = { ok: true, errors: [], warnings: validationIssueFixtures.validation.warnings };
+	await helper.applyPending();
+	assert.equal(runtime.notifications.at(-1).level, 'warning');
+	assert.ok(textContent(runtime.notifications.at(-1).content).includes('DNS_PROJECTION_EMPTY') ||
+		textContent(runtime.notifications.at(-1).content).includes('connection-stage'),
+		'non-blocking write warnings remain visible after a successful Apply');
+
+	runtime.sequence = [];
+	runtime.candidateValidation = validationIssueFixtures.validation;
 	const commitsBeforeInvalidCandidate = runtime.commitCalls;
 	const invalidResult = await helper.apply({
 		handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); }
@@ -333,8 +337,14 @@ async function main() {
 		'Unknown Geo selectors remain pending and are never persisted');
 	assert.equal(invalidResult.saved, false);
 	assert.equal(runtime.notifications.at(-1).level, 'danger');
-	assert.ok(textContent(runtime.notifications.at(-1).content).includes('geosite category is unavailable'),
-		'The backend object-level Geo issue is shown to the user');
+	const validationText = textContent(runtime.notifications.at(-1).content);
+	for (const issue of [ ...runtime.candidateValidation.errors, ...runtime.candidateValidation.warnings ]) {
+		assert.ok(validationText.includes(issue.code) || validationText.includes(issue.message));
+		assert.ok(validationText.includes(issue.object_id) && validationText.includes(issue.option));
+	}
+	assert.ok(validationText.includes('Go to field'),
+		'Every located write issue offers direct object/field navigation');
+	for (const secret of validationIssueFixtures.forbidden_message_values) assert.ok(!validationText.includes(secret));
 
 	runtime.sequence = [];
 	runtime.candidateValidation = { ok: true, errors: [], warnings: [] };

@@ -15,9 +15,6 @@
     return catalogPromise;
   }
 
-  const NETWORKS = S.uiSpec.rule_networks.map((item) => item.value);
-  const PROTOCOLS = S.uiSpec.rule_protocols.map((item) => item.value);
-
   function routeLabel(intent, id) {
     const r = intent.routes.find((x) => x.id === id);
     return r ? (r.name || id) : id;
@@ -27,33 +24,46 @@
     return p ? (p.name || id) : id;
   }
 
+  function summaryTokens(rule) {
+    if (rule.default) return ['default'];
+    const tokens = [];
+    for (const field of S.uiSpec.rule_match_fields) {
+      const values = asList(rule[field]);
+      if (!values.length) continue;
+      tokens.push((field === 'network' || field === 'protocol')
+        ? `${field}:${values.join('/')}` : `${field}:${values.length}`);
+    }
+    return tokens;
+  }
+
+  function dnsContinues(rule) {
+    const populated = S.uiSpec.rule_match_fields.filter((field) => asList(rule[field]).length > 0);
+    return populated.length > 0 && populated.every((field) => S.uiSpec.rule_connection_only_fields.includes(field));
+  }
+
   function summary(rule) {
-    const parts = [];
-    const domains = asList(rule.domain_match);
-    const ips = asList(rule.ip_match);
-    const srcs = asList(rule.source_ip_cidr);
-    const macs = asList(rule.source_mac_address);
-    const ports = asList(rule.port);
-    const nets = asList(rule.network);
-    const protos = asList(rule.protocol);
-    const inbounds = asList(rule.inbound);
-    if (inbounds.length) parts.push(`inbound ×${inbounds.length}`);
-    if (domains.length) parts.push(`域名 ×${domains.length}`);
-    if (ips.length) parts.push(`IP ×${ips.length}`);
-    if (srcs.length) parts.push(`源 CIDR ×${srcs.length}`);
-    if (macs.length) parts.push(`源 MAC ×${macs.length}`);
-    if (nets.length) parts.push(nets.join('/').toUpperCase());
-    if (protos.length) parts.push(`协议 ${protos.join(',')}`);
-    if (ports.length) parts.push(`端口 ×${ports.length}`);
-    if (!parts.length && !rule.default) parts.push('无匹配条件');
-    if (!parts.length) parts.push('兜底');
+    const labels = {
+      inbound: 'inbound', domain_match: '域名', ip_match: 'IP', source_ip_cidr: '源 CIDR',
+      source_mac_address: '源 MAC', network: '网络', protocol: '协议', port: '端口'
+    };
+    const parts = summaryTokens(rule).map((token) => {
+      if (token === 'default') return '兜底';
+      const separator = token.indexOf(':');
+      const field = token.slice(0, separator);
+      const value = token.slice(separator + 1);
+      if (field === 'network') return value.toUpperCase();
+      if (field === 'protocol') return `协议 ${value.replace(/\//g, ',')}`;
+      return `${labels[field] || field} ×${value}`;
+    });
+    if (!parts.length) parts.push('无匹配条件');
+    if (dnsContinues(rule)) parts.push('DNS 继续匹配后续规则');
     return parts.join(' · ');
   }
 
-  async function openRuleEditor(rule) {
+  async function openRuleEditor(rule, focusOption) {
     const isNew = !S.store.intent.rules.includes(rule);
     const geo = await catalogs();
-    ui.drawer({
+    const opened = ui.drawer({
       eyebrow: `规则 · ${rule.id}`, title: rule.name || '未命名', submitLabel: '保存到工作副本', width: 560,
       renderBody(body) {
         const intent = S.store.intent;
@@ -65,7 +75,10 @@
         const routeOpts = intent.routes.map((r) => [r.id, r.name || r.id]);
         const routeSel = ui.select(ui.selectWithMissing(routeOpts, draft.route, '缺失路由'), draft.route, (v) => { draft.route = v; });
 
-        const inboundChips = ui.chips(asList(draft.inbound), { placeholder: '输入本地代理 ID，回车添加', onchange: (v) => { draft.inbound = v; } });
+        const inboundChoices = asList(intent.local_proxies).map((proxy) => [proxy.id, proxy.name || proxy.id]);
+        const inboundControl = ui.multiChoice(inboundChoices, asList(draft.inbound), {
+          onchange: (v) => { draft.inbound = v; }, missingLabel: '缺失本地代理'
+        });
         const domain = ui.matchEditor({
           value: draft.domain_match, kind: 'domain', catalog: geo.geosite?.names || [],
           placeholder: 'domain:example.com\nfull:www.example.com\nkeyword\ngeosite:geolocation-!cn\nregexp:^api\\d+\\.example\\.com$'
@@ -76,32 +89,33 @@
         });
         const srcCidr = ui.chips(asList(draft.source_ip_cidr), { placeholder: '192.168.50.0/24', onchange: (v) => { draft.source_ip_cidr = v; } });
         const srcMac = ui.chips(asList(draft.source_mac_address), { placeholder: '02:00:00:00:00:10', onchange: (v) => { draft.source_mac_address = v; } });
-        const nets = ui.chips(asList(draft.network), { placeholder: 'tcp / udp', onchange: (v) => { draft.network = v; } });
-        const protos = ui.chips(asList(draft.protocol), { placeholder: 'tls / http / quic …', onchange: (v) => { draft.protocol = v; } });
+        const nets = ui.multiChoice(S.uiSpec.rule_networks.map((item) => [item.value, item.label]), asList(draft.network), { onchange: (v) => { draft.network = v; } });
+        const protos = ui.multiChoice(S.uiSpec.rule_protocols.map((item) => [item.value, item.label]), asList(draft.protocol), { onchange: (v) => { draft.protocol = v; } });
         const ports = ui.chips(asList(draft.port).map(String), { placeholder: '443 / 27015', onchange: (v) => { draft.port = v.map((x) => (/^\d+$/.test(x) ? Number(x) : x)); } });
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '意图'), [
-            ui.field('名称', name),
-            ui.field('启用', enabled),
-            h('div', { class: 'field--row' }, [ui.field('DNS Profile', dnsSel), ui.field('路由', routeSel)])
+            ui.field('名称', name, null, 'name'),
+            ui.field('启用', enabled, null, 'enabled'),
+            h('div', { class: 'field--row' }, [ui.field('DNS Profile', dnsSel, null, 'dns_profile'), ui.field('路由', routeSel, null, 'route')])
           ]),
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '匹配条件 · 同字段 OR · 跨字段 AND'), [
-            ui.field('inbound（本地代理端点）', inboundChips, '可选 · 把规则限制到指定端点'),
-            ui.field('域名匹配', domain.el, `每行一条 · ${geo.geosite?.readable ? `${geo.geosite.count} 个 GeoSite 名称可补全` : 'catalog 不可用，Apply 时最终判定'}`),
-            ui.field('目标 IP 匹配', ip.el, `每行一条 · ${geo.geoip?.readable ? `${geo.geoip.count} 个 GeoIP 名称可补全` : 'catalog 不可用，Apply 时最终判定'}`),
-            ui.field('源 IP/CIDR', srcCidr, '稳定 DHCP 租约或稳定 IPv6 地址'),
-            ui.field('源 MAC', srcMac, '由 sing-box 1.14 邻居解析原生匹配；不能与本地代理 inbound 组合'),
+            ui.field('inbound（本地代理端点）', inboundControl, '只能选择当前本地代理；悬空引用会保留供修复', 'inbound'),
+            ui.field('域名匹配', domain.el, `每行一条 · ${geo.geosite?.readable ? `${geo.geosite.count} 个 GeoSite 名称可补全` : 'catalog 不可用，Apply 时最终判定'}`, 'domain_match'),
+            ui.field('目标 IP 匹配', ip.el, `每行一条 · ${geo.geoip?.readable ? `${geo.geoip.count} 个 GeoIP 名称可补全` : 'catalog 不可用，Apply 时最终判定'} · 只参与连接阶段`, 'ip_match'),
+            ui.field('源 IP/CIDR', srcCidr, '稳定 DHCP 租约或稳定 IPv6 地址', 'source_ip_cidr'),
+            ui.field('源 MAC', srcMac, '由 sing-box 1.14 邻居解析原生匹配；不能与本地代理 inbound 组合', 'source_mac_address'),
             h('div', { class: 'field--row' }, [
-              ui.field('网络', nets),
-              ui.field('检测协议', protos)
+              ui.field('网络', nets, '仅连接阶段', 'network'),
+              ui.field('检测协议', protos, '仅连接阶段', 'protocol')
             ]),
-            ui.field('目标端口', ports, '精确端口 · 只参与业务流量')
+            ui.field('目标端口', ports, '精确端口 · 仅连接阶段', 'port'),
+            h('div', { class: 'alert' }, 'DNS Profile 只使用 inbound、域名、源 IP/CIDR 与源 MAC 条件。只有 IP/network/protocol/port 时，DNS 会继续匹配后续规则。')
           ])
         );
         return {
           submit() {
-            [inboundChips, srcCidr, srcMac, nets, protos, ports].forEach((control) => control.commitPending());
+            [srcCidr, srcMac, ports].forEach((control) => control.commitPending());
             if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
             draft.name = name.value.trim();
             draft.dns_profile = dnsSel.value;
@@ -126,6 +140,8 @@
         return true;
       }
     });
+    ui.focusDrawerOption(focusOption);
+    return opened;
   }
 
   function renderRow(rule, index) {
@@ -141,6 +157,7 @@
       h('div', { class: 'rule-row__actions' }, [
         h('button', { class: 'btn btn--sm', onclick: () => openRuleEditor(rule) }, '编辑'),
         h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
+          if (!ui.guardCollectionDeletion('rules', rule.id, rule.name || rule.id)) return;
           S.store.intent.rules = S.store.intent.rules.filter((r) => r.id !== rule.id);
           S.store.touch();
           ui.toast(`已删除规则 ${rule.name} · 未保存`, 'warn');
@@ -207,8 +224,8 @@
           h('span', { class: 'badge badge--match' }, '只有 DNS Profile 与路由可修改')
         ]),
         h('div', { class: 'default-fields' }, [
-          ui.field('DNS Profile', ui.select(intent.dns_profiles.map((p) => [p.id, p.name || p.id]), defaultRule.dns_profile, (v) => { defaultRule.dns_profile = v; S.store.touch(); })),
-          ui.field('路由', ui.select(intent.routes.map((r) => [r.id, r.name || r.id]), defaultRule.route, (v) => { defaultRule.route = v; S.store.touch(); }))
+          ui.field('DNS Profile', ui.select(intent.dns_profiles.map((p) => [p.id, p.name || p.id]), defaultRule.dns_profile, (v) => { defaultRule.dns_profile = v; S.store.touch(); }), null, 'dns_profile'),
+          ui.field('路由', ui.select(intent.routes.map((r) => [r.id, r.name || r.id]), defaultRule.route, (v) => { defaultRule.route = v; S.store.touch(); }), null, 'route')
         ])
       ]);
 
@@ -223,8 +240,16 @@
         list,
         defaultCard
       );
+
+      const focus = ui.takeObjectFocus('rule');
+      const focusedRule = focus && intent.rules.find((rule) => rule.id === focus.object_id);
+      if (focusedRule?.default) ui.focusDrawerOption(focus.option);
+      else if (focusedRule) void openRuleEditor(focusedRule, focus.option);
     }
   };
+
+  view.summaryTokens = summaryTokens;
+  view.dnsContinues = dnsContinues;
 
   S.views = S.views || {};
   S.views.rules = view;

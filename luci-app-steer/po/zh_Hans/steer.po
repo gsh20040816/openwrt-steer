@@ -498,9 +498,6 @@ msgstr "删除订阅节点失败"
 msgid "Subscription cannot be removed"
 msgstr "无法删除订阅"
 
-msgid "%d route(s) still use nodes from this subscription."
-msgstr "仍有 %d 条路由使用该订阅的节点。"
-
 msgid "Update now"
 msgstr "立即更新"
 
@@ -569,6 +566,45 @@ msgstr "%d 个节点可以导入"
 
 msgid "Review every node below. Credentials are reported only as present or absent and their contents stay hidden."
 msgstr "请检查下方每个节点。凭据只显示存在或不存在，具体内容始终隐藏。"
+
+msgid "Connection stage only. If a rule has only IP, network, protocol or port conditions, DNS continues to subsequent rules."
+msgstr "仅用于连接阶段。规则只有 IP、网络、协议或端口条件时，DNS 会继续匹配后续规则。"
+
+msgid "Connection stage only. Values come from the shared protocol enumeration."
+msgstr "仅用于连接阶段。选项来自共享协议枚举。"
+
+msgid "DNS profile is still referenced"
+msgstr "DNS Profile 仍被引用"
+
+msgid "Go to field"
+msgstr "前往字段"
+
+msgid "Go to reference"
+msgstr "前往引用"
+
+msgid "Local proxy is still referenced"
+msgstr "本地代理仍被引用"
+
+msgid "Node is still referenced"
+msgstr "节点仍被引用"
+
+msgid "Object is still referenced"
+msgstr "对象仍被引用"
+
+msgid "Protocols: %s"
+msgstr "协议：%s"
+
+msgid "Referenced: %s"
+msgstr "仍被引用：%s"
+
+msgid "Remove or change these references first; Steer will not cascade configuration changes."
+msgstr "请先删除或修改这些引用；Steer 不会级联改写配置。"
+
+msgid "Route is still referenced"
+msgstr "路由仍被引用"
+
+msgid "Validation warnings"
+msgstr "配置校验警告"
 
 msgid "Advanced"
 msgstr "高级"

@@ -70,7 +70,7 @@ func TestControlServiceApplyUsesOnlyStructuredHooks(t *testing.T) {
 		Document:         string(document),
 		ExpectedRevision: controlRevision(document),
 	})
-	if !response.OK || response.Status == nil || !written || !applied {
+	if !response.OK || response.Status == nil || response.Validation == nil || !response.Validation.OK || !written || !applied {
 		t.Fatalf("unexpected response or hook state: response=%+v written=%v applied=%v", response, written, applied)
 	}
 }

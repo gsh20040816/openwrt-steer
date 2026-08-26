@@ -106,6 +106,8 @@ return view.extend({
 
 		s = m.section(form.GridSection, 'local_proxy', _('Named proxy entry points'));
 		steer.configureNamedSection(s);
+		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('local_proxies', sectionId),
+			_('Local proxy is still referenced'));
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add local proxy');
@@ -161,7 +163,7 @@ return view.extend({
 			return validateLocalProxyForm(formValue(listenOption, sectionId), formValue(usernameOption, sectionId), String(value ?? ''));
 		};
 
-		return m.render();
+		return m.render().then((formNode) => steer.focusSection(s, 'local_proxy').then(() => formNode));
 	},
 
 	handleSaveApply: function(ev, mode) {

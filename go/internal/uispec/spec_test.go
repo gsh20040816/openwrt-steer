@@ -63,6 +63,26 @@ func TestPlatformCapabilitiesAreExplicit(t *testing.T) {
 	if capabilities["macos"].SourceMAC {
 		t.Fatal("macOS must not advertise source-MAC support")
 	}
+	if capabilities["macos"].SourceMACReason == "" {
+		t.Fatal("macOS source-MAC capability must explain the stable platform boundary")
+	}
+}
+
+func TestReferenceAndRuleStageContractsAreExplicit(t *testing.T) {
+	contract := ContractValue()
+	want := []CollectionReference{
+		{TargetCollection: "nodes", SourceCollection: "routes", SourceObjectType: "route", Field: "node"},
+		{TargetCollection: "routes", SourceCollection: "rules", SourceObjectType: "rule", Field: "route"},
+		{TargetCollection: "routes", SourceCollection: "routes", SourceObjectType: "route", Field: "detour"},
+		{TargetCollection: "dns_profiles", SourceCollection: "rules", SourceObjectType: "rule", Field: "dns_profile"},
+		{TargetCollection: "local_proxies", SourceCollection: "rules", SourceObjectType: "rule", Field: "inbound", Multiple: true},
+	}
+	if !reflect.DeepEqual(contract.CollectionReferences, want) {
+		t.Fatalf("collection reference contract drifted: %#v", contract.CollectionReferences)
+	}
+	if !reflect.DeepEqual(contract.RuleConnectionOnlyFields, []string{"ip_match", "network", "protocol", "port"}) {
+		t.Fatalf("connection-only rule fields drifted: %#v", contract.RuleConnectionOnlyFields)
+	}
 }
 
 func TestSubscriptionCreationDefaultIsShared(t *testing.T) {

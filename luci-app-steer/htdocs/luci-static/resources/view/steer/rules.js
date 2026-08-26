@@ -203,6 +203,23 @@ function configureMatchEditor(option, catalog, kind) {
 		_('The valid-name catalog is unavailable: %s').format(source.error || _('Unknown error'));
 }
 
+function matchSummaryTokens(sectionId) {
+	if (uci.get('steer', sectionId, 'default') == '1')
+		return [ 'default' ];
+	return uiSpec.rule_match_fields.flatMap((field) => {
+		const values = asList(uci.get('steer', sectionId, field));
+		if (!values.length) return [];
+		return [ (field == 'network' || field == 'protocol')
+			? '%s:%s'.format(field, values.join('/'))
+			: '%s:%d'.format(field, values.length) ];
+	});
+}
+
+function matchDNSContinues(sectionId) {
+	const populated = uiSpec.rule_match_fields.filter((field) => asList(uci.get('steer', sectionId, field)).length > 0);
+	return populated.length > 0 && populated.every((field) => uiSpec.rule_connection_only_fields.includes(field));
+}
+
 function matchSummary(sectionId) {
 	let parts = [];
 	const inbounds = asList(uci.get('steer', sectionId, 'inbound'));
@@ -211,6 +228,7 @@ function matchSummary(sectionId) {
 	const macs = asList(uci.get('steer', sectionId, 'source_mac_address')).length;
 	const addresses = asList(uci.get('steer', sectionId, 'ip_match')).length;
 	const networks = asList(uci.get('steer', sectionId, 'network'));
+	const protocols = asList(uci.get('steer', sectionId, 'protocol'));
 	const ports = asList(uci.get('steer', sectionId, 'port')).length;
 	if (inbounds.length)
 		parts.push(_('%d inbounds').format(inbounds.length));
@@ -224,9 +242,11 @@ function matchSummary(sectionId) {
 		parts.push(_('%d destination IP expressions').format(addresses));
 	if (networks.length)
 		parts.push(networks.join('/').toUpperCase());
+	if (protocols.length)
+		parts.push(_('Protocols: %s').format(protocols.join('/').toUpperCase()));
 	if (ports)
 		parts.push(_('%d ports').format(ports));
-	if (!inbounds.length && !domains && !clients && !macs && (addresses || networks.length || ports))
+	if (matchDNSContinues(sectionId))
 		parts.push(_('DNS continues to the next rule'));
 	return parts.length ? parts.join(', ') : _('No match condition');
 }
@@ -271,6 +291,7 @@ return view.extend({
 
 		s = m.section(form.GridSection, 'rule', _('Ordered steering rules'));
 		steer.configureNamedSection(s, null, defaultRule?.['.name']);
+		const orderedSection = s;
 		s.addremove = true;
 		s.sortable = true;
 		s.nodescriptions = true;
@@ -296,6 +317,8 @@ return view.extend({
 		o = s.taboption('intent', form.DummyValue, '_match', _('Match'));
 		o.textvalue = matchSummary;
 		o.cfgvalue = matchSummary;
+		o.summaryTokens = matchSummaryTokens;
+		o.dnsContinues = matchDNSContinues;
 
 		o = s.taboption('intent', form.ListValue, 'dns_profile', _('DNS profile'));
 		o.rmempty = false;
@@ -338,10 +361,12 @@ return view.extend({
 
 		o = s.taboption('match', form.MultiValue, 'network', _('Network'));
 		o.modalonly = true;
+		o.description = _('Connection stage only. If a rule has only IP, network, protocol or port conditions, DNS continues to subsequent rules.');
 		uiSpec.rule_networks.forEach((item) => o.value(item.value, item.label));
 
 		o = s.taboption('match', form.MultiValue, 'protocol', _('Detected protocol'));
 		o.modalonly = true;
+		o.description = _('Connection stage only. Values come from the shared protocol enumeration.');
 		uiSpec.rule_protocols.forEach((item) => o.value(item.value, item.label));
 
 		o = s.taboption('match', form.DynamicList, 'port', _('Destination ports'));
@@ -384,9 +409,8 @@ return view.extend({
 			])
 		]);
 
-		return m.render().then((formNode) => {
-			return E([], [ renderSystemBypass(), intent, formNode ]);
-		});
+		return m.render().then((formNode) => steer.focusSection(orderedSection, 'rule').then(() =>
+			E([], [ renderSystemBypass(), intent, formNode ])));
 	},
 
 	handleSaveApply: function(ev, mode) {

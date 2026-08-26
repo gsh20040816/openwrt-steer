@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "intent": {
+    "nodes": [
+      { "id": "node_used", "name": "Used node" },
+      { "id": "node_other", "name": "Other node" },
+      { "id": "node_free", "name": "Free node" },
+      { "id": "feed_stale", "name": "Stale feed node", "source_subscription": "feed", "pinned_stale": true }
+    ],
+    "routes": [
+      { "id": "route_used", "name": "Used route", "kind": "single", "node": "node_used" },
+      { "id": "route_detour", "name": "Detour consumer", "kind": "single", "node": "node_other", "detour": "route_used" },
+      { "id": "route_feed", "name": "Feed route", "kind": "single", "node": "feed_stale" },
+      { "id": "route_free", "name": "Free route", "kind": "single", "node": "node_other" }
+    ],
+    "dns_profiles": [
+      { "id": "dns_used", "name": "Used DNS" },
+      { "id": "dns_free", "name": "Free DNS" }
+    ],
+    "local_proxies": [
+      { "id": "proxy_used", "name": "Used proxy" },
+      { "id": "proxy_free", "name": "Free proxy" }
+    ],
+    "subscriptions": [
+      { "id": "feed", "name": "Feed" },
+      { "id": "feed_free", "name": "Free feed" }
+    ],
+    "rules": [
+      { "id": "rule_a", "name": "Rule A", "route": "route_used", "dns_profile": "dns_used", "inbound": ["proxy_used"] }
+    ]
+  },
+  "cases": [
+    { "target_collection": "nodes", "target_id": "node_used", "references": [{ "source_collection": "routes", "source_object_type": "route", "source_id": "route_used", "field": "node" }] },
+    { "target_collection": "routes", "target_id": "route_used", "references": [{ "source_collection": "rules", "source_object_type": "rule", "source_id": "rule_a", "field": "route" }, { "source_collection": "routes", "source_object_type": "route", "source_id": "route_detour", "field": "detour" }] },
+    { "target_collection": "dns_profiles", "target_id": "dns_used", "references": [{ "source_collection": "rules", "source_object_type": "rule", "source_id": "rule_a", "field": "dns_profile" }] },
+    { "target_collection": "local_proxies", "target_id": "proxy_used", "references": [{ "source_collection": "rules", "source_object_type": "rule", "source_id": "rule_a", "field": "inbound" }] },
+    { "target_collection": "nodes", "target_id": "feed_stale", "references": [{ "source_collection": "routes", "source_object_type": "route", "source_id": "route_feed", "field": "node" }] },
+    { "target_collection": "subscriptions", "target_id": "feed", "references": [{ "source_collection": "routes", "source_object_type": "route", "source_id": "route_feed", "field": "node" }] },
+    { "target_collection": "nodes", "target_id": "node_free", "references": [] },
+    { "target_collection": "routes", "target_id": "route_free", "references": [] },
+    { "target_collection": "dns_profiles", "target_id": "dns_free", "references": [] },
+    { "target_collection": "local_proxies", "target_id": "proxy_free", "references": [] },
+    { "target_collection": "subscriptions", "target_id": "feed_free", "references": [] }
+  ]
+}

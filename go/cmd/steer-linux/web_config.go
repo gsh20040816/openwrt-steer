@@ -80,7 +80,8 @@ func (app webApplication) handleConfig(writer http.ResponseWriter, request *http
 			return
 		}
 		writer.Header().Set("ETag", revision)
-		response := map[string]any{"saved": true, "applied": false, "revision": revision}
+		validation := linuxplatform.ValidateWithGeoDataDirectory(value, app.seedDirectory())
+		response := map[string]any{"saved": true, "applied": false, "revision": revision, "validation": validation}
 		if apply {
 			response["apply_result"] = applyResult
 			if applyErr == nil {

@@ -570,6 +570,7 @@ struct DraftCollectionView: View {
     @State private var editorTarget: DraftEditorTarget?
     @State private var pendingDeletion: DraftItem?
     @State private var actionError = ""
+    @State private var blockedReferences: [UIObjectReference] = []
     @State private var nodeImportPresented = false
     @State private var selectedNodeGroup = "_manual"
 
@@ -759,8 +760,9 @@ struct DraftCollectionView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(runtimeDetail(item))
                             .font(.callout.monospaced())
-                            .lineLimit(1)
+                            .lineLimit(descriptor.key == "rules" ? 3 : 1)
                             .foregroundStyle(.secondary)
+                            .help(runtimeDetail(item))
                         if let result = probeSummary(item) {
                             Text(result)
                                 .font(.caption.monospaced())
@@ -866,6 +868,22 @@ struct DraftCollectionView: View {
                 }
             }
             .font(.caption)
+            if !blockedReferences.isEmpty {
+                HStack(spacing: 8) {
+                    Text("先修改引用：").foregroundStyle(.secondary)
+                    ForEach(blockedReferences, id: \.sourceID) { reference in
+                        Button("\(reference.sourceLabel) / \(reference.field)") {
+                            model.focusValidationIssue(ValidationIssue(
+                                code: "STILL_REFERENCED", objectType: reference.sourceObjectType,
+                                objectID: reference.sourceID, option: reference.field,
+                                message: "对象仍引用待删除项目"
+                            ))
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
+                .font(.caption)
+            }
         }
         .padding(24)
         .sheet(item: $editorTarget) { target in
@@ -874,6 +892,8 @@ struct DraftCollectionView: View {
         .sheet(isPresented: $nodeImportPresented) {
             NodeImportSheet(model: model)
         }
+        .onAppear { openValidationFocus() }
+        .onChange(of: model.validationFocus?.id) { _ in openValidationFocus() }
         .alert(
             "删除“\(pendingDeletion?.title ?? "项目")”？",
             isPresented: Binding(
@@ -927,10 +947,34 @@ struct DraftCollectionView: View {
     private func requestDeletion(_ item: DraftItem) {
         if let reason = model.deletionBlockReason(for: descriptor.key, at: item.index) {
             actionError = reason
+            blockedReferences = model.deletionReferences(for: descriptor.key, at: item.index)
             return
         }
         actionError = ""
+        blockedReferences = []
         pendingDeletion = item
+    }
+
+    private func openValidationFocus() {
+        let objectType = [
+            "nodes": "node", "routes": "route", "dns_profiles": "dns_profile",
+            "local_proxies": "local_proxy", "rules": "rule", "subscriptions": "subscription",
+        ][descriptor.key]
+        guard let objectType,
+              let issue = model.takeValidationFocus(objectType: objectType),
+              let objectID = issue.objectID,
+              let item = allItems.first(where: { $0.identifier == objectID }) else { return }
+        if descriptor.key == "nodes" { selectedNodeGroup = item.sourceSubscription ?? "_manual" }
+        selection = item.id
+        guard !item.subscriptionOwned,
+              let object = model.draftItemObject(for: descriptor.key, at: item.index) else {
+            actionError = "已定位只读对象 \(item.title) / \(issue.option ?? "")"
+            return
+        }
+        editorTarget = DraftEditorTarget(
+            key: descriptor.key, index: item.index, title: item.title,
+            object: object, focusOption: issue.option
+        )
     }
 
     private func moveItems(_ identifiers: [String], to destination: Int) {
@@ -1207,11 +1251,12 @@ struct DiagnosticsView: View {
     }
 
     private func issueRow(_ issue: ValidationIssue, isError: Bool) -> some View {
-        Button {
-            if let page = issue.destinationPage { model.selectedPage = page }
+        let location = [issue.objectType, issue.objectID, issue.option].compactMap { $0 }.joined(separator: " / ")
+        return Button {
+            model.focusValidationIssue(issue)
         } label: {
             HStack {
-                Label(issue.message, systemImage: isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                Label("[\(issue.code)] \(location) · \(issue.message)", systemImage: isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
                     .foregroundStyle(isError ? .red : .orange)
                 Spacer()
                 if issue.destinationPage != nil {

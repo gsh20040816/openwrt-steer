@@ -43,6 +43,7 @@ private actor DraftLifecycleBackend: BackendClient {
     private var installCount = 0
     private var probeCount = 0
     private var failNextApply = false
+    private var nextSaveValidationFailure: ValidationResult?
     private var loadFailuresRemaining = 0
     private var nextLoadGate: DraftOperationGate?
     private var nextSaveGate: DraftOperationGate?
@@ -93,7 +94,7 @@ private actor DraftLifecycleBackend: BackendClient {
         return snapshot
     }
 
-    func save(document: String, expectedRevision: String) async throws -> String {
+    func save(document: String, expectedRevision: String) async throws -> SaveOutcome {
         if let gate = nextSaveGate {
             nextSaveGate = nil
             await gate.pause()
@@ -101,10 +102,14 @@ private actor DraftLifecycleBackend: BackendClient {
         guard expectedRevision == snapshot.revision else {
             throw BackendClientError.revisionConflict(currentRevision: snapshot.revision)
         }
+        if let validation = nextSaveValidationFailure {
+            nextSaveValidationFailure = nil
+            throw BackendClientError.validationFailed(validation)
+        }
         saveCount += 1
         let revision = "revision-saved-\(saveCount)"
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
-        return revision
+        return SaveOutcome(revision: revision, validation: ValidationResult(ok: true, errors: [], warnings: []))
     }
 
     func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome {
@@ -125,7 +130,8 @@ private actor DraftLifecycleBackend: BackendClient {
                 saved: true,
                 applied: false,
                 revision: revision,
-                error: "activation failed"
+                error: "activation failed",
+                validation: ValidationResult(ok: true, errors: [], warnings: [])
             )
         }
         runtimeStatus.generationID = "active-\(applyCount)"
@@ -135,7 +141,8 @@ private actor DraftLifecycleBackend: BackendClient {
             saved: true,
             applied: true,
             revision: revision,
-            error: ""
+            error: "",
+            validation: ValidationResult(ok: true, errors: [], warnings: [])
         )
     }
 
@@ -172,6 +179,7 @@ private actor DraftLifecycleBackend: BackendClient {
 
     func savedSnapshot() -> ConfigurationSnapshot { snapshot }
     func failUpcomingApply() { failNextApply = true }
+    func failUpcomingSave(validation: ValidationResult) { nextSaveValidationFailure = validation }
     func failUpcomingLoad() { loadFailuresRemaining += 1 }
     func pauseUpcomingLoad(with gate: DraftOperationGate) { nextLoadGate = gate }
     func pauseUpcomingSave(with gate: DraftOperationGate) { nextSaveGate = gate }
@@ -622,6 +630,34 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertEqual(terminationReply, false)
         XCTAssertEqual(model.rawJSON, newerDocument)
         XCTAssertTrue(model.isDirty)
+    }
+
+    func testStructuredSaveValidationIsShownAndInvalidatedByNextDraftMutation() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadDraft()
+        try await waitUntil { !model.isBusy && model.savedRevision == "revision-1" }
+        model.rawJSON = editedDocument
+        model.markDirty()
+        let result = ValidationResult(
+            ok: false,
+            errors: [ValidationIssue(
+                code: "DANGLING_ROUTE", objectType: "rule", objectID: "rule_a",
+                option: "route", message: "referenced Route does not exist"
+            )],
+            warnings: [ValidationIssue(
+                code: "DNS_PROJECTION_EMPTY", objectType: "rule", objectID: "rule_a",
+                option: "dns_profile", message: "DNS continues to later rules"
+            )]
+        )
+        await backend.failUpcomingSave(validation: result)
+        model.saveDraft()
+        try await waitUntil { !model.isBusy }
+
+        XCTAssertEqual(model.validation, result)
+        XCTAssertTrue(model.message.contains("1 个错误，1 个警告"))
+        model.setDraftValue(in: "main", key: "log_level", value: .string("debug"))
+        XCTAssertNil(model.validation, "a result bound to the old Draft must disappear immediately")
     }
 
     private func waitUntil(

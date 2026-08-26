@@ -94,9 +94,9 @@
     ]);
   }
 
-  function openRouteEditor(route) {
+  function openRouteEditor(route, focusOption) {
     const isNew = !S.store.intent.routes.includes(route);
-    ui.drawer({
+    const opened = ui.drawer({
       eyebrow: `路由 · ${route.id}`, title: route.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const intent = S.store.intent;
@@ -126,12 +126,12 @@
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '路由'), [
-            ui.field('名称', name),
-            ui.field('启用', enabled),
+            ui.field('名称', name, null, 'name'),
+            ui.field('启用', enabled, null, 'enabled'),
             ui.field('类型', h('span', { class: 'badge' }, 'Single 节点'), '系统 Direct / Reject 路由不能从此处创建或转换'),
             h('div', { class: 'field--row' }, [
-              ui.field('节点', nodeSel, 'single 路由的出站节点'),
-              ui.field('前置代理（detour）', detourSel, '前置路由先拨号；留空直连')
+              ui.field('节点', nodeSel, 'single 路由的出站节点', 'node'),
+              ui.field('前置代理（detour）', detourSel, '前置路由先拨号；留空直连', 'detour')
             ]),
             warn
           ])
@@ -157,6 +157,8 @@
         return true;
       }
     });
+    ui.focusDrawerOption(focusOption);
+    return opened;
   }
 
   const view = {
@@ -179,6 +181,7 @@
           h('td', {}, h('div', { class: 'row-actions' }, [
             h('button', { class: 'btn btn--sm', onclick: () => openRouteEditor(route) }, '编辑'),
             h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
+              if (!ui.guardCollectionDeletion('routes', route.id, route.name || route.id)) return;
               S.store.intent.routes = S.store.intent.routes.filter((r) => r.id !== route.id);
               S.store.touch();
               ui.toast(`已删除路由 ${route.name || route.id} · 未保存`, 'warn');
@@ -213,6 +216,11 @@
           singles.length ? h('div', { class: 'clipped' }, h('div', { class: 'table-wrap' }, table)) : h('div', { class: 'empty' }, '还没有 single 路由')
         ])
       );
+
+      const focus = ui.takeObjectFocus('route');
+      const focusedRoute = focus && intent.routes.find((route) => route.id === focus.object_id);
+      if (focusedRoute?.kind === 'single') openRouteEditor(focusedRoute, focus.option);
+      else if (focusedRoute) ui.toast(`已定位系统路由 ${focusedRoute.name || focusedRoute.id}；Direct/Reject 不可删除`, 'info');
     }
   };
 

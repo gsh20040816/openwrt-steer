@@ -5,6 +5,7 @@
 'require rpc';
 'require uci';
 'require ui';
+'require steer.ui-spec as uiSpec';
 
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
 const callOverviewState = rpc.declare({ object: 'luci.steer', method: 'overview_state', expect: { '': {} } });
@@ -31,12 +32,60 @@ function issueText(issue) {
 		target += ' “%s”'.format(issue.object_id);
 	if (issue.option)
 		target += ' / %s'.format(issue.option);
-	return '%s: %s'.format(target, issue.message || issue.code);
+	return '[%s] %s: %s'.format(issue.code || 'VALIDATION', target, issue.message || issue.code);
+}
+
+function issueDestination(issue) {
+	return {
+		steer: 'general', bootstrap: 'general', node: 'nodes', route: 'routes',
+		dns_profile: 'dns', local_proxy: 'proxies', rule: 'rules', subscription: 'subscriptions'
+	}[issue?.object_type];
+}
+
+function navigateIssue(issue) {
+	const page = issueDestination(issue);
+	if (!page) return false;
+	const focus = [ issue.object_type, issue.object_id || '', issue.option || '' ].join(':');
+	window.location.href = L.url('admin/services/steer/' + page) + '?steer-focus=' + encodeURIComponent(focus);
+	return true;
+}
+
+function collectionReferences(targetCollection, targetId) {
+	if (targetCollection == 'subscriptions') {
+		const owned = Object.fromEntries(uci.sections('steer', 'node')
+			.filter((node) => node.source_subscription == targetId)
+			.map((node) => [ node['.name'], true ]));
+		return uci.sections('steer', 'route').filter((route) => owned[route.node]).map((route) => ({
+			objectType: 'route', id: route['.name'], label: route.name || route['.name'], option: 'node'
+		}));
+	}
+	const references = [];
+	(uiSpec.collection_references || []).filter((relation) => relation.target_collection == targetCollection)
+		.forEach((relation) => {
+			uci.sections('steer', relation.source_object_type).forEach((source) => {
+				const value = source[relation.field];
+				const matched = relation.multiple
+					? (Array.isArray(value) ? value : (value ? [ value ] : [])).includes(targetId)
+					: value == targetId;
+				if (matched) references.push({
+					objectType: relation.source_object_type, id: source['.name'],
+					label: source.name || source['.name'], option: relation.field
+				});
+			});
+		});
+	return references;
 }
 
 function resultMessage(result) {
-	if (result?.validation?.errors?.length)
-		return E('ul', {}, result.validation.errors.map((issue) => E('li', {}, issueText(issue))));
+	const issues = [
+		...(result?.validation?.errors || []).map((issue) => ({ issue, warning: false })),
+		...(result?.validation?.warnings || []).map((issue) => ({ issue, warning: true }))
+	];
+	if (issues.length)
+		return E('ul', { 'class': 'steer-validation-issues' }, issues.map((entry) => E('li', { 'class': entry.warning ? 'warning' : 'error' }, [
+			E('span', {}, issueText(entry.issue)),
+			issueDestination(entry.issue) ? E('button', { 'class': 'btn cbi-button-action', 'click': () => navigateIssue(entry.issue) }, _('Go to field')) : ''
+		])));
 	return E('p', {}, result?.error || _('Apply failed without a diagnostic message.'));
 }
 
@@ -104,6 +153,8 @@ return baseclass.extend({
 	},
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },
+	focusIssue: function(issue) { return navigateIssue(issue); },
+	collectionReferences: function(targetCollection, targetId) { return collectionReferences(targetCollection, targetId); },
 	overviewState: function() { return L.resolveDefault(callOverviewState(), {}); },
 	applySaved: function() { return callApplySaved(); },
 	validate: function() { return L.resolveDefault(callValidate(), {}); },
@@ -162,6 +213,44 @@ return baseclass.extend({
 		return section;
 	},
 
+	configureRemovalGuard: function(section, referencesFor, title) {
+		const handleRemove = section.handleRemove;
+		section.handleRemove = function(sectionId, ev) {
+			const references = referencesFor(sectionId) || [];
+			if (references.length) {
+				ui.addNotification(title || _('Object is still referenced'), E('div', {}, [
+					E('p', {}, _('Remove or change these references first; Steer will not cascade configuration changes.')),
+					E('ul', {}, references.map((reference) => E('li', {}, [
+						E('span', {}, '%s / %s'.format(reference.label || reference.id, reference.option)),
+						E('button', { 'class': 'btn cbi-button-action', 'click': () => navigateIssue({
+							object_type: reference.objectType, object_id: reference.id, option: reference.option
+						}) }, _('Go to reference'))
+					])))
+				]), 'danger');
+				return;
+			}
+			return handleRemove.call(this, sectionId, ev);
+		};
+		return section;
+	},
+
+	focusSection: function(section, objectType) {
+		const encoded = new URLSearchParams(window.location.search || '').get('steer-focus');
+		if (!encoded) return Promise.resolve(false);
+		const [ requestedType, sectionId, option ] = encoded.split(':');
+		if (requestedType != objectType || !sectionId) return Promise.resolve(false);
+		const open = typeof(section.renderMoreOptionsModal) == 'function'
+			? section.renderMoreOptionsModal(sectionId)
+			: Promise.resolve();
+		return Promise.resolve(open).then(() => {
+			const target = document.getElementById('cbid.steer.%s.%s'.format(sectionId, option));
+			const control = target?.querySelector?.('input, select, textarea, button') || target;
+			control?.focus?.();
+			control?.scrollIntoView?.({ block: 'center' });
+			return true;
+		});
+	},
+
 	apply: function(view, ev, mode) {
 		let previousSequence = '';
 		return L.resolveDefault(callStatus(), {})
@@ -195,6 +284,8 @@ return baseclass.extend({
 							return result;
 						}
 						ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
+						if (validation?.warnings?.length)
+							ui.addNotification(_('Validation warnings'), resultMessage({ validation }), 'warning');
 						return result;
 					});
 			});
@@ -227,6 +318,8 @@ return baseclass.extend({
 							return result;
 						}
 						ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
+						if (validation?.warnings?.length)
+							ui.addNotification(_('Validation warnings'), resultMessage({ validation }), 'warning');
 						return result;
 					});
 			});

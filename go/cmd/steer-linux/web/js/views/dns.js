@@ -43,9 +43,9 @@
     return intent.rules.filter((r) => r.dns_profile === profileId).length;
   }
 
-  function openEditor(profile) {
+  function openEditor(profile, focusOption) {
     const isNew = !S.store.intent.dns_profiles.includes(profile);
-    ui.drawer({
+    const opened = ui.drawer({
       eyebrow: `DNS Profile · ${profile.id}`, title: profile.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(profile));
@@ -74,16 +74,16 @@
               fields.push(ui.field('TLS 服务器名', ui.input({
                 value: draft.tls_server_name || '', placeholder: 'dns.example.com',
                 oninput: (event) => { draft.tls_server_name = event.target.value; }
-              }), '加密 DNS 必填'));
+              }), '加密 DNS 必填', 'tls_server_name'));
               break;
             case 'path':
               fields.push(ui.field('HTTP 路径', ui.input({
                 value: draft.path || '', placeholder: '/dns-query',
                 oninput: (event) => { draft.path = event.target.value; }
-              }), 'DoH / DoH3 使用'));
+              }), 'DoH / DoH3 使用', 'path'));
               break;
             case 'insecure':
-              fields.push(ui.field('跳过证书校验', ui.toggle(draft.insecure, (v) => { draft.insecure = v; })));
+              fields.push(ui.field('跳过证书校验', ui.toggle(draft.insecure, (v) => { draft.insecure = v; }), null, 'insecure'));
               break;
             }
           }
@@ -93,10 +93,10 @@
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '上游'), [
-            ui.field('名称', name),
-            ui.field('启用', enabled),
-            ui.field('协议', protocol),
-            h('div', { class: 'field--row' }, [ui.field('服务器', server), ui.field('端口', port)]),
+            ui.field('名称', name, null, 'name'),
+            ui.field('启用', enabled, null, 'enabled'),
+            ui.field('协议', protocol, null, 'protocol'),
+            h('div', { class: 'field--row' }, [ui.field('服务器', server, null, 'server'), ui.field('端口', port, null, 'server_port')]),
             protocolFields
           ])
         );
@@ -128,6 +128,8 @@
         return true;
       }
     });
+    ui.focusDrawerOption(focusOption);
+    return opened;
   }
 
   const view = {
@@ -146,6 +148,7 @@
           h('td', {}, h('div', { class: 'row-actions' }, [
             h('button', { class: 'btn btn--sm', onclick: () => openEditor(p) }, '编辑'),
             h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
+              if (!ui.guardCollectionDeletion('dns_profiles', p.id, p.name || p.id)) return;
               S.store.intent.dns_profiles = S.store.intent.dns_profiles.filter((x) => x.id !== p.id);
               S.store.touch();
               ui.toast(`已删除 ${p.name} · 未保存`, 'warn');
@@ -163,6 +166,9 @@
           ? h('section', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table))
           : h('div', { class: 'empty' }, '还没有 DNS Profile')
       );
+      const focus = ui.takeObjectFocus('dns_profile');
+      const focused = focus && intent.dns_profiles.find((profile) => profile.id === focus.object_id);
+      if (focused) openEditor(focused, focus.option);
     }
   };
 

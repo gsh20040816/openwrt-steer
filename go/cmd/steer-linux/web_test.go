@@ -288,6 +288,48 @@ func TestWebConfigRejectsUnknownGeoSelectorWithoutSaving(t *testing.T) {
 	}
 }
 
+func TestWebConfigReturnsStructuredWarningsAfterSuccessfulSave(t *testing.T) {
+	root := t.TempDir()
+	seedDirectory := writeWebSeed(t, root)
+	configPath := filepath.Join(root, "config.json")
+	store := linuxplatform.IntentStore{Path: configPath, GeoDataDirectory: seedDirectory}
+	base := webTestIntent()
+	revision, err := store.Save(base, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := webTestIntent()
+	candidate.Rules = append([]model.Rule{{
+		ID: "connection_only", Enabled: true, DNSProfile: "public", Route: "direct", Protocol: []string{"tls"},
+	}}, candidate.Rules...)
+	body, err := json.Marshal(map[string]any{"intent": candidate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(string(body)))
+	request.Header.Set("If-Match", revision)
+	response := httptest.NewRecorder()
+	app := webApplication{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), SeedDirectory: seedDirectory}
+	app.handleConfig(response, request)
+	var result struct {
+		Saved      bool             `json:"saved"`
+		Revision   string           `json:"revision"`
+		Validation model.Validation `json:"validation"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || !result.Saved || result.Revision == "" || !result.Validation.OK {
+		t.Fatalf("successful structured write response = %#v status=%d body=%s", result, response.Code, response.Body.String())
+	}
+	for _, issue := range result.Validation.Warnings {
+		if issue.Code == "DNS_PROJECTION_EMPTY" && issue.ObjectID == "connection_only" && issue.Option == "dns_profile" {
+			return
+		}
+	}
+	t.Fatalf("structured write warning is missing: %#v", result.Validation.Warnings)
+}
+
 func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	root := t.TempDir()
 	app := webApplication{WebConfigPath: filepath.Join(root, "web.json"), ConfigPath: filepath.Join(root, "config.json"), RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}

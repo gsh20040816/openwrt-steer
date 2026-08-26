@@ -46,6 +46,26 @@ probe_diagnostics_fixtures = json.loads(
 state_lifecycle_fixtures = json.loads(
     (ROOT / "ui/state-lifecycle-fixtures.json").read_text()
 )
+validation_issue_fixtures = json.loads(
+    (ROOT / "ui/validation-issue-fixtures.json").read_text()
+)
+collection_reference_fixtures = json.loads(
+    (ROOT / "ui/collection-reference-fixtures.json").read_text()
+)
+rule_summary_fixtures = json.loads(
+    (ROOT / "ui/rule-summary-fixtures.json").read_text()
+)
+for name, fixture in {
+    "validation issue": validation_issue_fixtures,
+    "collection reference": collection_reference_fixtures,
+    "rule summary": rule_summary_fixtures,
+}.items():
+    if fixture.get("schema_version") != 1:
+        raise SystemExit(f"check-ui-contract: invalid {name} fixture schema")
+if not contract.get("collection_references") or contract.get("rule_connection_only_fields") != [
+    "ip_match", "network", "protocol", "port"
+]:
+    raise SystemExit("check-ui-contract: missing shared reference or DNS-stage contract")
 if state_lifecycle_fixtures.get("schema_version") != 1:
     raise SystemExit("check-ui-contract: invalid state lifecycle fixture schema")
 if [item.get("name") for item in state_lifecycle_fixtures.get("cases", [])] != [
@@ -150,7 +170,9 @@ linux_subscriptions = (ROOT / "go/cmd/steer-linux/web/js/views/subscriptions.js"
 linux_diagnostics = (ROOT / "go/cmd/steer-linux/web/js/views/diagnostics.js").read_text()
 linux_dns = (ROOT / "go/cmd/steer-linux/web/js/views/dns.js").read_text()
 linux_proxies = (ROOT / "go/cmd/steer-linux/web/js/views/proxies.js").read_text()
+linux_rules = (ROOT / "go/cmd/steer-linux/web/js/views/rules.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
+luci_rules = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/rules.js").read_text()
 luci_overview = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js").read_text()
 luci_helper = (ROOT / "luci-app-steer/htdocs/luci-static/resources/steer.js").read_text()
 luci_dns = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/dns.js").read_text()
@@ -234,6 +256,20 @@ for consumer in state_fixture_consumers:
     consumer_content = (ROOT / consumer).read_text()
     require(consumer_content, "state-lifecycle-fixtures.json", consumer)
 
+ui_safety_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/UISafetyContractTests.swift",
+)
+for consumer in ui_safety_fixture_consumers:
+    consumer_content = (ROOT / consumer).read_text()
+    for fixture in (
+        "validation-issue-fixtures.json",
+        "collection-reference-fixtures.json",
+        "rule-summary-fixtures.json",
+    ):
+        require(consumer_content, fixture, consumer)
+
 require(linux_ui, "Draft desired", "Linux Draft state")
 require(linux_ui, "Saved desired", "Linux Saved state")
 require(linux_ui, "重载最新 Saved", "Linux external revision reload")
@@ -242,6 +278,13 @@ require(luci_overview, "Save & Apply pending changes", "LuCI pending Apply actio
 require(luci_helper, "steer-lifecycle-global", "LuCI global lifecycle actions")
 require(luci_helper, "applySaved", "LuCI Apply Saved action")
 require(mac_content, "DraftActionButtons", "macOS lifecycle actions")
+require(linux_ui, "guardCollectionDeletion", "Linux shared reference guard")
+require(luci_helper, "configureRemovalGuard", "LuCI shared reference guard")
+require(luci_helper, "uiSpec.collection_references", "LuCI shared reference relations")
+require(mac_state, "SteerUISpec.inboundReferences", "macOS shared reference guard")
+require(linux_rules, "rule_connection_only_fields", "Linux DNS-stage boundary")
+require(luci_rules, "rule_connection_only_fields", "LuCI DNS-stage boundary")
+require(mac_editors, "sourceMACReason", "macOS source-MAC capability reason")
 
 require(linux_diagnostics, "不证明具体 outbound", "Linux accurate probe boundary")
 require(luci_overview, "does not prove a particular outbound", "LuCI accurate probe boundary")

@@ -207,21 +207,16 @@ function configureSingleRouteCreation(section) {
 	};
 }
 
-function configureSubscriptionRemoval(section, nodes, routes) {
+function configureSubscriptionRemoval(section, nodes) {
 	section.handleRemove = function(sectionId) {
 		const owned = nodes.filter((node) => node.source_subscription == sectionId);
-		const ownedIDs = Object.fromEntries(owned.map((node) => [ node['.name'], true ]));
-		const references = routes.filter((route) => route.node && ownedIDs[route.node]);
-		if (references.length) {
-			ui.addNotification(_('Subscription cannot be removed'), E('p', {},
-				_('%d route(s) still use nodes from this subscription.').format(references.length)), 'danger');
-			return;
-		}
 		const config = this.uciconfig || this.map.config;
 		owned.forEach((node) => this.map.data.remove(config, node['.name']));
 		this.map.data.remove(config, sectionId);
 		return this.map.save(null, true);
 	};
+	steer.configureRemovalGuard(section, (sectionId) => steer.collectionReferences('subscriptions', sectionId),
+		_('Subscription cannot be removed'));
 }
 
 function protocolLabel(value) {
@@ -569,9 +564,19 @@ function renderSubscriptionStatus(result, gate) {
 				gate.bind(updateButton, disabledUpdate);
 				const actions = [ updateButton ];
 				stale.forEach((node) => {
+					const references = node.referenced_by || [];
 					const cleanButton = E('button', {
 					'class': 'btn cbi-button-negative',
 					'click': function() {
+						if (references.length) {
+							ui.addNotification(_('Subscription node removal failed'), E('ul', {}, references.map((reference) => E('li', {}, [
+								E('span', {}, '%s %s'.format(reference.object_type, reference.name || reference.id)),
+								E('button', { 'class': 'btn cbi-button-action', 'click': () => steer.focusIssue({
+									object_type: reference.object_type, object_id: reference.id, option: 'node'
+								}) }, _('Go to reference'))
+							]))), 'danger');
+							return;
+						}
 						return gate.blockedReason('').then((reason) => {
 							if (reason) {
 								ui.addNotification(_('Subscription inventory is locked'), E('p', {}, reason), 'warning');
@@ -592,7 +597,7 @@ function renderSubscriptionStatus(result, gate) {
 						});
 						});
 					}
-				}, _('Remove %s').format(node.id));
+				}, references.length ? _('Referenced: %s').format(node.id) : _('Remove %s').format(node.id));
 					gate.bind(cleanButton, '');
 					actions.push(' ', cleanButton);
 				});
@@ -915,7 +920,7 @@ return view.extend({
 		if (page == 'subscriptions') {
 			s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
 			steer.configureNamedSection(s, { enabled: '1', update_interval: uiSpec.subscription_update_interval_default });
-			configureSubscriptionRemoval(s, nodes, routes);
+			configureSubscriptionRemoval(s, nodes);
 			s.addremove = true;
 			s.nodescriptions = true;
 			s.addbtntitle = _('Add subscription');
@@ -926,10 +931,11 @@ return view.extend({
 			o = s.option(form.Value, 'name', _('Name')); o.rmempty = true; o.optional = true; o.modalonly = true;
 			o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
 			o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = uiSpec.subscription_update_interval_default; o.modalonly = true;
-			return m.render().then((formNode) => {
+			const subscriptionSection = s;
+			return m.render().then((formNode) => steer.focusSection(subscriptionSection, 'subscription').then(() => {
 				const gate = subscriptionOperationGate(data?.[2], formNode);
 				return E([], [ renderSubscriptionStatus(data?.[1], gate), formNode ]);
-			});
+			}));
 		}
 		const probeGate = probeOperationGate(data?.[2]);
 
@@ -940,6 +946,8 @@ return view.extend({
 
 			s = m.section(form.GridSection, 'route', _('Single-node routes'));
 			steer.configureNamedSection(s, { enabled: '1', kind: 'single' });
+			steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('routes', sectionId),
+				_('Route is still referenced'));
 			configureSingleRouteCreation(s);
 			s.addremove = true;
 			s.nodescriptions = true;
@@ -1006,14 +1014,17 @@ return view.extend({
 			o.write = function() {};
 			o.remove = function() {};
 			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget, probeGate); };
-			return m.render().then((formNode) => {
+			const routeSection = s;
+			return m.render().then((formNode) => steer.focusSection(routeSection, 'route').then(() => {
 				probeGate.bindForm(formNode);
 				return rejectRecovery ? E([], [ rejectRecovery, formNode ]) : formNode;
-			});
+			}));
 		}
 
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
 		steer.configureNamedSection(s);
+		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('nodes', sectionId),
+			_('Node is still referenced'));
 		s.addremove = activeNodeGroup == manualNodeGroup;
 		/* Subscription nodes are generated data; avoid building editable widgets for every row. */
 		s.readonly = summaryOnly;
@@ -1075,7 +1086,8 @@ return view.extend({
 			.filter((field) => ![ 'enabled', 'name', 'server', 'server_port' ].includes(field.key))
 			.forEach((field) => addGeneratedNodeField(s, field));
 
-		return m.render().then((formNode) => {
+		const nodeSection = s;
+		return m.render().then((formNode) => steer.focusSection(nodeSection, 'node').then(() => {
 			const contents = [ renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
 			probeGate.bindForm(formNode);
 			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds, probeGate);
@@ -1085,7 +1097,7 @@ return view.extend({
 				contents.push(renderImportButton());
 			contents.push(formNode);
 			return E([], contents);
-		});
+		}));
 	},
 
 	handleSaveApply: function(ev, mode) {

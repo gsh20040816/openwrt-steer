@@ -25,13 +25,13 @@ final actor RevisionBackend: BackendClient {
 
     func loadConfiguration() async throws -> ConfigurationSnapshot { snapshot }
 
-    func save(document: String, expectedRevision: String) async throws -> String {
+    func save(document: String, expectedRevision: String) async throws -> SaveOutcome {
         guard expectedRevision == snapshot.revision else {
             throw BackendClientError.revisionConflict(currentRevision: snapshot.revision)
         }
         let revision = "saved-\(snapshot.revision)"
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
-        return revision
+        return SaveOutcome(revision: revision, validation: ValidationResult(ok: true, errors: [], warnings: []))
     }
 
     func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome {
@@ -43,7 +43,7 @@ final actor RevisionBackend: BackendClient {
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
         return ApplyOutcome(
             status: RuntimeStatus(), saved: true, applied: true,
-            revision: revision, error: ""
+            revision: revision, error: "", validation: ValidationResult(ok: true, errors: [], warnings: [])
         )
     }
 
