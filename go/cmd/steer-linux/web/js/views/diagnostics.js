@@ -28,7 +28,7 @@
           ])
         );
       } catch (e) {
-        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, e.message)));
+        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, '详细原因请查看下方诊断日志')));
       }
       run.disabled = false;
     } }, '运行测试');

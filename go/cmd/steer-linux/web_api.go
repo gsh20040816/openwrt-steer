@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -72,24 +73,34 @@ func (app webApplication) handleNodeImport(writer http.ResponseWriter, request *
 		return
 	}
 	var payload struct {
-		URI string `json:"uri"`
+		Document string `json:"document"`
+		URI      string `json:"uri"`
 	}
-	if err := json.NewDecoder(io.LimitReader(request.Body, 256<<10)).Decode(&payload); err != nil || payload.URI == "" {
-		writeWebError(writer, errors.New("request requires a uri"), http.StatusBadRequest)
+	if err := json.NewDecoder(io.LimitReader(request.Body, 16<<20)).Decode(&payload); err != nil {
+		writeWebError(writer, errors.New("request requires a node document"), http.StatusBadRequest)
 		return
 	}
-	node, err := subscription.ParseURI(payload.URI)
-	if err == nil {
-		validation := model.ValidateNode(node)
-		if !validation.OK {
-			err = errors.New("imported node failed validation")
-		}
+	document := payload.Document
+	if document == "" {
+		// Keep accepting the 0.8.1 request shape while installed pages refresh.
+		document = payload.URI
 	}
-	if err != nil {
+	if strings.TrimSpace(document) == "" {
+		writeWebError(writer, errors.New("request requires a node document"), http.StatusBadRequest)
+		return
+	}
+	parsed, err := subscription.ParseList(document)
+	if err != nil || len(parsed.Nodes) == 0 {
+		if err == nil {
+			err = fmt.Errorf("node import contained no valid nodes (%d skipped)", parsed.Skipped)
+		}
 		writeWebError(writer, err, http.StatusUnprocessableEntity)
 		return
 	}
-	writeWebJSON(writer, map[string]any{"node": node})
+	writeWebJSON(writer, map[string]any{
+		"node": parsed.Nodes[0], // 0.8.1 page compatibility during an in-place upgrade.
+		"nodes": parsed.Nodes, "skipped": parsed.Skipped,
+	})
 }
 
 func (app webApplication) handleProbes(writer http.ResponseWriter, request *http.Request) {

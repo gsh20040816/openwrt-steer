@@ -5,79 +5,59 @@
 		"action": { "type": "firstchild" },
 		"depends": { "acl": [ "luci-app-steer" ], "uci": { "steer": true } }
 	},
-	"admin/services/steer/status": {
-		"title": "Status",
-		"order": 10,
-		"action": { "type": "firstchild" }
-	},
-	"admin/services/steer/status/overview": {
+	"admin/services/steer/overview": {
 		"title": "Overview",
 		"order": 10,
 		"action": { "type": "view", "path": "steer/overview" }
 	},
-	"admin/services/steer/configuration": {
-		"title": "Configuration",
-		"order": 20,
-		"action": { "type": "firstchild" }
-	},
-	"admin/services/steer/configuration/general": {
+	"admin/services/steer/general": {
 		"title": "General",
-		"order": 10,
+		"order": 20,
 		"action": { "type": "view", "path": "steer/overview" }
 	},
-	"admin/services/steer/configuration/nodes": {
+	"admin/services/steer/nodes": {
 		"title": "Nodes",
-		"order": 20,
-		"action": { "type": "view", "path": "steer/nodes" }
-	},
-	"admin/services/steer/configuration/routes": {
-		"title": "Routes",
 		"order": 30,
 		"action": { "type": "view", "path": "steer/nodes" }
 	},
-	"admin/services/steer/configuration/dns": {
-		"title": "DNS Profiles",
+	"admin/services/steer/routes": {
+		"title": "Routes",
 		"order": 40,
+		"action": { "type": "view", "path": "steer/nodes" }
+	},
+	"admin/services/steer/dns": {
+		"title": "DNS Profiles",
+		"order": 50,
 		"action": { "type": "view", "path": "steer/dns" }
 	},
-	"admin/services/steer/configuration/proxies": {
+	"admin/services/steer/proxies": {
 		"title": "Local Proxies",
-		"order": 50,
+		"order": 60,
 		"action": { "type": "view", "path": "steer/local-proxies" }
 	},
-	"admin/services/steer/configuration/rules": {
+	"admin/services/steer/rules": {
 		"title": "Rules",
-		"order": 60,
+		"order": 70,
 		"action": { "type": "view", "path": "steer/rules" }
 	},
-	"admin/services/steer/services": {
-		"title": "Services",
-		"order": 30,
-		"action": { "type": "firstchild" }
-	},
-	"admin/services/steer/services/subscriptions": {
+	"admin/services/steer/subscriptions": {
 		"title": "Subscriptions",
-		"order": 10,
+		"order": 80,
 		"action": { "type": "view", "path": "steer/nodes" }
 	},
-	"admin/services/steer/services/diagnostics": {
+	"admin/services/steer/diagnostics": {
 		"title": "Diagnostics",
-		"order": 20,
+		"order": 90,
 		"action": { "type": "view", "path": "steer/overview" }
 	},
-	"admin/services/steer/services/system": {
+	"admin/services/steer/system": {
 		"title": "System",
-		"order": 30,
+		"order": 100,
 		"action": { "type": "view", "path": "steer/system" }
 	},
 	"admin/services/steer/advanced": {
 		"title": "Advanced",
-		"order": 40,
-		"action": { "type": "firstchild" }
-	},
-	"admin/services/steer/advanced/configuration": {
-		"title": "Canonical Preview",
-		"order": 10,
+		"order": 110,
 		"action": { "type": "view", "path": "steer/advanced" }
 	}
 }

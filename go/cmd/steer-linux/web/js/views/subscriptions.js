@@ -163,7 +163,7 @@
             h('td', {}, h('div', {}, h('strong', {}, s.name || s.id), h('div', { class: 'mono' }, s.id))),
             h('td', { class: 'mono' }, h('span', { title: s.url }, s.url.length > 34 ? s.url.slice(0, 34) + '…' : s.url)),
             h('td', { class: 'mono' }, s.update_interval || '—'),
-            h('td', { class: 'mono' }, s.fetched_at ? fmtTime(s.fetched_at) : h('span', { class: 'muted' }, s.error || '未抓取')),
+            h('td', { class: 'mono' }, s.fetched_at ? fmtTime(s.fetched_at) : h('span', { class: 'muted' }, s.error ? '更新失败' : '未抓取')),
             h('td', { class: 'mono num' }, String(s.node_count)),
             h('td', { class: 'mono num' }, s.stale_node_ids?.length ? h('span', { class: 'badge badge--stale' }, String(s.stale_node_ids.length)) : '0'),
             h('td', {}, h('div', { class: 'row-actions row-actions--wrap' }, [

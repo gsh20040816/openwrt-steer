@@ -25,7 +25,7 @@
         const r = fmtReport(report, kind === 'speedtest');
         out.replaceChildren(h('div', { class: `test-result ${r.ok ? 'is-ok' : 'is-err'}` }, h('strong', {}, r.label), h('small', {}, r.detail)));
       } catch (e) {
-        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, e.message)));
+        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, '详细原因请查看诊断日志')));
       }
       run.disabled = false;
     } }, '运行测试');

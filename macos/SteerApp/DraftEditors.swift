@@ -336,17 +336,22 @@ private struct RouteDraftForm: View {
 
     var body: some View {
         Section("路由") {
-            Toggle("启用路由", isOn: boolBinding($object, "enabled", defaultValue: true))
-                .disabled(originalKind == "direct")
-            TextField("名称", text: stringBinding($object, "name"))
-            Picker("类型", selection: stringBinding($object, "kind", required: true, defaultValue: "single")) {
-                ForEach(SteerUISpec.contract.routeKinds) { option in
-                    Text(option.label).tag(option.value)
+            if originalKind == "direct" {
+                LabeledContent("状态") {
+                    Label("系统必需 · 始终启用", systemImage: "lock.fill")
+                        .foregroundStyle(.green)
                 }
+            } else {
+                Toggle("启用路由", isOn: boolBinding($object, "enabled", defaultValue: true))
             }
-            .disabled(isSystemRoute)
+            TextField("名称", text: stringBinding($object, "name"))
             if isSystemRoute {
-                Text("Direct 与 Block 的系统语义固定；可以修改显示名称。")
+                LabeledContent("类型", value: kind == "direct" ? "Direct" : "Block")
+            } else {
+                LabeledContent("类型", value: "Single 节点")
+            }
+            if isSystemRoute {
+                Text("系统路由类型固定；可以修改显示名称。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -11,7 +11,7 @@ Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SR
 5. 控制器只依赖无版本的 `sing-box` 提供者；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求用户指定兼容版本/构建。当前 CI 发布构建和系统验收固定使用官方 `1.14.0-rc.1` 作为验证基线，不构成运行时依赖约束。
 6. master 不构建或保存正式发布包。tag 必须指向 `origin/master` 的祖先，且同一 `head_sha` 已有成功的 master CI push run；随后在同一个 tag workflow/run 内重新构建、验收、attest 并发布所有资产。预发布 tag 创建 GitHub prerelease，但不替换稳定 OpenWrt 软件源。
 
-当前稳定版本是 `v0.8.1`。OpenWrt APK 与 Arch `pkgver` 同为 `0.8.1`，Git tag、Linux 与 macOS 构件使用相同的公开 SemVer 版本。
+当前稳定版本是 `v0.8.2`。OpenWrt APK 与 Arch `pkgver` 同为 `0.8.2`，Git tag、Linux 与 macOS 构件使用相同的公开 SemVer 版本。
 
 ## Geo SRS
 
@@ -43,13 +43,13 @@ Pages 只保存当前版本，不承诺历史 seed 或可重复取得任意旧�
 
 ## OpenWrt
 
-`v0.8.1` 面向 OpenWrt 25.12.5 x86/64：
+`v0.8.2` 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.8.1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
-| `luci-app-steer` | `0.8.1-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.8.1-r1` | 简体中文翻译 |
+| `steer` | `0.8.2-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
+| `luci-app-steer` | `0.8.2-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.8.2-r1` | 简体中文翻译 |
 | `sing-box` | `1.14.0_rc1-r0` | SagerNet 官方 x86_64 APK，经内容核验后改用 Steer 仓库密钥签名 |
 
 Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签后比较除签名记录外的 APK 元数据，再用仓库公钥验证安装包。软件源的四个 APK 与 `packages.adb` 使用同一 Steer P-256 信任根；私钥只来自 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY`，不得进入源码、构件、Release 或 Pages。

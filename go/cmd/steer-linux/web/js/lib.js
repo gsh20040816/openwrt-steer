@@ -60,7 +60,7 @@
     if (!okResults.length) {
       return {
         ok: false, label: '失败',
-        detail: report?.error || results.map((r) => r.error).filter(Boolean).join(' · ') || '未返回结果'
+        detail: '详细原因请查看诊断日志'
       };
     }
     if (download) {

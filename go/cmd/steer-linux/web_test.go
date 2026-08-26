@@ -216,6 +216,28 @@ func TestWebGeoDataReturnsStatusResource(t *testing.T) {
 	}
 }
 
+func TestWebNodeImportUsesSharedMultiNodeParser(t *testing.T) {
+	document := "vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy\n" +
+		"not-a-node\n" +
+		"socks5://user:password@example.com:1080#SOCKS"
+	body, err := json.Marshal(map[string]string{"document": document})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	webApplication{}.handleNodeImport(response, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/import", strings.NewReader(string(body))))
+	var result struct {
+		Nodes   []model.Node `json:"nodes"`
+		Skipped int          `json:"skipped"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(result.Nodes) != 2 || result.Skipped != 1 || result.Nodes[0].Type != "vless" || result.Nodes[1].Type != "socks" {
+		t.Fatalf("multi-node import = %#v status=%d body=%s", result, response.Code, response.Body.String())
+	}
+}
+
 func writeWebSeed(t *testing.T, root string) string {
 	t.Helper()
 	seedDirectory := filepath.Join(root, "seed")

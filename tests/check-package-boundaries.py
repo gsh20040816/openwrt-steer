@@ -75,10 +75,10 @@ for retired_migration in (
         fail(f"package retained removed migration behavior: {retired_migration}")
 if "PKG_NAME:=steer" not in makefile or "define Package/steer" not in makefile:
     fail("the OpenWrt controller package must be named steer")
-if "PKG_VERSION:=0.8.1\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
-	fail("steer package version must be 0.8.1-r1")
-if "PKG_VERSION:=0.8.1\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
-	fail("LuCI packages must use 0.8.1-r1")
+if "PKG_VERSION:=0.8.2\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
+	fail("steer package version must be 0.8.2-r1")
+if "PKG_VERSION:=0.8.2\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
+	fail("LuCI packages must use 0.8.2-r1")
 if "github.com/gsh20040816/steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
     fail("steer must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):

@@ -69,14 +69,16 @@ return baseclass.extend({
 	overviewProbe: function(kind) { return callOverviewProbe(kind); },
 	importNodes: function(document) { return callNodeImport(document); },
 
-	configureNamedSection: function(section) {
+	configureNamedSection: function(section, defaults) {
 		section.anonymous = false;
 		section.handleAdd = function(ev, sectionId) {
 			if (!sectionIDPattern.test(sectionId)) {
 				ui.addNotification(_('Invalid section ID'), E('p', {}, _('Use 1–32 lowercase characters beginning with a letter.')), 'danger');
 				return;
 			}
-			this.map.data.add(this.uciconfig || this.map.config, this.sectiontype, sectionId);
+			const config = this.uciconfig || this.map.config;
+			this.map.data.add(config, this.sectiontype, sectionId);
+			Object.entries(defaults || {}).forEach((entry) => this.map.data.set(config, sectionId, entry[0], entry[1]));
 			return this.map.save(null, true);
 		};
 		return section;

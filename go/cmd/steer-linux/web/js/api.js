@@ -113,8 +113,8 @@
       return (await request(`/api/v1/subscriptions/${encodeURIComponent(subscriptionId)}/nodes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' })).data;
     },
     async geodata(kind) { return (await request(`/api/v1/geodata/${encodeURIComponent(kind)}`)).data; },
-    async importNode(uri) {
-      const data = (await request('/api/v1/nodes/import', { method: 'POST', body: JSON.stringify({ uri }) })).data;
+    async importNodes(document) {
+      const data = (await request('/api/v1/nodes/import', { method: 'POST', body: JSON.stringify({ document }) })).data;
       return { ...data, warnings: data.warnings || [] };
     }
   };

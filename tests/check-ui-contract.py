@@ -37,27 +37,28 @@ if actual_navigation != expected_navigation:
 luci_menu = json.loads(
     (ROOT / "luci-app-steer/root/usr/share/luci/menu.d/luci-app-steer.json").read_text()
 )
-luci_navigation = []
-for group_key, item_keys in expected_navigation:
-    group_path = f"admin/services/steer/{group_key}"
-    if group_path not in luci_menu:
-        raise SystemExit(f"check-ui-contract: LuCI navigation misses {group_path}")
-    children = sorted(
-        (
-            (entry["order"], path.rsplit("/", 1)[-1])
-            for path, entry in luci_menu.items()
-            if path.startswith(group_path + "/")
-            and "/" not in path[len(group_path) + 1:]
-        ),
-        key=lambda item: item[0],
+luci_root = "admin/services/steer"
+expected_luci_items = [
+    item for _, items in expected_navigation for item in items
+]
+luci_children = sorted(
+    (
+        (entry["order"], path.rsplit("/", 1)[-1])
+        for path, entry in luci_menu.items()
+        if path.startswith(luci_root + "/")
+        and "/" not in path[len(luci_root) + 1:]
+    ),
+    key=lambda item: item[0],
+)
+actual_luci_items = [key for _, key in luci_children]
+if actual_luci_items != expected_luci_items:
+    raise SystemExit(
+        f"check-ui-contract: LuCI flat navigation drift: {actual_luci_items!r}"
     )
-    actual_keys = [key for _, key in children]
-    if group_key == "advanced":
-        # LuCI uses "configuration" to avoid a repeated /advanced/advanced URL.
-        actual_keys = ["advanced" if key == "configuration" else key for key in actual_keys]
-    if actual_keys != item_keys:
+for group_key, _ in expected_navigation:
+    if group_key not in expected_luci_items and f"{luci_root}/{group_key}" in luci_menu:
         raise SystemExit(
-            f"check-ui-contract: LuCI {group_key} hierarchy drift: {actual_keys!r}"
+            f"check-ui-contract: LuCI restored redundant group menu {group_key!r}"
         )
 
 node_types = {item["value"] for item in contract["node_types"]}
@@ -68,9 +69,12 @@ if node_types != {
     raise SystemExit("check-ui-contract: node protocol matrix is incomplete")
 
 linux_ui = (ROOT / "go/cmd/steer-linux/web/js/ui.js").read_text()
+linux_lib = (ROOT / "go/cmd/steer-linux/web/js/lib.js").read_text()
 linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
+linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
 mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
+mac_state = (ROOT / "macos/SteerApp/AppState.swift").read_text()
 mac_editors = (ROOT / "macos/SteerApp/DraftEditors.swift").read_text()
 
 require(linux_ui, "S.uiSpec.navigation", "Linux navigation")
@@ -82,6 +86,28 @@ require(luci_nodes, "addGeneratedNodeField", "LuCI generated controls")
 require(mac_content, "SteerUISpec.contract.navigation", "macOS navigation")
 require(mac_editors, "SharedNodeDraftForm", "macOS node form")
 require(mac_editors, "SteerUISpec.nodeFields", "macOS field matrix")
+
+for content, owner in (
+    (linux_nodes, "Linux nodes"),
+    (luci_nodes, "LuCI nodes"),
+    (mac_content, "macOS nodes"),
+):
+    require(content, "source_subscription" if owner != "macOS nodes" else "sourceSubscription", owner)
+
+require(linux_nodes, "S.api.importNodes", "Linux multi-node import")
+require(luci_nodes, "steer.importNodes", "LuCI multi-node import")
+require(mac_state, "parseNodes(document:", "macOS multi-node import")
+require(linux_nodes, "testButton('下载', true", "Linux node download test")
+require(luci_nodes, "_download_speedtest", "LuCI node download test")
+require(mac_content, "probeButton(item: item, scope: \"nodes\", download: true)", "macOS node download test")
+require(linux_routes, "draft.kind = 'single'", "Linux fixed system routes")
+require(luci_nodes, "addSystemRouteSection", "LuCI fixed system routes")
+require(mac_content, "isSystemRoute(item)", "macOS fixed system routes")
+require(mac_state, 'return "失败"', "macOS sanitized probe summary")
+require(linux_lib, "详细原因请查看诊断日志", "Linux sanitized probe summary")
+require(luci_nodes, "See diagnostic logs for details.", "LuCI sanitized probe summary")
+if "report?.error || results.map" in linux_lib or "report?.error || results.map" in luci_nodes:
+    raise SystemExit("check-ui-contract: a node list still exposes raw probe backend errors")
 
 if (ROOT / "luci-app-steer/htdocs/luci-static/resources/steer/share-url.js").exists():
     raise SystemExit("check-ui-contract: LuCI retained its duplicate share URL parser")

@@ -395,6 +395,12 @@ struct DraftCollectionDescriptor {
     static let proxies = Self(key: "local_proxies", title: "本地代理", emptyMessage: "尚未添加本地代理", addLabel: "添加入口", symbol: "rectangle.connected.to.line.below", ordered: false)
 }
 
+private struct NodeCollectionGroup: Identifiable {
+    let id: String
+    let label: String
+    let count: Int
+}
+
 struct DraftCollectionView: View {
     @ObservedObject var model: AppModel
     let descriptor: DraftCollectionDescriptor
@@ -403,40 +409,93 @@ struct DraftCollectionView: View {
     @State private var pendingDeletion: DraftItem?
     @State private var actionError = ""
     @State private var nodeImportPresented = false
+    @State private var selectedNodeGroup = "_manual"
 
-    private var items: [DraftItem] { model.draftItems(for: descriptor.key) }
+    private var allItems: [DraftItem] { model.draftItems(for: descriptor.key) }
+    private var activeNodeGroup: String {
+        nodeGroups.contains(where: { $0.id == selectedNodeGroup }) ? selectedNodeGroup : "_manual"
+    }
+    private var items: [DraftItem] {
+        guard descriptor.key == "nodes" else { return allItems }
+        return allItems.filter { ($0.sourceSubscription ?? "_manual") == activeNodeGroup }
+    }
+    private var enabledVisibleNodeIDs: [String] { items.filter(\.enabled).map(\.identifier) }
+
+    private var nodeGroups: [NodeCollectionGroup] {
+        guard descriptor.key == "nodes" else { return [] }
+        var groups = [NodeCollectionGroup(
+            id: "_manual", label: "手动节点",
+            count: allItems.filter { $0.sourceSubscription == nil }.count
+        )]
+        var known = Set(["_manual"])
+        for subscription in model.draftItems(for: "subscriptions") {
+            known.insert(subscription.identifier)
+            groups.append(NodeCollectionGroup(
+                id: subscription.identifier, label: subscription.title,
+                count: allItems.filter { $0.sourceSubscription == subscription.identifier }.count
+            ))
+        }
+        for source in allItems.compactMap(\.sourceSubscription) where !known.contains(source) {
+            known.insert(source)
+            groups.append(NodeCollectionGroup(
+                id: source, label: "缺失订阅：\(source)",
+                count: allItems.filter { $0.sourceSubscription == source }.count
+            ))
+        }
+        return groups
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label(descriptor.title, systemImage: descriptor.symbol)
                     .font(.headline)
-                Text("\(items.count) 项")
+                Text(descriptor.key == "nodes" ? "\(items.count) / \(allItems.count) 项" : "\(items.count) 项")
                     .foregroundStyle(.secondary)
+                if descriptor.key == "nodes" {
+                    Picker("节点分组", selection: Binding(
+                        get: { activeNodeGroup },
+                        set: { selectedNodeGroup = $0 }
+                    )) {
+                        ForEach(nodeGroups) { group in
+                            Text("\(group.label) · \(group.count)").tag(group.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 220)
+                    .onChange(of: selectedNodeGroup) { _ in selection = nil }
+                }
                 Spacer()
                 Button { editSelected() } label: {
                     Label("编辑", systemImage: "square.and.pencil")
                 }
                 .disabled(model.isBusy || selectedItem == nil || selectedItem?.subscriptionOwned == true)
                 if descriptor.key == "nodes" {
-                    Button { nodeImportPresented = true } label: {
+                    Button {
+                        selectedNodeGroup = "_manual"
+                        nodeImportPresented = true
+                    } label: {
                         Label("导入", systemImage: "square.and.arrow.down")
                     }
                     .disabled(model.isBusy)
                     Menu("批量测速") {
-                        Button("批量连接测试") { model.runAllNodeProbes(download: false) }
-                        Button("批量下载测试") { model.runAllNodeProbes(download: true) }
+                        Button("批量连接测试") {
+                            model.runAllNodeProbes(download: false, nodeIDs: enabledVisibleNodeIDs)
+                        }
+                        Button("批量下载测试") {
+                            model.runAllNodeProbes(download: true, nodeIDs: enabledVisibleNodeIDs)
+                        }
                     }
-                    .disabled(model.isBusy || model.isDirty || items.isEmpty)
+                    .disabled(model.isBusy || model.isDirty || model.isBatchNodeProbeRunning || enabledVisibleNodeIDs.isEmpty)
                 }
                 if descriptor.key == "subscriptions", let selectedItem {
                     Button("立即更新") { model.updateSubscription(selectedItem.identifier) }
-                        .disabled(model.isBusy || model.isDirty)
+                        .disabled(model.isBusy || model.isDirty || model.subscriptionOperationInProgress(selectedItem.identifier))
                     if let stale = model.subscriptionStatus(selectedItem.identifier)?.staleNodeIDs.first {
                         Button("清理 stale") {
                             model.cleanSubscriptionNode(subscriptionID: selectedItem.identifier, nodeID: stale)
                         }
-                        .disabled(model.isBusy || model.isDirty)
+                        .disabled(model.isBusy || model.isDirty || model.subscriptionOperationInProgress(selectedItem.identifier))
                     }
                 }
                 Button { addItem() } label: {
@@ -448,14 +507,20 @@ struct DraftCollectionView: View {
 
             Table(of: DraftItem.self, selection: $selection) {
                 TableColumn("状态") { item in
-                    Toggle("", isOn: Binding(
-                        get: { item.enabled },
-                        set: { model.setDraftItemEnabled(in: descriptor.key, at: item.index, enabled: $0) }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(item.subscriptionOwned || (descriptor.key == "routes" && item.kind == "direct"))
+                    if item.subscriptionOwned || isRequiredDirect(item) {
+                        Label(item.enabled ? "启用" : "停用", systemImage: "lock.fill")
+                            .labelStyle(.iconOnly)
+                            .foregroundStyle(item.enabled ? .green : .secondary)
+                            .help(item.subscriptionOwned ? "订阅节点状态由订阅管理" : "Direct 是系统必需路由，始终启用")
+                    } else {
+                        Toggle("", isOn: Binding(
+                            get: { item.enabled },
+                            set: { model.setDraftItemEnabled(in: descriptor.key, at: item.index, enabled: $0) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    }
                 }
                 .width(58)
                 TableColumn("名称") { item in
@@ -471,6 +536,46 @@ struct DraftCollectionView: View {
                         .font(.caption.weight(.medium))
                 }
                 .width(min: 80, ideal: 110)
+                TableColumn("操作") { item in
+                    HStack(spacing: 8) {
+                        if descriptor.key == "nodes" {
+                            probeButton(item: item, scope: "nodes", download: false)
+                            probeButton(item: item, scope: "nodes", download: true)
+                        } else if descriptor.key == "routes", item.kind == "single" {
+                            probeButton(item: item, scope: "routes", download: false)
+                            probeButton(item: item, scope: "routes", download: true)
+                        } else if descriptor.key == "subscriptions" {
+                            Button { model.updateSubscription(item.identifier) } label: {
+                                if model.subscriptionOperationInProgress(item.identifier) {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.clockwise")
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(model.isDirty || model.subscriptionOperationInProgress(item.identifier))
+                        }
+                        if item.subscriptionOwned {
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(.secondary)
+                                .help("订阅节点只读")
+                        } else {
+                            Button { edit(item) } label: {
+                                Image(systemName: "square.and.pencil")
+                            }
+                            .buttonStyle(.borderless)
+                            if !isSystemRoute(item) && !isDefaultRule(item) {
+                                Button(role: .destructive) {
+                                    requestDeletion(item)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                }
+                .width(min: 190, ideal: 230)
                 TableColumn("详情") { item in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(runtimeDetail(item))
@@ -478,72 +583,36 @@ struct DraftCollectionView: View {
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
                         if let result = probeSummary(item) {
-                            Text(result).font(.caption.monospaced()).foregroundStyle(.green)
+                            Text(result)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(result.hasPrefix("失败") ? .red : .green)
                         }
                     }
                 }
-                TableColumn("顺序") { item in
-                    HStack(spacing: 7) {
-                        if descriptor.ordered {
+                TableColumn(descriptor.ordered ? "顺序" : "") { item in
+                    if descriptor.ordered {
+                        HStack(spacing: 7) {
                             Text(item.index + 1, format: .number)
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                            Image(systemName: isPinned(item) ? "pin.fill" : "line.3.horizontal")
+                                .foregroundStyle(.secondary)
                         }
-                        Image(systemName: isPinned(item) ? "pin.fill" : "line.3.horizontal")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .help(isPinned(item) ? "Default 固定在最后" : "拖动调整顺序")
-                    .accessibilityLabel(isPinned(item) ? "\(item.title) 固定在最后" : "拖动 \(item.title) 调整顺序")
-                }
-                .width(78)
-                TableColumn("操作") { item in
-                    HStack(spacing: 8) {
-                        if descriptor.key == "nodes" {
-                            Button { model.runProbe(kind: "speedtest", nodeID: item.identifier) } label: {
-                                Image(systemName: "network")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("连接测试")
-                            .disabled(model.isDirty)
-                        } else if descriptor.key == "routes", item.kind == "single" {
-                            Button { model.runProbe(kind: "speedtest", routeID: item.identifier) } label: {
-                                Image(systemName: "point.3.filled.connected.trianglepath.dotted")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("路由链测试")
-                            .disabled(model.isDirty)
-                        } else if descriptor.key == "subscriptions" {
-                            Button { model.updateSubscription(item.identifier) } label: {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(model.isDirty)
-                        }
-                        Button { edit(item) } label: {
-                            Image(systemName: "square.and.pencil")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(item.subscriptionOwned)
-                        Button(role: .destructive) {
-                            requestDeletion(item)
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(item.subscriptionOwned)
+                        .frame(maxWidth: .infinity)
+                        .help(isPinned(item) ? "Default 固定在最后" : "拖动调整顺序")
+                        .accessibilityLabel(isPinned(item) ? "\(item.title) 固定在最后" : "拖动 \(item.title) 调整顺序")
                     }
                 }
-                .width(min: 70, ideal: 125)
+                .width(descriptor.ordered ? 78 : 1)
             } rows: {
                 ForEach(items) { item in
                     TableRow(item)
                         .itemProvider {
-                            isPinned(item) ? nil : NSItemProvider(object: item.id as NSString)
+                            descriptor.ordered && !isPinned(item) ? NSItemProvider(object: item.id as NSString) : nil
                         }
                 }
                 .dropDestination(for: String.self) { destination, identifiers in
-                    moveItems(identifiers, to: destination)
+                    if descriptor.ordered { moveItems(identifiers, to: destination) }
                 }
             }
             .disabled(model.isBusy)
@@ -563,17 +632,21 @@ struct DraftCollectionView: View {
             }
             .contextMenu(forSelectionType: DraftItem.ID.self) { selected in
                 if let id = selected.first, let item = items.first(where: { $0.id == id }) {
-                    Button("上移") { model.moveDraftItem(in: descriptor.key, at: item.index, offset: -1) }
-                        .disabled(item.index == 0 || isPinned(item))
-                    Button("下移") { model.moveDraftItem(in: descriptor.key, at: item.index, offset: 1) }
-                        .disabled(!canMoveDown(item))
-                    Divider()
+                    if descriptor.ordered {
+                        Button("上移") { model.moveDraftItem(in: descriptor.key, at: item.index, offset: -1) }
+                            .disabled(item.index == 0 || isPinned(item))
+                        Button("下移") { model.moveDraftItem(in: descriptor.key, at: item.index, offset: 1) }
+                            .disabled(!canMoveDown(item))
+                        Divider()
+                    }
                     Button("编辑") { edit(item) }
                         .disabled(item.subscriptionOwned)
-                    Button("删除", role: .destructive) {
-                        requestDeletion(item)
+                    if !isSystemRoute(item) && !isDefaultRule(item) {
+                        Button("删除", role: .destructive) {
+                            requestDeletion(item)
+                        }
+                        .disabled(item.subscriptionOwned)
                     }
-                    .disabled(item.subscriptionOwned)
                 }
             } primaryAction: { selected in
                 if let id = selected.first, let item = items.first(where: { $0.id == id }) {
@@ -635,6 +708,7 @@ struct DraftCollectionView: View {
     }
 
     private func addItem() {
+        if descriptor.key == "nodes" { selectedNodeGroup = "_manual" }
         guard let object = model.newDraftItemObject(for: descriptor.key) else { return }
         editorTarget = DraftEditorTarget(
             key: descriptor.key, index: nil, title: descriptor.addLabel,
@@ -683,6 +757,18 @@ struct DraftCollectionView: View {
         descriptor.key == "rules" && item.kind.caseInsensitiveCompare("default") == .orderedSame
     }
 
+    private func isRequiredDirect(_ item: DraftItem) -> Bool {
+        descriptor.key == "routes" && item.kind.caseInsensitiveCompare("direct") == .orderedSame
+    }
+
+    private func isSystemRoute(_ item: DraftItem) -> Bool {
+        descriptor.key == "routes" && ["direct", "block"].contains(item.kind.lowercased())
+    }
+
+    private func isDefaultRule(_ item: DraftItem) -> Bool {
+        descriptor.key == "rules" && item.kind.caseInsensitiveCompare("default") == .orderedSame
+    }
+
     private func canMoveDown(_ item: DraftItem) -> Bool {
         guard !isPinned(item), item.index < items.count - 1 else { return false }
         return !isPinned(items[item.index + 1])
@@ -696,11 +782,34 @@ struct DraftCollectionView: View {
         return [connect.map { "连接 \($0)" }, download.map { "下载 \($0)" }].compactMap { $0 }.joined(separator: " · ").nilIfEmpty
     }
 
+    @ViewBuilder
+    private func probeButton(item: DraftItem, scope: String, download: Bool) -> some View {
+        let running = model.probeInProgress(scope: scope, objectID: item.identifier, download: download)
+        Button {
+            model.runProbe(
+                kind: "speedtest",
+                nodeID: scope == "nodes" ? item.identifier : nil,
+                routeID: scope == "routes" ? item.identifier : nil,
+                download: download
+            )
+        } label: {
+            if running {
+                ProgressView().controlSize(.small)
+            } else {
+                Label(download ? "下载" : "连接", systemImage: download ? "arrow.down.circle" : "network")
+                    .font(.caption)
+            }
+        }
+        .buttonStyle(.borderless)
+        .help(download ? "下载测速" : (scope == "routes" ? "路由链连接测试" : "连接测试"))
+        .disabled(model.isDirty || running)
+    }
+
     private func runtimeDetail(_ item: DraftItem) -> String {
         guard descriptor.key == "subscriptions", let status = model.subscriptionStatus(item.identifier) else {
             return item.detail.isEmpty ? "—" : item.detail
         }
-        let fetched = status.fetchedAt ?? status.error ?? "未抓取"
+        let fetched = status.fetchedAt ?? (status.error == nil ? "未抓取" : "更新失败")
         return "\(status.nodeCount) 节点 · stale \(status.staleNodeIDs.count) · \(fetched)"
     }
 }
@@ -716,9 +825,9 @@ struct DiagnosticsView: View {
         List {
             Section("连通性探测") {
                 HStack {
-                    Button("直连探测") { model.runProbe(kind: "direct") }
-                    Button("代理探测") { model.runProbe(kind: "proxy") }
-                    Button("下载测速") { model.runProbe(kind: "speedtest", download: true) }
+                    overviewProbeButton("直连探测", kind: "direct")
+                    overviewProbeButton("代理探测", kind: "proxy")
+                    overviewProbeButton("下载测速", kind: "speedtest", download: true)
                 }
                 LabeledContent("直连", value: model.probeSummaries["overview:direct"] ?? "未测试")
                 LabeledContent("代理", value: model.probeSummaries["overview:proxy"] ?? "未测试")
@@ -775,6 +884,24 @@ struct DiagnosticsView: View {
         .task {
             if model.diagnosticsLog.isEmpty { model.refreshLogs() }
         }
+    }
+
+    @ViewBuilder
+    private func overviewProbeButton(_ title: String, kind: String, download: Bool = false) -> some View {
+        let running = model.overviewProbeInProgress(kind)
+        Button {
+            model.runProbe(kind: kind, download: download)
+        } label: {
+            if running {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(title)
+                }
+            } else {
+                Text(title)
+            }
+        }
+        .disabled(running)
     }
 
     private func issueRow(_ issue: ValidationIssue, isError: Bool) -> some View {

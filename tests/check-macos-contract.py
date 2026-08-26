@@ -71,7 +71,7 @@ def main() -> None:
     assert 'NavigationSplitView' in content
     assert 'navigationSplitViewColumnWidth(min: 200' in content
     assert 'Table(of: DraftItem.self, selection: $selection)' in content
-    assert 'isPinned(item) ? nil : NSItemProvider(object: item.id as NSString)' in content
+    assert 'descriptor.ordered && !isPinned(item) ? NSItemProvider(object: item.id as NSString) : nil' in content
     assert '.dropDestination(for: String.self)' in content
     assert '"line.3.horizontal"' in content and '"pin.fill"' in content
     assert 'List {' in content and 'Section {' in content
@@ -89,6 +89,14 @@ def main() -> None:
     assert 'func setEnabledAndApply' in state
     assert 'deletionBlockReason' in state and '.alert(' in content
     assert 'NodeImportSheet' in editors and 'parseNodes(document:' in state
+    assert 'sourceSubscription' in state and 'NodeCollectionGroup' in content
+    assert 'runAllNodeProbes(download: Bool, nodeIDs: [String])' in state
+    assert 'probeInProgress(scope:' in state and 'download: true' in content
+    assert 'activeProbeKeys' in state and 'perform(message: "正在运行探测…")' not in state
+    assert 'guard let result = results.first(where: { $0.ok }) else {' in state and 'return "失败"' in state
+    assert 'isSystemRoute(item)' in content and 'isDefaultRule(item)' in content
+    assert '系统必需 · 始终启用' in editors
+    assert 'Picker("类型"' not in editors and 'LabeledContent("类型", value: "Single 节点")' in editors
     assert 'SharedNodeDraftForm' in editors and 'SteerUISpec.nodeFields' in editors
     assert 'func probe(kind:' in state
     assert 'func subscriptionStatuses()' in state

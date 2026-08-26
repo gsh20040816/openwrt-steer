@@ -51,14 +51,8 @@ msgstr "添加代理节点"
 msgid "Add subscription"
 msgstr "添加订阅"
 
-msgid "Add route"
-msgstr "添加路由"
-
 msgid "Add steering rule"
 msgstr "添加分流规则"
-
-msgid "Add to pending changes"
-msgstr "添加到待提交变更"
 
 msgid "Address strategy"
 msgstr "地址策略"
@@ -108,9 +102,6 @@ msgstr "正在编译并验证候选配置。"
 msgid "Configuration"
 msgstr "配置"
 
-msgid "Connection"
-msgstr "连接"
-
 msgid "Connection test"
 msgstr "连接测速"
 
@@ -125,9 +116,6 @@ msgstr "凭据"
 
 msgid "Current state"
 msgstr "当前状态"
-
-msgid "DNS cache"
-msgstr "DNS 缓存"
 
 msgid "DNS continues to the next rule"
 msgstr "DNS 继续匹配下一条规则"
@@ -222,15 +210,6 @@ msgstr "代理连通性测试地址"
 msgid "Proxy speed-test URL"
 msgstr "代理测速地址"
 
-msgid "Import node"
-msgstr "导入节点"
-
-msgid "Import proxy node"
-msgstr "导入代理节点"
-
-msgid "Import share URL"
-msgstr "导入分享 URL"
-
 msgid "Inbound"
 msgstr "入站"
 
@@ -324,9 +303,6 @@ msgstr "有序分流规则"
 msgid "Overview"
 msgstr "概览"
 
-msgid "Parse and review"
-msgstr "解析并审查"
-
 msgid "Password"
 msgstr "密码"
 
@@ -381,6 +357,9 @@ msgstr "服务器"
 msgid "Server IP"
 msgstr "服务器 IP"
 
+msgid "See diagnostic logs for details."
+msgstr "详细原因请查看诊断日志。"
+
 msgid "Show fixed boundary"
 msgstr "显示固定边界"
 
@@ -411,23 +390,14 @@ msgstr "系统救援直连"
 msgid "TLS"
 msgstr "TLS"
 
-msgid "TLS / REALITY"
-msgstr "TLS / REALITY"
-
 msgid "TLS server name"
 msgstr "TLS 服务器名称"
 
 msgid "The saved configuration is invalid"
 msgstr "已保存的配置无效"
 
-msgid "Parse a standard proxy share URL in this browser. The URL is never sent to a Steer RPC or written to logs."
-msgstr "在浏览器中解析标准代理分享 URL。链接不会发送到 Steer RPC，也不会写入日志。"
-
 msgid "The valid-name catalog is unavailable: %s"
 msgstr "合法名称目录不可用：%s"
-
-msgid "Traffic steering"
-msgstr "流量分流"
 
 msgid "Traffic steering is active"
 msgstr "流量分流已启用"
@@ -465,9 +435,6 @@ msgstr "用户名"
 msgid "Username and password must either both be set or both be empty."
 msgstr "用户名和密码必须同时设置或同时留空。"
 
-msgid "Manual probes"
-msgstr "手动探测"
-
 msgid "Timed out waiting for the committed Steer configuration to reload."
 msgstr "等待已提交的 Steer 配置重载超时。"
 
@@ -484,7 +451,7 @@ msgid "No subscriptions configured."
 msgstr "未配置订阅。"
 
 msgid "Nodes"
-msgstr "节点数"
+msgstr "节点"
 
 msgid "Not fetched"
 msgstr "尚未获取"
@@ -528,8 +495,17 @@ msgstr "订阅已更新；已跳过 %d 个无效节点。"
 msgid "Subscription node removal failed"
 msgstr "删除订阅节点失败"
 
+msgid "Subscription cannot be removed"
+msgstr "无法删除订阅"
+
+msgid "%d route(s) still use nodes from this subscription."
+msgstr "仍有 %d 条路由使用该订阅的节点。"
+
 msgid "Update now"
 msgstr "立即更新"
+
+msgid "Update failed"
+msgstr "更新失败"
 
 msgid "Updating subscription"
 msgstr "正在更新订阅"
@@ -548,9 +524,6 @@ msgstr "订阅地址"
 
 msgid "%d ms"
 msgstr "%d 毫秒"
-
-msgid "No speed-test result was returned."
-msgstr "未返回测速结果。"
 
 msgid "Test"
 msgstr "测试"
@@ -585,9 +558,6 @@ msgstr "通过当前运行规则下载已配置的测速地址。"
 msgid "Missing route"
 msgstr "路由缺失"
 
-msgid "No test result was returned."
-msgstr "未返回测试结果。"
-
 msgid "Not tested"
 msgstr "尚未测试"
 
@@ -621,9 +591,6 @@ msgstr "高级"
 msgid "Canonical Intent preview"
 msgstr "Canonical Intent 预览"
 
-msgid "Canonical Preview"
-msgstr "Canonical 预览"
-
 msgid "Canonical schema"
 msgstr "Canonical schema"
 
@@ -648,9 +615,6 @@ msgstr "OpenWrt 仍以 UCI 作为唯一配置源；此只读 Canonical 预览展
 msgid "Parsing and validating nodes…"
 msgstr "正在解析并校验节点…"
 
-msgid "Paste one or more share URLs, or a Base64-wrapped list. Credentials are hidden from the preview and stored only after confirmation."
-msgstr "粘贴一个或多个分享链接，或 Base64 包装的列表。凭据不会显示在预览中，确认后才会保存。"
-
 msgid "Proxy nodes"
 msgstr "代理节点"
 
@@ -660,12 +624,6 @@ msgstr "最近日志"
 msgid "Runtime"
 msgstr "运行时"
 
-msgid "Services"
-msgstr "服务"
-
-msgid "Status"
-msgstr "状态"
-
 msgid "Subscriptions"
 msgstr "订阅"
 
@@ -674,3 +632,27 @@ msgstr "%s 是 %s 节点的必填项。"
 
 msgid "System default"
 msgstr "系统默认"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Required · always enabled"
+msgstr "系统必需 · 始终启用"
+
+msgid "Single-node routes"
+msgstr "Single 节点路由"
+
+msgid "Add single-node route"
+msgstr "添加 Single 节点路由"
+
+msgid "Import nodes"
+msgstr "导入节点"
+
+msgid "Import into pending configuration"
+msgstr "导入到待保存配置"
+
+msgid "Parse and preview"
+msgstr "解析并预览"
+
+msgid "Paste one node link per line, or paste a Base64-wrapped subscription document. Steer parses and validates it before it enters the pending configuration."
+msgstr "每行粘贴一个节点链接，也可以粘贴 Base64 包装的订阅内容。Steer 会在其进入待保存配置前统一解析并校验。"

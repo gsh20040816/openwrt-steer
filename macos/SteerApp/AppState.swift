@@ -156,7 +156,9 @@ struct ProbeReport: Decodable, Sendable {
     }
 
     var summary: String {
-        guard let result = results.first(where: { $0.ok }) else { return error ?? results.first?.error ?? "失败" }
+        guard let result = results.first(where: { $0.ok }) else {
+            return "失败"
+        }
         if let bytes = result.downloadedBytes, let milliseconds = result.downloadMilliseconds, milliseconds > 0 {
             return String(format: "%.1f Mbps", Double(bytes) * 8 / Double(milliseconds) / 1000)
         }
@@ -642,6 +644,9 @@ final class AppModel: ObservableObject {
     @Published var probeSummaries: [String: String] = [:]
     @Published var geositeNames: [String] = []
     @Published var geoipNames: [String] = []
+    @Published private(set) var activeProbeKeys: Set<String> = []
+    @Published private(set) var isBatchNodeProbeRunning = false
+    @Published private(set) var activeSubscriptionOperationIDs: Set<String> = []
 
     private let backend: BackendClient
 
@@ -868,47 +873,99 @@ final class AppModel: ObservableObject {
     }
 
     func runProbe(kind: String, nodeID: String? = nil, routeID: String? = nil, download: Bool = false) {
-        let key = nodeID.map { "nodes:\($0):\(download ? "download" : "connect")" }
-            ?? routeID.map { "routes:\($0):\(download ? "download" : "connect")" }
-            ?? "overview:\(kind)"
-        perform(message: "正在运行探测…") {
-            let report = try await self.backend.probe(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
-            self.probeSummaries[key] = report.summary
-            self.message = report.ok ? "探测完成：\(report.summary)" : "探测失败：\(report.summary)"
+        let key = probeKey(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
+        guard activeProbeKeys.insert(key).inserted else { return }
+        message = download ? "正在运行下载测速…" : "正在运行连接测试…"
+        Task {
+            defer { activeProbeKeys.remove(key) }
+            do {
+                let report = try await backend.probe(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
+                probeSummaries[key] = report.summary
+                message = report.ok
+                    ? "测试完成：\(report.summary)"
+                    : (download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志")
+            } catch {
+                probeSummaries[key] = "失败"
+                message = download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志"
+            }
         }
     }
 
-    func runAllNodeProbes(download: Bool) {
-        perform(message: download ? "正在批量下载测速…" : "正在批量连接测试…") {
-            let nodes = self.draftItems(for: "nodes").filter(\.enabled)
+    func runAllNodeProbes(download: Bool, nodeIDs: [String]) {
+        guard !isBatchNodeProbeRunning, !nodeIDs.isEmpty else { return }
+        isBatchNodeProbeRunning = true
+        message = download ? "正在批量下载测速…" : "正在批量连接测试…"
+        Task {
+            defer { isBatchNodeProbeRunning = false }
             var succeeded = 0
-            for node in nodes {
-                let report = try await self.backend.probe(kind: "speedtest", nodeID: node.identifier, routeID: nil, download: download)
-                self.probeSummaries["nodes:\(node.identifier):\(download ? "download" : "connect")"] = report.summary
-                if report.ok { succeeded += 1 }
+            for nodeID in nodeIDs {
+                let key = probeKey(kind: "speedtest", nodeID: nodeID, routeID: nil, download: download)
+                guard activeProbeKeys.insert(key).inserted else { continue }
+                do {
+                    let report = try await backend.probe(kind: "speedtest", nodeID: nodeID, routeID: nil, download: download)
+                    probeSummaries[key] = report.summary
+                    if report.ok { succeeded += 1 }
+                } catch {
+                    probeSummaries[key] = "失败"
+                }
+                activeProbeKeys.remove(key)
             }
-            self.message = "批量测试完成：成功 \(succeeded)/\(nodes.count)"
+            message = "批量测试完成：成功 \(succeeded)/\(nodeIDs.count)"
         }
+    }
+
+    func probeInProgress(scope: String, objectID: String, download: Bool) -> Bool {
+        activeProbeKeys.contains("\(scope):\(objectID):\(download ? "download" : "connect")")
+    }
+
+    func overviewProbeInProgress(_ kind: String) -> Bool {
+        activeProbeKeys.contains("overview:\(kind)")
+    }
+
+    private func probeKey(kind: String, nodeID: String?, routeID: String?, download: Bool) -> String {
+        nodeID.map { "nodes:\($0):\(download ? "download" : "connect")" }
+            ?? routeID.map { "routes:\($0):\(download ? "download" : "connect")" }
+            ?? "overview:\(kind)"
     }
 
     func updateSubscription(_ id: String) {
-        perform(message: "正在更新订阅…") {
-            try await self.backend.updateSubscription(id: id)
-            self.rawJSON = try await self.backend.loadConfiguration()
-            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
-            self.isDirty = false
-            self.message = "订阅已更新；运行态未自动 Apply"
+        let operationID = "update:\(id)"
+        guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
+        message = "正在更新订阅…"
+        Task {
+            defer { activeSubscriptionOperationIDs.remove(operationID) }
+            do {
+                try await backend.updateSubscription(id: id)
+                rawJSON = try await backend.loadConfiguration()
+                subscriptionRuntime = try await backend.subscriptionStatuses()
+                isDirty = false
+                message = "订阅已更新；运行态未自动 Apply"
+            } catch {
+                message = "订阅更新失败：\(error.localizedDescription)"
+            }
         }
     }
 
     func cleanSubscriptionNode(subscriptionID: String, nodeID: String) {
-        perform(message: "正在清理 stale 节点…") {
-            try await self.backend.cleanSubscription(id: subscriptionID, nodeID: nodeID)
-            self.rawJSON = try await self.backend.loadConfiguration()
-            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
-            self.isDirty = false
-            self.message = "已清理 stale 节点 \(nodeID)"
+        let operationID = "clean:\(subscriptionID):\(nodeID)"
+        guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
+        message = "正在清理 stale 节点…"
+        Task {
+            defer { activeSubscriptionOperationIDs.remove(operationID) }
+            do {
+                try await backend.cleanSubscription(id: subscriptionID, nodeID: nodeID)
+                rawJSON = try await backend.loadConfiguration()
+                subscriptionRuntime = try await backend.subscriptionStatuses()
+                isDirty = false
+                message = "已清理 stale 节点 \(nodeID)"
+            } catch {
+                message = "stale 节点清理失败：\(error.localizedDescription)"
+            }
         }
+    }
+
+    func subscriptionOperationInProgress(_ id: String) -> Bool {
+        activeSubscriptionOperationIDs.contains { $0.hasPrefix("update:\(id)") || $0.hasPrefix("clean:\(id):") }
     }
 
     func subscriptionStatus(_ id: String) -> SubscriptionRuntimeStatus? {
@@ -928,11 +985,13 @@ final class AppModel: ObservableObject {
                 ?? object["protocol"]?.stringValue
                 ?? (object["default"]?.boolValue == true ? "default" : "")
             let detail = draftItemDetail(key: key, object: object)
+            let sourceSubscription = object["source_subscription"]?.stringValue
             return DraftItem(
                 id: "\(key):\(identifier)", index: index, identifier: identifier,
                 title: name.isEmpty ? draftItemFallbackTitle(key: key, kind: kind) : name, kind: kind,
                 detail: detail, enabled: enabled,
-                subscriptionOwned: object["source_subscription"]?.stringValue?.isEmpty == false
+                subscriptionOwned: sourceSubscription?.isEmpty == false,
+                sourceSubscription: sourceSubscription?.isEmpty == false ? sourceSubscription : nil
             )
         }
     }
@@ -1051,6 +1110,16 @@ final class AppModel: ObservableObject {
                 }) == true
             }.count ?? 0
             if references > 0 { return "仍有 \(references) 条规则使用这个本地入口" }
+        case "subscriptions":
+            let ownedNodeIDs: Set<String> = Set((root["nodes"]?.arrayValue ?? []).compactMap {
+                let node = $0.objectValue
+                return node?["source_subscription"]?.stringValue == identifier ? node?["id"]?.stringValue : nil
+            })
+            let references = root["routes"]?.arrayValue?.filter {
+                guard let nodeID = $0.objectValue?["node"]?.stringValue else { return false }
+                return ownedNodeIDs.contains(nodeID)
+            }.count ?? 0
+            if references > 0 { return "仍有 \(references) 条路由使用这个订阅的节点" }
         case "rules":
             if object["default"]?.boolValue == true { return "Default 规则必须保留" }
         default:
@@ -1213,6 +1282,7 @@ struct DraftItem: Identifiable {
     let detail: String
     let enabled: Bool
     let subscriptionOwned: Bool
+    let sourceSubscription: String?
 }
 
 private extension JSONEncoder {

@@ -13,7 +13,7 @@ function testResult(report, kind) {
 	if (!report?.ok || !result?.ok) {
 		return E('div', { 'class': 'steer-test-card__result is-error' }, [
 			E('strong', {}, _('Failed')),
-			E('small', {}, result?.error || report?.error || _('No test result was returned.'))
+			E('small', {}, _('See diagnostic logs for details.'))
 		]);
 	}
 	if (kind == 'speedtest') {
@@ -76,48 +76,45 @@ return view.extend({
 		const validation = data[2];
 		const page = (window.location.pathname || '').split('/').pop();
 		steer.loadStyle();
-		if (page == 'overview')
+		if (page == 'overview' || page == 'steer')
 			return E([], [ steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1') ]);
 		if (page == 'diagnostics')
-			return E([], [ steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1'), renderOverviewTests() ]);
+			return renderOverviewTests();
 
 		m = new form.Map('steer', _('Steer'));
-		s = m.section(form.NamedSection, 'main', 'steer', _('Traffic steering'));
-		s.tab('general', _('General'));
-		s.tab('dns', _('DNS cache'));
-		s.tab('probes', _('Manual probes'));
+		s = m.section(form.NamedSection, 'main', 'steer', _('General'));
 
-		o = s.taboption('general', form.Flag, 'enabled', _('Enable Steer'));
+		o = s.option(form.Flag, 'enabled', _('Enable Steer'));
 		o.rmempty = false;
 		o.description = _('A disabled configuration stops Steer and removes its runtime resources when applied.');
 
-		o = s.taboption('general', form.ListValue, 'log_level', _('Log level'));
+		o = s.option(form.ListValue, 'log_level', _('Log level'));
 		uiSpec.log_levels.forEach((item) => o.value(item.value, item.label));
 		o.default = 'warn';
 
-		o = s.taboption('dns', form.Value, 'dns_cache_capacity', _('Cache capacity'));
+		o = s.option(form.Value, 'dns_cache_capacity', _('Cache capacity'));
 		o.datatype = 'range(1024,10000000)';
 		o.placeholder = '4096';
 
-		o = s.taboption('dns', form.Flag, 'dns_cache_persist', _('Persistent cache'));
+		o = s.option(form.Flag, 'dns_cache_persist', _('Persistent cache'));
 		o.default = '0';
 		o.description = _('Persist the shared DNS cache in the Steer cache database.');
 
-		o = s.taboption('dns', form.Flag, 'dns_optimistic_cache', _('Optimistic cache'));
+		o = s.option(form.Flag, 'dns_optimistic_cache', _('Optimistic cache'));
 		o.default = '0';
 		o.description = _('Serve recently expired DNS answers while refreshing them in the background.');
 
-		o = s.taboption('probes', form.Value, 'probe_direct', _('Direct connectivity probe URL'));
+		o = s.option(form.Value, 'probe_direct', _('Direct connectivity probe URL'));
 		o.datatype = 'url';
 		o.rmempty = false;
 		o.placeholder = 'https://www.example.com/';
 
-		o = s.taboption('probes', form.Value, 'probe_proxy', _('Proxy connectivity probe URL'));
+		o = s.option(form.Value, 'probe_proxy', _('Proxy connectivity probe URL'));
 		o.datatype = 'url';
 		o.rmempty = false;
 		o.placeholder = 'https://www.example.com/';
 
-		o = s.taboption('probes', form.Value, 'speedtest_proxy', _('Proxy speed-test URL'));
+		o = s.option(form.Value, 'speedtest_proxy', _('Proxy speed-test URL'));
 		o.datatype = 'url';
 		o.rmempty = false;
 		o.placeholder = 'https://speed.cloudflare.com/__down?bytes=1000000';

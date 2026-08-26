@@ -63,7 +63,7 @@
       } catch (e) {
         btn.classList.remove('spinning');
         btn.textContent = '失败';
-        btn.title = e.message;
+        btn.title = '详细原因请查看诊断日志';
         btn.classList.add('is-err');
       }
       btn.disabled = false;
@@ -108,7 +108,7 @@
             btn.classList.toggle('is-ok', r.ok);
             btn.classList.toggle('is-err', !r.ok);
             if (r.ok) succeeded++;
-          } catch (e) { btn.textContent = '失败'; btn.title = e.message; btn.classList.add('is-err'); }
+          } catch (e) { btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err'); }
           btn.classList.remove('spinning');
         }
         button.textContent = `${title} · ${cursor}/${ids.length}`;
@@ -123,29 +123,37 @@
   function openImport() {
     const textarea = h('textarea', { class: 'textarea', rows: 4, placeholder: 'ss://…  vmess://…  vless://…  trojan://…  hysteria2://…  tuic://…' });
     const preview = h('div', { class: 'import-preview' });
-    let parsed = null;
 
     async function review() {
       try {
-        parsed = await S.api.importNode(textarea.value);
-        const node = parsed.node;
-        const nameInput = ui.input({ value: node.name, placeholder: '节点名称' });
+        const parsed = await S.api.importNodes(textarea.value);
+        const nodes = parsed.nodes || [];
+        if (!nodes.length) throw new Error('没有可导入的有效节点');
+        const node = nodes[0];
+        const nameInput = nodes.length === 1 ? ui.input({ value: node.name, placeholder: '节点名称' }) : null;
         const facts = [
           ['协议', PROTOCOL_LABEL[node.type] || node.type], ['服务器', node.server], ['端口', String(node.server_port)],
           ['凭据', '已解析（预览隐藏）'], ['证书校验', node.insecure ? '已禁用' : '启用']
         ];
         preview.replaceChildren(
-          h('h4', { class: 'import-title' }, '确认导入节点'),
+          h('h4', { class: 'import-title' }, `确认导入 ${nodes.length} 个节点`),
+          ...(parsed.skipped ? [h('div', { class: 'alert' }, `已跳过 ${parsed.skipped} 个无效条目`)] : []),
           ...(parsed.warnings.length ? [h('div', { class: 'alert' }, h('strong', {}, '解析警告'), h('ul', { class: 'import-warnings' }, parsed.warnings.map((w) => h('li', {}, w.detail))))] : []),
-          ui.field('名称', nameInput),
+          ...(nameInput ? [ui.field('名称', nameInput)] : []),
           h('div', { class: 'facts' }, facts.map(([k, v]) => h('div', { class: 'fact' }, h('dt', {}, k), h('dd', {}, v)))),
-          h('p', { class: 'muted' }, '不支持的字段会中止导入而不是静默丢弃。'),
+          h('p', { class: 'muted' }, '上方只预览第一个节点；凭据始终隐藏。'),
           h('div', { class: 'dialog-inline-actions' }, h('button', {
             class: 'btn btn--primary', onclick: () => {
-              node.name = nameInput.value.trim() || node.name;
-              S.store.intent.nodes.push(node);
+              if (nameInput) node.name = nameInput.value.trim() || node.name;
+              nodes.forEach((candidate) => {
+                candidate.id = S.uid('node');
+                delete candidate.source_subscription;
+                delete candidate.source_fingerprint;
+                delete candidate.pinned_stale;
+                S.store.intent.nodes.push(candidate);
+              });
               S.store.touch();
-              ui.toast('节点已加入工作副本 · 未保存', 'info');
+              ui.toast(`已导入 ${nodes.length} 个节点到工作副本 · 未保存`, 'info');
               activeGroup = MANUAL;
               view.render(document.querySelector('#view'));
               close();
@@ -158,9 +166,9 @@
     }
 
     const { close } = ui.dialog({
-      title: '导入分享链接',
+      title: '导入节点',
       body: h('div', {}, [
-        h('p', { class: 'muted' }, '解析在浏览器内完成，链接不写入日志；凭据预览打码，确认后才进入工作副本。'),
+        h('p', { class: 'muted' }, '每行一个节点分享链接，也支持 Base64 包装的订阅内容。Steer 后端解析并校验后，才会进入工作副本。'),
         textarea, preview,
         h('div', { class: 'dialog-inline-actions u-mt-10' }, [
           h('button', { class: 'btn', onclick: () => close() }, '取消'),
@@ -292,7 +300,12 @@
             view.render(root);
           } }, '删除') : null;
           return h('tr', { class: node.enabled === false ? 'is-disabled' : null }, [
-            h('td', {}, ui.toggle(node.enabled, (v) => { node.enabled = v; S.store.touch(); })),
+            h('td', {}, (() => {
+              const enabled = ui.toggle(node.enabled, (v) => { node.enabled = v; S.store.touch(); });
+              enabled.disabled = !editable;
+              enabled.title = editable ? '启用或停用节点' : '订阅节点状态由订阅管理';
+              return enabled;
+            })()),
             h('td', {}, h('div', {}, h('div', {}, h('strong', {}, node.name || node.id)), h('div', { class: 'mono' }, node.id), node.pinned_stale ? h('span', { class: 'badge badge--stale' }, 'stale') : null)),
             h('td', {}, h('span', { class: `badge protocol-badge protocol--${node.type}` }, PROTOCOL_LABEL[node.type] || node.type)),
             h('td', { class: 'mono' }, `${node.server}:${node.server_port}`),
@@ -302,7 +315,7 @@
         }))
       ]);
 
-      const batch = renderBatch(nodes.map((n) => n.id));
+      const batch = renderBatch(nodes.filter((node) => node.enabled !== false).map((node) => node.id));
       root.append(
         ui.viewHead('节点', editable ? '手动维护的节点；订阅节点只读，由订阅更新生成' : '订阅生成数据 · 只读 · 修改请在订阅源或手动节点中完成', [
           h('button', { class: 'btn', onclick: openImport }, '导入节点'),

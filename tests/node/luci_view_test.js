@@ -69,6 +69,7 @@ function createEnvironment(sections) {
 			this.type = type;
 			this.name = name;
 			this.values = [];
+			this.dependencies = [];
 		}
 
 		value(key, label, description) {
@@ -78,7 +79,7 @@ function createEnvironment(sections) {
 			this.values.push(value);
 		}
 
-		depends() {}
+		depends(...values) { this.dependencies.push(values); }
 
 		submit(sectionId, value) {
 			/* RichListValue passes only `optional` to LuCI's Dropdown widget. */
@@ -108,9 +109,10 @@ function createEnvironment(sections) {
 			this.type = type;
 			this.sectionType = sectionType;
 			this.options = [];
+			this.tabs = [];
 		}
 
-		tab() {}
+		tab(name) { this.tabs.push(name); }
 
 		option(type, name) {
 			const option = new Option(type, name);
@@ -129,8 +131,10 @@ function createEnvironment(sections) {
 			maps.push(this);
 		}
 
-		section(type, sectionType) {
+		section(type, ...arguments_) {
+			const sectionType = type == 'NamedSection' ? arguments_[1] : arguments_[0];
 			const section = new Section(type, sectionType);
+			if (type == 'NamedSection') section.sectionId = arguments_[0];
 			this.sections.push(section);
 			return section;
 		}
@@ -180,18 +184,20 @@ function createEnvironment(sections) {
 	const overviewProbeCalls = [];
 	const cleanSubscriptionCalls = [];
 	const notifications = [];
+	let statusRenderCalls = 0;
 	const steer = {
 		loadStyle: () => {},
-		configureNamedSection: (section) => {
+		configureNamedSection: (section, defaults) => {
 			section.anonymous = false;
 			section.handleAdd = function() {};
+			section.addDefaults = defaults || {};
 			return section;
 		},
 		status: () => Promise.resolve({}),
 		validate: () => Promise.resolve({ ok: true, errors: [], warnings: [] }),
 		geodataCatalog: () => Promise.resolve({}),
 		subscriptions: () => Promise.resolve({ subscriptions: [] }),
-		renderStatus: () => element('div'),
+		renderStatus: () => { statusRenderCalls++; return element('div'); },
 		updateSubscription: () => Promise.resolve({ ok: true }),
 		cleanSubscription: (id, node) => {
 			cleanSubscriptionCalls.push({ id, node });
@@ -199,15 +205,7 @@ function createEnvironment(sections) {
 		},
 		speedtest: (node, download) => {
 			speedtestCalls.push({ node, download });
-			return Promise.resolve({ ok: true, results: [ {
-				url: 'https://speed.example/',
-				ok: true,
-				status: 204,
-				attempts: 1,
-				first_byte_milliseconds: 42,
-				downloaded_bytes: 1000000,
-				download_milliseconds: 1000
-			} ] });
+			return Promise.resolve(environment.speedtestResult);
 		},
 		routeSpeedtest: (route, download) => {
 			routeSpeedtestCalls.push({ route, download });
@@ -234,7 +232,12 @@ function createEnvironment(sections) {
 	const environment = {
 		form, uci, view, steer, ui, window, maps, translate,
 		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, cleanSubscriptionCalls, notifications,
-		cleanSubscriptionResult: { ok: true }
+		get statusRenderCalls() { return statusRenderCalls; },
+		cleanSubscriptionResult: { ok: true },
+		speedtestResult: { ok: true, results: [ {
+			url: 'https://speed.example/', ok: true, status: 204, attempts: 1,
+			first_byte_milliseconds: 42, downloaded_bytes: 1000000, download_milliseconds: 1000
+		} ] }
 	};
 	return environment;
 }
@@ -475,8 +478,14 @@ async function main() {
 	}, '', undefined, 'routes');
 	options = allOptions(environment);
 	assertNamedIds(environment, 'Nodes and routes');
-	const emptyKind = options.find((option) => option.name == 'kind');
-	assert.deepEqual(emptyKind.values.map((value) => value[0]), [ 'direct', 'block' ]);
+	const systemRoutes = environment.maps[0].sections.filter((section) => section.type == 'NamedSection');
+	assert.deepEqual(systemRoutes.map((section) => section.sectionId), [ 'direct', 'block' ],
+		'Direct and Block render as fixed system-route sections');
+	const emptyRoutes = environment.maps[0].sections.find((section) => section.type == 'GridSection' && section.sectionType == 'route');
+	assert.deepEqual(emptyRoutes.addDefaults, { enabled: '1', kind: 'single' },
+		'New route rows are always initialized as enabled single-node routes');
+	assert.equal(options.some((option) => option.name == 'kind'), false,
+		'The route UI cannot create or convert another Direct or Block route');
 	assert.equal(options.some((option) => option.name == 'node'), false,
 		'Routes must not create a ListValue without node candidates');
 
@@ -498,7 +507,7 @@ async function main() {
 	assertNamedIds(environment, 'Local proxies');
 	const groupedFixture = {
 		node: [
-			{ '.name': 'cfg_manual', name: 'Manual' },
+			{ '.name': 'cfg_manual', name: 'Manual', type: 'hysteria2' },
 			{ '.name': 'jdub_0123456789ab', name: 'Subscribed', source_subscription: 'jdub' }
 		],
 		route: [
@@ -511,6 +520,14 @@ async function main() {
 	const groupedNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
 	assert.ok(groupedNodes && groupedNodes.addremove === true && groupedNodes.filter('cfg_manual') && !groupedNodes.filter('jdub_0123456789ab'),
 		'The default node group shows only manually added nodes');
+	assert.equal(groupedNodes.tabs.length, 0,
+		'Node editing uses one continuous LuCI form instead of hiding fields behind modal tabs');
+	const hysteriaPassword = groupedNodes.options.find((option) => option.name == 'password');
+	assert.ok(hysteriaPassword?.password === true && hysteriaPassword.dependencies.some((dependency) =>
+		dependency[0] == 'type' && dependency[1] == 'hysteria2'),
+		'Hysteria2 exposes its password as a generated secure field');
+	assert.notEqual(hysteriaPassword.validate('cfg_manual', ''), true,
+		'Hysteria2 password remains required in the native LuCI editor');
 	environment = await renderNodes(groupedFixture, '', undefined, 'routes');
 	const groupedPicker = environment.maps[0].sections.flatMap((section) => section.options)
 		.find((option) => option.name == 'node');
@@ -518,7 +535,7 @@ async function main() {
 		'Node selectors expose the source subscription as a visual group');
 	assert.equal(groupedPicker.textvalue('route_proxy'), 'Subscribed',
 		'Route summaries show the node name instead of its internal UCI ID');
-	const routeSection = environment.maps[0].sections.find((section) => section.sectionType == 'route');
+	const routeSection = environment.maps[0].sections.find((section) => section.type == 'GridSection' && section.sectionType == 'route');
 	const detourPicker = routeSection.options.find((option) => option.name == 'detour');
 	assert.deepEqual(detourPicker.values[0], [ '', 'Direct connection' ],
 		'Detour picker can clear an existing detour and dial the node directly');
@@ -584,6 +601,15 @@ async function main() {
 		'Connection result replaces the row test button label');
 	assert.ok(speedtestButton.title.includes('HTTP 204') && speedtestButton.title.includes('1 attempt'),
 		'Connection result exposes status and attempt diagnostics');
+	environment.speedtestResult = {
+		ok: false,
+		error: 'temporary sing-box: outbound/hysteria2[steer-node-internal] context deadline exceeded',
+		results: []
+	};
+	await connectSpeedtest.onclick({ currentTarget: speedtestButton }, 'jdub_0123456789ab');
+	assert.equal(speedtestButton.textContent, 'Failed');
+	assert.equal(speedtestButton.title, 'See diagnostic logs for details.',
+		'Failed connection tests do not expose backend process or outbound identifiers in the node list');
 	environment = await renderNodes({
 		node: [ { '.name': 'jdub_stale', name: 'Stale', source_subscription: 'jdub' } ],
 		route: [],
@@ -610,13 +636,24 @@ async function main() {
 		allOptions(environment).find((option) => option.name == name));
 	assert.ok(probeOptions.every((option) => option?.type == 'Value' && option.rmempty === false),
 		'Schema 7 probe URLs are required scalar fields');
+	assert.ok(environment.maps[0].sections.every((section) => section.tabs.length == 0),
+		'General renders one LuCI form without a redundant third-level tab menu');
+	environment = await renderOverview({}, 'steer');
+	assert.equal(environment.maps.length, 0,
+		'The Steer root resolves to Overview instead of accidentally rendering General');
+	assert.equal(environment.statusRenderCalls, 1,
+		'The Steer root renders exactly one overview status panel');
 	environment = await renderNodes({ subscription: [], node: [], route: [] }, '', { subscriptions: [] }, 'subscriptions');
 	const subscriptionSection = environment.maps[0].sections.find((section) => section.sectionType == 'subscription');
 	assert.ok(subscriptionSection && subscriptionSection.addremove && subscriptionSection.anonymous === false,
 		'Subscriptions require an explicit stable UCI section ID');
 	assert.equal(typeof subscriptionSection.handleAdd, 'function',
 		'Subscription creation validates the stricter Steer ID syntax');
+	assert.equal(typeof subscriptionSection.handleRemove, 'function',
+		'Subscription removal uses the shared reference guard and generated-node cascade');
 	environment = await renderOverview({}, 'diagnostics');
+	assert.equal(environment.statusRenderCalls, 0,
+		'Diagnostics does not duplicate the Overview status panel');
 	const overviewTestButtons = findElements(environment.rendered,
 		(node) => node.tag == 'button' && typeof node.attributes?.click == 'function');
 	assert.equal(overviewTestButtons.length, 3,
@@ -629,6 +666,11 @@ async function main() {
 	assert.ok(nodeSource.includes('const id = nextManualNodeID();') &&
 		nodeSource.includes("uci.add('steer', 'node', id)"),
 		'Share URL import persists an explicit stable node ID');
+	assert.ok(nodeSource.includes("_('Import nodes')") &&
+		nodeSource.includes("_('Import into pending configuration')") &&
+		nodeSource.includes('Steer parses and validates it') &&
+		!nodeSource.includes('Parse a standard proxy share URL in this browser'),
+		'Node import copy describes the shared backend parser and pending configuration truthfully');
 	const overviewSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js'), 'utf8');
 	assert.ok(!overviewSource.includes('renderPlan') && !overviewSource.includes('renderSubscriptions'),

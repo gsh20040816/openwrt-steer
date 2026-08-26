@@ -52,7 +52,7 @@
         const r = fmtReport(report, download);
         btn.classList.remove('spinning'); btn.textContent = r.label; btn.title = r.detail;
         btn.classList.toggle('is-ok', r.ok); btn.classList.toggle('is-err', !r.ok);
-      } catch (e) { btn.classList.remove('spinning'); btn.textContent = '失败'; btn.title = e.message; btn.classList.add('is-err'); }
+      } catch (e) { btn.classList.remove('spinning'); btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err'); }
       btn.disabled = false;
     } }, label);
     return btn;
@@ -60,11 +60,19 @@
 
   function kindCard(kind, title, desc, route) {
     const color = kind === 'direct' ? 'ok' : 'err';
-    const toggle = ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); });
+    if (!route) {
+      return h('section', { class: `card card--edge edge--${color}` }, [
+        h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, kind === 'direct' ? 'Direct' : 'Block'), h('div', { class: 'card__title' }, title))),
+        h('p', { class: 'alert alert--err' }, `缺少必需的 ${kind === 'direct' ? 'Direct' : 'Block'} 系统路由，请从高级配置恢复。`)
+      ]);
+    }
+    const status = kind === 'direct'
+      ? h('span', { class: 'badge badge--ok', title: 'Direct 是系统必需路由，始终启用' }, '固定启用')
+      : ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); });
     return h('section', { class: `card card--edge edge--${color}` }, [
       h('div', { class: 'card__head' }, [
         h('div', {}, h('span', { class: 'eyebrow' }, kind === 'direct' ? 'Direct · 必须恰好一个' : 'Block'), h('div', { class: 'card__title' }, title)),
-        toggle
+        status
       ]),
       h('p', { class: 'muted' }, desc)
     ]);
@@ -79,7 +87,7 @@
         const draft = JSON.parse(JSON.stringify(route));
         const name = ui.input({ value: draft.name || '', placeholder: '路由名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
-        const kind = ui.select(S.uiSpec.route_kinds.map((item) => [item.value, item.label]), draft.kind, (v) => { draft.kind = v; });
+        draft.kind = 'single';
         const nodeOpts = intent.nodes.map((n) => [n.id, `${n.name || n.id}（${n.type}）`]);
         const nodeSel = ui.select(ui.selectWithMissing(nodeOpts, draft.node, '缺失节点'), draft.node ?? '', (v) => { draft.node = v; });
         const detourOpts = [['', '直连（无前置）'], ...intent.routes.filter((r) => r.kind === 'single').map((r) => [r.id, r.name || r.id])];
@@ -104,7 +112,7 @@
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '路由'), [
             ui.field('名称', name),
             ui.field('启用', enabled),
-            ui.field('类型', kind),
+            ui.field('类型', h('span', { class: 'badge' }, 'Single 节点'), '系统 Direct / Block 路由不能从此处创建或转换'),
             h('div', { class: 'field--row' }, [
               ui.field('节点', nodeSel, 'single 路由的出站节点'),
               ui.field('前置代理（detour）', detourSel, '前置路由先拨号；留空直连')
@@ -116,11 +124,10 @@
           submit() {
             if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
             draft.name = name.value.trim();
-            draft.kind = kind.value;
-            draft.node = draft.kind === 'single' ? (nodeSel.value || undefined) : undefined;
-            draft.detour = draft.kind === 'single' && detourSel.value ? detourSel.value : undefined;
+            draft.kind = 'single';
+            draft.node = nodeSel.value || undefined;
+            draft.detour = detourSel.value || undefined;
             if (draft.detour && wouldCycle(draft.id, draft.detour, intent.routes)) { ui.toast('detour 链成环，不能保存', 'err'); return false; }
-            if (draft.kind !== 'single') delete draft.node;
             Object.assign(route, draft);
             return route;
           }
@@ -166,7 +173,12 @@
 
       root.append(
         ui.viewHead('路由', 'Direct / Block 是固定语义；single 路由支持任意深度的前置链，但不得成环', [
-          h('button', { class: 'btn btn--primary', onclick: () => openRouteEditor({ id: S.uid('route'), enabled: true, name: '', kind: 'single', node: '', detour: '' }) }, '添加路由')
+          h('button', {
+            class: 'btn btn--primary',
+            disabled: intent.nodes.length === 0,
+            title: intent.nodes.length === 0 ? '请先添加节点' : '添加 Single 路由',
+            onclick: () => openRouteEditor({ id: S.uid('route'), enabled: true, name: '', kind: 'single', node: '', detour: '' })
+          }, '添加 Single 路由')
         ]),
         h('div', { class: 'grid-2' }, [
           kindCard('direct', 'Direct 直连', '匹配流量直接出网。启用配置必须恰好存在一个 Direct 路由。', direct),

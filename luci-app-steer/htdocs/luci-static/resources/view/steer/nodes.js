@@ -85,6 +85,46 @@ function collectRouteReferences(routes) {
 	return references;
 }
 
+function addSystemRouteSection(map, route) {
+	if (!route)
+		return;
+	const direct = route.kind == 'direct';
+	let section = map.section(form.NamedSection, route['.name'], 'route', direct ? _('Direct') : _('Block'));
+	section.addremove = false;
+	section.anonymous = true;
+	section.nodescriptions = true;
+	let option;
+	if (direct) {
+		option = section.option(form.DummyValue, '_system_status', _('Status'));
+		option.textvalue = function() { return _('Required · always enabled'); };
+	}
+	else {
+		option = section.option(form.Flag, 'enabled', _('Enabled'));
+		option.default = '1';
+	}
+	option = section.option(form.Value, 'name', _('Name'));
+	option.rmempty = false;
+	option = section.option(form.DummyValue, '_system_kind', _('Kind'));
+	option.textvalue = function() { return direct ? _('Direct') : _('Block'); };
+}
+
+function configureSubscriptionRemoval(section, nodes, routes) {
+	section.handleRemove = function(sectionId) {
+		const owned = nodes.filter((node) => node.source_subscription == sectionId);
+		const ownedIDs = Object.fromEntries(owned.map((node) => [ node['.name'], true ]));
+		const references = routes.filter((route) => route.node && ownedIDs[route.node]);
+		if (references.length) {
+			ui.addNotification(_('Subscription cannot be removed'), E('p', {},
+				_('%d route(s) still use nodes from this subscription.').format(references.length)), 'danger');
+			return;
+		}
+		const config = this.uciconfig || this.map.config;
+		owned.forEach((node) => this.map.data.remove(config, node['.name']));
+		this.map.data.remove(config, sectionId);
+		return this.map.save(null, true);
+	};
+}
+
 function protocolLabel(value) {
 	return uiSpec.node_types.find((item) => item.value == value)?.label || value || null;
 }
@@ -128,7 +168,7 @@ function addGeneratedNodeField(section, field) {
 	else if (field.multiline)
 		widget = form.TextValue;
 
-	const option = section.taboption(field.section, widget, field.key, nodeFieldLabel(field));
+	const option = section.option(widget, field.key, nodeFieldLabel(field));
 	option.modalonly = true;
 	if (field.control == 'password')
 		option.password = true;
@@ -193,7 +233,7 @@ function renderSubscriptionStatus(result) {
 			E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('Name')), E('div', { 'class': 'th' }, _('Last update')), E('div', { 'class': 'th' }, _('Nodes')), E('div', { 'class': 'th' }, _('Action')) ]),
 			...subscriptions.map((subscription) => {
 				const stale = subscription.stale_node_ids || [];
-				const last = subscription.fetched_at ? new Date(subscription.fetched_at).toLocaleString() : (subscription.error || _('Not fetched'));
+				const last = subscription.fetched_at ? new Date(subscription.fetched_at).toLocaleString() : (subscription.error ? _('Update failed') : _('Not fetched'));
 				const actions = [ E('button', {
 					'class': 'btn cbi-button-action',
 					'click': function() {
@@ -273,8 +313,8 @@ function renderImportButton() {
 	return E('section', { 'class': 'cbi-section' }, [
 		E('div', { 'class': 'steer-section-heading' }, [
 			E('div', {}, [
-				E('h3', {}, _('Import share URL')),
-				E('p', {}, _('Parse a standard proxy share URL in this browser. The URL is never sent to a Steer RPC or written to logs.'))
+				E('h3', {}, _('Import nodes')),
+				E('p', {}, _('Paste one node link per line, or paste a Base64-wrapped subscription document. Steer parses and validates it before it enters the pending configuration.'))
 			]),
 			E('button', {
 				'class': 'cbi-button cbi-button-add',
@@ -282,7 +322,7 @@ function renderImportButton() {
 					ev.preventDefault();
 					showImportDialog();
 				}
-			}, _('Import node'))
+			}, _('Import nodes'))
 		])
 	]);
 }
@@ -302,7 +342,7 @@ function speedtestResult(report, download) {
 	const results = report?.results || [];
 	const successful = results.filter((result) => result.ok === true);
 	if (!successful.length)
-		return { ok: false, label: _('Failed'), detail: report?.error || results.map((result) => result.error).filter(Boolean).join('\n') || _('No speed-test result was returned.') };
+		return { ok: false, label: _('Failed'), detail: _('See diagnostic logs for details.') };
 
 	if (download) {
 		const measured = successful.filter((result) => result.downloaded_bytes > 0 && result.download_milliseconds > 0)
@@ -347,7 +387,7 @@ function runSpeedtest(sectionId, download, button) {
 		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.label, result.detail);
 		return result.ok;
 	}).catch((error) => {
-		setSpeedtestButton(button, 'error', _('Failed'), String(error));
+		setSpeedtestButton(button, 'error', _('Failed'), _('See diagnostic logs for details.'));
 		return false;
 	});
 }
@@ -359,7 +399,7 @@ function runRouteSpeedtest(sectionId, download, button) {
 		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.label, result.detail);
 		return result.ok;
 	}).catch((error) => {
-		setSpeedtestButton(button, 'error', _('Failed'), String(error));
+		setSpeedtestButton(button, 'error', _('Failed'), _('See diagnostic logs for details.'));
 		return false;
 	});
 }
@@ -465,21 +505,21 @@ function showImportDialog() {
 					E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, String(fact[1])) ]))),
 				E('div', { 'class': 'right' }, E('button', {
 					'class': 'cbi-button cbi-button-positive', click: save
-				}, _('Add to pending changes')))
+				}, _('Import into pending configuration')))
 			]));
 		}).catch((error) => {
 			preview.replaceChildren(E('div', { 'class': 'alert-message danger' }, String(error)));
 		});
 	};
 
-	ui.showModal(_('Import proxy node'), [
-		E('p', {}, _('Paste one or more share URLs, or a Base64-wrapped list. Credentials are hidden from the preview and stored only after confirmation.')),
+	ui.showModal(_('Import nodes'), [
+		E('p', {}, _('Paste one node link per line, or paste a Base64-wrapped subscription document. Steer parses and validates it before it enters the pending configuration.')),
 		input,
 		preview,
 		E('div', { 'class': 'right' }, [
 			E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Cancel')),
 			' ',
-			E('button', { 'class': 'cbi-button cbi-button-action', 'click': review }, _('Parse and review'))
+			E('button', { 'class': 'cbi-button cbi-button-action', 'click': review }, _('Parse and preview'))
 		])
 	]);
 	input.focus();
@@ -511,6 +551,7 @@ return view.extend({
 		if (page == 'subscriptions') {
 			s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
 			steer.configureNamedSection(s);
+			configureSubscriptionRemoval(s, nodes, routes);
 			s.addremove = true;
 			s.nodescriptions = true;
 			s.addbtntitle = _('Add subscription');
@@ -525,11 +566,17 @@ return view.extend({
 		}
 
 		if (page == 'routes') {
-		s = m.section(form.GridSection, 'route', _('Routes'));
-		steer.configureNamedSection(s);
+			addSystemRouteSection(m, routes.find((route) => route.kind == 'direct'));
+			addSystemRouteSection(m, routes.find((route) => route.kind == 'block'));
+
+		s = m.section(form.GridSection, 'route', _('Single-node routes'));
+		steer.configureNamedSection(s, { enabled: '1', kind: 'single' });
 		s.addremove = true;
 		s.nodescriptions = true;
-		s.addbtntitle = _('Add route');
+		s.addbtntitle = _('Add single-node route');
+		s.filter = function(sectionId) {
+			return uci.get('steer', sectionId, 'kind') == 'single';
+		};
 		s.sectiontitle = function(sectionId) {
 			return uci.get('steer', sectionId, 'name') || _('Unnamed');
 		};
@@ -542,13 +589,10 @@ return view.extend({
 		o.rmempty = false;
 		o.modalonly = true;
 
-		o = s.option(form.ListValue, 'kind', _('Kind'));
-		uiSpec.route_kinds.filter((item) => item.value != 'single' || nodeReferences.length).forEach((item) =>
-			o.value(item.value, item.value == 'direct' ? _('Direct') : (item.value == 'block' ? _('Block') : _('Single node'))));
+		o = s.option(form.DummyValue, '_single_kind', _('Kind'));
+		o.textvalue = function() { return _('Single node'); };
 		if (!nodeReferences.length)
 			o.description = _('Create a proxy node before adding a single-node route.');
-		o.rmempty = false;
-		o.editable = true;
 
 		if (nodeReferences.length) {
 			o = s.option(form.RichListValue, 'node', _('Node'));
@@ -609,17 +653,11 @@ return view.extend({
 		s.sectiontitle = function(sectionId) {
 			return uci.get('steer', sectionId, 'name') || _('Unnamed');
 		};
-		s.tab('general', _('Connection'));
-		s.tab('protocol', _('Protocol'));
-		s.tab('transport', _('Transport'));
-		s.tab('tls', _('TLS / REALITY'));
-		s.tab('advanced', _('Advanced'));
-
-		o = s.taboption('general', form.Flag, 'enabled', _('Enabled'));
+		o = s.option(form.Flag, 'enabled', _('Enabled'));
 		o.default = '1';
 		o.editable = !summaryOnly;
 
-		o = s.taboption('general', form.Button, '_connect_speedtest', _('Connection test'));
+		o = s.option(form.Button, '_connect_speedtest', _('Connection test'));
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
@@ -627,7 +665,7 @@ return view.extend({
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, false, ev.currentTarget); };
 
-		o = s.taboption('general', form.Button, '_download_speedtest', _('Download test'));
+		o = s.option(form.Button, '_download_speedtest', _('Download test'));
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
@@ -635,11 +673,11 @@ return view.extend({
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget); };
 
-		o = s.taboption('general', form.Value, 'name', _('Name'));
+		o = s.option(form.Value, 'name', _('Name'));
 		o.rmempty = false;
 		o.modalonly = true;
 
-		o = s.taboption('general', form.ListValue, 'type', _('Protocol'));
+		o = s.option(form.ListValue, 'type', _('Protocol'));
 		uiSpec.node_types.forEach((item) => o.value(item.value, protocolLabel(item.value)));
 		o.rmempty = false;
 		o.editable = !summaryOnly;
@@ -647,12 +685,12 @@ return view.extend({
 			return protocolLabel(uci.get('steer', sectionId, 'type'));
 		};
 
-		o = s.taboption('general', form.Value, 'server', _('Server'));
+		o = s.option(form.Value, 'server', _('Server'));
 		o.rmempty = false;
 		o.editable = !summaryOnly;
 		uiSpec.node_types.filter((item) => item.value != 'tor').forEach((item) => o.depends('type', item.value));
 
-		o = s.taboption('general', form.Value, 'server_port', _('Port'));
+		o = s.option(form.Value, 'server_port', _('Port'));
 		o.datatype = 'port';
 		o.rmempty = false;
 		o.editable = !summaryOnly;
