@@ -9,9 +9,10 @@ Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SR
 3. 每份 seed 都有严格 manifest，记录上游版本、DAT SHA-256、转换工具版本以及每个 selector 对应 SRS 的路径、大小和 SHA-256。
 4. 设备 Apply 只校验所引用的 seed 文件；sing-box 通过 `initial_path` 立即启动，并使用 direct HTTP client 每 24 小时后台检查同名 remote SRS。
 5. 控制器只依赖无版本的 `sing-box` 提供者；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求用户指定兼容版本/构建。当前 CI 发布构建和系统验收固定使用官方 `1.14.0-rc.1` 作为验证基线，不构成运行时依赖约束。
-6. master 不构建或保存正式发布包。tag 必须指向 `origin/master` 的祖先，且同一 `head_sha` 已有成功的 master CI push run；随后在同一个 tag workflow/run 内重新构建、验收、attest 并发布所有资产。预发布 tag 创建 GitHub prerelease，但不替换稳定 OpenWrt 软件源。
+6. master 不构建或保存正式发布包。tag 必须指向 `origin/master` 的祖先；稳定 tag 还要求同一 `head_sha` 已有成功的 master CI push run。GitHub Actions 服务降级时，预发布允许以完整本地发布门替代独立 master CI，但 tag workflow 仍从该 tag 重新构建、验收、attest 并发布全部资产。预发布不替换稳定 OpenWrt 软件源。
 
-当前稳定版本是 `v0.8.2`。OpenWrt APK 与 Arch `pkgver` 同为 `0.8.2`，Git tag、Linux 与 macOS 构件使用相同的公开 SemVer 版本。
+当前稳定版本是 `v0.8.2`。
+当前预览版本是 `v0.9.0-alpha.1`；OpenWrt APK 将同一版本规范化为 `0.9.0_alpha1`，Arch `pkgver` 使用 `0.9.0alpha1`，Git tag、Linux 与 macOS 构件保留公开 SemVer 拼写。
 
 ## Geo SRS
 
@@ -43,13 +44,13 @@ Pages 只保存当前版本，不承诺历史 seed 或可重复取得任意旧�
 
 ## OpenWrt
 
-`v0.8.2` 面向 OpenWrt 25.12.5 x86/64：
+`v0.9.0-alpha.1` 面向 OpenWrt 25.12.5 x86/64：
 
 | 包 | 版本 | 所有内容 |
 |---|---|---|
-| `steer` | `0.8.2-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
-| `luci-app-steer` | `0.8.2-r1` | LuCI 页面、ucode RPC、ACL |
-| `luci-i18n-steer-zh-cn` | `0.8.2-r1` | 简体中文翻译 |
+| `steer` | `0.9.0_alpha1-r1` | 控制器、默认 UCI、procd init、完整只读 SRS seed |
+| `luci-app-steer` | `0.9.0_alpha1-r1` | LuCI 页面、ucode RPC、ACL |
+| `luci-i18n-steer-zh-cn` | `0.9.0_alpha1-r1` | 简体中文翻译 |
 | `sing-box` | `1.14.0_rc1-r0` | SagerNet 官方 x86_64 APK，经内容核验后改用 Steer 仓库密钥签名 |
 
 Steer 不重编译 sing-box。CI 先校验官方 APK 的固定 SHA-256，重签后比较除签名记录外的 APK 元数据，再用仓库公钥验证安装包。软件源的四个 APK 与 `packages.adb` 使用同一 Steer P-256 信任根；私钥只来自 GitHub Actions Secret `OPENWRT_APK_PRIVATE_KEY`，不得进入源码、构件、Release 或 Pages。
@@ -195,7 +196,7 @@ all-commit / PR CI（无 concurrency 限制）
   ├── Go 平台命令 smoke build
   ├── Linux systemd 容器集成测试
   └── arm64/x86_64 原生 Go + Swift debug/release 测试
-        ↓ tag source gate（master 祖先 + 同 SHA 成功 CI + 版本一致）
+        ↓ tag source gate（master 祖先 + 版本一致；稳定版另需同 SHA 成功 CI）
 v* tag workflow
         ↓
 verified Pages Geo seed
@@ -236,9 +237,9 @@ git diff --check
 
 tag 流程：
 
-1. 推送 master 原子变更并等待对应 `CI` push run 成功。
+1. 推送 master 原子变更；稳定版等待对应 `CI` push run 成功，预发布在 Actions 降级时记录完整本地发布门结果。
 2. 给同一 commit 打版本 tag 并推送。
-3. `release.yml` 检查 ancestry、同 SHA master CI 和 tag/源码版本一致性，再从 tag 源码构建全部平台。
+3. `release.yml` 检查 ancestry 和 tag/源码版本一致性；稳定版还检查同 SHA master CI，再从 tag 源码构建全部平台。
 4. bundle job 只下载本次 run 的 OpenWrt/Linux/macOS artifacts，逐层校验后生成统一元数据和校验和。
 5. attestation 完成后创建 GitHub Release；稳定 tag 才更新 Pages OpenWrt 软件源，预发布只创建 prerelease。
 
