@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -39,6 +40,10 @@ jobs:
       - name: Verify tag ancestry and version consistency
         id: version
         run: |
+          test "$GITHUB_REF_TYPE" = tag || {
+            echo "Release workflow must run from a version tag" >&2
+            exit 1
+          }
           git fetch --no-tags origin master:refs/remotes/origin/master
           git merge-base --is-ancestor "$GITHUB_SHA" origin/master || {
             echo "Tag commit is not an ancestor of origin/master" >&2
