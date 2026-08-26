@@ -37,6 +37,7 @@ type Target struct {
 	DNSInboundTags       []string   `json:"dns_inbound_tags"`
 	DNSCapture           DNSCapture `json:"dns_capture"`
 	SniffInboundTags     []string   `json:"sniff_inbound_tags"`
+	DirectRouteAddress   []string   `json:"direct_route_address"`
 	RequiredCapabilities []string   `json:"required_capabilities"`
 }
 
@@ -238,6 +239,20 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 			routeRules = append(routeRules, map[string]any{
 				"inbound": capture.InboundTags, "network": []string{"tcp", "udp"}, "port": []uint16{53}, "action": "hijack-dns",
 			})
+		}
+	}
+	if len(target.DirectRouteAddress) > 0 {
+		for _, route := range intent.Routes {
+			if route.Enabled && route.Kind == "direct" {
+				direct := map[string]any{
+					"ip_cidr": target.DirectRouteAddress, "action": "route", "outbound": routeTag(route.ID),
+				}
+				if len(target.SniffInboundTags) > 0 {
+					direct["inbound"] = target.SniffInboundTags
+				}
+				routeRules = append(routeRules, direct)
+				break
+			}
 		}
 	}
 	routeRules = append(routeRules, map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"})

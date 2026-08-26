@@ -73,6 +73,12 @@ Linux 第一版承诺 systemd 主机及其 VM/Docker 转发的公网流量。平
 
 Steer 不写全局 `dns.strategy`，也不写 DNS rule action 的 query-level `strategy`，客户端 A/AAAA 查询保持透明。DNS server 本身使用域名时，启动该 transport 所需的 `domain_resolver.strategy` 来自 `bootstrap.strategy`；route 默认域名解析器使用同一内部解析策略。schema 9 删除了 `dns_profile.strategy`。
 
+## macOS 数据面
+
+macOS 使用 LaunchDaemon 下的 sing-box Darwin TUN，不修改系统 DNS，不使用 pf 或 Network Extension。平台层从当前 UP 的非回环、非 point-to-point 接口发现实际 IPv4 私网/CGNAT 和 IPv6 ULA 子网，将它们加入 TUN `route_address`，并从宽泛的私网 `route_exclude_address` 中精确扣除。回环、链路本地、组播、Apple peer-to-peer 接口和 utun 地址不会被当作 LAN 接管。
+
+macOS route 顺序为：① `inbound=steer-tun + network=[tcp,udp] + port=[53] -> hijack-dns`；② 当前活动 LAN 子网 `-> Direct`；③ sniff；④ 用户公网规则。`port` 是目标端口，不使用 `source_port` 或 `protocol=dns`。这保证 DHCP DNS 和硬编码 LAN Do53 被截获，其他 LAN 单播流量虽经过用户态核心仍固定 Direct；DoH/DoT 按普通流量处理。常驻 control LaunchDaemon 对活动子网与 generation 进行定期对账，接口或 DHCP 子网变化时在 operation lock 内重新 Apply。
+
 ## Apply
 
 Linux 的 Apply、配置写入和订阅变更共用一把 operation lock；Apply 本身仍是同步流程：

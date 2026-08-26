@@ -59,6 +59,7 @@ func TestBackendBootsOutRegisteredInactiveLaunchDaemon(t *testing.T) {
 		RunDirectory: root + "/run", StateDirectory: root + "/state", SingBoxBinary: "/test/sing-box",
 		LaunchctlBinary: "/test/launchctl", LaunchDaemonLabel: DefaultLaunchDaemonLabel,
 		LaunchDaemonPlist: root + "/steer.plist", CheckTUN: func([]string) error { return nil },
+		LANPrefixes: []string{},
 	})
 	candidate, err := backend.Prepare(context.Background(), value, compiler.Compile(value, backend.CompilerOptions()))
 	if err != nil {
@@ -80,6 +81,7 @@ func TestBackendUsesLaunchdGenerationLifecycle(t *testing.T) {
 		RunDirectory: root + "/run", StateDirectory: root + "/state", SingBoxBinary: "/test/sing-box",
 		LaunchctlBinary: "/test/launchctl", LaunchDaemonLabel: DefaultLaunchDaemonLabel,
 		LaunchDaemonPlist: root + "/steer.plist", CheckTUN: func([]string) error { return nil },
+		LANPrefixes: []string{},
 	})
 	compiled := compiler.Compile(value, backend.CompilerOptions())
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
@@ -98,5 +100,9 @@ func TestBackendUsesLaunchdGenerationLifecycle(t *testing.T) {
 	current, err := backend.paths().LoadCurrent()
 	if err != nil || current.GenerationID == "" || current.Directory == "" {
 		t.Fatalf("unexpected current generation: %#v %v", current, err)
+	}
+	prefixes, err := CurrentLANPrefixes(root + "/run")
+	if err != nil || len(prefixes) != 0 {
+		t.Fatalf("unexpected persisted active LAN prefixes: %#v %v", prefixes, err)
 	}
 }

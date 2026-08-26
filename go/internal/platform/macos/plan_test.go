@@ -13,7 +13,11 @@ import (
 )
 
 func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
-	plan := NewPlan(model.Intent{})
+	activeLAN := []string{"192.168.50.0/24", "fd12:3456:789a::/64"}
+	plan, err := NewPlanWithLANPrefixes(model.Intent{}, activeLAN)
+	if err != nil {
+		t.Fatal(err)
+	}
 	target := plan.CompilerTarget()
 	if len(target.Inbounds) != 1 || target.DNSCapture.Mode != compiler.DNSCaptureTUNPort53Hijack {
 		t.Fatalf("unexpected macOS target: %#v", target)
@@ -25,8 +29,8 @@ func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
 	if tun["auto_route"] != true {
 		t.Fatal("macOS launchd runtime must let sing-box own auto_route")
 	}
-	if tun["dns_mode"] != "hijack" {
-		t.Fatal("macOS TUN must install the native Apple DNS path instead of leaving LAN resolvers outside Steer")
+	if tun["dns_mode"] != "disabled" {
+		t.Fatal("macOS DNS ownership must come from destination-port-53 capture, not system DNS mutation")
 	}
 	if _, exists := tun["auto_redirect"]; exists {
 		t.Fatal("macOS target must not use Linux auto_redirect")
@@ -40,10 +44,24 @@ func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
 			t.Fatal("macOS must not exclude the IPv4 subnet containing the system-stack peer")
 		}
 	}
-	for _, lan := range []string{"10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"} {
-		if !contains(excluded, lan) {
-			t.Fatalf("non-DNS LAN traffic would enter the proxy core because %s is not excluded", lan)
+	for _, active := range activeLAN {
+		if contains(excluded, active) {
+			t.Fatalf("active LAN subnet %s remained excluded from TUN capture", active)
 		}
+	}
+	for _, inactive := range []string{"10.0.0.0/8", "172.16.0.0/12"} {
+		if !contains(excluded, inactive) {
+			t.Fatalf("inactive private range %s was imported into TUN", inactive)
+		}
+	}
+	routeAddress := tun["route_address"].([]string)
+	for _, required := range append(defaultRouteAddress, activeLAN...) {
+		if !contains(routeAddress, required) {
+			t.Fatalf("TUN route_address is missing %s: %#v", required, routeAddress)
+		}
+	}
+	if !reflect.DeepEqual(target.DirectRouteAddress, activeLAN) {
+		t.Fatalf("active LAN Direct rule drifted: %#v", target.DirectRouteAddress)
 	}
 }
 
@@ -55,7 +73,11 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 		DNSProfiles: []model.DNSProfile{{ID: "dns", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53}},
 		Rules:       []model.Rule{{ID: "default", Enabled: true, Default: true, DNSProfile: "dns", Route: "direct"}},
 	}
-	bundle := compiler.Compile(value, NewPlan(value).CompilerOptions("/tmp/steer-state"))
+	plan, err := NewPlanWithLANPrefixes(value, []string{"192.168.50.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := compiler.Compile(value, plan.CompilerOptions("/tmp/steer-state"))
 	encoded, _ := json.Marshal(bundle.SingBox["route"])
 	if !strings.Contains(string(encoded), `"action":"hijack-dns"`) || !strings.Contains(string(encoded), `"port":[53]`) {
 		t.Fatalf("macOS TUN DNS capture rule is missing: %s", encoded)
@@ -64,7 +86,7 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 		t.Fatalf("macOS route unexpectedly contains auto_redirect: %s", encoded)
 	}
 	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
-	if len(rules) < 2 {
+	if len(rules) < 3 {
 		t.Fatalf("macOS route rules are incomplete: %#v", rules)
 	}
 	first := rules[0].(map[string]any)
@@ -74,8 +96,14 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 	if _, exists := first["source_port"]; exists {
 		t.Fatalf("macOS DNS hijack accidentally matches the reusable UDP source port: %#v", first)
 	}
-	if rules[1].(map[string]any)["action"] != "sniff" {
-		t.Fatalf("ordinary TUN traffic must remain outside DNS hijack: %#v", rules)
+	direct := rules[1].(map[string]any)
+	if direct["action"] != "route" || direct["outbound"] != "steer-route-direct" ||
+		!reflect.DeepEqual(direct["ip_cidr"], []string{"192.168.50.0/24"}) ||
+		!reflect.DeepEqual(direct["inbound"], []string{"steer-tun"}) {
+		t.Fatalf("active LAN unicast must route Direct after DNS capture: %#v", rules)
+	}
+	if rules[2].(map[string]any)["action"] != "sniff" {
+		t.Fatalf("sniff must run after DNS and LAN classification: %#v", rules)
 	}
 }
 

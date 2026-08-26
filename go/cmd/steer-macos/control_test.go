@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,6 +89,57 @@ func TestControlServiceRejectsInvalidDocumentBeforeWrite(t *testing.T) {
 	})
 	if response.OK || !strings.Contains(response.Error, "decode canonical configuration") {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestControlServiceReappliesWhenActiveLANSubnetChanges(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	document, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document = []byte(strings.Replace(string(document), `"enabled": false`, `"enabled": true`, 1))
+	if err := os.WriteFile(configPath, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runDirectory := filepath.Join(root, "run")
+	if err := os.MkdirAll(runDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runDirectory, "current.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	applyCalls := 0
+	service := &controlService{
+		configPath: configPath,
+		options:    macosplatform.BackendOptions{RunDirectory: runDirectory},
+		discoverLAN: func() ([]string, error) {
+			return []string{"192.168.50.0/24"}, nil
+		},
+		currentLAN: func(string) ([]string, error) {
+			return []string{"192.168.1.0/24"}, nil
+		},
+		apply: func(_ model.Intent, options macosplatform.BackendOptions) error {
+			applyCalls++
+			if !slices.Equal(options.LANPrefixes, []string{"192.168.50.0/24"}) {
+				t.Fatalf("reconcile applied wrong LAN prefixes: %#v", options.LANPrefixes)
+			}
+			return nil
+		},
+	}
+	if err := service.reconcileLANPrefixes(); err != nil {
+		t.Fatal(err)
+	}
+	if applyCalls != 1 {
+		t.Fatalf("LAN subnet change triggered %d applies", applyCalls)
+	}
+	service.currentLAN = func(string) ([]string, error) { return []string{"192.168.50.0/24"}, nil }
+	if err := service.reconcileLANPrefixes(); err != nil {
+		t.Fatal(err)
+	}
+	if applyCalls != 1 {
+		t.Fatalf("unchanged LAN subnet triggered another apply: %d", applyCalls)
 	}
 }
 

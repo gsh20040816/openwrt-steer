@@ -14,6 +14,8 @@ const TunMTU = 9000
 
 const DefaultGeoDataDirectory = "/Library/Application Support/Steer/geodata-seed"
 
+var defaultRouteAddress = []string{"0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"}
+
 var nonGlobalIPv4 = []string{
 	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
 	"172.16.0.0/12", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16",
@@ -31,32 +33,55 @@ type Plan struct {
 }
 
 type Resources struct {
-	TunAddresses []string `json:"tun_addresses"`
+	TunAddresses          []string `json:"tun_addresses"`
+	ActiveLANPrefixes     []string `json:"active_lan_prefixes"`
+	RouteExcludeAddresses []string `json:"route_exclude_addresses"`
 }
 
-func NewPlan(_ model.Intent) Plan {
-	return Plan{SchemaVersion: 1, Resources: Resources{
-		TunAddresses: []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"},
-	}}
+func NewPlanForHost(value model.Intent) (Plan, error) {
+	prefixes, err := DiscoverActiveLANPrefixes()
+	if err != nil {
+		return Plan{}, err
+	}
+	return NewPlanWithLANPrefixes(value, prefixes)
+}
+
+func NewPlanWithLANPrefixes(_ model.Intent, prefixes []string) (Plan, error) {
+	normalized, err := normalizeLANPrefixes(prefixes)
+	if err != nil {
+		return Plan{}, err
+	}
+	excluded := append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...)
+	excluded, err = excludeActiveLANPrefixes(excluded, normalized)
+	if err != nil {
+		return Plan{}, err
+	}
+	return Plan{SchemaVersion: 2, Resources: Resources{
+		TunAddresses:          []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"},
+		ActiveLANPrefixes:     normalized,
+		RouteExcludeAddresses: excluded,
+	}}, nil
 }
 
 // CompilerTarget is the supported no-Apple-Developer runtime path. sing-box
 // owns the Darwin utun device and auto_route; macOS does not use Linux's
-// auto_redirect, nftables, or pf. dns_mode=hijack installs the native Apple
-// interface DNS path, while the explicit TCP/UDP destination-port-53 rule
-// remains the in-TUN guard. LAN ranges stay outside the TUN so all non-DNS
-// LAN traffic bypasses the proxy core entirely.
+// auto_redirect, nftables, or pf. Active LAN subnets are added as explicit TUN
+// routes and removed from the broad private-address exclusions. The compiler
+// then hijacks destination port 53 first and routes the remaining LAN unicast
+// traffic through Direct before sniffing or evaluating user Internet rules.
 func (plan Plan) CompilerTarget() compiler.Target {
+	routes := append(append([]string{}, defaultRouteAddress...), plan.Resources.ActiveLANPrefixes...)
 	return compiler.Target{
 		Inbounds: []any{
 			map[string]any{
 				"type": "tun", "tag": "steer-tun", "address": plan.Resources.TunAddresses,
-				"mtu": TunMTU, "dns_mode": "hijack", "auto_route": true, "stack": "system",
-				"route_exclude_address": append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...),
+				"mtu": TunMTU, "dns_mode": "disabled", "auto_route": true, "stack": "system",
+				"route_address": routes, "route_exclude_address": plan.Resources.RouteExcludeAddresses,
 			},
 		},
 		DNSCapture:           compiler.DNSCapture{Mode: compiler.DNSCaptureTUNPort53Hijack, InboundTags: []string{"steer-tun"}},
 		SniffInboundTags:     []string{"steer-tun"},
+		DirectRouteAddress:   append([]string{}, plan.Resources.ActiveLANPrefixes...),
 		RequiredCapabilities: []string{"tun", "auto_route"},
 	}
 }
