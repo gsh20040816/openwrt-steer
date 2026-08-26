@@ -18,6 +18,7 @@ final actor RevisionBackend: BackendClient {
     }
 
     func installSystemComponents() async throws {}
+    func uninstallSystemComponents(removeUserData: Bool) async throws {}
 
     func validate(document: String) async throws -> ValidationResult {
         ValidationResult(ok: true, errors: [], warnings: [])

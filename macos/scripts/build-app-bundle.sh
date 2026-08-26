@@ -42,6 +42,7 @@ runtime_plist="$repository_root/macos/launchd/com.steer.steer.plist"
 control_plist="$repository_root/macos/launchd/com.steer.steer.control.plist"
 subscription_plist="$repository_root/macos/launchd/com.steer.steer.subscription.plist"
 embedded_installer="$repository_root/macos/scripts/install-embedded-payload.sh"
+embedded_uninstaller="$repository_root/macos/scripts/uninstall-embedded-payload.sh"
 config_example="$repository_root/linux/config.example.json"
 steer_license="$repository_root/LICENSE"
 
@@ -61,6 +62,7 @@ for input in \
 	"$control_plist" \
 	"$subscription_plist" \
 	"$embedded_installer" \
+	"$embedded_uninstaller" \
 	"$config_example" \
 	"$steer_license" \
 	"$geodata_directory/manifest.json"; do
@@ -125,6 +127,7 @@ install -m 0755 "$app_binary" "$app/Contents/MacOS/SteerApp"
 install -m 0755 "$helper_binary" "$installer_directory/steer-macos"
 install -m 0755 "$sing_box_binary" "$installer_directory/sing-box"
 install -m 0755 "$embedded_installer" "$installer_directory/install-embedded-payload.sh"
+install -m 0755 "$embedded_uninstaller" "$installer_directory/uninstall-embedded-payload.sh"
 install -m 0644 "$runtime_plist" "$installer_directory/com.steer.steer.plist"
 install -m 0644 "$control_plist" "$installer_directory/com.steer.steer.control.plist"
 install -m 0644 "$subscription_plist" "$installer_directory/com.steer.steer.subscription.plist"
@@ -176,6 +179,7 @@ codesign --force --sign - --timestamp=none "$app/Contents/MacOS/SteerApp"
 		steer-macos \
 		sing-box \
 		install-embedded-payload.sh \
+		uninstall-embedded-payload.sh \
 		com.steer.steer.plist \
 		com.steer.steer.control.plist \
 		com.steer.steer.subscription.plist \

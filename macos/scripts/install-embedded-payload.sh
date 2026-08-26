@@ -47,6 +47,7 @@ for payload in \
 	"$config_payload" \
 	"$payload_sums" \
 	"$script_dir/install-embedded-payload.sh" \
+	"$script_dir/uninstall-embedded-payload.sh" \
 	"$geodata_payload/manifest.json"; do
 	require_regular_file "$payload"
 done
@@ -146,4 +147,13 @@ geodata_stage=""
 /bin/launchctl bootstrap system "$subscription_plist_path"
 /bin/launchctl bootstrap system "$runtime_plist_path"
 /bin/launchctl print system/com.steer.steer.control >/dev/null
+remaining_checks=50
+while [ ! -S "$socket_directory/control.sock" ]; do
+	if [ "$remaining_checks" -le 0 ]; then
+		printf '%s\n' 'Timed out waiting for the Steer control socket.' >&2
+		exit 1
+	fi
+	remaining_checks=$((remaining_checks - 1))
+	/bin/sleep 0.1
+done
 printf '%s\n' 'Installed Steer system components. Future GUI Save/Apply operations use restricted passwordless control IPC.'

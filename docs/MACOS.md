@@ -33,7 +33,7 @@ Darwin utun + auto_route
 - 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
 - Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；
 - 诊断：显示共享校验、最近 Apply、完整 sanitized overview/node/route 报告、运行日志和 LaunchDaemon 后端状态；
-- 系统：显示运行时、系统路径和授权边界。
+- 系统：逐项显示 helper、sing-box、三个 plist/LaunchDaemon、配置、Geo seed 与 control socket 的安装事实；缺失或版本不一致时可用固定 embedded payload Repair，并提供受控卸载。
 
 所有页面的 toolbar 和菜单栏固定提供 Save、Apply Saved 与 Save and Apply，文案直接反映是否写入 Saved。Apply Saved 从磁盘读取当前 Saved 后再执行 revision-guarded Apply，即使本地 Draft dirty 也不会夹带或覆盖它；Apply 失败时 candidate 不会冒充 Active。全局 Enable 只出现在总览和菜单栏，并且仅在 Draft clean 时可用；开关变化后立即保存并 Apply，失败时保留后端报告的真实 Active 状态。
 
@@ -112,6 +112,10 @@ DMG 内的 `Steer.app` 包含同架构 Swift GUI、`steer-macos`、SagerNet 官�
 2. 把 `Steer.app` 拖入 `/Applications`，按 macOS 的“未认证开发者”流程手动确认首次打开。
 3. 在“系统”页点击“安装系统组件”，输入一次管理员密码。
 4. 后续从 GUI 保存、Apply、启停和升级配置时不再重复输入密码。
+
+“系统”页不会仅凭 helper 存在就声称完整安装。任一必需文件、LaunchDaemon、配置、Geo manifest 或 control socket 缺失，以及 embedded payload 版本不一致，都会列出具体事实并显示 Repair。Repair 仍只执行 App 内固定安装器，默认保留 config/state，完成后自动重新验收。
+
+“卸载系统组件”只执行 App 内固定卸载器：先 bootout 三个 LaunchDaemon，再删除 helper、sing-box、plist、control socket、runtime 与 Geo 程序组件。默认保留 `/Library/Application Support/Steer/config`、`state` 和 `/Library/Logs/Steer`；“同时删除用户数据”位于独立的第二次破坏性确认中。卸载器不接受路径或命令参数，重复执行安全。
 
 artifact attestation 证明文件来自对应 tag workflow，但不会替代 Developer ID 或 notarization，也不会自动改变 Gatekeeper 判断。
 

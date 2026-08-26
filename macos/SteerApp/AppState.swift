@@ -413,10 +413,63 @@ private struct GeoCatalogResponse: Decodable {
     let names: [String]
 }
 
+struct SystemComponentFact: Identifiable, Sendable, Equatable {
+    enum State: String, Sendable {
+        case ready
+        case missing
+        case outdated
+        case inactive
+        case invalid
+    }
+
+    let id: String
+    let label: String
+    let path: String
+    let state: State
+    let detail: String
+
+    var ready: Bool { state == .ready }
+}
+
 struct SystemComponentsStatus: Sendable {
     let installed: Bool
     let embeddedInstallerAvailable: Bool
+    let embeddedUninstallerAvailable: Bool
     let updateAvailable: Bool
+    let hasInstalledArtifacts: Bool
+    let facts: [SystemComponentFact]
+
+    init(
+        installed: Bool,
+        embeddedInstallerAvailable: Bool,
+        updateAvailable: Bool,
+        embeddedUninstallerAvailable: Bool = false,
+        hasInstalledArtifacts: Bool? = nil,
+        facts: [SystemComponentFact] = []
+    ) {
+        self.installed = installed
+        self.embeddedInstallerAvailable = embeddedInstallerAvailable
+        self.embeddedUninstallerAvailable = embeddedUninstallerAvailable
+        self.updateAvailable = updateAvailable
+        self.hasInstalledArtifacts = hasInstalledArtifacts ?? installed
+        self.facts = facts
+    }
+
+    init(
+        facts: [SystemComponentFact],
+        embeddedInstallerAvailable: Bool,
+        embeddedUninstallerAvailable: Bool,
+        hasInstalledArtifacts: Bool
+    ) {
+        self.facts = facts
+        self.installed = !facts.isEmpty && facts.allSatisfy(\.ready)
+        self.embeddedInstallerAvailable = embeddedInstallerAvailable
+        self.embeddedUninstallerAvailable = embeddedUninstallerAvailable
+        self.updateAvailable = facts.contains { $0.state == .outdated }
+        self.hasInstalledArtifacts = hasInstalledArtifacts
+    }
+
+    var issues: [SystemComponentFact] { facts.filter { !$0.ready } }
 }
 
 private struct ControlResponse: Decodable {
@@ -535,6 +588,7 @@ enum BackendClientError: LocalizedError {
 protocol BackendClient: Sendable {
     func componentStatus() async -> SystemComponentsStatus
     func installSystemComponents() async throws
+    func uninstallSystemComponents(removeUserData: Bool) async throws
     func validate(document: String) async throws -> ValidationResult
     func loadConfiguration() async throws -> ConfigurationSnapshot
     func save(document: String, expectedRevision: String) async throws -> SaveOutcome
@@ -558,9 +612,12 @@ extension BackendClient {
 struct HelperBackendClient: BackendClient {
     private static let installedHelperPath = "/usr/local/libexec/steer/steer-macos"
     private static let configurationPath = "/Library/Application Support/Steer/config/config.json"
+    private static let runtimePlistPath = "/Library/LaunchDaemons/com.steer.steer.plist"
     private static let controlPlistPath = "/Library/LaunchDaemons/com.steer.steer.control.plist"
     private static let subscriptionPlistPath = "/Library/LaunchDaemons/com.steer.steer.subscription.plist"
     private static let installedSingBoxPath = "/usr/local/libexec/steer/sing-box"
+    private static let geoManifestPath = "/Library/Application Support/Steer/geodata-seed/manifest.json"
+    private static let controlSocketPath = "/var/run/steer/control.sock"
 
     private let validationHelperURL: URL
 
@@ -572,27 +629,61 @@ struct HelperBackendClient: BackendClient {
 
     func componentStatus() async -> SystemComponentsStatus {
         let fileManager = FileManager.default
-        let installed = fileManager.isExecutableFile(atPath: Self.installedHelperPath)
-            && fileManager.isExecutableFile(atPath: Self.installedSingBoxPath)
-            && fileManager.fileExists(atPath: Self.controlPlistPath)
-            && fileManager.fileExists(atPath: Self.subscriptionPlistPath)
         let embeddedHelper = Self.embeddedInstallerResource("steer-macos")
         let installerAvailable = embeddedInstallerURL.map {
             fileManager.isExecutableFile(atPath: $0.path)
         } ?? false
-        var updateAvailable = false
-        if installed, let embeddedHelper,
-           fileManager.isExecutableFile(atPath: embeddedHelper.path) {
-            let installedHelper = URL(fileURLWithPath: Self.installedHelperPath)
-            if let installedVersion = try? await Self.execute(installedHelper, ["version"]),
-               let embeddedVersion = try? await Self.execute(embeddedHelper, ["version"]) {
-                updateAvailable = installedVersion.stdout != embeddedVersion.stdout
-            }
+        let uninstallerAvailable = embeddedUninstallerURL.map {
+            fileManager.isExecutableFile(atPath: $0.path)
+        } ?? false
+
+        var facts = [
+            Self.fileFact(id: "helper", label: "steer-macos helper", path: Self.installedHelperPath, executable: true),
+            Self.fileFact(id: "sing_box", label: "sing-box", path: Self.installedSingBoxPath, executable: true),
+            Self.fileFact(id: "runtime_plist", label: "Runtime LaunchDaemon plist", path: Self.runtimePlistPath),
+            Self.fileFact(id: "control_plist", label: "Control LaunchDaemon plist", path: Self.controlPlistPath),
+            Self.fileFact(id: "subscription_plist", label: "Subscription LaunchDaemon plist", path: Self.subscriptionPlistPath),
+            Self.fileFact(id: "config", label: "Canonical configuration", path: Self.configurationPath, readable: true),
+            Self.fileFact(id: "geo_seed", label: "Geo seed manifest", path: Self.geoManifestPath),
+        ]
+
+        if let embeddedHelper {
+            await Self.markVersionMismatch(
+                in: &facts, id: "helper", installed: URL(fileURLWithPath: Self.installedHelperPath), embedded: embeddedHelper
+            )
         }
+        if let embeddedSingBox = Self.embeddedInstallerResource("sing-box") {
+            await Self.markVersionMismatch(
+                in: &facts, id: "sing_box", installed: URL(fileURLWithPath: Self.installedSingBoxPath), embedded: embeddedSingBox
+            )
+        }
+        for (id, installedPath, resourceName) in [
+            ("runtime_plist", Self.runtimePlistPath, "com.steer.steer.plist"),
+            ("control_plist", Self.controlPlistPath, "com.steer.steer.control.plist"),
+            ("subscription_plist", Self.subscriptionPlistPath, "com.steer.steer.subscription.plist"),
+        ] {
+            Self.markPayloadMismatch(in: &facts, id: id, installedPath: installedPath, embedded: Self.embeddedInstallerResource(resourceName))
+        }
+        Self.markPayloadMismatch(
+            in: &facts, id: "geo_seed", installedPath: Self.geoManifestPath,
+            embedded: Bundle.main.resourceURL?.appendingPathComponent("geodata-seed/manifest.json")
+        )
+
+        facts.append(await Self.serviceFact(id: "runtime_service", label: "Runtime LaunchDaemon", launchdLabel: "com.steer.steer"))
+        facts.append(await Self.serviceFact(id: "control_service", label: "Control LaunchDaemon", launchdLabel: "com.steer.steer.control"))
+        facts.append(await Self.serviceFact(id: "subscription_service", label: "Subscription LaunchDaemon", launchdLabel: "com.steer.steer.subscription"))
+        facts.append(Self.socketFact())
+
+        let programPaths = [
+            Self.installedHelperPath, Self.installedSingBoxPath, Self.runtimePlistPath,
+            Self.controlPlistPath, Self.subscriptionPlistPath, Self.geoManifestPath, Self.controlSocketPath,
+        ]
+        let hasArtifacts = programPaths.contains { fileManager.fileExists(atPath: $0) }
         return SystemComponentsStatus(
-            installed: installed,
+            facts: facts,
             embeddedInstallerAvailable: installerAvailable,
-            updateAvailable: updateAvailable
+            embeddedUninstallerAvailable: uninstallerAvailable,
+            hasInstalledArtifacts: hasArtifacts
         )
     }
 
@@ -602,6 +693,16 @@ struct HelperBackendClient: BackendClient {
             throw BackendClientError.processFailed("当前 App 不包含正式的系统组件 payload；源码开发请运行 macos/scripts/install-launchdaemon.sh。")
         }
         _ = try await Self.executePrivileged(Self.command([installer.path]))
+    }
+
+    func uninstallSystemComponents(removeUserData: Bool) async throws {
+        guard let uninstaller = embeddedUninstallerURL,
+              FileManager.default.isExecutableFile(atPath: uninstaller.path) else {
+            throw BackendClientError.processFailed("当前 App 不包含受控系统组件卸载器。")
+        }
+        var arguments = [uninstaller.path]
+        if removeUserData { arguments.append("--remove-user-data") }
+        _ = try await Self.executePrivileged(Self.command(arguments))
     }
 
     func validate(document: String) async throws -> ValidationResult {
@@ -834,6 +935,102 @@ struct HelperBackendClient: BackendClient {
         Self.embeddedInstallerResource("install-embedded-payload.sh")
     }
 
+    private var embeddedUninstallerURL: URL? {
+        Self.embeddedInstallerResource("uninstall-embedded-payload.sh")
+    }
+
+    private static func fileFact(
+        id: String,
+        label: String,
+        path: String,
+        executable: Bool = false,
+        readable: Bool = false
+    ) -> SystemComponentFact {
+        let url = URL(fileURLWithPath: path)
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
+            return SystemComponentFact(id: id, label: label, path: path, state: .missing, detail: "缺失")
+        }
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            return SystemComponentFact(id: id, label: label, path: path, state: .invalid, detail: "不是 regular file")
+        }
+        if executable && !FileManager.default.isExecutableFile(atPath: url.path) {
+            return SystemComponentFact(id: id, label: label, path: path, state: .invalid, detail: "不可执行")
+        }
+        if readable && !FileManager.default.isReadableFile(atPath: url.path) {
+            return SystemComponentFact(id: id, label: label, path: path, state: .invalid, detail: "当前管理员不可读")
+        }
+        return SystemComponentFact(id: id, label: label, path: path, state: .ready, detail: "就绪")
+    }
+
+    private static func replaceFact(
+        in facts: inout [SystemComponentFact],
+        id: String,
+        state: SystemComponentFact.State,
+        detail: String
+    ) {
+        guard let index = facts.firstIndex(where: { $0.id == id }) else { return }
+        let current = facts[index]
+        facts[index] = SystemComponentFact(
+            id: current.id, label: current.label, path: current.path, state: state, detail: detail
+        )
+    }
+
+    private static func markVersionMismatch(
+        in facts: inout [SystemComponentFact],
+        id: String,
+        installed: URL,
+        embedded: URL
+    ) async {
+        guard facts.first(where: { $0.id == id })?.ready == true else { return }
+        guard let installedVersion = try? await execute(installed, ["version"]),
+              let embeddedVersion = try? await execute(embedded, ["version"]),
+              installedVersion.status == 0, embeddedVersion.status == 0 else {
+            replaceFact(in: &facts, id: id, state: .invalid, detail: "无法读取版本")
+            return
+        }
+        if installedVersion.stdout != embeddedVersion.stdout {
+            replaceFact(in: &facts, id: id, state: .outdated, detail: "与 App payload 版本不一致")
+        }
+    }
+
+    private static func markPayloadMismatch(
+        in facts: inout [SystemComponentFact],
+        id: String,
+        installedPath: String,
+        embedded: URL?
+    ) {
+        guard facts.first(where: { $0.id == id })?.ready == true, let embedded,
+              let installedData = try? Data(contentsOf: URL(fileURLWithPath: installedPath)),
+              let embeddedData = try? Data(contentsOf: embedded) else { return }
+        if installedData != embeddedData {
+            replaceFact(in: &facts, id: id, state: .outdated, detail: "与 App payload 不一致")
+        }
+    }
+
+    private static func serviceFact(id: String, label: String, launchdLabel: String) async -> SystemComponentFact {
+        let result = try? await execute(URL(fileURLWithPath: "/bin/launchctl"), ["print", "system/\(launchdLabel)"])
+        return SystemComponentFact(
+            id: id,
+            label: label,
+            path: "system/\(launchdLabel)",
+            state: result?.status == 0 ? .ready : .inactive,
+            detail: result?.status == 0 ? "已加载" : "未加载"
+        )
+    }
+
+    private static func socketFact() -> SystemComponentFact {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: controlSocketPath) else {
+            return SystemComponentFact(
+                id: "control_socket", label: "Control socket", path: controlSocketPath, state: .missing, detail: "缺失"
+            )
+        }
+        let ready = attributes[.type] as? FileAttributeType == .typeSocket
+        return SystemComponentFact(
+            id: "control_socket", label: "Control socket", path: controlSocketPath,
+            state: ready ? .ready : .invalid, detail: ready ? "就绪" : "不是 Unix socket"
+        )
+    }
+
     private static func embeddedInstallerResource(_ name: String) -> URL? {
         Bundle.main.resourceURL?
             .appendingPathComponent("Installer", isDirectory: true)
@@ -931,7 +1128,10 @@ final class AppModel: ObservableObject {
     @Published var versions = RuntimeVersions()
     @Published var systemComponentsInstalled = false
     @Published var embeddedInstallerAvailable = false
+    @Published var embeddedUninstallerAvailable = false
     @Published var systemComponentsUpdateAvailable = false
+    @Published var systemComponentsHaveArtifacts = false
+    @Published var systemComponentFacts: [SystemComponentFact] = []
     @Published var subscriptionRuntime: [SubscriptionRuntimeStatus] = []
     @Published var probeSummaries: [String: String] = [:]
     @Published private(set) var overviewProbeReports: [String: ProbeReport] = [:]
@@ -965,6 +1165,10 @@ final class AppModel: ObservableObject {
     var canSaveDraft: Bool {
         !isBusy && pendingDraftAction == nil && isDirty
             && savedRevision.isEmpty == false && draftSyntaxError == nil
+    }
+
+    var systemComponentsNeedRepair: Bool {
+        !systemComponentsInstalled && systemComponentsHaveArtifacts
     }
 
     var canSaveForPendingDraftAction: Bool {
@@ -1118,6 +1322,32 @@ final class AppModel: ObservableObject {
 
     func installSystemComponents() {
         requestGuardedDraftAction(.installSystemComponents)
+    }
+
+    func uninstallSystemComponents(removeUserData: Bool) {
+        guard !isBusy else { return }
+        perform(message: removeUserData
+                ? "正在卸载 Steer 系统组件并删除用户数据；macOS 将请求管理员授权…"
+                : "正在卸载 Steer 系统组件；macOS 将请求管理员授权…") {
+            try await self.backend.uninstallSystemComponents(removeUserData: removeUserData)
+            let components = await self.backend.componentStatus()
+            self.updateComponentStatus(components)
+            guard !components.installed && !components.hasInstalledArtifacts else {
+                throw BackendClientError.processFailed("卸载器已结束，但仍检测到 Steer 程序组件。")
+            }
+            self.runtime = RuntimeStatus()
+            self.versions = RuntimeVersions()
+            self.subscriptionRuntime = []
+            self.geositeNames = []
+            self.geoipNames = []
+            if removeUserData {
+                self.savedRevision = ""
+                self.isDirty = true
+                self.message = "系统组件和用户数据已删除；当前内存 Draft 未写入磁盘"
+            } else {
+                self.message = "系统组件已卸载；已保留 /Library/Application Support/Steer/config、state 与 /Library/Logs/Steer"
+            }
+        }
     }
 
     func refreshStatus() {
@@ -1506,7 +1736,10 @@ final class AppModel: ObservableObject {
         let expectedRevision = savedRevision
         let wasInstalled = systemComponentsInstalled
         let draftSequence = draftMutationSequence
-        perform(message: "正在安装 Steer 系统组件；macOS 将请求一次管理员授权…") {
+        let repairing = systemComponentsNeedRepair || systemComponentsUpdateAvailable
+        perform(message: repairing
+                ? "正在 Repair Steer 系统组件；macOS 将请求一次管理员授权…"
+                : "正在安装 Steer 系统组件；macOS 将请求一次管理员授权…") {
             if decision == .save, wasInstalled {
                 do {
                     let draftStayedAtSavedVersion = try await self.saveCurrentDraft(
@@ -1564,18 +1797,18 @@ final class AppModel: ObservableObject {
             self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
             self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
             if self.isDirty {
-                self.message = "系统组件安装完成；安装期间产生的新 Draft 修改已保留，尚未保存"
+                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；操作期间产生的新 Draft 修改已保留，尚未保存"
                 return
             }
             switch decision {
             case .save:
-                self.message = "系统组件安装完成；当前 Draft 已保存并保留，运行态未自动 Apply"
+                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；当前 Draft 已保存并保留，运行态未自动 Apply"
             case .discard:
-                self.message = "系统组件安装完成；本地修改已丢弃并重新载入 Saved 配置"
+                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；本地修改已丢弃并重新载入 Saved 配置"
             case .cancel:
                 break
             case nil:
-                self.message = "系统组件安装完成；已载入 Saved 配置"
+                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；已载入 Saved 配置"
             }
         }
     }
@@ -2109,7 +2342,10 @@ final class AppModel: ObservableObject {
     private func updateComponentStatus(_ components: SystemComponentsStatus) {
         systemComponentsInstalled = components.installed
         embeddedInstallerAvailable = components.embeddedInstallerAvailable
+        embeddedUninstallerAvailable = components.embeddedUninstallerAvailable
         systemComponentsUpdateAvailable = components.updateAvailable
+        systemComponentsHaveArtifacts = components.hasInstalledArtifacts
+        systemComponentFacts = components.facts
     }
 
     private func draftMatches(document: String, sequence: UInt64) -> Bool {

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "required_components": [
+    { "id": "helper", "label": "steer-macos helper", "path": "/usr/local/libexec/steer/steer-macos" },
+    { "id": "sing_box", "label": "sing-box", "path": "/usr/local/libexec/steer/sing-box" },
+    { "id": "runtime_plist", "label": "Runtime LaunchDaemon plist", "path": "/Library/LaunchDaemons/com.steer.steer.plist" },
+    { "id": "control_plist", "label": "Control LaunchDaemon plist", "path": "/Library/LaunchDaemons/com.steer.steer.control.plist" },
+    { "id": "subscription_plist", "label": "Subscription LaunchDaemon plist", "path": "/Library/LaunchDaemons/com.steer.steer.subscription.plist" },
+    { "id": "config", "label": "Canonical configuration", "path": "/Library/Application Support/Steer/config/config.json" },
+    { "id": "geo_seed", "label": "Geo seed manifest", "path": "/Library/Application Support/Steer/geodata-seed/manifest.json" },
+    { "id": "runtime_service", "label": "Runtime LaunchDaemon", "path": "system/com.steer.steer" },
+    { "id": "control_service", "label": "Control LaunchDaemon", "path": "system/com.steer.steer.control" },
+    { "id": "subscription_service", "label": "Subscription LaunchDaemon", "path": "system/com.steer.steer.subscription" },
+    { "id": "control_socket", "label": "Control socket", "path": "/var/run/steer/control.sock" }
+  ],
+  "cases": [
+    { "name": "complete", "missing": [], "outdated": [] },
+    { "name": "missing-helper", "missing": ["helper"], "outdated": [] },
+    { "name": "missing-sing-box", "missing": ["sing_box"], "outdated": [] },
+    { "name": "missing-runtime-plist", "missing": ["runtime_plist"], "outdated": [] },
+    { "name": "missing-control-plist", "missing": ["control_plist"], "outdated": [] },
+    { "name": "missing-subscription-plist", "missing": ["subscription_plist"], "outdated": [] },
+    { "name": "missing-config", "missing": ["config"], "outdated": [] },
+    { "name": "missing-geo-seed", "missing": ["geo_seed"], "outdated": [] },
+    { "name": "missing-runtime-service", "missing": ["runtime_service"], "outdated": [] },
+    { "name": "missing-control-service", "missing": ["control_service"], "outdated": [] },
+    { "name": "missing-subscription-service", "missing": ["subscription_service"], "outdated": [] },
+    { "name": "missing-control-socket", "missing": ["control_socket"], "outdated": [] },
+    { "name": "outdated-helper", "missing": [], "outdated": ["helper"] }
+  ]
+}

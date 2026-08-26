@@ -169,6 +169,9 @@ def main() -> None:
         assert conflict_choice in content
     assert 'executePrivileged(Self.command([installer.path]))' in state
     assert 'executePrivileged("\\(install)' not in state
+    assert 'uninstallSystemComponents(removeUserData:' in state
+    assert 'Self.command(arguments)' in state and '"--remove-user-data"' in state
+    assert 'SystemComponentFact' in state and 'control_socket' in state and 'runtime_service' in state
     assert 'Data(contentsOf: url)' in state
     assert 'Self.execute(helper, ["status"])' in state
     assert '"apply"' in state and '"status"' in state
@@ -203,7 +206,13 @@ def main() -> None:
     assert 'if [ -f "$support_directory/config/config.json" ]' in embedded_installer
     assert 'launchctl bootstrap system "$control_plist_path"' in embedded_installer
     assert '安装系统组件' in content
+    assert 'Repair 系统组件' in content
+    assert '卸载并保留用户数据' in content
+    assert '永久删除配置、状态与日志' in content
     assert '受限 Unix socket IPC' in content
+    assert (ROOT / "macos/scripts/uninstall-embedded-payload.sh").exists()
+    assert (ROOT / "ui/macos-system-component-fixtures.json").exists()
+    assert (ROOT / "macos/SteerAppTests/SystemComponentsStatusTests.swift").exists()
     for page in ("Overview", "Configuration", "Nodes", "Routes", "DNS", "Rules", "Subscriptions", "Diagnostics", "Settings"):
         assert page in app or page in state or page in content
     assert "Local Proxies" in state

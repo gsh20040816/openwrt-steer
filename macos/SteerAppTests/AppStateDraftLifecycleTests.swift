@@ -36,11 +36,14 @@ private actor DraftOperationGate {
 private actor DraftLifecycleBackend: BackendClient {
     private var snapshot: ConfigurationSnapshot
     private var installed: Bool
+    private var hasInstalledArtifacts: Bool
     private var runtimeStatus: RuntimeStatus
     private var loadCount = 0
     private var saveCount = 0
     private var applyCount = 0
     private var installCount = 0
+    private var uninstallCount = 0
+    private var removedUserData = false
     private var probeCount = 0
     private var failNextApply = false
     private var nextSaveValidationFailure: ValidationResult?
@@ -50,9 +53,10 @@ private actor DraftLifecycleBackend: BackendClient {
     private var nextApplyGate: DraftOperationGate?
     private var nextInstallGate: DraftOperationGate?
 
-    init(document: String, revision: String = "revision-1", installed: Bool = true) {
+    init(document: String, revision: String = "revision-1", installed: Bool = true, hasInstalledArtifacts: Bool? = nil) {
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
         self.installed = installed
+        self.hasInstalledArtifacts = hasInstalledArtifacts ?? installed
         var status = RuntimeStatus()
         status.healthy = true
         status.generationID = "active-original"
@@ -64,7 +68,9 @@ private actor DraftLifecycleBackend: BackendClient {
         SystemComponentsStatus(
             installed: installed,
             embeddedInstallerAvailable: true,
-            updateAvailable: installed
+            updateAvailable: false,
+            embeddedUninstallerAvailable: true,
+            hasInstalledArtifacts: hasInstalledArtifacts
         )
     }
 
@@ -75,6 +81,14 @@ private actor DraftLifecycleBackend: BackendClient {
             await gate.pause()
         }
         installed = true
+        hasInstalledArtifacts = true
+    }
+
+    func uninstallSystemComponents(removeUserData: Bool) async throws {
+        uninstallCount += 1
+        removedUserData = removeUserData
+        installed = false
+        hasInstalledArtifacts = false
     }
 
     func validate(document: String) async throws -> ValidationResult {
@@ -173,9 +187,11 @@ private actor DraftLifecycleBackend: BackendClient {
     func cleanSubscription(id: String, nodeID: String) async throws {}
     func geoCatalog(kind: String) async throws -> [String] { [] }
 
-    func counts() -> (loads: Int, saves: Int, applies: Int, installs: Int, probes: Int) {
-        (loadCount, saveCount, applyCount, installCount, probeCount)
+    func counts() -> (loads: Int, saves: Int, applies: Int, installs: Int, uninstalls: Int, probes: Int) {
+        (loadCount, saveCount, applyCount, installCount, uninstallCount, probeCount)
     }
+
+    func didRemoveUserData() -> Bool { removedUserData }
 
     func savedSnapshot() -> ConfigurationSnapshot { snapshot }
     func failUpcomingApply() { failNextApply = true }
@@ -390,6 +406,21 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertTrue(model.canApplySaved)
     }
 
+    func testIncompleteInstallationExposesRepairAndRevalidatesAfterFixedPayload() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument, installed: false, hasInstalledArtifacts: true)
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy }
+        XCTAssertTrue(model.systemComponentsNeedRepair)
+        XCTAssertFalse(model.systemComponentsInstalled)
+
+        model.installSystemComponents()
+        try await waitUntil { !model.isBusy && model.systemComponentsInstalled }
+        XCTAssertFalse(model.systemComponentsNeedRepair)
+        let counts = await backend.counts()
+        XCTAssertEqual(counts.installs, 1)
+    }
+
     func testInstallPreservesNewEditsMadeWhileAuthorizationIsInFlight() async throws {
         let gate = DraftOperationGate()
         let backend = DraftLifecycleBackend(document: savedDocument, installed: false)
@@ -413,6 +444,47 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertEqual(model.rawJSON, newerDocument)
         XCTAssertTrue(model.isDirty)
         XCTAssertTrue(model.message.contains("已保留"))
+    }
+
+    func testUninstallPreservesConfigurationStateAndIsIdempotent() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy && model.hasInitializedDraft }
+        let revision = model.savedRevision
+        let draft = model.rawJSON
+
+        model.uninstallSystemComponents(removeUserData: false)
+        try await waitUntil { !model.isBusy && !model.systemComponentsInstalled }
+        var counts = await backend.counts()
+        XCTAssertEqual(counts.uninstalls, 1)
+        let removedUserData = await backend.didRemoveUserData()
+        XCTAssertFalse(removedUserData)
+        XCTAssertEqual(model.savedRevision, revision)
+        XCTAssertEqual(model.rawJSON, draft)
+        XCTAssertFalse(model.isDirty)
+        XCTAssertTrue(model.message.contains("config") && model.message.contains("state"))
+
+        model.uninstallSystemComponents(removeUserData: false)
+        try await waitUntil { !model.isBusy }
+        counts = await backend.counts()
+        XCTAssertEqual(counts.uninstalls, 2, "repeated fixed-path uninstall remains safe and explicit")
+    }
+
+    func testDeletingUserDataRequiresExplicitBackendFlagAndKeepsMemoryDraft() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy && model.hasInitializedDraft }
+        let draft = model.rawJSON
+
+        model.uninstallSystemComponents(removeUserData: true)
+        try await waitUntil { !model.isBusy && !model.systemComponentsInstalled }
+        let removedUserData = await backend.didRemoveUserData()
+        XCTAssertTrue(removedUserData)
+        XCTAssertEqual(model.savedRevision, "")
+        XCTAssertEqual(model.rawJSON, draft, "destructive uninstall never silently replaces the in-memory Draft")
+        XCTAssertTrue(model.isDirty)
     }
 
     func testDirtyEnableNeverDeploysTheRestOfTheDraft() async throws {

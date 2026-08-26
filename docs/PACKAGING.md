@@ -141,6 +141,7 @@ Steer.app/
         │   ├── steer-macos
         │   ├── sing-box
         │   ├── install-embedded-payload.sh
+        │   ├── uninstall-embedded-payload.sh
         │   ├── com.steer.steer.plist
         │   ├── com.steer.steer.control.plist
         │   ├── com.steer.steer.subscription.plist
@@ -152,7 +153,7 @@ Steer.app/
 
 `Info.plist` 在组装时写入真实版本、纯数字 build number、`CFBundleExecutable=SteerApp`、`CFBundleIdentifier=com.steer.steer` 与 `LSMinimumSystemVersion=13.0`，不得残留 Xcode build setting。Swift GUI 固定由 Xcode 26.6/macOS 26 SDK 构建，同时保持最低部署目标 13.0；构建会检查 SDK、deployment target、Mach-O 单一架构、权限、helper validate/parse-nodes、sing-box version/tags/revision、Geo manifest、禁止文件，并先 ad-hoc 签嵌套二进制再签 App。项目没有 Developer ID，`Notarization: none`；DMG 与 App 不得宣传为 notarized，Gatekeeper 首次手动确认属于预期行为。
 
-正式 App 的 embedded installer 只从 `Bundle.resources/Installer` 读取普通、非 symlink、带 SHA 清单的 payload，不依赖 PATH，也不现场编译。首次安装输入一次管理员密码，安装 root-owned helper/sing-box、运行数据面、control 与订阅调度三个 LaunchDaemon。control 只在 `/var/run/steer/control.sock` 接受经过 peer credential 校验的 `save`、`apply` 和订阅更新/清理请求，因此日常 GUI 写操作不再重复授权；升级保留用户 config 与 mutable run/state。
+正式 App 的 embedded installer/受控 uninstaller 只从 `Bundle.resources/Installer` 读取普通、非 symlink、带 SHA 清单的 payload，不依赖 PATH，也不现场编译。首次安装输入一次管理员密码，安装 root-owned helper/sing-box、运行数据面、control 与订阅调度三个 LaunchDaemon。control 只在 `/var/run/steer/control.sock` 接受经过 peer credential 校验的 `save`、`apply` 和订阅更新/清理请求，因此日常 GUI 写操作不再重复授权；Repair 与默认卸载保留用户 config/state/logs，删除用户数据必须独立二次确认。
 
 DMG 与最终 `SHA256SUMS` 使用 GitHub artifact attestation。验证示例：
 
