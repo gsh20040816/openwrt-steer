@@ -68,6 +68,8 @@ swift run SteerApp
 
 安装器把配置设为 `root:admin 0640`，并公开不含密钥的 generation 摘要，因此 GUI 启动、刷新状态、Validate、探测和 Geo catalog 不需要管理员授权。开发安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，并安装 control 与订阅调度服务；后续 Save/Apply 与订阅更新/清理和正式 App 使用同一受限免密 IPC。
 
+GUI Load 会保存当前 Saved revision，后续 Save/Apply 通过 `expected_revision` 做乐观并发保护。订阅 timer 或手动更新先改变 Saved 节点库存时，旧 Draft 不能覆盖它；GUI 会让用户选择 Reload Saved、保留本地 Draft 或显式覆盖。手动更新期间的新编辑不会被完成后的 reload 清除，订阅库存更新也不会自动 Apply。
+
 ## TUN、DNS 和 Geo
 
 sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf，也不修改系统 DNS。平台层静态接管 IPv4 RFC1918、CGNAT 与 IPv6 ULA。route 顺序固定为：`steer-tun + TCP/UDP + 目标端口 53 -> hijack-dns`、上述私网 `-> Direct`、sniff、用户公网规则。回环、链路本地、组播和文档/保留地址仍排除；普通 global IPv6 on-link 地址按公网规则处理，DoH/DoT 不属于 Do53 劫持。该 plan 不依赖接口或 DHCP 状态，网络变化不会隐式 Apply Saved config。

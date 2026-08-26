@@ -25,6 +25,7 @@ def main() -> None:
     installer = read("macos/scripts/install-launchdaemon.sh")
     embedded_installer = read("macos/scripts/install-embedded-payload.sh")
     package = read("macos/Package.swift")
+    ci = read(".github/workflows/ci.yml")
     app = read("macos/SteerApp/SteerApp.swift")
     app_info = read("macos/SteerApp/Info.plist")
     state = read("macos/SteerApp/AppState.swift")
@@ -121,8 +122,13 @@ def main() -> None:
     assert 'func geoCatalog(kind:' in state
     assert 'HelperBackendClient' in state
     assert 'with administrator privileges' in state
-    assert '["control", "--operation", "save", "--input", url.path]' in state
-    assert '["control", "--operation", "apply", "--input", url.path]' in state
+    assert '"--expected-revision", expectedRevision' in state
+    assert 'ConfigurationSnapshot' in state and 'savedRevision' in state
+    assert 'case revisionConflict(currentRevision: String)' in state
+    assert state.count('let startingWasDirty = isDirty') == 2
+    assert state.count('!startingWasDirty && draftMutationSequence == startingDraftSequence') == 2
+    for conflict_choice in ("Reload Saved", "保留本地 Draft", "显式覆盖"):
+        assert conflict_choice in content
     assert 'executePrivileged(Self.command([installer.path]))' in state
     assert 'executePrivileged("\\(install)' not in state
     assert 'Data(contentsOf: url)' in state
@@ -130,6 +136,9 @@ def main() -> None:
     assert '"apply"' in state and '"status"' in state
     assert '/Library/Application Support/Steer/config/config.json' in state
     assert 'openWindow(id: "main")' in app
+    assert '.testTarget(' in package
+    assert (ROOT / "macos/SteerAppTests/AppStateRevisionTests.swift").exists()
+    assert 'swift test --disable-sandbox' in ci
     assert 'install -d -o root -g admin -m 0750' in installer
     assert 'install -d -o root -g wheel -m 0755 "/var/run/steer"' in installer
     assert 'com.steer.steer.control.plist' in installer
@@ -139,6 +148,8 @@ def main() -> None:
     assert 'request.Operation != "save" && request.Operation != "apply"' in control
     assert 'request.Operation != "subscription-update"' in control
     assert 'request.Operation != "subscription-clean"' in control
+    assert 'ExpectedRevision' in control and 'currentControlRevision' in control
+    assert 'REVISION_CONFLICT' in control and 'EXPECTED_REVISION_REQUIRED' in control
     assert 'decoder.DisallowUnknownFields()' in control
     assert 'maxControlDocument' in control and 'maxControlMessage' in control
     assert 'authorizedControlPeer' in control

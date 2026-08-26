@@ -18,7 +18,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -28,20 +27,23 @@ import (
 )
 
 const (
-	controlSchemaVersion  = 1
-	defaultControlSocket  = "/var/run/steer/control.sock"
-	maxControlDocument    = 4 << 20
-	maxControlMessage     = 8 << 20
-	maxControlConnections = 8
-	controlDeadline       = 2 * time.Minute
+	controlSchemaVersion    = 1
+	defaultControlSocket    = "/var/run/steer/control.sock"
+	maxControlDocument      = 4 << 20
+	maxControlMessage       = 8 << 20
+	maxControlConnections   = 8
+	controlDeadline         = 2 * time.Minute
+	controlRevisionConflict = "REVISION_CONFLICT"
+	controlRevisionRequired = "EXPECTED_REVISION_REQUIRED"
 )
 
 type controlRequest struct {
-	SchemaVersion int    `json:"schema_version"`
-	Operation     string `json:"operation"`
-	Document      string `json:"document,omitempty"`
-	ID            string `json:"id,omitempty"`
-	NodeID        string `json:"node_id,omitempty"`
+	SchemaVersion    int    `json:"schema_version"`
+	Operation        string `json:"operation"`
+	Document         string `json:"document,omitempty"`
+	ExpectedRevision string `json:"expected_revision,omitempty"`
+	ID               string `json:"id,omitempty"`
+	NodeID           string `json:"node_id,omitempty"`
 }
 
 type controlResponse struct {
@@ -52,6 +54,7 @@ type controlResponse struct {
 	Revision      string                `json:"revision,omitempty"`
 	Status        *macosplatform.Status `json:"status,omitempty"`
 	Payload       json.RawMessage       `json:"payload,omitempty"`
+	ErrorCode     string                `json:"error_code,omitempty"`
 	Error         string                `json:"error,omitempty"`
 }
 
@@ -61,6 +64,7 @@ type controlService struct {
 	options    macosplatform.BackendOptions
 	mu         sync.Mutex
 	write      func(string, []byte, int) error
+	revision   func(string) (string, error)
 	apply      func(model.Intent, macosplatform.BackendOptions) error
 	status     func(macosplatform.BackendOptions) macosplatform.Status
 }
@@ -71,6 +75,7 @@ func runControlClient(args []string, stdout io.Writer) error {
 	socketPath := flags.String("socket", defaultControlSocket, "root control service socket")
 	operation := flags.String("operation", "", "restricted operation: save or apply")
 	inputPath := flags.String("input", "", "canonical JSON input file")
+	expectedRevision := flags.String("expected-revision", "", "expected Saved configuration revision")
 	id := flags.String("id", "", "subscription ID for a restricted subscription operation")
 	nodeID := flags.String("node", "", "stale node ID for a restricted subscription operation")
 	if err := flags.Parse(args); err != nil {
@@ -83,8 +88,8 @@ func runControlClient(args []string, stdout io.Writer) error {
 	var document []byte
 	var err error
 	if *operation == "save" || *operation == "apply" {
-		if *inputPath == "" {
-			return errors.New("control save/apply requires --input")
+		if *inputPath == "" || *expectedRevision == "" {
+			return errors.New("control save/apply requires --input and --expected-revision")
 		}
 		document, err = readLimitedFile(*inputPath, maxControlDocument)
 		if err != nil {
@@ -93,7 +98,10 @@ func runControlClient(args []string, stdout io.Writer) error {
 	} else if *id == "" || (*operation == "subscription-clean" && *nodeID == "") {
 		return errors.New("control subscription operation requires --id and clean also requires --node")
 	}
-	request := controlRequest{SchemaVersion: controlSchemaVersion, Operation: *operation, Document: string(document), ID: *id, NodeID: *nodeID}
+	request := controlRequest{
+		SchemaVersion: controlSchemaVersion, Operation: *operation, Document: string(document),
+		ExpectedRevision: *expectedRevision, ID: *id, NodeID: *nodeID,
+	}
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -285,7 +293,28 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = "canonical configuration is empty or exceeds the size limit"
 		return response
 	}
-	value, err := model.DecodeJSON(strings.NewReader(request.Document))
+	if request.ExpectedRevision == "" {
+		response.ErrorCode = controlRevisionRequired
+		response.Error = "expected Saved configuration revision is required"
+		return response
+	}
+	readRevision := service.revision
+	if readRevision == nil {
+		readRevision = currentControlRevision
+	}
+	currentRevision, err := readRevision(service.configPath)
+	if err != nil {
+		response.Error = err.Error()
+		return response
+	}
+	if currentRevision != request.ExpectedRevision {
+		response.Revision = currentRevision
+		response.ErrorCode = controlRevisionConflict
+		response.Error = "configuration revision conflict"
+		return response
+	}
+	document := normalizedControlDocument([]byte(request.Document))
+	value, err := model.DecodeJSON(bytes.NewReader(document))
 	if err != nil {
 		response.Error = "decode canonical configuration: " + err.Error()
 		return response
@@ -299,12 +328,12 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 	if write == nil {
 		write = writeControlConfiguration
 	}
-	if err := write(service.configPath, []byte(request.Document), service.adminGID); err != nil {
+	if err := write(service.configPath, document, service.adminGID); err != nil {
 		response.Error = err.Error()
 		return response
 	}
 	response.Saved = true
-	response.Revision = controlRevision([]byte(request.Document))
+	response.Revision = controlRevision(document)
 	if request.Operation == "apply" {
 		apply := service.apply
 		if apply == nil {
@@ -331,6 +360,21 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 func controlRevision(content []byte) string {
 	sum := sha256.Sum256(content)
 	return "sha256-" + hex.EncodeToString(sum[:])
+}
+
+func currentControlRevision(path string) (string, error) {
+	content, err := readLimitedFile(path, maxControlDocument)
+	if err != nil {
+		return "", fmt.Errorf("read current Saved configuration revision: %w", err)
+	}
+	return controlRevision(content), nil
+}
+
+func normalizedControlDocument(content []byte) []byte {
+	if len(content) > 0 && content[len(content)-1] == '\n' {
+		return content
+	}
+	return append(append([]byte{}, content...), '\n')
 }
 
 func setControlConfigurationPermissions(path string, adminGID int) error {

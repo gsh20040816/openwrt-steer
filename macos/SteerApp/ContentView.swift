@@ -35,6 +35,25 @@ struct ContentView: View {
                 .disabled(model.isBusy || model.draftSyntaxError != nil)
             }
         }
+        .alert(
+            "Saved revision 冲突",
+            isPresented: Binding(
+                get: { model.revisionConflict != nil },
+                set: { _ in }
+            )
+        ) {
+            Button("Reload Saved", role: .destructive) {
+                model.reloadSavedAfterRevisionConflict()
+            }
+            Button("保留本地 Draft", role: .cancel) {
+                model.keepLocalDraftAfterRevisionConflict()
+            }
+            Button("显式覆盖", role: .destructive) {
+                model.overwriteAfterRevisionConflict()
+            }
+        } message: {
+            Text(model.revisionConflictExplanation)
+        }
     }
 }
 

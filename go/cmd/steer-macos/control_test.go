@@ -39,6 +39,9 @@ func TestControlServiceApplyUsesOnlyStructuredHooks(t *testing.T) {
 	service := &controlService{
 		configPath: "/fixed/config.json",
 		adminGID:   80,
+		revision: func(string) (string, error) {
+			return controlRevision(document), nil
+		},
 		write: func(path string, content []byte, gid int) error {
 			if path != "/fixed/config.json" || gid != 80 || string(content) != string(document) {
 				t.Fatalf("unexpected structured save input: path=%q gid=%d", path, gid)
@@ -58,9 +61,10 @@ func TestControlServiceApplyUsesOnlyStructuredHooks(t *testing.T) {
 		},
 	}
 	response := service.handle(controlRequest{
-		SchemaVersion: controlSchemaVersion,
-		Operation:     "apply",
-		Document:      string(document),
+		SchemaVersion:    controlSchemaVersion,
+		Operation:        "apply",
+		Document:         string(document),
+		ExpectedRevision: controlRevision(document),
 	})
 	if !response.OK || response.Status == nil || !written || !applied {
 		t.Fatalf("unexpected response or hook state: response=%+v written=%v applied=%v", response, written, applied)
@@ -80,11 +84,15 @@ func TestControlServiceRejectsUnrestrictedOperations(t *testing.T) {
 }
 
 func TestControlServiceRejectsInvalidDocumentBeforeWrite(t *testing.T) {
-	service := &controlService{configPath: t.TempDir() + "/config.json"}
+	service := &controlService{
+		configPath: t.TempDir() + "/config.json",
+		revision:   func(string) (string, error) { return "current", nil },
+	}
 	response := service.handle(controlRequest{
-		SchemaVersion: controlSchemaVersion,
-		Operation:     "save",
-		Document:      `{"main":`,
+		SchemaVersion:    controlSchemaVersion,
+		Operation:        "save",
+		Document:         `{"main":`,
+		ExpectedRevision: "current",
 	})
 	if response.OK || !strings.Contains(response.Error, "decode canonical configuration") {
 		t.Fatalf("unexpected response: %+v", response)
@@ -100,6 +108,9 @@ func TestControlServiceSavedOnlyConfigurationCannotReachApplyHook(t *testing.T) 
 	writeCalls := 0
 	service := &controlService{
 		configPath: "/fixed/config.json",
+		revision: func(string) (string, error) {
+			return controlRevision(document), nil
+		},
 		write: func(_ string, _ []byte, _ int) error {
 			writeCalls++
 			return nil
@@ -110,15 +121,122 @@ func TestControlServiceSavedOnlyConfigurationCannotReachApplyHook(t *testing.T) 
 		},
 	}
 	response := service.handle(controlRequest{
-		SchemaVersion: controlSchemaVersion,
-		Operation:     "save",
-		Document:      string(document),
+		SchemaVersion:    controlSchemaVersion,
+		Operation:        "save",
+		Document:         string(document),
+		ExpectedRevision: controlRevision(document),
 	})
 	if !response.OK || !response.Saved || response.Applied {
 		t.Fatalf("unexpected save response: %+v", response)
 	}
 	if writeCalls != 1 || applyCalls != 0 {
 		t.Fatalf("saved-only configuration wrote %d time(s) and applied %d time(s)", writeCalls, applyCalls)
+	}
+}
+
+func TestControlServiceRequiresExpectedRevision(t *testing.T) {
+	service := &controlService{}
+	response := service.handle(controlRequest{
+		SchemaVersion: controlSchemaVersion,
+		Operation:     "save",
+		Document:      `{}`,
+	})
+	if response.OK || response.Saved || response.Applied || response.ErrorCode != controlRevisionRequired {
+		t.Fatalf("unexpected missing-revision response: %+v", response)
+	}
+}
+
+func TestControlServiceRejectsStaleGUIRevisionAfterSubscriptionUpdate(t *testing.T) {
+	original, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedIntent, err := model.DecodeJSON(bytes.NewReader(original))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedIntent.Subscriptions = []model.Subscription{{ID: "public", Enabled: true, URL: "https://subscription.example/nodes"}}
+	updatedIntent.Nodes = []model.Node{{
+		ID: "public-node", Enabled: true, Type: "socks", Server: "127.0.0.1", ServerPort: 1080,
+		NodeSource: model.NodeSource{SourceSubscription: "public"},
+	}}
+	var updatedBuffer bytes.Buffer
+	if err := model.EncodeJSON(&updatedBuffer, updatedIntent); err != nil {
+		t.Fatal(err)
+	}
+	updated := updatedBuffer.Bytes()
+	for _, operation := range []string{"save", "apply"} {
+		t.Run(operation, func(t *testing.T) {
+			root := t.TempDir()
+			configPath := filepath.Join(root, "config.json")
+			if err := os.WriteFile(configPath, updated, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			writeCalls, applyCalls := 0, 0
+			service := &controlService{
+				configPath: configPath,
+				options:    macosplatform.BackendOptions{RunDirectory: filepath.Join(root, "run")},
+				write: func(string, []byte, int) error {
+					writeCalls++
+					return nil
+				},
+				apply: func(model.Intent, macosplatform.BackendOptions) error {
+					applyCalls++
+					return nil
+				},
+			}
+			response := service.handle(controlRequest{
+				SchemaVersion:    controlSchemaVersion,
+				Operation:        operation,
+				Document:         string(original),
+				ExpectedRevision: controlRevision(original),
+			})
+			if response.OK || response.Saved || response.Applied || response.ErrorCode != controlRevisionConflict ||
+				response.Revision != controlRevision(updated) {
+				t.Fatalf("stale %s returned unexpected response: %+v", operation, response)
+			}
+			if writeCalls != 0 || applyCalls != 0 {
+				t.Fatalf("stale %s wrote %d time(s) and applied %d time(s)", operation, writeCalls, applyCalls)
+			}
+			after, err := os.ReadFile(configPath)
+			if err != nil || string(after) != string(updated) {
+				t.Fatalf("stale %s changed subscription-updated Saved content: %v\n%s", operation, err, after)
+			}
+		})
+	}
+}
+
+func TestControlServiceReturnsRevisionOfNormalizedSavedBytes(t *testing.T) {
+	document, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document = bytes.TrimSuffix(document, []byte{'\n'})
+	var written []byte
+	service := &controlService{
+		configPath: "/fixed/config.json",
+		revision:   func(string) (string, error) { return "loaded", nil },
+		write: func(_ string, content []byte, _ int) error {
+			written = append([]byte{}, content...)
+			return nil
+		},
+	}
+	response := service.handle(controlRequest{
+		SchemaVersion:    controlSchemaVersion,
+		Operation:        "save",
+		Document:         string(document),
+		ExpectedRevision: "loaded",
+	})
+	if !response.OK || !response.Saved || len(written) == 0 || written[len(written)-1] != '\n' ||
+		response.Revision != controlRevision(written) {
+		t.Fatalf("response revision does not describe normalized Saved bytes: %+v %q", response, written)
+	}
+}
+
+func TestControlRevisionUsesStableSHA256Format(t *testing.T) {
+	const want = "sha256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+	if got := controlRevision([]byte("abc")); got != want {
+		t.Fatalf("control revision = %q, want %q", got, want)
 	}
 }
 
@@ -166,7 +284,7 @@ func TestControlClientClosesRequestBeforeReadingResponse(t *testing.T) {
 			serverDone <- err
 			return
 		}
-		if request.Operation != "save" {
+		if request.Operation != "save" || request.ExpectedRevision != "sha256-loaded" {
 			serverDone <- errors.New("unexpected operation")
 			return
 		}
@@ -177,7 +295,10 @@ func TestControlClientClosesRequestBeforeReadingResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := runControlClient([]string{"--socket", socketPath, "--operation", "save", "--input", inputPath}, &output); err != nil {
+	if err := runControlClient([]string{
+		"--socket", socketPath, "--operation", "save", "--input", inputPath,
+		"--expected-revision", "sha256-loaded",
+	}, &output); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-serverDone; err != nil {
