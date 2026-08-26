@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -81,6 +82,153 @@ func TestControlServiceRejectsUnrestrictedOperations(t *testing.T) {
 	})
 	if response.OK || response.Error != "unsupported control operation" {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestControlServiceProbeForwardsOnlyStructuredSelection(t *testing.T) {
+	called := false
+	service := &controlService{
+		configPath: "/fixed/config.json",
+		probe: func(_ context.Context, configPath string, options macosplatform.BackendOptions, selection probeSelection) (probeResponse, error) {
+			called = true
+			if configPath != "/fixed/config.json" || options.RunDirectory != "" {
+				t.Fatalf("probe received unexpected fixed paths: %q %#v", configPath, options)
+			}
+			if selection.Kind != "speedtest" || selection.NodeID != "node-a" || selection.RouteID != "" || !selection.Download {
+				t.Fatalf("probe received unexpected selection: %#v", selection)
+			}
+			return probeResponse{
+				TestReport: macosplatform.TestReport{Scope: "nodes", ObjectID: "node-a", Kind: "download", OK: false},
+			}, nil
+		},
+	}
+	response := service.handle(controlRequest{
+		SchemaVersion: controlSchemaVersion,
+		Operation:     "probe",
+		Kind:          "speedtest",
+		NodeID:        "node-a",
+		Download:      true,
+	})
+	if !called || !response.OK || len(response.Payload) == 0 {
+		t.Fatalf("structured probe was not returned: called=%v response=%+v", called, response)
+	}
+	var report probeResponse
+	if err := decodeStrictJSON(response.Payload, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.OK || report.Scope != "nodes" || report.ObjectID != "node-a" {
+		t.Fatalf("HTTP probe failure was confused with control failure: %#v", report)
+	}
+}
+
+func TestControlServiceOverviewProbeRequiresHealthyActiveGeneration(t *testing.T) {
+	called := false
+	service := &controlService{
+		status: func(macosplatform.BackendOptions) macosplatform.Status {
+			return macosplatform.Status{
+				SchemaVersion: macosplatform.RuntimeSchemaVersion,
+				GenerationID:  "generation-a",
+				IntentDigest:  "digest-a",
+			}
+		},
+		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
+			called = true
+			return probeResponse{}, nil
+		},
+	}
+	response := service.handle(controlRequest{
+		SchemaVersion: controlSchemaVersion,
+		Operation:     "probe",
+		Kind:          "proxy",
+	})
+	if response.OK || called || !strings.Contains(response.Error, "not healthy") {
+		t.Fatalf("unhealthy Active probe was not rejected before HTTP: called=%v response=%+v", called, response)
+	}
+}
+
+func TestControlServiceOverviewProbeBindsHealthyActiveIdentity(t *testing.T) {
+	service := &controlService{
+		status: func(macosplatform.BackendOptions) macosplatform.Status {
+			return macosplatform.Status{
+				SchemaVersion: macosplatform.RuntimeSchemaVersion,
+				Healthy:       true,
+				GenerationID:  "generation-a",
+				IntentDigest:  "digest-a",
+			}
+		},
+		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
+			return probeResponse{
+				TestReport:       macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true},
+				ActiveGeneration: "generation-a",
+				ActiveDigest:     "digest-a",
+			}, nil
+		},
+	}
+	request := controlRequest{SchemaVersion: controlSchemaVersion, Operation: "probe", Kind: "proxy"}
+	if response := service.handle(request); !response.OK {
+		t.Fatalf("healthy Active probe was rejected: %+v", response)
+	}
+	service.probe = func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
+		return probeResponse{
+			TestReport:       macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true},
+			ActiveGeneration: "generation-b",
+			ActiveDigest:     "digest-b",
+		}, nil
+	}
+	if response := service.handle(request); response.OK || !strings.Contains(response.Error, "changed") {
+		t.Fatalf("mismatched Active identity was returned: %+v", response)
+	}
+}
+
+func TestControlServiceOverviewProbeRejectsRuntimeThatBecomesUnhealthy(t *testing.T) {
+	statusReads := 0
+	service := &controlService{
+		status: func(macosplatform.BackendOptions) macosplatform.Status {
+			statusReads++
+			return macosplatform.Status{
+				SchemaVersion: macosplatform.RuntimeSchemaVersion,
+				Healthy:       statusReads == 1,
+				GenerationID:  "generation-a",
+				IntentDigest:  "digest-a",
+			}
+		},
+		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
+			return probeResponse{
+				TestReport:       macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true},
+				ActiveGeneration: "generation-a",
+				ActiveDigest:     "digest-a",
+			}, nil
+		},
+	}
+	response := service.handle(controlRequest{
+		SchemaVersion: controlSchemaVersion,
+		Operation:     "probe",
+		Kind:          "proxy",
+	})
+	if response.OK || statusReads != 2 || !strings.Contains(response.Error, "became unhealthy") {
+		t.Fatalf("probe survived an unhealthy Active transition: reads=%d response=%+v", statusReads, response)
+	}
+}
+
+func TestControlServiceProbeRejectsConfigurationAndPathFields(t *testing.T) {
+	service := &controlService{
+		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
+			t.Fatal("invalid probe reached backend")
+			return probeResponse{}, nil
+		},
+	}
+	response := service.handle(controlRequest{
+		SchemaVersion: controlSchemaVersion,
+		Operation:     "probe",
+		Kind:          "proxy",
+		Document:      `{"url":"https://attacker.example/"}`,
+	})
+	if response.OK || !strings.Contains(response.Error, "only kind") {
+		t.Fatalf("unexpected invalid probe response: %+v", response)
+	}
+	var request controlRequest
+	if err := decodeStrictJSON([]byte(`{"schema_version":1,"operation":"probe","kind":"proxy","url":"https://attacker.example/"}`), &request); err == nil {
+		t.Fatal("control probe accepted an arbitrary URL field")
 	}
 }
 
@@ -350,5 +498,69 @@ func TestControlClientClosesRequestBeforeReadingResponse(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), `"ok": true`) {
 		t.Fatalf("unexpected client output: %s", output.String())
+	}
+}
+
+func TestRunProbeReturnsFlatActiveDTO(t *testing.T) {
+	placeholder, err := os.CreateTemp("/tmp", "steer-probe-control-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socketPath := placeholder.Name()
+	if err := placeholder.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(socketPath)
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	serverDone := make(chan error, 1)
+	go func() {
+		connection, err := listener.AcceptUnix()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer connection.Close()
+		requestData, err := io.ReadAll(connection)
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		var request controlRequest
+		if err := decodeStrictJSON(requestData, &request); err != nil {
+			serverDone <- err
+			return
+		}
+		if request.Operation != "probe" || request.Kind != "proxy" || request.Document != "" || request.ID != "" || request.NodeID != "" || request.RouteID != "" {
+			serverDone <- errors.New("unexpected structured probe request")
+			return
+		}
+		payload := json.RawMessage(`{"scope":"overview","kind":"proxy","ok":true,"tested_at":"2026-08-26T01:02:03Z","results":[],"active_generation":"generation-a","active_digest":"digest-a"}`)
+		serverDone <- json.NewEncoder(connection).Encode(controlResponse{
+			SchemaVersion: controlSchemaVersion,
+			OK:            true,
+			Payload:       payload,
+		})
+	}()
+	var output bytes.Buffer
+	if err := runProbe([]string{"--socket", socketPath, "--kind", "proxy"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"active_generation": "generation-a"`, `"active_digest": "digest-a"`, `"tested_at": "2026-08-26T01:02:03Z"`} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("flat probe output is missing %s:\n%s", expected, output.String())
+		}
+	}
+	if strings.Contains(output.String(), `"payload"`) {
+		t.Fatalf("probe leaked the control envelope: %s", output.String())
 	}
 }

@@ -43,7 +43,10 @@ type controlRequest struct {
 	Document         string `json:"document,omitempty"`
 	ExpectedRevision string `json:"expected_revision,omitempty"`
 	ID               string `json:"id,omitempty"`
+	Kind             string `json:"kind,omitempty"`
 	NodeID           string `json:"node_id,omitempty"`
+	RouteID          string `json:"route_id,omitempty"`
+	Download         bool   `json:"download,omitempty"`
 }
 
 type controlResponse struct {
@@ -68,6 +71,7 @@ type controlService struct {
 	revision   func(string) (string, error)
 	apply      func(model.Intent, macosplatform.BackendOptions) error
 	status     func(macosplatform.BackendOptions) macosplatform.Status
+	probe      func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error)
 }
 
 func runControlClient(args []string, stdout io.Writer) error {
@@ -103,41 +107,9 @@ func runControlClient(args []string, stdout io.Writer) error {
 		SchemaVersion: controlSchemaVersion, Operation: *operation, Document: string(document),
 		ExpectedRevision: *expectedRevision, ID: *id, NodeID: *nodeID,
 	}
-	encoded, err := json.Marshal(request)
+	response, err := sendControlRequest(*socketPath, request)
 	if err != nil {
 		return err
-	}
-	connection, err := net.DialTimeout("unix", *socketPath, 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("connect to Steer control service: %w", err)
-	}
-	defer connection.Close()
-	if err := connection.SetDeadline(time.Now().Add(controlDeadline)); err != nil {
-		return err
-	}
-	if _, err := connection.Write(append(encoded, '\n')); err != nil {
-		return fmt.Errorf("send control request: %w", err)
-	}
-	unixConnection, ok := connection.(*net.UnixConn)
-	if !ok {
-		return errors.New("control connection is not a Unix socket")
-	}
-	if err := unixConnection.CloseWrite(); err != nil {
-		return fmt.Errorf("finish control request: %w", err)
-	}
-	responseData, err := io.ReadAll(io.LimitReader(connection, maxControlMessage+1))
-	if err != nil {
-		return fmt.Errorf("read control response: %w", err)
-	}
-	if len(responseData) > maxControlMessage {
-		return errors.New("control response exceeded size limit")
-	}
-	var response controlResponse
-	if err := decodeStrictJSON(responseData, &response); err != nil {
-		return fmt.Errorf("decode control response: %w", err)
-	}
-	if response.SchemaVersion != controlSchemaVersion {
-		return fmt.Errorf("unsupported control response schema %d", response.SchemaVersion)
 	}
 	writeErr := writeJSON(stdout, response)
 	if writeErr != nil {
@@ -150,6 +122,46 @@ func runControlClient(args []string, stdout io.Writer) error {
 		return errors.New(response.Error)
 	}
 	return nil
+}
+
+func sendControlRequest(socketPath string, request controlRequest) (controlResponse, error) {
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return controlResponse{}, err
+	}
+	connection, err := net.DialTimeout("unix", socketPath, 5*time.Second)
+	if err != nil {
+		return controlResponse{}, fmt.Errorf("connect to Steer control service: %w", err)
+	}
+	defer connection.Close()
+	if err := connection.SetDeadline(time.Now().Add(controlDeadline)); err != nil {
+		return controlResponse{}, err
+	}
+	if _, err := connection.Write(append(encoded, '\n')); err != nil {
+		return controlResponse{}, fmt.Errorf("send control request: %w", err)
+	}
+	unixConnection, ok := connection.(*net.UnixConn)
+	if !ok {
+		return controlResponse{}, errors.New("control connection is not a Unix socket")
+	}
+	if err := unixConnection.CloseWrite(); err != nil {
+		return controlResponse{}, fmt.Errorf("finish control request: %w", err)
+	}
+	responseData, err := io.ReadAll(io.LimitReader(connection, maxControlMessage+1))
+	if err != nil {
+		return controlResponse{}, fmt.Errorf("read control response: %w", err)
+	}
+	if len(responseData) > maxControlMessage {
+		return controlResponse{}, errors.New("control response exceeded size limit")
+	}
+	var response controlResponse
+	if err := decodeStrictJSON(responseData, &response); err != nil {
+		return controlResponse{}, fmt.Errorf("decode control response: %w", err)
+	}
+	if response.SchemaVersion != controlSchemaVersion {
+		return controlResponse{}, fmt.Errorf("unsupported control response schema %d", response.SchemaVersion)
+	}
+	return response, nil
 }
 
 func runControlService(args []string) error {
@@ -234,7 +246,7 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = fmt.Sprintf("unsupported control request schema %d", request.SchemaVersion)
 		return response
 	}
-	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" {
+	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" && request.Operation != "probe" {
 		response.Error = "unsupported control operation"
 		return response
 	}
@@ -247,6 +259,49 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			return response
 		}
 		defer lock.Close()
+	}
+	if request.Operation == "probe" {
+		if request.Document != "" || request.ExpectedRevision != "" || request.ID != "" {
+			response.Error = "probe accepts only kind, node_id, route_id and download"
+			return response
+		}
+		var activeStatus macosplatform.Status
+		if request.NodeID == "" && request.RouteID == "" {
+			activeStatus = service.readRuntimeStatus()
+			if !activeStatus.Healthy || activeStatus.GenerationID == "" || activeStatus.IntentDigest == "" {
+				response.Error = "active macOS generation is not healthy; overview probe was not started"
+				return response
+			}
+		}
+		run := service.probe
+		if run == nil {
+			run = performProbe
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), controlDeadline)
+		defer cancel()
+		report, err := run(ctx, service.configPath, service.options, probeSelection{
+			Kind: request.Kind, NodeID: request.NodeID, RouteID: request.RouteID, Download: request.Download,
+		})
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		if request.NodeID == "" && request.RouteID == "" {
+			finalStatus := service.readRuntimeStatus()
+			if !finalStatus.Healthy || finalStatus.GenerationID != activeStatus.GenerationID ||
+				finalStatus.IntentDigest != activeStatus.IntentDigest ||
+				report.ActiveGeneration != activeStatus.GenerationID || report.ActiveDigest != activeStatus.IntentDigest {
+				response.Error = "active macOS generation changed or became unhealthy while the overview probe was running"
+				return response
+			}
+		}
+		response.Payload, err = json.Marshal(report)
+		if err != nil {
+			response.Error = "encode probe report: " + err.Error()
+			return response
+		}
+		response.OK = true
+		return response
 	}
 	if request.Operation == "subscription-update" {
 		snapshots, err := macosplatform.UpdateConfiguredSubscriptions(context.Background(), &http.Client{Timeout: 30 * time.Second}, service.configPath, service.options.StateDirectory, request.ID)
@@ -346,17 +401,21 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			return response
 		}
 		response.Applied = true
-		readStatus := service.status
-		if readStatus == nil {
-			readStatus = func(options macosplatform.BackendOptions) macosplatform.Status {
-				return macosplatform.NewBackend(macosplatform.ExecRunner{}, model.Intent{}, options).ReadStatus(context.Background())
-			}
-		}
-		status := readStatus(service.options)
+		status := service.readRuntimeStatus()
 		response.Status = &status
 	}
 	response.OK = true
 	return response
+}
+
+func (service *controlService) readRuntimeStatus() macosplatform.Status {
+	readStatus := service.status
+	if readStatus == nil {
+		readStatus = func(options macosplatform.BackendOptions) macosplatform.Status {
+			return macosplatform.NewBackend(macosplatform.ExecRunner{}, model.Intent{}, options).ReadStatus(context.Background())
+		}
+	}
+	return readStatus(service.options)
 }
 
 func controlRevision(content []byte) string {
