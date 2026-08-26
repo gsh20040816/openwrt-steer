@@ -57,7 +57,10 @@ func recordApplyResult(runDirectory string, result coreapply.Result, err error) 
 		result.OK = false
 		result.Error = err.Error()
 	}
-	if recordErr := writeApplyRecord(runDirectory, coreapply.Record{Sequence: strconv.FormatInt(time.Now().UnixNano(), 10), Result: result}); recordErr != nil {
+	now := time.Now().UTC()
+	if recordErr := writeApplyRecord(runDirectory, coreapply.Record{
+		Sequence: strconv.FormatInt(now.UnixNano(), 10), Timestamp: now.Format(time.RFC3339Nano), Result: result,
+	}); recordErr != nil {
 		if err != nil {
 			err = errors.Join(err, recordErr)
 		} else {

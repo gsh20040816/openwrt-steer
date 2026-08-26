@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
@@ -30,6 +31,21 @@ func (webRuntimeRunner) Output(_ context.Context, name string, _ ...string) ([]b
 	default:
 		return nil, fmt.Errorf("unexpected runtime command %s", name)
 	}
+}
+
+type webApplyRunner struct{ failStop bool }
+
+func (runner webApplyRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	if name == "/usr/bin/systemctl" && len(args) > 0 && args[0] == "stop" {
+		if runner.failStop {
+			return nil, fmt.Errorf("systemd refused stop")
+		}
+		return []byte{}, nil
+	}
+	if name == "/usr/sbin/nft" && strings.Join(args, " ") == "-j list tables" {
+		return []byte(`{"nftables":[]}`), nil
+	}
+	return nil, fmt.Errorf("unexpected Apply command %s %s", name, strings.Join(args, " "))
 }
 
 func webTestIntent() model.Intent {
@@ -110,6 +126,100 @@ func TestWebConfigRequiresBearerAndIfMatch(t *testing.T) {
 	handler(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("second config save rejected the returned ETag: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestWebApplySavedPersistsFailureAndClearsPendingOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	runDirectory := filepath.Join(root, "run")
+	store := linuxplatform.IntentStore{Path: configPath}
+	if _, err := store.Save(webTestIntent(), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	failedApp := webApplication{
+		ConfigPath: configPath, RunDirectory: runDirectory, StateDirectory: filepath.Join(root, "state"),
+		SeedDirectory: filepath.Join(root, "seed"), Runner: webApplyRunner{failStop: true},
+	}
+	failedResponse := httptest.NewRecorder()
+	failedApp.handleApply(failedResponse, httptest.NewRequest(http.MethodPost, "/api/v1/apply", nil))
+	var failed coreapply.Result
+	if err := json.Unmarshal(failedResponse.Body.Bytes(), &failed); err != nil {
+		t.Fatal(err)
+	}
+	if failedResponse.Code != http.StatusUnprocessableEntity || failed.OK || failed.Error == "" || failed.RuntimeDigest == "" || failed.Generation != "" || failed.Activated {
+		t.Fatalf("failed Apply response = %#v status=%d body=%s", failed, failedResponse.Code, failedResponse.Body.String())
+	}
+	recordContent, err := os.ReadFile(filepath.Join(runDirectory, "last-apply.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record coreapply.Record
+	if err := json.Unmarshal(recordContent, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Timestamp == "" || record.Sequence == "" || record.Result.Error != failed.Error {
+		t.Fatalf("persistent Apply record = %#v", record)
+	}
+
+	overviewResponse := httptest.NewRecorder()
+	failedApp.handleOverview(overviewResponse, httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil))
+	var failedOverview struct {
+		PendingApply bool                 `json:"pending_apply"`
+		Status       linuxplatform.Status `json:"status"`
+	}
+	if err := json.Unmarshal(overviewResponse.Body.Bytes(), &failedOverview); err != nil {
+		t.Fatal(err)
+	}
+	if !failedOverview.PendingApply || failedOverview.Status.LastApply == nil || failedOverview.Status.LastApply.Result.Error == "" {
+		t.Fatalf("failed Apply was not persistent/pending: %#v body=%s", failedOverview, overviewResponse.Body.String())
+	}
+
+	successApp := failedApp
+	successApp.Runner = webApplyRunner{}
+	successResponse := httptest.NewRecorder()
+	successApp.handleApply(successResponse, httptest.NewRequest(http.MethodPost, "/api/v1/apply", nil))
+	var succeeded coreapply.Result
+	if err := json.Unmarshal(successResponse.Body.Bytes(), &succeeded); err != nil {
+		t.Fatal(err)
+	}
+	if successResponse.Code != http.StatusOK || !succeeded.OK {
+		t.Fatalf("successful Apply response = %#v status=%d body=%s", succeeded, successResponse.Code, successResponse.Body.String())
+	}
+	overviewResponse = httptest.NewRecorder()
+	successApp.handleOverview(overviewResponse, httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil))
+	var successfulOverview struct {
+		PendingApply bool `json:"pending_apply"`
+	}
+	if err := json.Unmarshal(overviewResponse.Body.Bytes(), &successfulOverview); err != nil {
+		t.Fatal(err)
+	}
+	if successfulOverview.PendingApply {
+		t.Fatalf("successful Apply did not clear pending: %s", overviewResponse.Body.String())
+	}
+}
+
+func TestWebOverviewMarksEnabledSavedConfigPendingWithoutCurrent(t *testing.T) {
+	root := t.TempDir()
+	value := webTestIntent()
+	value.Main.Enabled = true
+	configPath := filepath.Join(root, "config.json")
+	if _, err := (linuxplatform.IntentStore{Path: configPath}).Save(value, ""); err != nil {
+		t.Fatal(err)
+	}
+	app := webApplication{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), SeedDirectory: filepath.Join(root, "seed")}
+	response := httptest.NewRecorder()
+	app.handleOverview(response, httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil))
+	var overview struct {
+		PendingApply bool                 `json:"pending_apply"`
+		Status       linuxplatform.Status `json:"status"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &overview); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || !overview.PendingApply || overview.Status.Generation != "" {
+		t.Fatalf("enabled saved config pending overview = %#v body=%s", overview, response.Body.String())
 	}
 }
 

@@ -14,16 +14,20 @@ import (
 )
 
 type Result struct {
-	OK           bool              `json:"ok"`
-	Error        string            `json:"error,omitempty"`
-	Generation   string            `json:"generation,omitempty"`
-	IntentDigest string            `json:"intent_digest,omitempty"`
-	Validation   *model.Validation `json:"validation,omitempty"`
+	OK                  bool              `json:"ok"`
+	Error               string            `json:"error,omitempty"`
+	CandidateGeneration string            `json:"candidate_generation,omitempty"`
+	Generation          string            `json:"generation,omitempty"`
+	Activated           bool              `json:"activated"`
+	IntentDigest        string            `json:"intent_digest,omitempty"`
+	RuntimeDigest       string            `json:"runtime_digest,omitempty"`
+	Validation          *model.Validation `json:"validation,omitempty"`
 }
 
 type Record struct {
-	Sequence string `json:"sequence"`
-	Result   Result `json:"result"`
+	Sequence  string `json:"sequence"`
+	Timestamp string `json:"timestamp,omitempty"`
+	Result    Result `json:"result"`
 }
 
 type Backend interface {
@@ -46,7 +50,7 @@ func Run(ctx context.Context, value model.Intent, options compiler.Options, back
 		return Result{Validation: &validation}, ValidationError{Validation: validation}
 	}
 	compiled := compiler.Compile(value, options)
-	result := Result{IntentDigest: compiled.IntentDigest}
+	result := Result{IntentDigest: compiled.IntentDigest, RuntimeDigest: compiled.RuntimeDigest}
 	if !value.Main.Enabled {
 		if err := backend.Disable(ctx); err != nil {
 			return result, err
@@ -58,10 +62,12 @@ func Run(ctx context.Context, value model.Intent, options compiler.Options, back
 	if err != nil {
 		return result, err
 	}
-	result.Generation = candidate.Directory
+	result.CandidateGeneration = candidate.Directory
 	if err := backend.Activate(ctx, candidate); err != nil {
 		return result, err
 	}
+	result.Generation = candidate.Directory
+	result.Activated = true
 	if err := backend.Healthy(ctx, candidate); err != nil {
 		return result, err
 	}

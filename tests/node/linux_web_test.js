@@ -102,7 +102,7 @@ function text(value) {
   return value.children.map(text).join('');
 }
 
-function createEnvironment(save, intent = { main: { enabled: true } }) {
+function createEnvironment(save, intent = { main: { enabled: true } }, options = {}) {
   const strip = new Element('div');
   const toasts = new Element('div');
   const view = new Element('main');
@@ -138,26 +138,30 @@ function createEnvironment(save, intent = { main: { enabled: true } }) {
     h,
     icon: () => new Element('span'),
     asList: (value) => value || [],
+    fmtDuration: () => '—',
     fmtRevision: (value) => value,
     fmtReport: () => ({ ok: true, label: 'ok', detail: '' }),
     uid: (prefix) => `${prefix}-test`,
     api: {
       async geodata() { return { names: [], readable: false, count: 0 }; },
-      async speedtestNode() { return { results: [] }; }
+      async speedtestNode() { return { results: [] }; },
+      ...(options.api || {})
     },
     store: {
       intent,
-      overview: {},
+      overview: options.overview || {},
       revision: 'revision-1',
       dirty: false,
+      pendingApply: options.pendingApply === true,
       save,
+      applySaved: options.applySaved || (async () => ({ ok: true })),
       touch() { touchCount++; this.dirty = true; }
     }
   };
   const window = { S };
   const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/ui.js'), 'utf8');
   new Function('window', 'document', 'setTimeout', 'requestAnimationFrame', source)(window, document, () => 0, (callback) => callback());
-  return { S, window, document, body, view, drawerRoot, get touchCount() { return touchCount; } };
+  return { S, window, document, body, strip, toasts, view, drawerRoot, get touchCount() { return touchCount; } };
 }
 
 function loadView(environment, name) {
@@ -491,6 +495,132 @@ function testSubscriptionCreationDefaultUsesSharedSpec() {
     'Linux subscription creation retained its divergent literal default');
 }
 
+async function testApplySavedAPIKeepsStructuredFailure() {
+  let request = null;
+  class TestHeaders {
+    constructor() { this.values = {}; }
+    set(name, value) { this.values[name.toLowerCase()] = value; }
+    has(name) { return Object.hasOwn(this.values, name.toLowerCase()); }
+  }
+  const sessionStorage = { getItem() { return ''; }, setItem() {}, removeItem() {} };
+  const result = {
+    ok: false,
+    error: 'start candidate Linux generation: systemd refused start',
+    candidate_generation: '/run/steer/generations/candidate.failed-new',
+    activated: false
+  };
+  const fetch = async (url, options) => {
+    request = { url, options };
+    return { ok: false, status: 422, statusText: 'Unprocessable Entity', headers: { get() { return ''; } }, json: async () => result };
+  };
+  const window = { S: { asList: (value) => value || [] } };
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/api.js'), 'utf8');
+  new Function('window', 'sessionStorage', 'Headers', 'fetch', 'document', 'setTimeout', 'location', source)(
+    window, sessionStorage, TestHeaders, fetch, { querySelector() { return null; }, body: new Element('body') }, () => 0, {}
+  );
+  const response = await window.S.api.applySaved();
+  assert.strictEqual(request.url, '/api/v1/apply');
+  assert.strictEqual(request.options.method, 'POST');
+  assert.strictEqual(response.request_ok, false, 'business failure should remain a structured Apply result');
+  assert.match(response.error, /refused start/);
+}
+
+async function testStoreTracksSavedPendingApply() {
+  let overview = { pending_apply: false, status: {} };
+  let applyResult = { ok: false, error: 'activate failed', runtime_digest: 'runtime-new' };
+  const S = {
+    api: {
+      async config() {
+        return { intent: { main: { enabled: true }, nodes: [], subscriptions: [], routes: [], dns_profiles: [], local_proxies: [], rules: [] }, revision: 'revision-1' };
+      },
+      async overview() { return overview; },
+      async runtime() { return {}; },
+      async putConfig(_intent, _revision, apply) {
+        assert.strictEqual(apply, false);
+        overview = { pending_apply: true, status: {} };
+        return { saved: true, applied: false, revision: 'revision-2', request_ok: true };
+      },
+      async applySaved() { return applyResult; }
+    }
+  };
+  const window = { S };
+  const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/store.js'), 'utf8');
+  new Function('window', source)(window);
+  await S.store.init();
+  S.store.touch();
+  await S.store.save(false);
+  assert.strictEqual(S.store.dirty, false, 'Save should clean only the local draft');
+  assert.strictEqual(S.store.pendingApply, true, 'runtime-affecting saved change must remain Applyable while clean');
+
+  const failed = await S.store.applySaved();
+  assert.strictEqual(failed.ok, false);
+  assert.strictEqual(S.store.pendingApply, true, 'failed Apply must retain Saved pending state');
+
+  applyResult = { ok: true, runtime_digest: 'runtime-new' };
+  overview = { pending_apply: false, status: {} };
+  const succeeded = await S.store.applySaved();
+  assert.strictEqual(succeeded.ok, true);
+  assert.strictEqual(S.store.pendingApply, false, 'successful Apply must clear pending state');
+}
+
+function runtimeTestIntent(enabled = true) {
+  return {
+    main: { enabled }, nodes: [], subscriptions: [], routes: [], dns_profiles: [], local_proxies: [], rules: []
+  };
+}
+
+async function testActualGenerationAndPersistentApplyFixture() {
+  const overview = JSON.parse(fs.readFileSync(path.join(root, 'tests/fixtures/linux-web/overview-activate-failed.json'), 'utf8'));
+  let applyCalls = 0;
+  const environment = createEnvironment(async () => ({ ok: true, res: {} }), runtimeTestIntent(), {
+    overview,
+    pendingApply: true,
+    applySaved: async () => { applyCalls++; return { ok: false, error: 'still failed' }; },
+    api: {
+      validate: async () => ({ ok: true, errors: [], warnings: [] }),
+      probe: async () => ({}),
+      logs: async () => ({ output: '' })
+    }
+  });
+  environment.S.ui.renderStatusStrip();
+  const stripText = text(environment.strip);
+  assert.match(stripText, /candidate\.active-old/, 'strip must show the actual current generation');
+  assert.doesNotMatch(stripText, /candidate\.failed-new/, 'last Apply candidate must not be inferred as active');
+  assert.match(stripText, /已保存，待 Apply/);
+
+  const applyButton = find(environment.strip, (element) => element.tag === 'button' && text(element) === 'Apply 已保存配置');
+  assert.ok(applyButton, 'global strip must expose Apply Saved on every view');
+  assert.ok(!Object.hasOwn(applyButton.attributes, 'disabled'), 'clean pending state must keep Apply Saved enabled');
+  await applyButton.listeners.click();
+  assert.strictEqual(applyCalls, 1);
+
+  const recordText = text(environment.S.ui.applyRecord(overview.status));
+  assert.match(recordText, /candidate\.failed-new 未激活/);
+  assert.match(recordText, /candidate\.active-old/);
+  assert.match(recordText, /systemd refused start/);
+  assert.match(recordText, /2026/, 'persistent Apply record must include its timestamp');
+
+  const overviewSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/overview.js'), 'utf8');
+  new Function('window', overviewSource)({ S: environment.S });
+  const overviewRoot = new Element('main');
+  await environment.S.views.overview.render(overviewRoot);
+  assert.match(text(overviewRoot), /candidate\.active-old/);
+  assert.match(text(overviewRoot), /candidate\.failed-new 未激活/);
+
+  const diagnosticsSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/diagnostics.js'), 'utf8');
+  new Function('window', diagnosticsSource)({ S: environment.S });
+  const diagnosticsRoot = new Element('main');
+  await environment.S.views.diagnostics.render(diagnosticsRoot);
+  assert.match(text(diagnosticsRoot), /最近 Apply 结果/);
+  assert.match(text(diagnosticsRoot), /systemd refused start/);
+
+  const disabled = createEnvironment(async () => ({ ok: true, res: {} }), runtimeTestIntent(false), {
+    overview: { status: { healthy: false, last_apply: { sequence: '1', result: { ok: true, generation: '/run/steer/generations/candidate.last-apply' } } } }
+  });
+  disabled.S.ui.renderStatusStrip();
+  assert.doesNotMatch(text(disabled.strip), /candidate\.last-apply/, 'disabled status must not invent Active from last Apply');
+}
+
 Promise.resolve()
   .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
@@ -500,6 +630,9 @@ Promise.resolve()
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
   .then(testRuleStringListFlushesOnDrawerSubmit)
   .then(testSubscriptionCreationDefaultUsesSharedSpec)
+  .then(testApplySavedAPIKeepsStructuredFailure)
+  .then(testStoreTracksSavedPendingApply)
+  .then(testActualGenerationAndPersistentApplyFixture)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);

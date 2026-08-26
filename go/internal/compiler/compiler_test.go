@@ -400,6 +400,38 @@ func TestCompileIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestRuntimeDigestIgnoresInventoryOnlyChanges(t *testing.T) {
+	base := representativeIntent()
+	first := Compile(base, testOptions())
+
+	inventoryOnly := base
+	inventoryOnly.Subscriptions = []model.Subscription{{ID: "feed", Enabled: true, URL: "https://feed.example/sub"}}
+	inventoryOnly.Nodes = append(append([]model.Node{}, base.Nodes...), model.Node{
+		ID: "unused", Enabled: true, Type: "socks", Server: "unused.example", ServerPort: 1080,
+	})
+	second := Compile(inventoryOnly, testOptions())
+	if first.IntentDigest == second.IntentDigest {
+		t.Fatal("canonical digest did not include subscription inventory")
+	}
+	if first.RuntimeDigest != second.RuntimeDigest {
+		t.Fatalf("inventory-only change altered runtime digest: %s != %s", first.RuntimeDigest, second.RuntimeDigest)
+	}
+
+	runtimeChange := base
+	runtimeChange.Main.LogLevel = "info"
+	third := Compile(runtimeChange, testOptions())
+	if first.RuntimeDigest == third.RuntimeDigest {
+		t.Fatal("runtime-affecting change did not alter runtime digest")
+	}
+
+	probeChange := base
+	probeChange.Main.ProbeDirectURL = "https://new-probe.example/"
+	fourth := Compile(probeChange, testOptions())
+	if first.RuntimeDigest == fourth.RuntimeDigest {
+		t.Fatal("active probe change did not alter runtime digest")
+	}
+}
+
 func TestCompileRoutePrivateOutboundsAndDetour(t *testing.T) {
 	intent := representativeIntent()
 	intent.Routes = append(intent.Routes, model.Route{ID: "chained", Enabled: true, Kind: "single", Node: "node", Detour: "proxy"})

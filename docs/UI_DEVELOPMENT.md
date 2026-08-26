@@ -139,6 +139,10 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 
 如果配置已经保存而 Apply 失败，UI 必须明确报告部分成功，并把工作副本 revision 更新到磁盘事实。不得恢复成“未保存”状态，也不得暗示旧配置仍是持久化真相。
 
+Linux Web 将 Draft、Saved 与 Active 分开显示：`dirty` 只表示浏览器工作副本，revision 属于已保存配置，Active generation/digest 只来自 `/run/steer/current`。Save 后即使 Draft 已 clean，只要已保存配置的编译运行投影与 Active 不同，或最近一次同投影 Apply 失败，全局 `Apply 已保存配置` 仍保持可用。订阅刷新产生但未被 Route 引用的节点库存不进入该运行投影，只显示库存 warning，不制造 pending Apply。
+
+最近 Apply 是独立的操作记录。其 candidate、时间、成功/失败和错误摘要必须持久显示，但 candidate 不得作为 Active generation 的兜底来源。
+
 ## 生成与测试门
 
 `go generate` 生成 LuCI、Linux Web 和 SwiftUI 使用的只读规格。提交必须包含已更新的生成文件。CI 必须检查重新生成后工作树无差异，并验证：

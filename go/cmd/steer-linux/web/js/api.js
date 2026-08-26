@@ -64,6 +64,14 @@
     return data;
   }
 
+  async function applySaved() {
+    const { response, data } = await fetchJSON('/api/v1/apply', { method: 'POST' });
+    /* Apply 的 422 是有持久结果的业务失败，不丢掉后端错误详情。 */
+    if (!response.ok && typeof data?.ok !== 'boolean') throw responseError(response, data);
+    data.request_ok = response.ok;
+    return data;
+  }
+
   function validateGeoCategories(intent, catalogs) {
     const errors = [];
     (intent.rules || []).forEach((rule) => {
@@ -87,6 +95,7 @@
     async logs() { return (await request('/api/v1/logs')).data; },
     config,
     putConfig,
+    applySaved,
     async validate(intent) {
       return (await request('/api/v1/validate', { method: 'POST', body: JSON.stringify({ intent }) })).data;
     },

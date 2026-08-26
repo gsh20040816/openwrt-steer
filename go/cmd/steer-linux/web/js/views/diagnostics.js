@@ -46,6 +46,7 @@
     name: 'diagnostics',
     async render(root) {
       const isCurrent = ui.beginRender(root);
+      const status = S.store.overview?.status || {};
       let logs = { output: '' };
       try { logs = await S.api.logs(); } catch (error) { logs = { output: `日志读取失败：${error.message}` }; }
       if (!isCurrent()) return;
@@ -63,6 +64,15 @@
             h('button', { class: 'btn btn--sm', onclick: () => S.router('nodes') }, '前往节点测速 →'),
             h('button', { class: 'btn btn--sm', onclick: () => S.router('routes') }, '前往路由链测速 →')
           ])
+        ]),
+        h('section', { class: 'card' }, [
+          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Apply'), h('div', { class: 'card__title' }, '最近 Apply 结果'))),
+          h('div', { class: 'facts' }, [
+            fact('当前 generation', status.generation || '—'),
+            fact('当前 Intent digest', status.intent_digest ? status.intent_digest.slice(0, 12) : '—'),
+            fact('运行健康', status.healthy ? '是' : '否')
+          ]),
+          ui.applyRecord(status)
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'journalctl'), h('div', { class: 'card__title' }, '最近日志'))),

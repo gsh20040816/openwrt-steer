@@ -53,7 +53,9 @@ steer health
 
 Web 默认只监听 `127.0.0.1:9080`，远程访问使用 SSH 端口转发；不支持把 Web 绑定到公网地址。
 
-Web 顶部状态条提供 Steer 启用/禁用开关。切换开关会立即保存 `/etc/steer/config.json` 并执行 Apply；Apply 失败会明确提示并保留已保存配置，禁用会清理运行态资源。
+Web 顶部状态条提供 Steer 启用/禁用开关。切换开关会立即保存 `/etc/steer/config.json` 并执行 Apply；Apply 失败会明确提示并保留已保存配置，禁用会清理运行态资源。所有配置页共享 Save、Save and Apply 与 `Apply 已保存配置`；后者不依赖浏览器工作副本的 dirty 状态，并在已保存运行投影待切换时保持可用。
+
+状态条、总览和诊断中的 Active generation/digest 只读取 `/run/steer/current`。最近 Apply 作为带时间、candidate 和错误摘要的独立记录展示；失败 candidate 不会被冒充为 Active。订阅更新只改变未引用节点库存时显示 warning，不制造 pending Apply。
 
 Web Bearer token 的唯一配置源是严格 schema 1 的 `/etc/steer/web.json`。用户直接设置 `token`（32–256 个无空格可见 ASCII 字符）；`steer web-token` 只读取并输出当前配置，不生成、不迁移、不维护第二份 token 文件。
 

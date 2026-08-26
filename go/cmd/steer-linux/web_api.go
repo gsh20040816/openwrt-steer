@@ -31,8 +31,19 @@ func (app webApplication) handleOverview(writer http.ResponseWriter, request *ht
 	if loadErr == nil {
 		validation = linuxplatform.Validate(value)
 	}
-	status := linuxplatform.ReadStatus(request.Context(), linuxplatform.ExecRunner{}, linuxplatform.BackendOptions{RunDirectory: app.RunDirectory})
-	writeWebJSON(writer, map[string]any{"saved_revision": revision, "saved_valid": loadErr == nil && validation.OK, "validation": validation, "status": status, "error": errorString(loadErr)})
+	runner := app.Runner
+	if runner == nil {
+		runner = linuxplatform.ExecRunner{}
+	}
+	options := linuxplatform.BackendOptions{
+		RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory, GeoDataDirectory: app.seedDirectory(),
+	}
+	status := linuxplatform.ReadStatus(request.Context(), runner, options)
+	pendingApply := loadErr == nil && validation.OK && linuxplatform.HasPendingApply(value, status, options)
+	writeWebJSON(writer, map[string]any{
+		"saved_revision": revision, "saved_valid": loadErr == nil && validation.OK, "pending_apply": pendingApply,
+		"validation": validation, "status": status, "error": errorString(loadErr),
+	})
 }
 
 func (app webApplication) handleValidate(writer http.ResponseWriter, request *http.Request) {
@@ -98,7 +109,7 @@ func (app webApplication) handleNodeImport(writer http.ResponseWriter, request *
 		return
 	}
 	writeWebJSON(writer, map[string]any{
-		"node": parsed.Nodes[0], // 0.8.1 page compatibility during an in-place upgrade.
+		"node":  parsed.Nodes[0], // 0.8.1 page compatibility during an in-place upgrade.
 		"nodes": parsed.Nodes, "skipped": parsed.Skipped,
 	})
 }
@@ -252,7 +263,11 @@ func (app webApplication) applyValue(value model.Intent) (coreapply.Result, erro
 	if !validation.OK {
 		return coreapply.Result{Validation: &validation}, linuxplatform.ValidationError{Validation: validation}
 	}
-	backend := linuxplatform.NewBackend(linuxplatform.ExecRunner{}, value, linuxplatform.BackendOptions{
+	runner := app.Runner
+	if runner == nil {
+		runner = linuxplatform.ExecRunner{}
+	}
+	backend := linuxplatform.NewBackend(runner, value, linuxplatform.BackendOptions{
 		RunDirectory: app.RunDirectory, StateDirectory: app.StateDirectory, GeoDataDirectory: app.seedDirectory(),
 	})
 	return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
