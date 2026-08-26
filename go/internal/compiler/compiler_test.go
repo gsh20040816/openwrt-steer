@@ -78,6 +78,113 @@ func TestCompilePathIsolationAndProjection(t *testing.T) {
 	}
 }
 
+func TestCompileLocalProxyDomainsUseRuleDNSProfile(t *testing.T) {
+	for _, protocol := range []string{"socks", "http", "mixed"} {
+		for _, routeID := range []string{"direct", "proxy"} {
+			t.Run(protocol+"_via_"+routeID, func(t *testing.T) {
+				intent := representativeIntent()
+				intent.LocalProxies[0].Protocol = protocol
+				intent.Rules = []model.Rule{
+					{ID: "local_rule", Enabled: true, DNSProfile: "public", Route: routeID, Inbound: []string{"local"}},
+					{ID: "default", Enabled: true, Default: true, DNSProfile: "public", Route: "direct"},
+				}
+
+				bundle := Compile(intent, testOptions())
+				assertLocalProxyInboundProtocol(t, bundle, protocol)
+				assertLocalProxyResolveOrder(t, bundle, routeID)
+				assertLocalProxyDNSPath(t, bundle, routeID)
+			})
+		}
+	}
+}
+
+func assertLocalProxyInboundProtocol(t *testing.T, bundle Output, protocol string) {
+	t.Helper()
+	for _, raw := range bundle.SingBox["inbounds"].([]any) {
+		inbound := raw.(map[string]any)
+		if inbound["tag"] == "steer-local-local" {
+			if inbound["type"] != protocol {
+				t.Fatalf("local proxy protocol changed: %#v", inbound)
+			}
+			return
+		}
+	}
+	t.Fatal("compiled local proxy inbound is missing")
+}
+
+func assertLocalProxyResolveOrder(t *testing.T, bundle Output, routeID string) {
+	t.Helper()
+	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
+	sniffIndex, resolveIndex, routeIndex, resolveCount := -1, -1, -1, 0
+	for index, raw := range rules {
+		rule := raw.(map[string]any)
+		switch rule["action"] {
+		case "sniff":
+			if reflect.DeepEqual(rule["inbound"], []string{"steer-tun", "steer-local-local"}) {
+				sniffIndex = index
+			}
+		case "resolve":
+			resolveCount++
+			resolveIndex = index
+			if !reflect.DeepEqual(rule["inbound"], []string{"steer-tun", "steer-local-local"}) {
+				t.Fatalf("resolve is not restricted to sniffed inbounds: %#v", rule)
+			}
+			if _, exists := rule["server"]; exists {
+				t.Fatalf("resolve bypasses DNS routing instead of selecting a rule DNS Profile: %#v", rule)
+			}
+		case "route":
+			if rule["outbound"] == routeTag(routeID) && reflect.DeepEqual(rule["inbound"], []string{"steer-local-local"}) {
+				routeIndex = index
+			}
+		}
+	}
+	if resolveCount != 1 {
+		t.Fatalf("expected one native resolve action, got %d: %#v", resolveCount, rules)
+	}
+	if sniffIndex < 0 || resolveIndex != sniffIndex+1 || routeIndex <= resolveIndex {
+		t.Fatalf("local proxy must sniff, resolve through DNS rules, then route: %#v", rules)
+	}
+}
+
+func assertLocalProxyDNSPath(t *testing.T, bundle Output, routeID string) {
+	t.Helper()
+	expectedTag := dnsPathTag("public", routeID)
+	dns := bundle.SingBox["dns"].(map[string]any)
+	matchedRule := false
+	for _, raw := range dns["rules"].([]any) {
+		rule := raw.(map[string]any)
+		if reflect.DeepEqual(rule["inbound"], []string{"steer-local-local"}) {
+			if rule["action"] != "route" || rule["server"] != expectedTag {
+				t.Fatalf("local proxy DNS rule selected the wrong path: %#v", rule)
+			}
+			matchedRule = true
+		}
+	}
+	if !matchedRule {
+		t.Fatal("local proxy DNS rule is missing")
+	}
+
+	matchedServer := false
+	for _, raw := range dns["servers"].([]any) {
+		server := raw.(map[string]any)
+		if server["tag"] != expectedTag {
+			continue
+		}
+		matchedServer = true
+		if routeID == "proxy" && server["detour"] != routeTag("proxy") {
+			t.Fatalf("proxy DNS path lost its Route detour: %#v", server)
+		}
+		if routeID == "direct" {
+			if _, exists := server["detour"]; exists {
+				t.Fatalf("Direct DNS path unexpectedly has a detour: %#v", server)
+			}
+		}
+	}
+	if !matchedServer {
+		t.Fatalf("DNS server path %q is missing: %#v", expectedTag, dns["servers"])
+	}
+}
+
 func TestCompileUsesStrategyOnlyForInternalDomainResolution(t *testing.T) {
 	intent := representativeIntent()
 	intent.Bootstrap.Strategy = "prefer_ipv6"

@@ -71,13 +71,13 @@ Linux 第一版承诺 systemd 主机及其 VM/Docker 转发的公网流量。平
 
 编译器为用到的 Geo selector 生成 sing-box remote binary rule-set：包内 SRS 是 `initial_path`，Pages 上同名 SRS 是 `url`，更新周期为 1 天。显式 direct HTTP client 避免 Geo 下载受用户代理路由影响；`/var/lib/steer/cache.db` 由 sing-box 保存 remote rule-set cache。首次启动不依赖网络，远端更新失败只记录在 sing-box 日志中，不改变已通过 seed 启动的 Apply 结果。
 
-Steer 不写全局 `dns.strategy`，也不写 DNS rule action 的 query-level `strategy`，客户端 A/AAAA 查询保持透明。DNS server 本身使用域名时，启动该 transport 所需的 `domain_resolver.strategy` 来自 `bootstrap.strategy`；route 默认域名解析器使用同一内部解析策略。schema 9 删除了 `dns_profile.strategy`。
+Steer 不写全局 `dns.strategy`，也不写 DNS rule action 的 query-level `strategy`，客户端 A/AAAA 查询保持透明。SOCKS、HTTP 与 Mixed 本地入口的域名目标在 sniff 后先执行非终结的原生 `resolve` action；action 不固定 DNS server，而是复用 DNS Router 按用户规则选择的 `(DNS Profile, Route)` path，随后业务 route rule 使用解析结果。已有 IP 目标不会触发查询。DNS server 本身使用域名时，启动该 transport 所需的 `domain_resolver.strategy` 来自 `bootstrap.strategy`；route 默认域名解析器使用同一内部解析策略。schema 9 删除了 `dns_profile.strategy`。
 
 ## macOS 数据面
 
 macOS 使用 LaunchDaemon 下的 sing-box Darwin TUN，不修改系统 DNS，不使用 pf 或 Network Extension。平台 plan 静态把 IPv4 RFC1918、CGNAT 与 IPv6 ULA 全部加入 TUN `route_address`，并且不再把这些范围放入 `route_exclude_address`。回环、IPv4/IPv6 链路本地、组播和文档/保留地址仍按明确集合排除；普通 global IPv6 on-link 地址不属于“私网”特例，仍按公网规则与 Default 处理。
 
-macOS route 顺序为：① `inbound=steer-tun + network=[tcp,udp] + port=[53] -> hijack-dns`；② RFC1918、CGNAT 与 ULA `-> Direct`；③ sniff；④用户公网规则。`port` 是目标端口，不使用 `source_port` 或 `protocol=dns`。这保证上述私网内的 DHCP DNS 和硬编码 Do53 先被 Steer DNS Router 接管，其他私网单播流量固定 Direct；DoH/DoT 按普通流量处理。该 plan 不依赖接口、Wi-Fi 或 DHCP 状态，网络变化不会创建 generation，也不会从 Saved config 隐式触发 Apply。
+macOS route 顺序为：① `inbound=steer-tun + network=[tcp,udp] + port=[53] -> hijack-dns`；② RFC1918、CGNAT 与 ULA `-> Direct`；③ sniff；④ domain resolve；⑤ 用户公网规则。`port` 是目标端口，不使用 `source_port` 或 `protocol=dns`。这保证上述私网内的 DHCP DNS 和硬编码 Do53 先被 Steer DNS Router 接管，其他私网单播流量固定 Direct；DoH/DoT 按普通流量处理。该 plan 不依赖接口、Wi-Fi 或 DHCP 状态，网络变化不会创建 generation，也不会从 Saved config 隐式触发 Apply。
 
 ## Apply
 

@@ -93,7 +93,13 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 		Bootstrap:   model.Bootstrap{ID: "bootstrap", Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"},
 		Routes:      []model.Route{{ID: "direct", Enabled: true, Kind: "direct"}},
 		DNSProfiles: []model.DNSProfile{{ID: "dns", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53}},
-		Rules:       []model.Rule{{ID: "default", Enabled: true, Default: true, DNSProfile: "dns", Route: "direct"}},
+		LocalProxies: []model.LocalProxy{{
+			ID: "local", Enabled: true, Protocol: "mixed", Listen: "127.0.0.1", ListenPort: 1090,
+		}},
+		Rules: []model.Rule{
+			{ID: "local", Enabled: true, DNSProfile: "dns", Route: "direct", Inbound: []string{"local"}},
+			{ID: "default", Enabled: true, Default: true, DNSProfile: "dns", Route: "direct"},
+		},
 	}
 	plan := NewPlan(value)
 	bundle := compiler.Compile(value, plan.CompilerOptions("/tmp/steer-state"))
@@ -105,7 +111,7 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 		t.Fatalf("macOS route unexpectedly contains auto_redirect: %s", encoded)
 	}
 	rules := bundle.SingBox["route"].(map[string]any)["rules"].([]any)
-	if len(rules) < 3 {
+	if len(rules) < 5 {
 		t.Fatalf("macOS route rules are incomplete: %#v", rules)
 	}
 	first := rules[0].(map[string]any)
@@ -123,6 +129,13 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 	}
 	if rules[2].(map[string]any)["action"] != "sniff" {
 		t.Fatalf("sniff must run after DNS and LAN classification: %#v", rules)
+	}
+	resolve := rules[3].(map[string]any)
+	if resolve["action"] != "resolve" || !reflect.DeepEqual(resolve["inbound"], []string{"steer-tun", "steer-local-local"}) {
+		t.Fatalf("macOS target lost shared local proxy resolve semantics: %#v", rules)
+	}
+	if rules[4].(map[string]any)["outbound"] != "steer-route-direct" {
+		t.Fatalf("local proxy route must run after domain resolution: %#v", rules)
 	}
 }
 

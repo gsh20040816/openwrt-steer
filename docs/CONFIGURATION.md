@@ -81,7 +81,7 @@ config dns_profile 'secure_dns'
 	option path '/dns-query'
 ```
 
-协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。Steer 不设置全局 `dns.strategy`，普通客户端明确发出的 A/AAAA 查询保持透明；DNS server 使用域名时，其 `domain_resolver.strategy` 来自独立的 `bootstrap.strategy`。sing-box 1.14 已废弃 DNS rule action 的 query-level `strategy`，schema 9 删除了原 `dns_profile.strategy`，Steer 不再生成该字段。缓存容量、持久化与乐观缓存是全局设置。
+协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。本地 SOCKS、HTTP 或 Mixed 入口收到域名目标后，会在业务路由前通过 sing-box 原生 `resolve` action 复用同一组 DNS rules，因此按匹配规则选择 DNS Profile；Direct 不会再用 Bootstrap 解析业务域名，Proxy 也使用所选 Profile 的解析结果。已经是 IP 的目标不会触发该查询。Steer 不设置全局 `dns.strategy`，普通客户端明确发出的 A/AAAA 查询保持透明；DNS server 使用域名时，其 `domain_resolver.strategy` 来自独立的 `bootstrap.strategy`。sing-box 1.14 已废弃 DNS rule action 的 query-level `strategy`，schema 9 删除了原 `dns_profile.strategy`，Steer 不再生成该字段。缓存容量、持久化与乐观缓存是全局设置。
 
 ## 规则
 
@@ -105,7 +105,7 @@ config rule 'default'
 
 条件包括：
 
-- `inbound`：本地 SOCKS/Mixed 入口 ID；
+- `inbound`：本地 SOCKS、HTTP 或 Mixed 入口 ID；
 - `domain_match`：普通关键字、`full:`、`domain:`、`regexp:`、`geosite:`；
 - `ip_match`：CIDR 或 `geoip:`；
 - `source_ip_cidr`、`source_mac_address`；
@@ -117,7 +117,7 @@ config rule 'default'
 
 ## 本地入口和订阅
 
-本地入口支持 `socks` 与 `mixed`，监听地址必须是 loopback：
+本地入口支持 `socks`、`http` 与 `mixed`，监听地址必须是 loopback：
 
 ```uci
 config local_proxy 'local'

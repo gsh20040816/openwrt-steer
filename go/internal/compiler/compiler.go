@@ -224,7 +224,7 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		dnsServers = append(dnsServers, compileDNSPath(profiles[path.Profile], routes[path.Route], path, intent.Bootstrap.Strategy))
 	}
 
-	routeRules := make([]any, 0, 2+len(intent.Rules))
+	routeRules := make([]any, 0, 3+len(intent.Rules))
 	capture := target.DNSCapture
 	if capture.Mode == "" && len(capture.InboundTags) == 0 && len(target.DNSInboundTags) > 0 {
 		capture = DNSCapture{Mode: DNSCaptureInboundHijack, InboundTags: append([]string{}, target.DNSInboundTags...)}
@@ -256,6 +256,11 @@ func compileSingBox(intent model.Intent, target Target, dnsPaths []DNSPath, geoR
 		}
 	}
 	routeRules = append(routeRules, map[string]any{"inbound": sniffInboundTags, "action": "sniff", "timeout": "300ms"})
+	// Keep server unset so sing-box reuses the DNS Router rules below to select
+	// the rule-specific (DNS Profile, Route) path. Resolve is a non-final action
+	// and sing-box only performs its lookup for domain destinations, leaving the
+	// already-addressed TUN path as a no-op before normal route evaluation.
+	routeRules = append(routeRules, map[string]any{"inbound": sniffInboundTags, "action": "resolve"})
 	dnsRules := []any{}
 	var defaultRule model.Rule
 	for _, rule := range intent.Rules {
