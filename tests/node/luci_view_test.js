@@ -351,6 +351,164 @@ function loadView(file, dependencies) {
 	return new Function(...names, source)(...values);
 }
 
+function loadUcodeRPC(runtime) {
+	let source = fs.readFileSync(path.join(root,
+		'luci-app-steer/root/usr/share/rpcd/ucode/luci.steer'), 'utf8');
+	source = source.replace(/^#![^\n]*\n/, '').replace(/^import \{[^\n]+\} from 'fs';\n/m, '');
+	/* ucode permits `arguments` as a named parameter while strict JavaScript reserves it. */
+	source = source.replace('function command_json_input(arguments, input)', 'function command_json_input(commandArguments, input)')
+		.replace("...arguments, '--output'", "...commandArguments, '--output'");
+	const ubus = {
+		defer(object, method, args, callback) {
+			const call = { object, method, args };
+			runtime.ubusCalls.push(call);
+			if (runtime.onUbusCall)
+				runtime.onUbusCall(call, runtime);
+			switch (method) {
+			case 'get': return callback(0, { values: runtime.values });
+			case 'changes': return callback(0, { changes: runtime.changes });
+			case 'commit': runtime.commitCalls++; return callback(0, { result: 'committed' });
+			default: throw new Error(`unexpected ubus method ${method}`);
+			}
+		}
+	};
+	const popen = (command) => {
+		runtime.commands.push(command);
+		if (typeof(command) != 'string')
+			throw new Error(`unexpected process ${JSON.stringify(command)}`);
+		const result = command.includes(' validate --config ')
+			? runtime.validation
+			: (command.includes(' _export-intent') ? runtime.intent : {});
+		return { read: () => JSON.stringify(result), close: () => 0 };
+	};
+	const open = (file, mode) => {
+		if (mode != 'w') throw new Error(`unexpected open mode ${mode}`);
+		return { write: (document) => runtime.documents.push(document), close: () => {} };
+	};
+	const globals = {
+		mkdtemp: () => `/tmp/test-candidate-${runtime.documents.length}`,
+		open,
+		popen,
+		rmdir: () => {},
+		unlink: () => {},
+		require: (name) => {
+			if (name != 'ubus') throw new Error(`unexpected module ${name}`);
+			return { connect: () => ubus };
+		},
+		replace: (value, search, replacement) => String(value).split(search).join(replacement),
+		type: (value) => Array.isArray(value) ? 'array' : (value == null ? 'null' : typeof(value)),
+		match: (value, expression) => String(value).match(expression),
+		json: (value) => JSON.parse(value),
+		trim: (value) => String(value).trim(),
+		keys: (value) => Object.keys(value),
+		sort: (value, compare) => value.sort(compare),
+		push: (value, item) => value.push(item),
+		substr: (value, start, length) => String(value).substr(start, length),
+		join: (separator, value) => value.join(separator),
+		length: (value) => value.length,
+		split: (value, separator) => String(value).split(separator),
+		slice: (value, start) => value.slice(start)
+	};
+	const names = Object.keys(globals);
+	const values = names.map((name) => globals[name]);
+	return new Function(...names, source)(...values)['luci.steer'];
+}
+
+function callUcodeMethod(method, args) {
+	let response;
+	method.call({
+		args: Object.assign({ ubus_rpc_session: '0123456789abcdef0123456789abcdef' }, args),
+		reply: (value) => { response = value; }
+	});
+	assert.notEqual(response, undefined, 'ucode RPC must reply exactly once');
+	return response;
+}
+
+function testCommittedUcodePreviewAndObservedCandidateGuard() {
+	const privateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nowner's key\n-----END OPENSSH PRIVATE KEY-----\n";
+	const runtime = {
+		values: {
+			main: { '.type': 'steer', '.name': 'main', '.index': 0, schema_version: '9', enabled: '1' },
+			ssh_key: {
+				'.type': 'node', '.name': 'ssh_key', '.index': 1, type: 'ssh', uuid: 'node-uuid',
+				password: 'node-password', private_key: privateKey, plugin_options: 'token=plugin-secret',
+				extra_args: [ '--token', 'argument-secret' ]
+			},
+			feed: { '.type': 'subscription', '.name': 'feed', '.index': 2, url: 'https://user:secret@example.test/feed' }
+		},
+		changes: [ [ 'set', 'main', 'enabled', '1' ] ],
+		intent: {
+			main: { id: 'main' },
+			nodes: [ { id: 'ssh_key', uuid: 'node-uuid', password: 'node-password', private_key: privateKey, plugin_options: 'token=plugin-secret', extra_args: [ '--token', 'argument-secret' ] } ],
+			subscriptions: [ { id: 'feed', url: 'https://user:secret@example.test/feed' } ],
+			future: { nested_token: 'future-token' }
+		},
+		validation: { ok: true, errors: [], warnings: [] },
+		ubusCalls: [], commands: [], documents: [], commitCalls: 0
+	};
+	const methods = loadUcodeRPC(runtime);
+	const pending = callUcodeMethod(methods.intent_preview, { reveal: false });
+	assert.equal(pending.source, 'unavailable');
+	assert.equal(pending.pending, true);
+	assert.equal(pending.available, false);
+	assert.equal(pending.intent, null,
+		'RPC fails closed instead of returning a committed snapshot or guessed pending Apply input');
+	const pendingReveal = callUcodeMethod(methods.intent_preview, { reveal: true });
+	assert.equal(pendingReveal.available, false);
+	assert.equal(pendingReveal.redacted, true);
+	assert.equal(runtime.commands.length, 0, 'pending state never exports or reveals any Canonical intent');
+
+	runtime.changes = [];
+	const redacted = callUcodeMethod(methods.intent_preview, { reveal: false });
+	assert.equal(redacted.source, 'committed');
+	assert.equal(redacted.pending, false);
+	assert.equal(redacted.available, true);
+	assert.deepEqual(redacted.intent.nodes[0], {
+		id: 'ssh_key', uuid: '[REDACTED]', password: '[REDACTED]', private_key: '[REDACTED]', plugin_options: '[REDACTED]', extra_args: '[REDACTED]'
+	}, 'default RPC response must redact every authentication-bearing node field before reaching the browser');
+	assert.equal(redacted.intent.subscriptions[0].url, '[REDACTED]');
+	assert.equal(redacted.intent.future.nested_token, '[REDACTED]');
+
+	const revealed = callUcodeMethod(methods.intent_preview, { reveal: true });
+	assert.equal(revealed.intent.nodes[0].private_key, privateKey,
+		'plaintext from the committed snapshot requires an explicit reveal=true RPC');
+	let committedChecks = 0;
+	runtime.onUbusCall = (call) => {
+		if (call.method == 'changes' && ++committedChecks == 2)
+			runtime.changes = [ [ 'set', 'main', 'enabled', '1' ] ];
+	};
+	const pendingDuringExport = callUcodeMethod(methods.intent_preview, { reveal: false });
+	assert.equal(pendingDuringExport.available, false);
+	assert.equal(pendingDuringExport.intent, null,
+		'a pending change observed after committed export discards the snapshot before the RPC reply');
+	runtime.onUbusCall = null;
+	runtime.changes = [];
+	const committed = callUcodeMethod(methods.commit_candidate, {});
+	assert.equal(committed.committed, true, 'an unchanged candidate passes the pre-commit observed-change guard');
+	assert.equal(runtime.commitCalls, 1);
+	const candidate = runtime.documents[0];
+	assert.ok(candidate.includes("config 'steer' 'main'") && candidate.indexOf("'main'") < candidate.indexOf("'ssh_key'"),
+		'candidate serialization preserves rpcd section ordering');
+	assert.ok(candidate.includes("option 'private_key' '-----BEGIN OPENSSH PRIVATE KEY-----\nowner'\\''s key\n-----END OPENSSH PRIVATE KEY-----\n'"),
+		'candidate serialization preserves physical newlines and quoted apostrophes');
+	assert.equal(runtime.commands.some((command) => String(command).includes('/sbin/uci') || String(command).includes("'-P'")), false,
+		'best-effort candidate validation must not read the process-global /tmp/.uci delta path');
+	assert.ok(runtime.ubusCalls.filter((call) => call.method == 'get').every((call) =>
+		call.args.ubus_rpc_session == '0123456789abcdef0123456789abcdef'),
+		'every candidate snapshot comes from rpcd uci.get with the exact LuCI session');
+
+	let validationGets = 0;
+	runtime.onUbusCall = (call) => {
+		if (call.method == 'get' && ++validationGets == 2)
+			runtime.values.main.schema_version = '11';
+	};
+	const racedCommit = callUcodeMethod(methods.commit_candidate, {});
+	assert.equal(racedCommit.committed, false,
+		'Apply refuses a session candidate change observed after validation');
+	assert.equal(runtime.commitCalls, 1, 'a post-validation candidate mismatch never reaches uci.commit');
+	runtime.onUbusCall = null;
+}
+
 function allOptions(environment) {
 	return environment.maps.flatMap((map) => map.sections.flatMap((section) => section.options));
 }
@@ -487,6 +645,7 @@ function assertExplicitIdsAndOptionalNames(environment, message) {
 }
 
 async function main() {
+	testCommittedUcodePreviewAndObservedCandidateGuard();
 	const freshSections = parseUCIConfig(fs.readFileSync(path.join(root, 'steer/files/etc/config/steer'), 'utf8'));
 	assert.deepEqual(freshSections.route.map((route) => [ route['.name'], route.enabled, route.kind ]), [
 		[ 'direct', undefined, 'direct' ],
@@ -754,43 +913,72 @@ async function main() {
 	assert.deepEqual(dnsProfiles.dns_profile[1], { '.name': 'custom_port', protocol: 'udp', server_port: '8443' },
 		'DNS protocol switching preserves an explicit custom UCI port while clearing stale security fields');
 
-	const pendingIntent = {
+	const revealedIntent = {
 		main: { log_level: 'debug' },
 		nodes: [ {
-			id: 'secret_node', password: 'node-password', obfs_password: 'obfs-password',
-			private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----'
+			id: 'secret_node', uuid: 'node-uuid', password: 'node-password', obfs_password: 'obfs-password',
+			private_key: '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----',
+			plugin_options: 'token=plugin-secret', extra_args: [ '--token', 'argument-secret' ]
 		} ],
 		local_proxies: [ { id: 'local', password: 'local-password' } ],
+		subscriptions: [ { id: 'feed', url: 'https://user:secret@example.test/feed' } ],
 		future: { nested: { token: 'future-token' } }
 	};
-	const pendingPreview = { ok: true, source: 'pending', pending: true, redacted: true, intent: pendingIntent };
-	const revealedPreview = { ok: true, source: 'pending', pending: true, redacted: false, intent: pendingIntent };
+	const redactedIntent = {
+		main: { log_level: 'debug' },
+		nodes: [ {
+			id: 'secret_node', uuid: '[REDACTED]', password: '[REDACTED]', obfs_password: '[REDACTED]',
+			private_key: '[REDACTED]', plugin_options: '[REDACTED]', extra_args: '[REDACTED]'
+		} ],
+		local_proxies: [ { id: 'local', password: '[REDACTED]' } ],
+		subscriptions: [ { id: 'feed', url: '[REDACTED]' } ],
+		future: { nested: { token: '[REDACTED]' } }
+	};
+	const pendingPreview = { ok: true, source: 'unavailable', pending: true, available: false, redacted: true, intent: null };
+	const committedPreview = { ok: true, source: 'committed', pending: false, available: true, redacted: true, intent: redactedIntent };
+	const revealedPreview = { ok: true, source: 'committed', pending: false, available: true, redacted: false, intent: revealedIntent };
 	environment = await renderAdvanced(pendingPreview, revealedPreview);
 	assert.deepEqual(environment.previewCalls, [ false ], 'Advanced requests a redacted preview by default');
 	let previewText = elementText(environment.rendered);
-	assert.ok(previewText.includes('Pending candidate') && previewText.includes('debug'),
-		'Advanced labels and renders the real pending candidate instead of a committed substitute');
-	for (const secret of [ 'node-password', 'obfs-password', 'local-password', 'future-token', 'BEGIN PRIVATE KEY' ]) {
-		assert.equal(previewText.includes(secret), false, `default Canonical Preview must deeply redact ${secret}`);
+	assert.ok(previewText.includes('Pending candidate preview unavailable') && previewText.includes('No Canonical JSON is shown'),
+		'Advanced fails closed and explicitly says that pending Apply input is not being shown');
+	for (const secret of [ 'node-uuid', 'node-password', 'obfs-password', 'local-password', 'future-token', 'BEGIN PRIVATE KEY', 'plugin-secret', 'argument-secret', 'user:secret' ]) {
+		assert.equal(previewText.includes(secret), false, `pending-unavailable state must not contain ${secret}`);
 	}
-	assert.ok(previewText.includes('[REDACTED]'), 'redacted Canonical Preview keeps secret locations visible');
+	assert.equal(previewText.includes('debug'), false, 'pending-unavailable state does not substitute the committed JSON');
 	const revealSecrets = findElements(environment.rendered,
 		(node) => node.tag == 'button' && elementText(node).includes('Reveal secrets temporarily'))[0];
-	await revealSecrets.attributes.click();
+	assert.equal(revealSecrets.hidden, true, 'Reveal is unavailable while pending Apply input cannot be previewed');
+
+	environment = await renderAdvanced(committedPreview, revealedPreview);
+	previewText = elementText(environment.rendered);
+	assert.ok(previewText.includes('Committed snapshot') && previewText.includes('debug'),
+		'Advanced labels and renders Canonical JSON only when there are no pending changes');
+	for (const secret of [ 'node-uuid', 'node-password', 'obfs-password', 'local-password', 'future-token', 'BEGIN PRIVATE KEY', 'plugin-secret', 'argument-secret', 'user:secret' ]) {
+		assert.equal(previewText.includes(secret), false, `default committed Preview must deeply redact ${secret}`);
+	}
+	assert.ok(previewText.includes('[REDACTED]'), 'redacted committed Preview keeps secret locations visible');
+	const revealCommittedSecrets = findElements(environment.rendered,
+		(node) => node.tag == 'button' && elementText(node).includes('Reveal secrets temporarily'))[0];
+	await revealCommittedSecrets.attributes.click();
 	assert.deepEqual(environment.previewCalls, [ false, true ], 'secret reveal requires a separate explicit RPC');
 	previewText = elementText(environment.rendered);
-	assert.ok(previewText.includes('node-password') && previewText.includes('BEGIN PRIVATE KEY'),
-		'explicit reveal shows the current pending snapshot temporarily');
-	await revealSecrets.attributes.click();
+	assert.ok(previewText.includes('node-uuid') && previewText.includes('node-password') && previewText.includes('BEGIN PRIVATE KEY') && previewText.includes('user:secret'),
+		'explicit reveal shows only the committed snapshot temporarily');
+	await revealCommittedSecrets.attributes.click();
 	previewText = elementText(environment.rendered);
 	assert.equal(previewText.includes('node-password'), false, 'Hide immediately scrubs revealed secrets from the preview DOM');
 
-	const freshPage = await renderAdvanced(pendingPreview, revealedPreview);
+	const freshPage = await renderAdvanced(committedPreview, revealedPreview);
 	assert.equal(elementText(freshPage.rendered).includes('node-password'), false,
 		'leaving and re-entering Advanced restores default secret redaction');
-	const committedPage = await renderAdvanced({ ok: true, source: 'committed', pending: false, redacted: true, intent: { main: {} } }, revealedPreview);
-	assert.ok(elementText(committedPage.rendered).includes('Committed snapshot'),
-		'Advanced explicitly labels a preview with no pending UCI changes as committed');
+	const pendingDuringReveal = await renderAdvanced(committedPreview, pendingPreview);
+	const transitionReveal = findElements(pendingDuringReveal.rendered,
+		(node) => node.tag == 'button' && elementText(node).includes('Reveal secrets temporarily'))[0];
+	await transitionReveal.attributes.click();
+	assert.ok(elementText(pendingDuringReveal.rendered).includes('Pending candidate preview unavailable'),
+		'a pending change observed during Reveal immediately removes the stale committed JSON');
+	assert.equal(transitionReveal.hidden, true, 'Reveal becomes unavailable when pending changes appear');
 	environment = await renderLocalProxies({ local_proxy: [] });
 	assertExplicitIdsAndOptionalNames(environment, 'Local proxies');
 	const groupedFixture = {
@@ -829,30 +1017,87 @@ async function main() {
 	const privateKey = allOptions(environment).find((option) => option.name == 'private_key');
 	assert.equal(privateKey.type.prototype.__name__, 'Steer.SensitiveTextValue',
 		'SSH multiline private_key uses the secret-preserving editor');
-	let privateKeyEditor = Object.create(privateKey.type.prototype);
+	const privateKeyEditor = Object.create(privateKey.type.prototype);
 	privateKeyEditor.option = 'private_key';
-	assert.equal(privateKeyEditor.cfgvalue('ssh_secret'), '', 'configured private_key is never returned as default textarea content');
+	const parsePrivateKey = (formValue) => {
+		const configuredValue = privateKeyEditor.cfgvalue('ssh_secret');
+		if (formValue == configuredValue)
+			return;
+		if (formValue == null || formValue == '')
+			privateKeyEditor.remove('ssh_secret');
+		else
+			privateKeyEditor.write('ssh_secret', formValue);
+	};
+	assert.equal(privateKeyEditor.cfgvalue('ssh_secret'), '__STEER_SECRET_CONFIGURED__',
+		'configured private_key uses a non-secret parse sentinel instead of plaintext');
 	let privateKeyWidget = privateKeyEditor.renderWidget('ssh_secret');
 	let privateKeyTextarea = findElements(privateKeyWidget, (node) => node.tag == 'textarea')[0];
 	assert.equal(privateKeyTextarea.value, '', 'SSH private key remains absent from the DOM until explicit reveal');
-	privateKeyEditor.remove('ssh_secret');
-	privateKeyEditor.write('ssh_secret', '');
+	parsePrivateKey('');
+	parsePrivateKey(null);
 	assert.equal(sshFixture.node[0].private_key, sshKey,
-		'hidden blank form submission must preserve the configured private_key');
+		'hidden blank and dependency-inactive parse paths must preserve the configured private_key');
 	const revealKey = findElements(privateKeyWidget,
 		(node) => node.tag == 'button' && elementText(node).includes('Reveal configured secret'))[0];
 	revealKey.attributes.click();
 	assert.equal(privateKeyTextarea.value, sshKey, 'private_key plaintext appears only after explicit reveal');
+	parsePrivateKey(privateKeyTextarea.value);
+	assert.equal(sshFixture.node[0].private_key, sshKey,
+		'Reveal followed by an unchanged save must not authorize deletion or rewrite the key');
 	privateKeyTextarea.value = '';
-	privateKeyEditor.remove('ssh_secret');
-	assert.equal(sshFixture.node[0].private_key, undefined,
-		'clearing a revealed private_key is an explicit secret deletion');
-	sshFixture.node[0].private_key = sshKey;
-	privateKeyEditor = Object.create(privateKey.type.prototype);
-	privateKeyEditor.option = 'private_key';
+	privateKeyTextarea.listeners.input[0]();
+	parsePrivateKey('');
+	assert.equal(sshFixture.node[0].private_key, sshKey,
+		'manually blanking a revealed key still requires the independent Clear action');
+
+	const replacementKey = '-----BEGIN OPENSSH PRIVATE KEY-----\nreplacement\n-----END OPENSSH PRIVATE KEY-----\n';
+	privateKeyTextarea.value = replacementKey;
+	privateKeyTextarea.listeners.input[0]();
+	parsePrivateKey(privateKeyTextarea.value);
+	assert.equal(sshFixture.node[0].private_key, replacementKey,
+		'an input event plus a non-empty replacement is a provable explicit edit');
+
 	privateKeyWidget = privateKeyEditor.renderWidget('ssh_secret');
 	privateKeyTextarea = findElements(privateKeyWidget, (node) => node.tag == 'textarea')[0];
-	assert.equal(privateKeyTextarea.value, '', 'a new page/editor instance restores private_key masking');
+	const revealAfterReplacement = findElements(privateKeyWidget,
+		(node) => node.tag == 'button' && elementText(node).includes('Reveal configured secret'))[0];
+	const clearThenCancel = findElements(privateKeyWidget,
+		(node) => node.tag == 'button' && elementText(node).includes('Clear configured secret'))[0];
+	clearThenCancel.attributes.click();
+	assert.equal(revealAfterReplacement.disabled, true,
+		'Reveal is unavailable while an explicit Clear is pending');
+	assert.equal(sshFixture.node[0].private_key, replacementKey, 'Clear is pending until the current modal is saved');
+	/* Simulate Cancel/reopen with the same LuCI option instance. */
+	privateKeyWidget = privateKeyEditor.renderWidget('ssh_secret');
+	privateKeyTextarea = findElements(privateKeyWidget, (node) => node.tag == 'textarea')[0];
+	assert.equal(privateKeyTextarea.value, '', 'reopening the same option instance resets reveal and clear authorization');
+	parsePrivateKey('');
+	assert.equal(sshFixture.node[0].private_key, replacementKey,
+		'Cancel/reopen cannot leak a prior Clear authorization into parse/remove');
+
+	const revealAfterReopen = findElements(privateKeyWidget,
+		(node) => node.tag == 'button' && elementText(node).includes('Reveal configured secret'))[0];
+	const clearAndSave = findElements(privateKeyWidget,
+		(node) => node.tag == 'button' && elementText(node).includes('Clear configured secret'))[0];
+	clearAndSave.attributes.click();
+	assert.equal(revealAfterReopen.disabled, true,
+		'Clear prevents Reveal from silently cancelling the pending deletion with stale button text');
+	privateKeyTextarea.value = 'replacement typed after Clear';
+	privateKeyTextarea.listeners.input[0]();
+	assert.equal(clearAndSave.disabled, false, 'typing a replacement cancels pending Clear and re-enables the action');
+	assert.equal(revealAfterReopen.disabled, false,
+		'typing a replacement leaves the editor in a consistent non-Clear state');
+	assert.ok(elementText(clearAndSave).includes('Clear configured secret'),
+		'typing a replacement restores the Clear button label to match the actual state');
+	privateKeyTextarea.value = '';
+	privateKeyTextarea.listeners.input[0]();
+	assert.equal(clearAndSave.disabled, false,
+		'manually blanking a replacement still requires a fresh explicit Clear action');
+	clearAndSave.attributes.click();
+	assert.equal(revealAfterReopen.disabled, true, 'the renewed Clear action again locks out Reveal until save or cancel');
+	parsePrivateKey('');
+	assert.equal(sshFixture.node[0].private_key, undefined,
+		'only the current editor\'s explicit Clear action authorizes secret deletion');
 	environment = await renderNodes(groupedFixture, '', undefined, 'routes');
 	const groupedPicker = environment.maps[0].sections.flatMap((section) => section.options)
 		.find((option) => option.name == 'node');
@@ -1055,21 +1300,23 @@ async function main() {
 	assert.ok(rpcSource.includes("args: { id: '' }") &&
 		rpcSource.includes("args: { id: '', node: '' }"),
 		'Subscription RPC methods declare their input arguments');
-	assert.ok(rpcSource.includes("'-P', deltaDirectory, 'export', 'steer'") &&
-		rpcSource.includes("command_json('/usr/sbin/steer validate --config '") &&
-		rpcSource.includes('request?.args?.ubus_rpc_session') &&
+	assert.ok(rpcSource.includes("ubus.defer('uci', 'get'") &&
+		rpcSource.includes('run_candidate(candidate.document, \'validate\')') &&
+		rpcSource.includes('currentCandidate.document != validatedCandidate.document') &&
 		rpcSource.includes("ubus.defer('uci', 'commit'") &&
 		rpcSource.includes('function(code, reply)') &&
 		rpcSource.includes('committed: code == 0') &&
-		rpcSource.includes('call: commit_candidate'),
-		'One backend transaction validates the current LuCI session overlay before standard UCI commit');
-	assert.ok(rpcSource.includes("'changes', 'steer'") &&
-		rpcSource.includes("mkdtemp('/tmp/steer-preview-XXXXXX')") &&
-		rpcSource.includes("command_json('/usr/sbin/steer _export-intent --config '") &&
+		rpcSource.includes('call: commit_candidate') &&
+		!rpcSource.includes("'-P'") && !rpcSource.includes("'/sbin/uci'"),
+		'Apply validates the rpcd session candidate and rejects changes observed before standard UCI commit');
+	assert.ok(rpcSource.includes("ubus.defer('uci', 'changes'") &&
+		rpcSource.includes("command_json('/usr/sbin/steer _export-intent')") &&
+		rpcSource.includes('available: false') &&
+		rpcSource.includes('intent: null') &&
 		rpcSource.includes('function redact_secrets(value)') &&
 		rpcSource.includes("args: { reveal: false }") &&
 		rpcSource.includes('call: intent_preview'),
-		'Preview exports the real session overlay independently and redacts secrets unless explicitly revealed');
+		'Preview fails closed while pending, and otherwise redacts the committed snapshot unless explicitly revealed');
 	const aclSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json'), 'utf8');
 	assert.ok(aclSource.includes('"intent_preview"') && !aclSource.includes('"intent"'),

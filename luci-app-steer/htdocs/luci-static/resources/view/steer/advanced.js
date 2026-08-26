@@ -7,7 +7,8 @@
 const redactedValue = '[REDACTED]';
 
 function secretKey(key) {
-	return key == 'private_key' || /(^|_)(password|token)$/.test(key);
+	return key == 'uuid' || key == 'private_key' || key == 'url' || key == 'extra_args' || key == 'plugin_options' ||
+		/(^|_)(password|token)$/.test(key);
 }
 
 function redactSecrets(value) {
@@ -66,31 +67,46 @@ return view.extend({
 				}
 				revealError.hidden = true;
 				current = revealedPreview;
+				if (!updateMetadata()) {
+					revealed = false;
+					document.replaceChildren();
+					return;
+				}
 				revealed = true;
-				updateMetadata();
 				document.replaceChildren(JSON.stringify(revealedPreview.intent || {}, null, 2));
 				reveal.setAttribute('aria-pressed', 'true');
 				reveal.textContent = _('Hide secrets');
 			}
 		}, _('Reveal secrets temporarily'));
 		const revealError = E('p', { 'class': 'alert-message danger', 'hidden': '' }, _('Secret reveal failed.'));
+		const secretNotice = E('p', {}, _('Secrets are hidden by default. Reveal is temporary and resets when you leave this page.'));
 
 		function updateMetadata() {
-			const pending = current.source == 'pending';
-			heading.replaceChildren(pending ? _('Pending candidate') : _('Committed snapshot'));
-			notice.className = pending ? 'alert-message warning' : '';
-			notice.replaceChildren(pending
-				? _('This preview is the real pending UCI candidate that validation and Apply will receive.')
-				: _('No pending Steer changes exist. This preview is the committed UCI snapshot.'));
+			if (current.pending === true || current.available === false) {
+				heading.replaceChildren(_('Pending candidate preview unavailable'));
+				notice.className = 'alert-message warning';
+				notice.replaceChildren(_('Pending UCI changes exist. No Canonical JSON is shown because a trustworthy preview of the Apply input is unavailable.'));
+				secretNotice.hidden = true;
+				reveal.hidden = true;
+				document.hidden = true;
+				return false;
+			}
+			heading.replaceChildren(_('Committed snapshot'));
+			notice.className = '';
+			notice.replaceChildren(_('No pending Steer changes exist. This preview is the committed UCI snapshot.'));
+			secretNotice.hidden = false;
+			reveal.hidden = false;
+			document.hidden = false;
+			return true;
 		}
 
-		updateMetadata();
-		document.replaceChildren(JSON.stringify(redactSecrets(preview.intent || {}), null, 2));
+		if (updateMetadata())
+			document.replaceChildren(JSON.stringify(redactSecrets(preview.intent || {}), null, 2));
 		return E('section', { 'class': 'cbi-section' }, [
 			E('h2', {}, _('Canonical Preview')),
 			heading,
 			notice,
-			E('p', {}, _('Secrets are hidden by default. Reveal is temporary and resets when you leave this page.')),
+			secretNotice,
 			E('div', { 'class': 'right' }, reveal),
 			revealError,
 			document

@@ -8,6 +8,7 @@ package uci
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -28,6 +29,7 @@ type Document struct {
 }
 
 var identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+var errUnterminatedValue = errors.New("unterminated quoted or escaped value")
 
 // IsIdentifier reports whether a section ID can be addressed safely through
 // the OpenWrt uci command without changing Steer's canonical JSON ID grammar.
@@ -47,64 +49,84 @@ func parse(r io.Reader, requireSectionID bool) (Document, error) {
 	var document Document
 	var current *Section
 	scanner := bufio.NewScanner(r)
-	lineNumber := 0
-	for scanner.Scan() {
-		lineNumber++
-		tokens, err := splitLine(scanner.Text())
-		if err != nil {
-			return Document{}, fmt.Errorf("UCI line %d: %w", lineNumber, err)
-		}
+	lineNumber, statementLine := 0, 0
+	var statement strings.Builder
+	process := func(tokens []string, sourceLine int) error {
 		if len(tokens) == 0 {
-			continue
+			return nil
 		}
 		switch tokens[0] {
 		case "config":
 			if len(tokens) < 2 || len(tokens) > 3 || tokens[1] == "" {
-				return Document{}, fmt.Errorf("UCI line %d: config requires a type and optional section ID", lineNumber)
+				return fmt.Errorf("UCI line %d: config requires a type and optional section ID", sourceLine)
 			}
 			if requireSectionID && (len(tokens) != 3 || tokens[2] == "") {
-				return Document{}, fmt.Errorf("UCI line %d: config requires a type and an explicit section ID", lineNumber)
+				return fmt.Errorf("UCI line %d: config requires a type and an explicit section ID", sourceLine)
 			}
 			if requireSectionID && !IsIdentifier(tokens[2]) {
-				return Document{}, fmt.Errorf("UCI line %d: invalid Steer section ID %q", lineNumber, tokens[2])
+				return fmt.Errorf("UCI line %d: invalid Steer section ID %q", sourceLine, tokens[2])
 			}
 			id := ""
 			if len(tokens) == 3 {
 				id = tokens[2]
 			}
 			document.Sections = append(document.Sections, Section{
-				Type: tokens[1], ID: id, Line: lineNumber,
+				Type: tokens[1], ID: id, Line: sourceLine,
 				Options: make(map[string]string), Lists: make(map[string][]string),
 			})
 			current = &document.Sections[len(document.Sections)-1]
 		case "option", "list":
 			if current == nil {
-				return Document{}, fmt.Errorf("UCI line %d: %s appears before config", lineNumber, tokens[0])
+				return fmt.Errorf("UCI line %d: %s appears before config", sourceLine, tokens[0])
 			}
 			if len(tokens) != 3 || tokens[1] == "" {
-				return Document{}, fmt.Errorf("UCI line %d: %s requires a key and value", lineNumber, tokens[0])
+				return fmt.Errorf("UCI line %d: %s requires a key and value", sourceLine, tokens[0])
 			}
 			key, value := tokens[1], tokens[2]
 			if tokens[0] == "option" {
 				if _, exists := current.Options[key]; exists {
-					return Document{}, fmt.Errorf("UCI line %d: duplicate option %q in %s %q", lineNumber, key, current.Type, current.ID)
+					return fmt.Errorf("UCI line %d: duplicate option %q in %s %q", sourceLine, key, current.Type, current.ID)
 				}
 				if _, exists := current.Lists[key]; exists {
-					return Document{}, fmt.Errorf("UCI line %d: %q cannot be both option and list", lineNumber, key)
+					return fmt.Errorf("UCI line %d: %q cannot be both option and list", sourceLine, key)
 				}
 				current.Options[key] = value
 			} else {
 				if _, exists := current.Options[key]; exists {
-					return Document{}, fmt.Errorf("UCI line %d: %q cannot be both option and list", lineNumber, key)
+					return fmt.Errorf("UCI line %d: %q cannot be both option and list", sourceLine, key)
 				}
 				current.Lists[key] = append(current.Lists[key], value)
 			}
 		default:
-			return Document{}, fmt.Errorf("UCI line %d: unsupported directive %q", lineNumber, tokens[0])
+			return fmt.Errorf("UCI line %d: unsupported directive %q", sourceLine, tokens[0])
 		}
+		return nil
+	}
+	for scanner.Scan() {
+		lineNumber++
+		if statement.Len() == 0 {
+			statementLine = lineNumber
+		} else {
+			statement.WriteByte('\n')
+		}
+		statement.WriteString(scanner.Text())
+		tokens, err := splitLine(statement.String())
+		if errors.Is(err, errUnterminatedValue) {
+			continue
+		}
+		if err != nil {
+			return Document{}, fmt.Errorf("UCI line %d: %w", statementLine, err)
+		}
+		if err := process(tokens, statementLine); err != nil {
+			return Document{}, err
+		}
+		statement.Reset()
 	}
 	if err := scanner.Err(); err != nil {
 		return Document{}, fmt.Errorf("read UCI: %w", err)
+	}
+	if statement.Len() > 0 {
+		return Document{}, fmt.Errorf("UCI line %d: %w", statementLine, errUnterminatedValue)
 	}
 	return document, nil
 }
@@ -165,7 +187,7 @@ func splitLine(line string) ([]string, error) {
 		}
 	}
 	if escaped || inSingle || inDouble {
-		return nil, fmt.Errorf("unterminated quoted or escaped value")
+		return nil, errUnterminatedValue
 	}
 	flush()
 	return tokens, nil

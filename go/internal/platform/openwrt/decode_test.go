@@ -53,6 +53,25 @@ func TestDecodeCanonicalIntent(t *testing.T) {
 	}
 }
 
+func TestDecodeRealUCIExportWithMultilinePrivateKey(t *testing.T) {
+	configPath := filepath.Join("..", "..", "..", "..", "tests", "fixtures", "multiline-private-key-valid", "steer")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := DecodeBytes(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-----BEGIN OPENSSH PRIVATE KEY-----\nowner's line\nline two\n-----END OPENSSH PRIVATE KEY-----\n"
+	if len(intent.Nodes) != 1 || intent.Nodes[0].PrivateKey != want {
+		t.Fatalf("multiline private key did not survive UCI export decoding: %#v", intent.Nodes)
+	}
+	if validation := model.Validate(intent); !validation.OK {
+		t.Fatalf("multiline private-key candidate failed validation: %#v", validation.Errors)
+	}
+}
+
 func TestDecodedUCIDNSProfileOptionsRemainSubjectToSemanticValidation(t *testing.T) {
 	config := strings.Replace(minimalConfig, "option server_port '53'\n\nconfig rule", "option server_port '53'\n\toption tls_server_name 'stale.example'\n\toption path '/dns-query'\n\toption insecure '1'\n\nconfig rule", 1)
 	intent, err := Decode(strings.NewReader(config))

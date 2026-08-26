@@ -258,38 +258,37 @@ function nodeChoiceLabel(item) {
 
 const SensitiveTextValue = form.TextValue.extend({
 	__name__: 'Steer.SensitiveTextValue',
-
-	secretValue: function(sectionId) {
-		this.steerSecretValues ??= {};
-		if (!(sectionId in this.steerSecretValues))
-			this.steerSecretValues[sectionId] = String(uci.get('steer', sectionId, this.option) || '');
-		return this.steerSecretValues[sectionId];
-	},
+	configuredSentinel: '__STEER_SECRET_CONFIGURED__',
 
 	cfgvalue: function(sectionId) {
-		this.secretValue(sectionId);
-		return '';
+		return uci.get('steer', sectionId, this.option) ? this.configuredSentinel : '';
 	},
 
 	write: function(sectionId, value) {
-		const secret = this.secretValue(sectionId);
-		const revealed = this.steerSecretRevealed?.[sectionId] === true;
+		const state = this.steerSecretState?.[sectionId];
 		const replacement = String(value || '');
-		if (!revealed && replacement == '' && secret != '')
-			return;
-		if (replacement == '')
+		if (state?.clear === true) {
 			uci.unset('steer', sectionId, this.option);
-		else
-			uci.set('steer', sectionId, this.option, replacement);
-		this.steerSecretValues[sectionId] = replacement;
+			state.original = '';
+			state.clear = false;
+			state.edited = false;
+			return;
+		}
+		if (state?.edited !== true || replacement == '')
+			return;
+		uci.set('steer', sectionId, this.option, replacement);
+		state.original = replacement;
+		state.edited = false;
 	},
 
 	remove: function(sectionId) {
-		const secret = this.secretValue(sectionId);
-		if (secret != '' && this.steerSecretRevealed?.[sectionId] !== true)
+		const state = this.steerSecretState?.[sectionId];
+		if (state?.clear !== true)
 			return;
 		uci.unset('steer', sectionId, this.option);
-		this.steerSecretValues[sectionId] = '';
+		state.original = '';
+		state.clear = false;
+		state.edited = false;
 	},
 
 	renderWidget: function(sectionId) {
@@ -297,29 +296,62 @@ const SensitiveTextValue = form.TextValue.extend({
 		const textarea = widget.matches?.('textarea') ? widget : widget.querySelector('textarea');
 		if (!textarea)
 			return widget;
-		const secret = this.secretValue(sectionId);
+		const state = {
+			original: String(uci.get('steer', sectionId, this.option) || ''),
+			revealed: false,
+			edited: false,
+			clear: false
+		};
+		this.steerSecretState ??= {};
+		this.steerSecretState[sectionId] = state;
 		textarea.value = '';
 		textarea.setAttribute('autocomplete', 'off');
 		textarea.setAttribute('autocapitalize', 'off');
 		textarea.setAttribute('spellcheck', 'false');
-		textarea.placeholder = secret != ''
+		textarea.placeholder = state.original != ''
 			? _('Configured secret is hidden. Leave this field blank to keep it unchanged.')
 			: textarea.placeholder;
-		if (secret == '')
+		let reveal, clear;
+		textarea.addEventListener('input', () => {
+			state.edited = true;
+			if (textarea.value != '') {
+				state.clear = false;
+				if (reveal && !state.revealed)
+					reveal.disabled = false;
+				if (clear) {
+					clear.disabled = false;
+					clear.textContent = _('Clear configured secret');
+				}
+			}
+		});
+		if (state.original == '')
 			return widget;
 
-		const reveal = E('button', {
+		reveal = E('button', {
 			'type': 'button',
 			'class': 'cbi-button cbi-button-action',
 			'click': () => {
-				this.steerSecretRevealed ??= {};
-				this.steerSecretRevealed[sectionId] = true;
-				textarea.value = secret;
+				state.revealed = true;
+				state.edited = false;
+				state.clear = false;
+				textarea.value = state.original;
 				reveal.disabled = true;
 				reveal.textContent = _('Revealed until this editor is closed');
 			}
 		}, _('Reveal configured secret'));
-		return E('div', { 'class': 'steer-secret-editor' }, [ widget, reveal ]);
+		clear = E('button', {
+			'type': 'button',
+			'class': 'cbi-button cbi-button-negative',
+			'click': () => {
+				state.clear = true;
+				state.edited = false;
+				textarea.value = '';
+				reveal.disabled = true;
+				clear.disabled = true;
+				clear.textContent = _('Secret will be cleared on save');
+			}
+		}, _('Clear configured secret'));
+		return E('div', { 'class': 'steer-secret-editor' }, [ widget, reveal, clear ]);
 	}
 });
 
