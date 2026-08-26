@@ -46,8 +46,9 @@ swift test --disable-sandbox
 - `validation-issue-fixtures.json`：三端写失败的完整问题定位与无凭据消息合同；
 - `collection-reference-fixtures.json`：Node/Route/DNS/Local Proxy/Subscription 删除引用保护合同；
 - `rule-summary-fixtures.json`：完整 Rule match 摘要与 DNS/连接阶段边界合同；
-- `luci_view_test.js`：表单语义、Local Proxy 暴露/认证门、detour 可清空、节点/路由/概览测试按钮；
-- `steer_helper_test.js`：UCI commit 后的 Apply 观察、独立 validate、最小 status；
+- `form-input-fixtures.json`：三端共享的 Probe/Subscription URL、正 duration 与 DNS HTTP path 格式合同；
+- `luci_view_test.js`：表单语义、逐 RPC 权限、Local Proxy 暴露/认证门、detour 可清空、节点/路由/概览测试按钮；
+- `steer_helper_test.js`：UCI commit 后的 Apply 阶段反馈、结构化错误本地化、独立 validate 与 session access；
 - `linux_web_test.js`：Linux Web 开关/冲突回滚、Rules/Node chips 与 SSH 私钥、Local Proxy 认证 DOM 往返、Advanced JSON 单一 Draft、无效 JSON 导航保护及确认式 Discard；
 - Swift XCTest：共享 Local Proxy、订阅、Probe、状态生命周期 fixture 与 macOS 提交门；
 - Python 检查：中文覆盖、包所有权/版本/已删除接口、官方 SDK 缓存与 Linux 交付约束。

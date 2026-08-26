@@ -31,12 +31,18 @@ function testResult(report, kind) {
 	]);
 }
 
-function renderTestCard(kind, title, description) {
+function renderTestCard(kind, title, description, allowed) {
 	const output = E('div', { 'class': 'steer-test-card__output' }, E('span', {}, _('Not tested')));
 	const button = E('button', {
 		'class': 'btn cbi-button-action',
+		'disabled': allowed ? null : true,
+		'title': allowed ? '' : _('You do not have permission to run Overview probes.'),
 		'click': function(ev) {
 			ev.preventDefault();
+			if (!allowed) {
+				ui.addNotification(_('Probe is not permitted'), E('p', {}, _('Your session does not have permission to run Overview probes.')), 'warning');
+				return;
+			}
 			const current = ev.currentTarget;
 			current.disabled = true;
 			output.replaceChildren(E('span', { 'class': 'spinning' }, _('Testing…')));
@@ -57,11 +63,11 @@ function renderTestCard(kind, title, description) {
 	]);
 }
 
-function renderOverviewTests() {
+function renderOverviewTests(allowed) {
 	return E('div', { 'class': 'steer-test-grid' }, [
-		renderTestCard('direct', _('Direct target'), _('Visits the configured direct test target under the current Active rules.')),
-		renderTestCard('proxy', _('Proxy target'), _('Visits the configured proxy test target under the current Active rules.')),
-		renderTestCard('speedtest', _('Download target'), _('Visits the configured download test target under the current Active rules.'))
+		renderTestCard('direct', _('Direct target'), _('Visits the configured direct test target under the current Active rules.'), allowed),
+		renderTestCard('proxy', _('Proxy target'), _('Visits the configured proxy test target under the current Active rules.'), allowed),
+		renderTestCard('speedtest', _('Download target'), _('Visits the configured download test target under the current Active rules.'), allowed)
 	]);
 }
 
@@ -87,22 +93,22 @@ function renderProbeReport(report, diagnostics, pending) {
 	const stale = reportIsStale(report, diagnostics, pending);
 	const rate = result.downloaded_bytes > 0 && result.download_milliseconds > 0
 		? (result.downloaded_bytes * 8 / result.download_milliseconds / 1000).toFixed(1) + ' Mbps' : '—';
-	const target = report.scope == 'overview' ? 'Overview' : '%s/%s'.format(report.scope, report.object_id || '—');
+	const target = report.scope == 'overview' ? _('Overview') : '%s/%s'.format(report.scope, report.object_id || '—');
 	return E('article', { 'class': 'cbi-section' }, [
 		E('h4', {}, [ target, ' · ', report.kind, ' · ', stale ? _('Stale') : (report.ok ? _('Succeeded') : _('Failed')) ]),
 		E('dl', { 'class': 'steer-status__facts' }, [
-			diagnosticFact('tested_at', report.tested_at), diagnosticFact('URL', result.url),
-			diagnosticFact(_('Attempts'), result.attempts), diagnosticFact('Connect', result.connect_milliseconds == null ? null : result.connect_milliseconds + ' ms'),
-			diagnosticFact('TLS', result.tls_milliseconds == null ? null : result.tls_milliseconds + ' ms'),
-			diagnosticFact('TTFB', result.first_byte_milliseconds == null ? null : result.first_byte_milliseconds + ' ms'),
-			diagnosticFact('HTTP', result.status), diagnosticFact(_('Bytes'), result.downloaded_bytes),
+			diagnosticFact(_('Tested at'), report.tested_at), diagnosticFact(_('URL'), result.url),
+			diagnosticFact(_('Attempts'), result.attempts), diagnosticFact(_('Connect'), result.connect_milliseconds == null ? null : result.connect_milliseconds + ' ms'),
+			diagnosticFact(_('TLS'), result.tls_milliseconds == null ? null : result.tls_milliseconds + ' ms'),
+			diagnosticFact(_('TTFB'), result.first_byte_milliseconds == null ? null : result.first_byte_milliseconds + ' ms'),
+			diagnosticFact(_('HTTP'), result.status), diagnosticFact(_('Bytes'), result.downloaded_bytes),
 			diagnosticFact(_('Rate'), rate)
 		]),
 		(report.error || result.error) ? E('p', { 'class': 'alert-message danger' }, report.error || result.error) : ''
 	]);
 }
 
-function renderDiagnostics(status, validation, diagnostics, changes) {
+function renderDiagnostics(status, validation, diagnostics, changes, permissions) {
 	const pending = hasPendingSteerChanges(changes);
 	const lastApply = status?.last_apply;
 	const result = lastApply?.result;
@@ -110,7 +116,7 @@ function renderDiagnostics(status, validation, diagnostics, changes) {
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Connectivity targets')),
 			E('p', {}, _('Targets are visited under the current Active rules. Success only proves that the URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.')),
-			renderOverviewTests()
+			renderOverviewTests(permissions?.overview_probe === true)
 		]),
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Recent Overview, Node and Route probe reports')),
@@ -119,15 +125,15 @@ function renderDiagnostics(status, validation, diagnostics, changes) {
 		]),
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Validation')),
-			...((validation?.errors || []).map((issue) => E('p', { 'class': 'alert-message danger' }, '%s · %s/%s · %s'.format(issue.code, issue.object_type || 'configuration', issue.object_id || '—', issue.message)))),
-			...((validation?.warnings || []).map((issue) => E('p', { 'class': 'alert-message warning' }, '%s · %s/%s · %s'.format(issue.code, issue.object_type || 'configuration', issue.object_id || '—', issue.message)))),
+			...((validation?.errors || []).map((issue) => E('p', { 'class': 'alert-message danger' }, steer.issueText(issue)))),
+			...((validation?.warnings || []).map((issue) => E('p', { 'class': 'alert-message warning' }, steer.issueText(issue)))),
 			validation?.ok ? E('p', {}, _('The committed configuration is valid.')) : ''
 		]),
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Recent Apply')),
 			E('dl', { 'class': 'steer-status__facts' }, [
 				diagnosticFact(_('Sequence'), lastApply?.sequence), diagnosticFact(_('Result'), result?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—')),
-				diagnosticFact('Generation', result?.generation), diagnosticFact(_('Error'), result?.error)
+				diagnosticFact(_('Generation'), result?.generation), diagnosticFact(_('Error'), result?.error)
 			])
 		]),
 		E('section', { 'class': 'cbi-section' }, [
@@ -155,12 +161,12 @@ function renderLifecycleOverview(state) {
 	const runAction = function(button, action, success) {
 		button.disabled = true;
 		action().then((result) => {
-			if (result?.ok === false) throw new Error(result.error || _('Operation failed.'));
+			if (result?.ok === false) throw result;
 			actionState.replaceChildren(success);
 			window.location.reload();
 		}).catch((error) => {
 			button.disabled = false;
-			actionState.replaceChildren(String(error));
+			actionState.replaceChildren(error?.error_code ? steer.rpcErrorText(error) : _('Operation failed.'));
 		});
 	};
 	const actions = [];
@@ -218,8 +224,8 @@ function renderLifecycleOverview(state) {
 			]),
 			...actions
 		]),
-		...desiredWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Pending warning: %s · %s').format(issue.code, issue.message))),
-		...savedWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Saved warning: %s · %s').format(issue.code, issue.message))),
+		...desiredWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Pending warning: %s').format(steer.issueText(issue)))),
+		...savedWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Saved warning: %s').format(steer.issueText(issue)))),
 		lastResult?.ok === false ? E('p', { 'class': 'alert-message danger' }, _('The last Apply failed. Saved remains committed and Active remains the generation shown above.')) : '',
 		E('p', { 'class': 'alert-message notice' }, _('Subscription inventory refreshes do not change Route or Rule selection and do not create pending Apply by themselves.'))
 	]);
@@ -227,7 +233,10 @@ function renderLifecycleOverview(state) {
 
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.overviewState(), steer.validate(), steer.diagnostics(), uci.changes() ]);
+		return Promise.all([
+			uci.load('steer'), steer.overviewState(), steer.validate(), steer.diagnostics(), uci.changes(),
+			steer.permissions([ 'overview_probe' ])
+		]);
 	},
 
 	render: function(data) {
@@ -240,7 +249,7 @@ return view.extend({
 		if (page == 'overview' || page == 'steer')
 			return renderLifecycleOverview(lifecycle);
 		if (page == 'diagnostics')
-			return renderDiagnostics(status, validation, data[3] || {}, data[4]);
+			return renderDiagnostics(status, validation, data[3] || {}, data[4], data[5] || {});
 
 		m = new form.Map('steer', _('Steer'));
 		s = m.section(form.NamedSection, 'main', 'steer', _('General'));
@@ -250,7 +259,7 @@ return view.extend({
 		o.description = _('A disabled configuration stops Steer and removes its runtime resources when applied.');
 
 		o = s.option(form.ListValue, 'log_level', _('Log level'));
-		uiSpec.log_levels.forEach((item) => o.value(item.value, item.label));
+		uiSpec.log_levels.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 		o.default = 'warn';
 
 		o = s.option(form.Value, 'dns_cache_capacity', _('Cache capacity'));
@@ -266,27 +275,27 @@ return view.extend({
 		o.description = _('Serve recently expired DNS answers while refreshing them in the background.');
 
 		o = s.option(form.Value, 'probe_direct', _('Direct connectivity probe URL'));
-		o.datatype = 'url';
+		o.validate = function(_sectionId, value) { return steer.validateInput('probe_url', value); };
 		o.rmempty = false;
 		o.placeholder = 'https://www.example.com/';
 
 		o = s.option(form.Value, 'probe_proxy', _('Proxy connectivity probe URL'));
-		o.datatype = 'url';
+		o.validate = function(_sectionId, value) { return steer.validateInput('probe_url', value); };
 		o.rmempty = false;
 		o.placeholder = 'https://www.example.com/';
 
 		o = s.option(form.Value, 'speedtest_proxy', _('Proxy speed-test URL'));
-		o.datatype = 'url';
+		o.validate = function(_sectionId, value) { return steer.validateInput('probe_url', value); };
 		o.rmempty = false;
 		o.placeholder = 'https://speed.cloudflare.com/__down?bytes=1000000';
 
 		s = m.section(form.NamedSection, 'bootstrap', 'bootstrap', _('Bootstrap DNS'));
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
-		uiSpec.bootstrap_protocols.forEach((item) => o.value(item.value, item.label)); o.rmempty = false;
+		uiSpec.bootstrap_protocols.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label))); o.rmempty = false;
 		o = s.option(form.Value, 'server', _('Server IP')); o.datatype = 'ipaddr'; o.rmempty = false;
 		o = s.option(form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false;
 		o = s.option(form.ListValue, 'strategy', _('Address strategy'));
-		uiSpec.bootstrap_strategies.forEach((item) => o.value(item.value, item.label));
+		uiSpec.bootstrap_strategies.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 		o.rmempty = false;
 
 		return m.render();

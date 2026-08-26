@@ -5,6 +5,34 @@ return baseclass.extend({
   "schema_version": 1,
   "canonical_schema": 9,
   "subscription_update_interval_default": "6h",
+  "input_formats": {
+    "dns_http_path": {
+      "kind": "string",
+      "prefix": "/"
+    },
+    "positive_duration": {
+      "kind": "duration",
+      "positive": true,
+      "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+    },
+    "probe_url": {
+      "kind": "url",
+      "schemes": [
+        "https"
+      ],
+      "absolute": true,
+      "forbid_credentials": true,
+      "forbid_fragment": true
+    },
+    "subscription_url": {
+      "kind": "url",
+      "schemes": [
+        "http",
+        "https"
+      ],
+      "absolute": true
+    }
+  },
   "node_types": [
     {
       "value": "socks",

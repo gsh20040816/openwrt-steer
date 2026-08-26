@@ -24,7 +24,114 @@ const callNodeSpeedtest = rpc.declare({ object: 'luci.steer', method: 'node_spee
 const callRouteSpeedtest = rpc.declare({ object: 'luci.steer', method: 'route_speedtest', params: [ 'route', 'download' ], expect: { '': {} } });
 const callOverviewProbe = rpc.declare({ object: 'luci.steer', method: 'overview_probe', params: [ 'kind' ], expect: { '': {} } });
 const callNodeImport = rpc.declare({ object: 'luci.steer', method: 'node_import', params: [ 'document' ], expect: { '': {} } });
+const callSessionAccess = rpc.declare({
+	object: 'session', method: 'access', params: [ 'scope', 'object', 'function' ], expect: { access: false }
+});
 const sectionIDPattern = /^[a-z][a-z0-9_]{0,31}$/;
+
+const validationMessages = {
+	DANGLING_NODE: _('The referenced Node does not exist.'),
+	DANGLING_DETOUR: _('The referenced detour Route does not exist.'),
+	DANGLING_DNS_PROFILE: _('The referenced DNS Profile does not exist.'),
+	DANGLING_ROUTE: _('The referenced Route does not exist.'),
+	DANGLING_LOCAL_PROXY: _('The referenced Local Proxy does not exist.'),
+	DISABLED_NODE: _('The referenced Node is disabled.'),
+	DISABLED_DETOUR: _('The referenced detour Route is disabled.'),
+	DISABLED_DNS_PROFILE: _('The referenced DNS Profile is disabled.'),
+	DISABLED_ROUTE: _('The referenced Route is disabled.'),
+	DISABLED_LOCAL_PROXY: _('The referenced Local Proxy is disabled.'),
+	ROUTE_DETOUR_CYCLE: _('The Route detour chain contains a cycle.'),
+	PORT_COLLISION: _('The listener conflicts with another configured listener.'),
+	DEFAULT_COUNT: _('Exactly one enabled Default Rule is required.'),
+	DIRECT_ROUTE_COUNT: _('Exactly one enabled Direct Route is required.'),
+	RULE_AFTER_DEFAULT: _('An enabled Rule appears after the Default Rule.'),
+	DNS_PROJECTION_EMPTY: _('This Rule has only connection-stage conditions, so DNS continues to later Rules.'),
+	DNS_REJECT_PROJECTION_SKIPPED: _('DNS cannot evaluate this Rule’s connection-stage conditions, so DNS continues to later Rules.'),
+	INSECURE_TLS: _('TLS certificate verification is disabled.'),
+	SUBSCRIPTION_NODE_STALE: _('The subscription no longer advertises this Node; it is retained until explicitly removed.'),
+	PLATFORM_UNSUPPORTED_SOURCE_MAC: _('The current platform cannot match the original source MAC address.'),
+	CANDIDATE_READ_FAILED: _('The pending Steer configuration could not be read.'),
+	CANDIDATE_VALIDATE_FAILED: _('The pending Steer configuration could not be validated.'),
+	CANDIDATE_CHANGED: _('The pending Steer configuration changed during validation. Review it and retry.')
+};
+
+const rpcErrorMessages = {
+	PENDING_STATE_UNAVAILABLE: _('The pending Steer configuration cannot be inspected.'),
+	PENDING_CHANGES: _('Apply or discard pending Steer changes before operating on the committed configuration.'),
+	CONTROL_START_FAILED: _('The Steer control program could not be started.'),
+	CONTROL_OUTPUT_INVALID: _('The Steer control program returned an invalid response.'),
+	CONTROL_EXIT_FAILED: _('The Steer control program failed.'),
+	IMPORT_TEMP_FAILED: _('A private import workspace could not be created.'),
+	IMPORT_START_FAILED: _('The Steer node parser could not be started.'),
+	IMPORT_PARSE_FAILED: _('The node share-link document could not be parsed.'),
+	IMPORT_OUTPUT_INVALID: _('The Steer node parser returned an invalid response.'),
+	CANDIDATE_READ_FAILED: _('The pending Steer configuration could not be read.'),
+	CANDIDATE_CHANGED: _('The pending Steer configuration changed during validation. Review it and retry.'),
+	CANDIDATE_COMMIT_FAILED: _('The validated Steer configuration could not be committed.'),
+	LIFECYCLE_PENDING_READ_FAILED: _('The pending lifecycle state could not be read.'),
+	LIFECYCLE_STATE_FAILED: _('The Steer lifecycle state could not be read.'),
+	LIFECYCLE_CHANGED: _('The pending Steer configuration changed while lifecycle state was read. Retry.'),
+	PREVIEW_DECODE_FAILED: _('The Steer configuration preview could not be decoded.'),
+	LOG_READ_FAILED: _('Recent Steer logs could not be read.'),
+	MISSING_SUBSCRIPTION_ID: _('A Subscription ID is required.'),
+	MISSING_SUBSCRIPTION_NODE_ID: _('A Subscription ID and Node ID are required.'),
+	MISSING_NODE_ID: _('A Node ID is required.'),
+	MISSING_ROUTE_ID: _('A Route ID is required.'),
+	INVALID_PROBE_KIND: _('Choose the direct, proxy, or speed-test probe.'),
+	MISSING_NODE_DOCUMENT: _('Paste at least one node share link.')
+};
+
+function validationMessage(issue) {
+	const code = String(issue?.code || 'VALIDATION');
+	if (validationMessages[code]) return validationMessages[code];
+	if (code == 'REQUIRED' || code.startsWith('REQUIRED_') || code.startsWith('INCOMPLETE_'))
+		return _('A required value is missing or incomplete.');
+	if (code.startsWith('INVALID_')) return _('The field value is invalid.');
+	if (code.startsWith('UNSUPPORTED_')) return _('This value is not supported.');
+	if (code.startsWith('UNEXPECTED_')) return _('This field is not applicable here.');
+	return _('Configuration validation failed.');
+}
+
+function rpcErrorText(result) {
+	const code = result?.error_code;
+	if (code && rpcErrorMessages[code]) return rpcErrorMessages[code];
+	return code ? _('Operation failed (%s).').format(code) : _('Operation failed.');
+}
+
+function uiSpecLabel(label) {
+	return label == null ? '' : _(String(label));
+}
+
+function validateInput(formatName, value) {
+	const raw = String(value || '');
+	if (raw == '') return true;
+	const spec = uiSpec.input_formats?.[formatName];
+	if (!spec) return true;
+	let valid = raw == raw.trim();
+	if (valid && spec.kind == 'url') {
+		try {
+			const parsed = new URL(raw);
+			const scheme = parsed.protocol.replace(/:$/, '').toLowerCase();
+			valid = (!spec.absolute || !!parsed.hostname) && (!spec.schemes?.length || spec.schemes.includes(scheme));
+			if (spec.forbid_credentials && (parsed.username || parsed.password)) valid = false;
+			if (spec.forbid_fragment && parsed.hash) valid = false;
+		}
+		catch (_) { valid = false; }
+	}
+	else if (valid && spec.kind == 'duration') {
+		valid = !spec.pattern || new RegExp(spec.pattern).test(raw);
+	}
+	else if (valid && spec.kind == 'string' && spec.prefix) {
+		valid = raw.startsWith(spec.prefix);
+	}
+	if (valid) return true;
+	return {
+		probe_url: _('Enter an absolute HTTPS URL without credentials or a fragment.'),
+		subscription_url: _('Enter an absolute HTTP or HTTPS URL.'),
+		positive_duration: _('Enter a positive duration such as 30m, 6h, or 250ms.'),
+		dns_http_path: _('The DNS HTTP path must start with /.')
+	}[formatName] || _('The field value is invalid.');
+}
 
 function issueText(issue) {
 	let target = issue.object_type || _('Configuration');
@@ -32,7 +139,7 @@ function issueText(issue) {
 		target += ' “%s”'.format(issue.object_id);
 	if (issue.option)
 		target += ' / %s'.format(issue.option);
-	return '[%s] %s: %s'.format(issue.code || 'VALIDATION', target, issue.message || issue.code);
+	return '[%s] %s: %s'.format(issue.code || 'VALIDATION', target, validationMessage(issue));
 }
 
 function issueDestination(issue) {
@@ -86,7 +193,10 @@ function resultMessage(result) {
 			E('span', {}, issueText(entry.issue)),
 			issueDestination(entry.issue) ? E('button', { 'class': 'btn cbi-button-action', 'click': () => navigateIssue(entry.issue) }, _('Go to field')) : ''
 		])));
-	return E('p', {}, result?.error || _('Apply failed without a diagnostic message.'));
+	return E('div', {}, [
+		E('p', {}, rpcErrorText(result)),
+		result?.error ? E('details', {}, [ E('summary', {}, _('Technical details')), E('pre', {}, String(result.error)) ]) : ''
+	]);
 }
 
 function waitForApply(sequence, attempts) {
@@ -98,6 +208,41 @@ function waitForApply(sequence, attempts) {
 		return new Promise((resolve) => window.setTimeout(resolve, 250))
 			.then(() => waitForApply(sequence, attempts - 1));
 	});
+}
+
+function notifyCandidateRejected(commit) {
+	const result = { ok: false, saved: false, committed: false, validation: commit?.validation, error: commit?.error, error_code: commit?.error_code };
+	ui.addNotification(_('Steer candidate was not saved'), E('div', {}, [
+		E('p', {}, _('The pending configuration failed validation or could not be committed. Saved and Active were not changed.')),
+		resultMessage(result)
+	]), 'danger');
+	return result;
+}
+
+function finishCommittedApply(owner, result, status, validation, previousGeneration) {
+	if (status) owner.refreshStatus(status, validation);
+	ui.hideModal();
+	if (!result?.ok) {
+		const currentGeneration = status?.generation || '';
+		const unchanged = currentGeneration == (previousGeneration || '');
+		const failed = { ...result, saved: true, committed: true, active_unchanged: unchanged };
+		ui.addNotification(unchanged ? _('Configuration saved; Active unchanged') : _('Configuration saved; activation failed'), E('div', {}, [
+			E('p', {}, unchanged
+				? _('The configuration was committed to Saved, but validation or activation failed. Traffic continues using the previous Active generation.')
+				: _('The configuration was committed to Saved, but activation failed after Active state changed. Check Diagnostics before relying on traffic stability.')),
+			currentGeneration ? E('p', {}, _('Current Active generation: %s').format(currentGeneration)) : '',
+			resultMessage(failed),
+			E('p', {}, _('Fix the reported problem, then choose Apply Saved configuration.'))
+		]), 'danger');
+		return failed;
+	}
+	const disabled = uci.get('steer', 'main', 'enabled') != '1';
+	ui.addNotification(null, E('p', {}, disabled
+		? _('Configuration saved; Steer was disabled and its runtime resources were cleaned up.')
+		: _('Steer configuration saved and activated.')), 'info');
+	if (validation?.warnings?.length)
+		ui.addNotification(_('Validation warnings'), resultMessage({ validation }), 'warning');
+	return { ...result, saved: true, committed: true };
 }
 
 return baseclass.extend({
@@ -121,11 +266,11 @@ return baseclass.extend({
 			const run = (button, operation) => {
 				button.disabled = true;
 				operation().then((result) => {
-					if (result?.ok === false) throw new Error(result.error || _('Operation failed.'));
+					if (result?.ok === false) throw result;
 					window.location.reload();
 				}).catch((error) => {
 					button.disabled = false;
-					ui.addNotification(_('Operation failed'), E('p', {}, String(error)), 'danger');
+					ui.addNotification(_('Operation failed'), E('p', {}, error?.error_code ? rpcErrorText(error) : _('Operation failed.')), 'danger');
 				});
 			};
 			if (state.pending) {
@@ -154,6 +299,21 @@ return baseclass.extend({
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },
 	focusIssue: function(issue) { return navigateIssue(issue); },
+	issueText: function(issue) { return issueText(issue); },
+	rpcErrorText: function(result) { return rpcErrorText(result); },
+	uiSpecLabel: function(label) { return uiSpecLabel(label); },
+	validateInput: function(formatName, value) { return validateInput(formatName, value); },
+	permissions: function(methods, includeUCIWrite) {
+		const requests = (methods || []).map((method) =>
+			L.resolveDefault(callSessionAccess('ubus', 'luci.steer', method), false));
+		if (includeUCIWrite)
+			requests.push(L.resolveDefault(callSessionAccess('uci', 'steer', 'write'), false));
+		return Promise.all(requests).then((allowed) => {
+			const result = Object.fromEntries((methods || []).map((method, index) => [ method, allowed[index] === true ]));
+			if (includeUCIWrite) result.uci_write = allowed[allowed.length - 1] === true;
+			return result;
+		});
+	},
 	collectionReferences: function(targetCollection, targetId) { return collectionReferences(targetCollection, targetId); },
 	overviewState: function() { return L.resolveDefault(callOverviewState(), {}); },
 	applySaved: function() { return callApplySaved(); },
@@ -253,8 +413,12 @@ return baseclass.extend({
 
 	apply: function(view, ev, mode) {
 		let previousSequence = '';
+		let previousGeneration = '';
 		return L.resolveDefault(callStatus(), {})
-			.then((status) => { previousSequence = status?.last_apply?.sequence || ''; })
+			.then((status) => {
+				previousSequence = status?.last_apply?.sequence || '';
+				previousGeneration = status?.generation || '';
+			})
 			.then(() => view.handleSave(ev))
 			.then(() => this.commitCandidate())
 			.then((commit) => {
@@ -262,11 +426,7 @@ return baseclass.extend({
 				if (commit?.committed !== true) {
 					return uci.changes()
 						.then((changes) => ui.changes.renderChangeIndicator(changes))
-						.then(() => {
-							const result = { ok: false, saved: false, validation, error: commit?.error };
-							ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
-							return result;
-						});
+						.then(() => notifyCandidateRejected(commit));
 				}
 				return uci.changes()
 					.then((changes) => ui.changes.renderChangeIndicator(changes))
@@ -275,34 +435,23 @@ return baseclass.extend({
 						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
 						return waitForApply(previousSequence, 240);
 					})
-					.then(({ result, status }) => {
-						if (status)
-							this.refreshStatus(status, validation);
-						ui.hideModal();
-						if (!result?.ok) {
-							ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
-							return result;
-						}
-						ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
-						if (validation?.warnings?.length)
-							ui.addNotification(_('Validation warnings'), resultMessage({ validation }), 'warning');
-						return result;
-					});
+					.then(({ result, status }) => finishCommittedApply(this, result, status, validation, previousGeneration));
 			});
 	},
 
 	applyPending: function() {
 		let previousSequence = '';
+		let previousGeneration = '';
 		return L.resolveDefault(callStatus(), {})
-			.then((status) => { previousSequence = status?.last_apply?.sequence || ''; })
+			.then((status) => {
+				previousSequence = status?.last_apply?.sequence || '';
+				previousGeneration = status?.generation || '';
+			})
 			.then(() => this.commitCandidate())
 			.then((commit) => {
 				const validation = commit?.validation;
-				if (commit?.committed !== true) {
-					const result = { ok: false, saved: false, validation, error: commit?.error };
-					ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
-					return result;
-				}
+				if (commit?.committed !== true)
+					return notifyCandidateRejected(commit);
 				return uci.changes()
 					.then((changes) => ui.changes.renderChangeIndicator(changes))
 					.then(() => {
@@ -310,18 +459,7 @@ return baseclass.extend({
 						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
 						return waitForApply(previousSequence, 240);
 					})
-					.then(({ result, status }) => {
-						if (status) this.refreshStatus(status, validation);
-						ui.hideModal();
-						if (!result?.ok) {
-							ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
-							return result;
-						}
-						ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
-						if (validation?.warnings?.length)
-							ui.addNotification(_('Validation warnings'), resultMessage({ validation }), 'warning');
-						return result;
-					});
+					.then(({ result, status }) => finishCommittedApply(this, result, status, validation, previousGeneration));
 			});
 	},
 

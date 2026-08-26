@@ -73,6 +73,21 @@ final class UISafetyContractTests: XCTestCase {
         }
     }
 
+    private struct FormInputDocument: Decodable {
+        let schemaVersion: Int
+        let cases: [FormInputCase]
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion = "schema_version"
+            case cases
+        }
+    }
+
+    private struct FormInputCase: Decodable {
+        let format: String
+        let value: String
+        let valid: Bool
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -124,5 +139,15 @@ final class UISafetyContractTests: XCTestCase {
         XCTAssertTrue(issues.allSatisfy { $0.objectID?.isEmpty == false && $0.option?.isEmpty == false })
         let rendered = issues.map { "\($0.code) \($0.message)" }.joined(separator: "\n")
         for secret in document.forbiddenMessageValues { XCTAssertFalse(rendered.contains(secret)) }
+    }
+
+    func testSharedHighFrequencyFormFormatsAreAvailableToEveryFrontend() throws {
+        let document = try decode(FormInputDocument.self, "ui/form-input-fixtures.json")
+        XCTAssertEqual(document.schemaVersion, 1)
+        XCTAssertFalse(document.cases.isEmpty)
+        XCTAssertTrue(document.cases.allSatisfy { SteerUISpec.contract.inputFormats[$0.format] != nil })
+        XCTAssertEqual(SteerUISpec.contract.inputFormats["probe_url"]?.schemes, ["https"])
+        XCTAssertTrue(SteerUISpec.contract.inputFormats["probe_url"]?.forbidCredentials ?? false)
+        XCTAssertEqual(SteerUISpec.contract.inputFormats["positive_duration"]?.pattern, "^[1-9][0-9]*(ms|s|m|h)$")
     }
 }

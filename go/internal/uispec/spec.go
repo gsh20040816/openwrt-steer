@@ -30,6 +30,19 @@ type Condition struct {
 	Values []string `json:"values"`
 }
 
+// InputFormat carries only lightweight, high-frequency form constraints.
+// Canonical validation remains authoritative for every frontend.
+type InputFormat struct {
+	Kind              string   `json:"kind"`
+	Schemes           []string `json:"schemes,omitempty"`
+	Absolute          bool     `json:"absolute,omitempty"`
+	ForbidCredentials bool     `json:"forbid_credentials,omitempty"`
+	ForbidFragment    bool     `json:"forbid_fragment,omitempty"`
+	Positive          bool     `json:"positive,omitempty"`
+	Prefix            string   `json:"prefix,omitempty"`
+	Pattern           string   `json:"pattern,omitempty"`
+}
+
 type Field struct {
 	Key           string      `json:"key"`
 	Label         string      `json:"label"`
@@ -77,6 +90,7 @@ type Contract struct {
 	SchemaVersion                     int                             `json:"schema_version"`
 	CanonicalSchema                   int                             `json:"canonical_schema"`
 	SubscriptionUpdateIntervalDefault string                          `json:"subscription_update_interval_default"`
+	InputFormats                      map[string]InputFormat          `json:"input_formats"`
 	NodeTypes                         []Choice                        `json:"node_types"`
 	NodeFields                        []Field                         `json:"node_fields"`
 	LogLevels                         []Choice                        `json:"log_levels"`
@@ -134,6 +148,12 @@ func ContractValue() Contract {
 		SchemaVersion:                     SchemaVersion,
 		CanonicalSchema:                   9,
 		SubscriptionUpdateIntervalDefault: "6h",
+		InputFormats: map[string]InputFormat{
+			"probe_url":         {Kind: "url", Schemes: []string{"https"}, Absolute: true, ForbidCredentials: true, ForbidFragment: true},
+			"subscription_url":  {Kind: "url", Schemes: []string{"http", "https"}, Absolute: true},
+			"positive_duration": {Kind: "duration", Positive: true, Pattern: `^[1-9][0-9]*(ms|s|m|h)$`},
+			"dns_http_path":     {Kind: "string", Prefix: "/"},
+		},
 		NodeTypes: choices(
 			"socks", "SOCKS", "http", "HTTP CONNECT", "shadowsocks", "Shadowsocks",
 			"vmess", "VMess", "vless", "VLESS", "trojan", "Trojan",

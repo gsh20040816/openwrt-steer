@@ -55,6 +55,9 @@ collection_reference_fixtures = json.loads(
 rule_summary_fixtures = json.loads(
     (ROOT / "ui/rule-summary-fixtures.json").read_text()
 )
+form_input_fixtures = json.loads(
+    (ROOT / "ui/form-input-fixtures.json").read_text()
+)
 for name, fixture in {
     "validation issue": validation_issue_fixtures,
     "collection reference": collection_reference_fixtures,
@@ -66,6 +69,10 @@ if not contract.get("collection_references") or contract.get("rule_connection_on
     "ip_match", "network", "protocol", "port"
 ]:
     raise SystemExit("check-ui-contract: missing shared reference or DNS-stage contract")
+if form_input_fixtures.get("schema_version") != 1 or not form_input_fixtures.get("cases"):
+    raise SystemExit("check-ui-contract: invalid shared form input fixtures")
+if set(contract.get("input_formats", {})) != {"probe_url", "subscription_url", "positive_duration", "dns_http_path"}:
+    raise SystemExit("check-ui-contract: shared input format metadata drifted")
 if state_lifecycle_fixtures.get("schema_version") != 1:
     raise SystemExit("check-ui-contract: invalid state lifecycle fixture schema")
 if [item.get("name") for item in state_lifecycle_fixtures.get("cases", [])] != [
@@ -269,6 +276,15 @@ for consumer in ui_safety_fixture_consumers:
         "rule-summary-fixtures.json",
     ):
         require(consumer_content, fixture, consumer)
+
+form_input_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/steer_helper_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/UISafetyContractTests.swift",
+)
+for consumer in form_input_fixture_consumers:
+    require((ROOT / consumer).read_text(), "form-input-fixtures.json", consumer)
 
 require(linux_ui, "Draft desired", "Linux Draft state")
 require(linux_ui, "Saved desired", "Linux Saved state")

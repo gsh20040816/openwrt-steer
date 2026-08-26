@@ -22,6 +22,7 @@ const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'u
 const probeDiagnosticsFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/probe-diagnostics-fixtures.json'), 'utf8'));
 const stateLifecycleFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/state-lifecycle-fixtures.json'), 'utf8'));
 const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/validation-issue-fixtures.json'), 'utf8'));
+const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
 const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-reference-fixtures.json'), 'utf8'));
 const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
 
@@ -324,6 +325,14 @@ function createEnvironment(sections) {
 	let statusRenderCalls = 0;
 	const steer = {
 		loadStyle: () => {},
+		uiSpecLabel: (label) => String(label),
+		issueText: (issue) => `[${issue.code}] ${issue.object_type}/${issue.object_id}/${issue.option}`,
+		rpcErrorText: (result) => result?.error_code || result?.error || 'Operation failed.',
+		validateInput: (_format, _value) => true,
+		permissions: (methods, includeUCIWrite) => Promise.resolve({
+			...Object.fromEntries(methods.map((method) => [ method, environment.permissions[method] !== false ])),
+			...(includeUCIWrite ? { uci_write: environment.permissions.uci_write !== false } : {})
+		}),
 		configureNamedSection: (section, defaults, beforeSectionId) => {
 			section.anonymous = false;
 			section.handleAdd = function() {};
@@ -421,7 +430,8 @@ function createEnvironment(sections) {
 			url: 'https://speed.example/', ok: true, status: 204, attempts: 1,
 			first_byte_milliseconds: 42, downloaded_bytes: 1000000, download_milliseconds: 1000
 		} ] },
-		importNodesResult: { nodes: [], skipped: 0 },
+			importNodesResult: { nodes: [], skipped: 0 },
+			permissions: {},
 		modal: null,
 		modalHidden: false
 	};
@@ -504,10 +514,11 @@ function loadUcodeRPC(runtime) {
 
 function callUcodeMethod(method, args) {
 	let response;
-	method.call({
+	const returned = method.call({
 		args: Object.assign({ ubus_rpc_session: '0123456789abcdef0123456789abcdef' }, args),
 		reply: (value) => { response = value; }
 	});
+	if (response === undefined) response = returned;
 	assert.notEqual(response, undefined, 'ucode RPC must reply exactly once');
 	return response;
 }
@@ -651,6 +662,17 @@ function testSubscriptionRPCRejectsPendingSession() {
 	}
 	assert.equal(runtime.commands.length, 0,
 		'server-side pending guard rejects inventory and committed probe operations before starting Steer');
+	for (const [ method, args, errorCode ] of [
+		[ methods.subscription_update, {}, 'MISSING_SUBSCRIPTION_ID' ],
+		[ methods.subscription_clean, { id: 'feed' }, 'MISSING_SUBSCRIPTION_NODE_ID' ],
+		[ methods.node_speedtest, {}, 'MISSING_NODE_ID' ],
+		[ methods.route_speedtest, {}, 'MISSING_ROUTE_ID' ],
+		[ methods.overview_probe, { kind: 'other' }, 'INVALID_PROBE_KIND' ],
+		[ methods.node_import, {}, 'MISSING_NODE_DOCUMENT' ]
+	]) {
+		const response = callUcodeMethod(method, args);
+		assert.equal(response.error_code, errorCode, `${errorCode} must be stable and locale-neutral`);
+	}
 	runtime.changes = [];
 	callUcodeMethod(methods.subscription_update, { id: 'feed' });
 	assert.equal(runtime.commands.length, 1);
@@ -683,8 +705,9 @@ async function renderRules(sections, catalog = {}) {
 	return environment;
 }
 
-async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes', pendingChanges = []) {
+async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes', pendingChanges = [], permissions = {}) {
 	const environment = createEnvironment(sections);
+	environment.permissions = { ...permissions };
 	environment.setPendingChanges(pendingChanges);
 	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
 	environment.window.location.search = search;
@@ -702,7 +725,12 @@ async function renderNodes(sections, search = '', subscriptionStatus, page = 'no
 			_: environment.translate
 		}
 	);
-	environment.rendered = await view.render([ null, subscriptionStatus, { steer: pendingChanges } ]);
+	environment.rendered = await view.render([ null, subscriptionStatus, { steer: pendingChanges },
+		{
+			...Object.fromEntries([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import' ]
+				.map((method) => [ method, environment.permissions[method] !== false ])),
+			uci_write: environment.permissions.uci_write !== false
+		} ]);
 	return environment;
 }
 
@@ -765,8 +793,9 @@ async function renderLocalProxies(sections) {
 	return environment;
 }
 
-async function renderOverview(sections, page = 'general', lifecycleState) {
+async function renderOverview(sections, page = 'general', lifecycleState, permissions = {}) {
 	const environment = createEnvironment(sections);
+	environment.permissions = { ...permissions };
 	if (lifecycleState) environment.lifecycleState = lifecycleState;
 	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
 	const view = loadView(
@@ -783,7 +812,8 @@ async function renderOverview(sections, page = 'general', lifecycleState) {
 			_: environment.translate
 		}
 	);
-	environment.rendered = await view.render([ null, environment.lifecycleState, { ok: true, errors: [], warnings: [] }, environment.diagnosticsResult, { steer: [] } ]);
+	environment.rendered = await view.render([ null, environment.lifecycleState, { ok: true, errors: [], warnings: [] }, environment.diagnosticsResult, { steer: [] },
+		{ overview_probe: environment.permissions.overview_probe !== false } ]);
 	return environment;
 }
 
@@ -799,6 +829,9 @@ function assertExplicitIdsAndOptionalNames(environment, message) {
 }
 
 async function main() {
+	assert.equal(formInputFixtures.schema_version, 1);
+	assert.ok(formInputFixtures.cases.every((fixture) => uiSpec.input_formats[fixture.format]),
+		'LuCI loads the shared form input fixtures and generated format metadata');
 	testCommittedUcodePreviewAndObservedCandidateGuard();
 	testOverviewStateSeparatesPendingSavedAndActiveFacts();
 	testSubscriptionRPCRejectsPendingSession();
@@ -1097,6 +1130,14 @@ async function main() {
 	};
 	environment = await renderDns(dnsProfiles);
 	dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
+	const tlsServerName = allOptions(environment).find((option) => option.name == 'tls_server_name');
+	assert.notEqual(tlsServerName.validate('default_port', ''), true,
+		'encrypted DNS dynamically requires a TLS server name before Save');
+	environment.steer.validateInput = (format, value) => format == 'dns_http_path' && String(value).startsWith('/') ? true : 'invalid DNS path';
+	const dnsPath = allOptions(environment).find((option) => option.name == 'path');
+	assert.equal(dnsPath.validate('default_port', 'dns-query'), 'invalid DNS path');
+	assert.equal(dnsPath.validate('default_port', '/dns-query'), true,
+		'DoH and DoH3 paths use the shared leading-slash format');
 	dnsProtocol.write('default_port', 'udp');
 	assert.deepEqual(dnsProfiles.dns_profile[0], { '.name': 'default_port', protocol: 'udp', server_port: '53' },
 		'DoH to UDP clears inapplicable UCI fields and translates the prior default port');
@@ -1561,6 +1602,14 @@ async function main() {
 		allOptions(environment).find((option) => option.name == name));
 	assert.ok(probeOptions.every((option) => option?.type == 'Value' && option.rmempty === false),
 		'Schema 7 probe URLs are required scalar fields');
+	const seenProbeFormats = [];
+	environment.steer.validateInput = (format, value) => { seenProbeFormats.push([ format, value ]); return value == 'https://valid.example/' ? true : 'invalid probe'; };
+	for (const option of probeOptions) {
+		assert.equal(option.validate('main', 'http://invalid.example/'), 'invalid probe');
+		assert.equal(option.validate('main', 'https://valid.example/'), true);
+	}
+	assert.ok(seenProbeFormats.every((entry) => entry[0] == 'probe_url'),
+		'all three probe fields use the shared strict HTTPS format');
 	assert.ok(environment.maps[0].sections.every((section) => section.tabs.length == 0),
 		'General renders one LuCI form without a redundant third-level tab menu');
 	environment = await renderOverview({}, 'steer');
@@ -1612,6 +1661,12 @@ async function main() {
 	assert.equal(subscriptionSection.addDefaults.update_interval, uiSpec.subscription_update_interval_default,
 		'LuCI subscription creation uses the shared interval default');
 	const subscriptionInterval = subscriptionSection.options.find((option) => option.name == 'update_interval');
+	const subscriptionURL = subscriptionSection.options.find((option) => option.name == 'url');
+	environment.steer.validateInput = (format, value) => value == 'bad' ? `invalid ${format}` : true;
+	assert.equal(subscriptionURL.validate('feed', 'bad'), 'invalid subscription_url');
+	assert.equal(subscriptionInterval.validate('feed', 'bad'), 'invalid positive_duration');
+	assert.equal(subscriptionInterval.validate('feed', ''), true,
+		'an empty interval retains the shared manual-update-only meaning');
 	assert.equal(subscriptionInterval.placeholder, uiSpec.subscription_update_interval_default,
 		'LuCI update interval field exposes the shared default without changing existing empty values');
 	assert.equal(subscriptionInterval.default, undefined,
@@ -1627,9 +1682,53 @@ async function main() {
 	assert.deepEqual(environment.overviewProbeCalls, [ 'proxy' ],
 		'Overview proxy test remains clickable when no healthy running status was returned');
 	const diagnosticText = elementText(environment.rendered);
-	for (const expected of [ 'does not prove a particular outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'tested_at', 'Recent logs', 'Recent Apply', 'Validation' ])
+	for (const expected of [ 'does not prove a particular outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'Tested at', 'Recent logs', 'Recent Apply', 'Validation' ])
 		assert.ok(diagnosticText.includes(expected), `LuCI Diagnostics must render ${expected}`);
 	assert.ok(!diagnosticText.includes('proves the Direct path') && !diagnosticText.includes('proves the proxy path'));
+
+	const deniedDiagnostics = await renderOverview({}, 'diagnostics', undefined, { overview_probe: false });
+	const deniedOverviewButtons = findElements(deniedDiagnostics.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Run test');
+	assert.ok(deniedOverviewButtons.every((button) => button.disabled === true));
+	await deniedOverviewButtons[0].attributes.click({ preventDefault: () => {}, currentTarget: deniedOverviewButtons[0] });
+	assert.deepEqual(deniedDiagnostics.overviewProbeCalls, [], 'read-only sessions never invoke Overview probe RPC');
+
+	const deniedNodes = await renderNodes({
+		node: [ { '.name': 'manual', enabled: '1', name: 'Manual', type: 'socks', server: 'node.example', server_port: '1080' } ],
+		route: [], subscription: []
+	}, '', { subscriptions: [] }, 'nodes', [], { node_speedtest: false, node_import: false });
+	const deniedNodeProbe = allOptions(deniedNodes).find((option) => option.name == '_connect_speedtest');
+	await deniedNodeProbe.onclick({ currentTarget: { classList: { toggle() {} } } }, 'manual');
+	assert.deepEqual(deniedNodes.speedtestCalls, [], 'read-only sessions never invoke Node speed-test RPC');
+	const deniedImport = findElements(deniedNodes.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Import nodes')[0];
+	assert.equal(deniedImport.disabled, true);
+	deniedImport.attributes.click({ preventDefault() {} });
+	assert.equal(deniedNodes.modal, null, 'read-only sessions cannot open the Node import workflow');
+
+	const deniedRoutes = await renderNodes({
+		node: [ { '.name': 'manual', enabled: '1', name: 'Manual' } ],
+		route: [ { '.name': 'single', enabled: '1', kind: 'single', node: 'manual' } ], subscription: []
+	}, '', { subscriptions: [] }, 'routes', [], { route_speedtest: false });
+	const deniedRouteProbe = allOptions(deniedRoutes).find((option) => option.name == '_route_connect_test');
+	await deniedRouteProbe.onclick({ currentTarget: { classList: { toggle() {} } } }, 'single');
+	assert.deepEqual(deniedRoutes.routeSpeedtestCalls, [], 'read-only sessions never invoke Route speed-test RPC');
+
+	const deniedSubscriptions = await renderNodes({
+		node: [ { '.name': 'stale', source_subscription: 'feed' } ], route: [],
+		subscription: [ { '.name': 'feed', enabled: '1', name: 'Feed' } ]
+	}, '', { subscriptions: [ {
+		id: 'feed', enabled: true, name: 'Feed', never_fetched: false, node_count: 1, current: 0, added: 0, skipped: 0,
+		stale: [ { id: 'stale', referenced_by: [] } ]
+	} ] }, 'subscriptions', [], { subscription_update: false, subscription_clean: false });
+	const deniedInventoryButtons = findElements(deniedSubscriptions.rendered,
+		(node) => node.tag == 'button' && [ 'Update now', 'Remove stale' ].includes(node.children?.[0]));
+	assert.equal(deniedInventoryButtons.length, 2);
+	assert.ok(deniedInventoryButtons.every((button) => button.disabled === true));
+	for (const button of deniedInventoryButtons) await button.attributes.click();
+	assert.deepEqual(deniedSubscriptions.updateSubscriptionCalls, []);
+	assert.deepEqual(deniedSubscriptions.cleanSubscriptionCalls, [],
+		'read-only sessions never invoke Subscription update or clean RPC');
 
 	const importSections = { subscription: [], node: [], route: [] };
 	environment = await renderNodes(importSections, '', { subscriptions: [] });
@@ -1748,6 +1847,15 @@ async function main() {
 		'luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json'), 'utf8');
 	assert.ok(aclSource.includes('"intent_preview"') && !aclSource.includes('"intent"'),
 		'LuCI ACL exposes only the redaction-aware Canonical Preview RPC');
+	const acl = JSON.parse(aclSource)['luci-app-steer'];
+	assert.deepEqual(acl.read.uci, [ 'steer' ]);
+	assert.equal(acl.read.ubus.service, undefined,
+		'unused service.list and firewall UCI grants are removed from read-only sessions');
+	for (const method of [ 'status', 'overview_state', 'validate', 'runtime', 'diagnostics', 'subscriptions' ])
+		assert.ok(acl.read.ubus['luci.steer'].includes(method), `read-only sessions retain ${method}`);
+	assert.ok(steerSource.includes("object: 'session', method: 'access'") &&
+		steerSource.includes("callSessionAccess('ubus', 'luci.steer', method)"),
+		'each handwritten action resolves its own ubus write permission');
 
 	console.log('LuCI view regression tests passed.');
 }

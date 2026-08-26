@@ -17,6 +17,7 @@ if (typeof String.prototype.format != 'function') {
 
 const root = path.resolve(__dirname, '../..');
 const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/validation-issue-fixtures.json'), 'utf8'));
+const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 
 function element(tag, attributes, children) {
@@ -57,16 +58,21 @@ function loadHelper(runtime) {
 				throw new Error('LuCI must validate and commit through one backend transaction');
 			if (method == 'status') {
 				runtime.statusCalls++;
-				return Promise.resolve(Object.assign({}, runtime.status, {
+				const status = Object.assign({}, runtime.status, {
 					last_apply: runtime.commitCalls > 0 ?
 						{ sequence: '11', result: runtime.applyResult } :
 						{ sequence: '10', result: { ok: true } }
-				}));
+				});
+				if (runtime.commitCalls > 0 && runtime.afterApplyGeneration !== undefined)
+					status.generation = runtime.afterApplyGeneration;
+				return Promise.resolve(status);
 			}
 			if (method == 'validate') {
 				runtime.validationCalls++;
 				return Promise.resolve(runtime.validation);
 			}
+			if (method == 'access')
+				return Promise.resolve(runtime.permissions?.[args[2]] !== false);
 			if (method == 'commit_candidate') {
 				runtime.sequence.push('validate');
 				runtime.validationCalls++;
@@ -148,7 +154,8 @@ async function main() {
 		validationCalls: 0,
 		commitCalls: 0,
 		previewCalls: [],
-		previewResponse: { ok: true, source: 'committed', redacted: true, intent: {} },
+			previewResponse: { ok: true, source: 'committed', redacted: true, intent: {} },
+			permissions: {},
 		testCalls: [],
 		sequence: [],
 		notifications: [],
@@ -164,6 +171,21 @@ async function main() {
 		}
 	};
 	const helper = loadHelper(runtime);
+	for (const fixture of formInputFixtures.cases) {
+		assert.equal(helper.validateInput(fixture.format, fixture.value) === true, fixture.valid,
+			`${fixture.format} must classify ${JSON.stringify(fixture.value)} from the shared fixture`);
+	}
+	runtime.permissions.node_import = false;
+	assert.deepEqual(await helper.permissions([ 'node_import', 'node_speedtest' ]), {
+		node_import: false, node_speedtest: true
+	}, 'each handwritten action checks its own ubus method permission');
+	runtime.permissions.node_import = true;
+	runtime.permissions.write = false;
+	assert.deepEqual(await helper.permissions([ 'node_import' ], true), { node_import: true, uci_write: false },
+		'Node import separately requires UCI write access in addition to parser RPC access');
+	runtime.permissions.write = true;
+	assert.equal(helper.rpcErrorText({ error_code: 'MISSING_NODE_ID', error: 'raw backend detail' }), 'A Node ID is required.',
+		'RPC failures are localized by stable code before raw detail');
 	helper.loadStyle();
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.ok(textContent(runtime.lifecycleBar).includes('Draft / Saved / Active'));
@@ -288,8 +310,9 @@ async function main() {
 		warnings: []
 	}, true);
 	const failedText = textContent(rendered);
-	assert.ok(failedText.includes('The saved configuration is invalid') && failedText.includes('route is missing'),
-		'Invalid saved intent exposes the exact validation issue');
+	assert.ok(failedText.includes('The saved configuration is invalid') && failedText.includes('DANGLING_ROUTE') &&
+		failedText.includes('The referenced Route does not exist.'),
+		'Invalid saved intent localizes the stable validation code and location');
 
 	runtime.status = { healthy: true };
 	await helper.apply({ handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); } }, null, '1');
@@ -304,6 +327,45 @@ async function main() {
 	assert.ok(textContent(runtime.replacement).includes('Traffic steering is active'),
 		'Apply replaces stale overview status with the final runtime result');
 	assert.equal(runtime.notifications.at(-1).level, 'info');
+
+	runtime.sequence = [];
+	runtime.commitCalls = 0;
+	runtime.applyResult = { ok: false, activated: false, error: 'start candidate: systemd refused start' };
+	const activationFailure = await helper.applyPending();
+	assert.equal(activationFailure.saved, true);
+	assert.equal(activationFailure.active_unchanged, true);
+	const activationNotice = runtime.notifications.at(-1);
+	assert.equal(activationNotice.title, 'Configuration saved; Active unchanged');
+	assert.ok(textContent(activationNotice.content).includes('committed to Saved') &&
+		textContent(activationNotice.content).includes('previous Active generation') &&
+		textContent(activationNotice.content).includes('Apply Saved configuration'),
+		'activation failure explains commit-before-apply and the recovery action on every page');
+
+	runtime.sequence = [];
+	runtime.commitCalls = 0;
+	runtime.applyResult = { ok: true, activated: false };
+	runtime.enabled = '0';
+	const disabledResult = await helper.applyPending();
+	assert.equal(disabledResult.saved, true);
+	assert.ok(textContent(runtime.notifications.at(-1).content).includes('runtime resources were cleaned up'),
+		'disabled cleanup has a distinct successful result');
+	runtime.enabled = '1';
+	runtime.applyResult = { ok: true, activated: true };
+
+	runtime.sequence = [];
+	runtime.commitCalls = 0;
+	runtime.status.generation = 'generation-old';
+	runtime.afterApplyGeneration = 'generation-candidate';
+	runtime.applyResult = { ok: false, activated: true, error: 'candidate became unhealthy' };
+	const changedActiveFailure = await helper.applyPending();
+	assert.equal(changedActiveFailure.active_unchanged, false);
+	assert.equal(runtime.notifications.at(-1).title, 'Configuration saved; activation failed');
+	assert.ok(textContent(runtime.notifications.at(-1).content).includes('Check Diagnostics before relying on traffic stability') &&
+		textContent(runtime.notifications.at(-1).content).includes('generation-candidate'),
+		'a partial activation never falsely promises that the previous Active generation is still carrying traffic');
+	delete runtime.afterApplyGeneration;
+	delete runtime.status.generation;
+	runtime.applyResult = { ok: true, activated: true };
 
 	runtime.sequence = [];
 	await helper.applyPending();

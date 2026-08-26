@@ -28,6 +28,35 @@ struct UICondition: Decodable {
     let values: [String]
 }
 
+struct UIInputFormat: Decodable {
+    let kind: String
+    let schemes: [String]
+    let absolute: Bool
+    let forbidCredentials: Bool
+    let forbidFragment: Bool
+    let positive: Bool
+    let prefix: String
+    let pattern: String
+
+    enum CodingKeys: String, CodingKey {
+        case kind, schemes, absolute, positive, prefix, pattern
+        case forbidCredentials = "forbid_credentials"
+        case forbidFragment = "forbid_fragment"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(String.self, forKey: .kind)
+        schemes = try container.decodeIfPresent([String].self, forKey: .schemes) ?? []
+        absolute = try container.decodeIfPresent(Bool.self, forKey: .absolute) ?? false
+        forbidCredentials = try container.decodeIfPresent(Bool.self, forKey: .forbidCredentials) ?? false
+        forbidFragment = try container.decodeIfPresent(Bool.self, forKey: .forbidFragment) ?? false
+        positive = try container.decodeIfPresent(Bool.self, forKey: .positive) ?? false
+        prefix = try container.decodeIfPresent(String.self, forKey: .prefix) ?? ""
+        pattern = try container.decodeIfPresent(String.self, forKey: .pattern) ?? ""
+    }
+}
+
 struct UIFieldSpec: Decodable, Identifiable {
     let key: String
     let label: String
@@ -134,6 +163,7 @@ struct UIContract: Decodable {
     let schemaVersion: Int
     let canonicalSchema: Int
     let subscriptionUpdateIntervalDefault: String
+    let inputFormats: [String: UIInputFormat]
     let nodeTypes: [UIChoice]
     let nodeFields: [UIFieldSpec]
     let logLevels: [UIChoice]
@@ -156,6 +186,7 @@ struct UIContract: Decodable {
         case schemaVersion = "schema_version"
         case canonicalSchema = "canonical_schema"
         case subscriptionUpdateIntervalDefault = "subscription_update_interval_default"
+        case inputFormats = "input_formats"
         case nodeTypes = "node_types"
         case nodeFields = "node_fields"
         case logLevels = "log_levels"

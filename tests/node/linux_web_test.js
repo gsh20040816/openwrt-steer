@@ -15,6 +15,7 @@ const stateLifecycleFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/st
 const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/validation-issue-fixtures.json'), 'utf8'));
 const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-reference-fixtures.json'), 'utf8'));
 const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
+const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -942,6 +943,10 @@ async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
 }
 
 async function testSharedUISafetyContracts() {
+	assert.equal(formInputFixtures.schema_version, 1);
+	assert.ok(formInputFixtures.cases.length > 0 &&
+		formInputFixtures.cases.every((fixture) => uiSpec.input_formats[fixture.format]),
+		'Linux consumes the shared high-frequency form format metadata and fixtures');
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const environment = createEnvironment(async () => ({ ok: true }), clone(collectionReferenceFixtures.intent));
   for (const fixture of collectionReferenceFixtures.cases) {

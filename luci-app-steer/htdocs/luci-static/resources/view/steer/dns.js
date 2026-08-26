@@ -28,6 +28,15 @@ function dependOnDNSField(option, field) {
 		.forEach((protocol) => option.depends('protocol', protocol.value));
 	if (uiSpec.dns_protocols.some((protocol) => protocol.required_fields.includes(field)))
 		option.rmempty = false;
+	option.validate = function(sectionId, value) {
+		const protocolOption = this.map?.lookupOption?.('protocol', sectionId)?.[0];
+		const protocol = dnsProtocol(protocolOption?.formvalue?.(sectionId) || uci.get('steer', sectionId, 'protocol'));
+		if (!protocol?.fields.includes(field)) return true;
+		if (protocol.required_fields.includes(field) && String(value || '').trim() == '')
+			return _('This field is required by the selected encrypted DNS protocol.');
+		if (field == 'path') return steer.validateInput('dns_http_path', value);
+		return true;
+	};
 	option.write = function(sectionId, value) {
 		const protocol = dnsProtocol(uci.get('steer', sectionId, 'protocol'));
 		if (!protocol?.fields.includes(field))
@@ -58,7 +67,7 @@ return view.extend({
 		o = s.taboption('general', form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 		o = s.taboption('general', form.Value, 'name', _('Name')); o.rmempty = true; o.optional = true; o.modalonly = true;
 		o = s.taboption('general', form.ListValue, 'protocol', _('Protocol'));
-		uiSpec.dns_protocols.forEach((item) => o.value(item.value, item.label));
+		uiSpec.dns_protocols.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 		o.rmempty = false; o.editable = true;
 		o.write = function(sectionId, value) {
 			const previous = dnsProtocol(uci.get('steer', sectionId, 'protocol'));
