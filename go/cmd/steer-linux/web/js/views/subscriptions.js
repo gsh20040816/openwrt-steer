@@ -143,7 +143,9 @@
               const res = await S.api.updateSubscription(s.id);
               const snap = res.snapshots?.[0];
               await S.store.reload();
-              ui.toast(snap?.skipped ? `更新完成 · ${snap.node_count} 节点 · 跳过 ${snap.skipped} 个无效节点` : '更新完成', 'ok');
+              ui.toast(snap?.skipped
+                ? `节点库存已更新 · ${snap.node_count} 节点 · 跳过 ${snap.skipped} 个无效节点；不会自动 Apply`
+                : '节点库存已更新；不会自动 Apply，只有影响运行语义时才会提示待 Apply', 'warn');
               updateBtn.textContent = '立即更新';
               view.render(root);
             } catch (e) {

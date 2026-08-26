@@ -18,6 +18,7 @@ import (
 
 type Output struct {
 	IntentDigest         string         `json:"intent_digest"`
+	RuntimeDigest        string         `json:"runtime_digest"`
 	RequiredCapabilities []string       `json:"required_capabilities"`
 	GeoRuleSets          []GeoRuleSet   `json:"geo_rule_sets"`
 	SingBox              map[string]any `json:"sing_box"`
@@ -84,16 +85,39 @@ func Compile(intent model.Intent, options Options) Output {
 	geoSets := collectGeoRuleSets(intent, options.GeoDataDirectory, options.GeoDataBaseURL)
 	dnsPaths := collectDNSPaths(intent)
 	output := Output{
-		IntentDigest:         digestIntent(intent),
+		IntentDigest:         IntentDigest(intent),
 		RequiredCapabilities: requiredCapabilities(intent, options.Target),
 		GeoRuleSets:          geoSets,
 	}
 	output.SingBox = compileSingBox(intent, options.Target, dnsPaths, geoSets, options.StateDirectory)
+	output.RuntimeDigest = RuntimeDigest(intent, output.SingBox)
 	return output
 }
 
-func digestIntent(intent model.Intent) string {
-	encoded, _ := json.Marshal(intent)
+// IntentDigest identifies the complete canonical saved document.
+func IntentDigest(intent model.Intent) string {
+	return digestValue(intent)
+}
+
+// RuntimeDigest identifies the runtime projection that is actually activated.
+// Probe scalars live in the active Intent even though they are not sing-box
+// fields. Subscription metadata and unreferenced node inventory are
+// deliberately absent because they do not change active traffic or probes.
+func RuntimeDigest(intent model.Intent, singBox map[string]any) string {
+	return digestValue(struct {
+		Enabled        bool           `json:"enabled"`
+		ProbeDirect    string         `json:"probe_direct"`
+		ProbeProxy     string         `json:"probe_proxy"`
+		ProbeSpeedtest string         `json:"probe_speedtest"`
+		SingBox        map[string]any `json:"sing_box"`
+	}{
+		Enabled: intent.Main.Enabled, ProbeDirect: intent.Main.ProbeDirectURL,
+		ProbeProxy: intent.Main.ProbeProxyURL, ProbeSpeedtest: intent.Main.SpeedtestProxyURL, SingBox: singBox,
+	})
+}
+
+func digestValue(value any) string {
+	encoded, _ := json.Marshal(value)
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
 }

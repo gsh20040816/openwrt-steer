@@ -108,11 +108,23 @@ Linux 的 Apply、配置写入和订阅变更共用一把 operation lock；Apply
 
 Linux 的持久化真相是 `/etc/steer/config.json`，订阅 snapshot 和 Web token 位于 `/var/lib/steer`；运行时仍只写 `/run/steer` 和 `/var/lib/steer`，不会修改系统 resolver 配置。
 
-公共 `status` 只返回：
+Linux `status` 从 `current` generation 的实际 `intent.json` 与 `sing-box.json` 返回 Active 身份，并把最近 Apply 保持为独立操作记录：
 
 ```json
-{"healthy": true, "last_apply": {"sequence": "…", "result": {"ok": true}}}
+{
+  "healthy": true,
+  "generation": "candidate.…",
+  "intent_digest": "…",
+  "runtime_digest": "…",
+  "last_apply": {
+    "sequence": "…",
+    "timestamp": "…",
+    "result": {"ok": false, "candidate_generation": "/run/steer/generations/candidate.…", "activated": false, "error": "…"}
+  }
+}
 ```
+
+`last_apply.result` 永远不用于推导 Active。Linux Web 的 `pending_apply` 比较 Saved 与 Active 的编译运行投影，而不是全文 Intent digest；因此未被 Route 使用的订阅节点库存刷新不会要求 Apply。
 
 配置诊断由 `validate` 独立返回。组件细节留在平台健康检查和系统日志中，不扩张跨平台状态合同。
 

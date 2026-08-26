@@ -23,6 +23,7 @@
     get intent() { return intent; },
     get revision() { return revision; },
     get dirty() { return dirty; },
+    get pendingApply() { return overview?.pending_apply === true; },
     get overview() { return overview; },
     get runtime() { return runtime; },
 
@@ -57,11 +58,18 @@
       }
     },
 
+    async applySaved() {
+      const result = await S.api.applySaved();
+      await store.refreshOverview();
+      return result;
+    },
+
     /* 以服务器为准：丢弃本地修改。 */
     async reload() {
-      const config = await S.api.config();
+      const [config, ov] = await Promise.all([S.api.config(), S.api.overview()]);
       intent = normalizeIntent(config.intent);
       revision = config.revision;
+      overview = ov;
       dirty = false;
       emit();
     }

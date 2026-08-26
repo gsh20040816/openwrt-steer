@@ -14,11 +14,17 @@ import (
 	"time"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/compiler"
+	"github.com/gsh20040816/steer/go/internal/generation"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 type Status struct {
-	Healthy   bool              `json:"healthy"`
-	LastApply *coreapply.Record `json:"last_apply,omitempty"`
+	Healthy       bool              `json:"healthy"`
+	Generation    string            `json:"generation,omitempty"`
+	IntentDigest  string            `json:"intent_digest,omitempty"`
+	RuntimeDigest string            `json:"runtime_digest,omitempty"`
+	LastApply     *coreapply.Record `json:"last_apply,omitempty"`
 }
 
 func WaitCurrentHealthy(ctx context.Context, runner Runner, options BackendOptions, timeout time.Duration) error {
@@ -139,9 +145,74 @@ func ReadStatus(ctx context.Context, runner Runner, options BackendOptions) Stat
 		}
 		file.Close()
 	}
+	currentDirectory := ""
+	if generationID, resolved, current, compiled, err := readCurrentIdentity(options); err == nil && current.Main.Enabled {
+		status.Generation = generationID
+		status.IntentDigest = compiled.IntentDigest
+		status.RuntimeDigest = compiled.RuntimeDigest
+		currentDirectory = resolved
+	}
 	plan, err := readCurrentPlan(options.RunDirectory)
-	if err == nil && checkHealthOnce(ctx, runner, plan, options, filepath.Join(options.RunDirectory, "current")) == nil {
+	if status.Generation != "" && err == nil && checkHealthOnce(ctx, runner, plan, options, currentDirectory) == nil {
 		status.Healthy = true
 	}
 	return status
+}
+
+func readCurrentIdentity(options BackendOptions) (string, string, model.Intent, compiler.Output, error) {
+	currentPath := filepath.Join(options.RunDirectory, "current")
+	info, err := os.Lstat(currentPath)
+	if err != nil {
+		return "", "", model.Intent{}, compiler.Output{}, err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return "", "", model.Intent{}, compiler.Output{}, fmt.Errorf("current generation is not a symbolic link")
+	}
+	resolved, err := filepath.EvalSymlinks(currentPath)
+	if err != nil {
+		return "", "", model.Intent{}, compiler.Output{}, err
+	}
+	generationRoot, err := filepath.EvalSymlinks(filepath.Join(options.RunDirectory, "generations"))
+	if err != nil {
+		return "", "", model.Intent{}, compiler.Output{}, err
+	}
+	relative, err := filepath.Rel(generationRoot, resolved)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", "", model.Intent{}, compiler.Output{}, fmt.Errorf("current generation is outside the generation root")
+	}
+	current, err := generation.ReadIntent(resolved)
+	if err != nil {
+		return "", "", model.Intent{}, compiler.Output{}, err
+	}
+	singBoxFile, err := os.Open(filepath.Join(resolved, "sing-box.json"))
+	if err != nil {
+		return "", "", model.Intent{}, compiler.Output{}, err
+	}
+	defer singBoxFile.Close()
+	var singBox map[string]any
+	if err := json.NewDecoder(singBoxFile).Decode(&singBox); err != nil {
+		return "", "", model.Intent{}, compiler.Output{}, err
+	}
+	identity := compiler.Output{IntentDigest: compiler.IntentDigest(current), RuntimeDigest: compiler.RuntimeDigest(current, singBox)}
+	return filepath.Base(resolved), resolved, current, identity, nil
+}
+
+// HasPendingApply compares the saved runtime projection with the actual
+// current generation. Canonical inventory that is not referenced by the
+// compiled runtime therefore does not manufacture a pending Apply.
+func HasPendingApply(value model.Intent, status Status, options BackendOptions) bool {
+	options = normalizeBackendOptions(options)
+	plan := NewPlan(value)
+	compiled := compiler.Compile(value, compiler.Options{
+		StateDirectory: options.StateDirectory, GeoDataDirectory: options.GeoDataDirectory, Target: plan.CompilerTarget(),
+	})
+	if value.Main.Enabled {
+		if status.Generation == "" || status.RuntimeDigest != compiled.RuntimeDigest {
+			return true
+		}
+	} else if status.Generation != "" {
+		return true
+	}
+	lastResult := status.LastApply
+	return lastResult != nil && !lastResult.Result.OK && lastResult.Result.RuntimeDigest != "" && lastResult.Result.RuntimeDigest == compiled.RuntimeDigest
 }

@@ -101,7 +101,7 @@
       const res = await S.store.save(apply);
       if (res.ok) {
         if (apply && !res.res.applied) {
-          toast(`已保存，但 Apply 失败：${res.res.apply_result?.error || res.res.error?.message || '运行态未切换'}`, 'err');
+          toast(`已保存，但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}`, 'err');
         } else {
           toast(apply ? `已保存并 Apply · generation ${res.res.apply_result?.generation || '已切换'}` : `已保存 · 修订 ${S.fmtRevision(S.store.revision)}`, 'ok');
         }
@@ -110,6 +110,19 @@
       }
     } catch (error) {
       toast(`保存失败：${error.message}`, 'err');
+    }
+  }
+
+  async function onApplySaved() {
+    try {
+      const result = await S.store.applySaved();
+      if (result.ok) {
+        toast('已 Apply 已保存配置。', 'ok');
+      } else {
+        toast(`Apply 已保存配置失败：${applyFailureSummary(result)}`, 'err');
+      }
+    } catch (error) {
+      toast(`Apply 已保存配置失败：${error.message}`, 'err');
     }
   }
 
@@ -125,7 +138,7 @@
       const res = await S.store.save(true);
       if (res.ok) {
         if (!res.res.applied) {
-          toast(`已保存为${next ? '启用' : '禁用'}，但 Apply 失败：${res.res.apply_result?.error || res.res.error?.message || '运行态未切换'}`, 'err');
+          toast(`已保存为${next ? '启用' : '禁用'}，但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}`, 'err');
         } else {
           toast(next ? 'Steer 已启用并 Apply。' : 'Steer 已禁用并清理运行资源。', 'ok');
         }
@@ -143,6 +156,52 @@
       enabledToggleBusy = false;
       renderStatusStrip();
     }
+  }
+
+  function generationLabel(value) {
+    const parts = String(value || '').split('/').filter(Boolean);
+    return parts[parts.length - 1] || '—';
+  }
+
+  function applyTime(record) {
+    let date = record?.timestamp ? new Date(record.timestamp) : null;
+    if ((!date || Number.isNaN(date.getTime())) && /^\d{13,}$/.test(String(record?.sequence || ''))) {
+      date = new Date(Number(String(record.sequence).slice(0, 13)));
+    }
+    if (!date || Number.isNaN(date.getTime())) return record?.sequence ? `#${record.sequence}` : '—';
+    return date.toLocaleString();
+  }
+
+  function applyFailureSummary(result) {
+    const error = typeof result?.error === 'string' ? result.error : (result?.error?.message || '运行态未切换');
+    if (result?.candidate_generation && !result?.activated) return `${error}；candidate ${generationLabel(result.candidate_generation)} 未激活`;
+    return error;
+  }
+
+  function applyRecord(status) {
+    const record = status?.last_apply || null;
+    if (!record) return h('p', { class: 'muted' }, '尚无 Apply 记录。');
+    const result = record.result || record;
+    const candidate = generationLabel(result.candidate_generation || result.generation);
+    const failedBeforeActivation = !!result.candidate_generation && !result.activated;
+    return h('div', { class: `apply-record ${result.ok ? 'is-ok' : 'is-err'}` }, [
+      h('div', { class: 'apply-record__head' }, [
+        h('strong', {}, result.ok ? 'Apply 成功' : 'Apply 失败'),
+        h('span', { class: `badge ${result.ok ? 'badge--ok' : 'badge--err'}` }, result.ok ? '成功' : '失败'),
+        h('span', { class: 'mono muted', title: record.timestamp || record.sequence || '' }, applyTime(record))
+      ]),
+      failedBeforeActivation
+        ? h('p', { class: 'alert alert--err' }, `candidate ${candidate} 未激活；Status 当前 generation 为 ${status.generation || '无'}。`)
+        : (!result.ok && result.activated
+            ? h('p', { class: 'alert alert--err' }, `candidate ${candidate} 已发布，但 Apply 未完成；运行事实以 Status 为准。`)
+            : null),
+      result.error ? h('p', { class: 'apply-record__error mono' }, result.error) : null,
+      h('div', { class: 'apply-record__meta mono muted' }, [
+        result.intent_digest ? `Intent ${result.intent_digest.slice(0, 12)}` : null,
+        result.runtime_digest ? `Runtime ${result.runtime_digest.slice(0, 12)}` : null,
+        `Sequence ${record.sequence || '—'}`
+      ].filter(Boolean).join(' · '))
+    ]);
   }
 
   async function forceSave() {
@@ -163,26 +222,30 @@
     const lastResult = lastApply?.result || lastApply;
     const desiredEnabled = S.store.intent?.main?.enabled === true;
     const healthy = !!status.healthy;
+    const active = !!status.generation;
     const dirty = S.store.dirty;
+    const pendingApply = S.store.pendingApply === true;
 
     strip.append(
       h('div', { class: 'strip__group' }, [
-        h('span', { class: `health-dot ${!desiredEnabled ? 'is-disabled' : (healthy ? 'is-ok' : 'is-err')}`, title: !desiredEnabled ? 'Steer 已禁用' : (healthy ? '运行健康' : '不健康') }),
+        h('span', { class: `health-dot ${active ? (healthy ? 'is-ok' : 'is-err') : (desiredEnabled ? 'is-err' : 'is-disabled')}`, title: active ? (healthy ? '当前 generation 运行健康' : '当前 generation 不健康') : (desiredEnabled ? '已保存为启用，但当前无运行 generation' : '当前无运行 generation') }),
         h('div', { class: 'strip__toggle' }, [
           toggle(desiredEnabled, (next) => onToggleEnabled(next), '启用或禁用 Steer'),
           h('div', {}, h('span', { class: 'strip__fact-label' }, 'Steer'), h('span', { class: 'strip__fact-value' }, desiredEnabled ? '已启用' : '已禁用'))
         ]),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, !desiredEnabled ? 'disabled' : (healthy ? 'healthy' : 'unhealthy'))),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'systemd'), h('span', { class: 'strip__fact-value' }, !desiredEnabled ? 'stopped' : (healthy ? 'active' : 'inactive'))),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'generation'), h('span', { class: 'strip__fact-value' }, status.generation || lastResult?.generation || '—')),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, active ? (healthy ? 'healthy' : 'unhealthy') : 'stopped')),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'systemd'), h('span', { class: 'strip__fact-value' }, healthy ? 'active' : (active ? 'inactive' : 'stopped'))),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'generation'), h('span', { class: 'strip__fact-value' }, status.generation || '—')),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '修订'), h('span', { class: 'strip__fact-value', title: S.store.revision }, S.fmtRevision(S.store.revision))),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次 Apply'), h('span', { class: 'strip__fact-value' }, lastApply ? `#${lastApply.sequence} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
-        dirty ? h('span', { class: 'badge badge--warn', title: '工作副本有未保存修改' }, '工作副本已修改') : null
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次 Apply'), h('span', { class: 'strip__fact-value', title: lastResult?.error || '' }, lastApply ? `${applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
+        dirty ? h('span', { class: 'badge badge--warn', title: '工作副本有未保存修改' }, '工作副本已修改') : null,
+        pendingApply ? h('span', { class: 'badge badge--warn', title: '已保存配置与运行态不同，或最近 Apply 失败' }, '已保存，待 Apply') : null
       ]),
       h('div', { class: 'strip__actions' }, [
         h('button', { class: 'btn', onclick: onValidate }, '校验'),
         h('button', { class: 'btn', onclick: () => onSave(false), disabled: !dirty }, '保存'),
-        h('button', { class: 'btn btn--primary', onclick: () => onSave(true), disabled: !dirty }, '保存并 Apply')
+        h('button', { class: `btn ${dirty ? 'btn--primary' : ''}`, onclick: () => onSave(true), disabled: !dirty }, '保存并 Apply'),
+        h('button', { class: `btn ${!dirty && pendingApply ? 'btn--primary' : ''}`, onclick: onApplySaved, disabled: !pendingApply, title: pendingApply ? 'Apply 当前已保存配置，不需要制造工作副本修改' : '已保存配置与运行态一致' }, 'Apply 已保存配置')
       ])
     );
     strip.querySelector('.strip__toggle .switch').disabled = enabledToggleBusy;
@@ -521,5 +584,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, onValidate, onToggleEnabled, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, applyRecord, applyTime, generationLabel, onValidate, onToggleEnabled, jumpToObject } });
 })();

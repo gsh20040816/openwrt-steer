@@ -88,10 +88,12 @@
           fact('订阅', String(intent.subscriptions.length)),
           fact('DNS Profile', String(intent.dns_profiles.length)),
           fact('本地代理', String(intent.local_proxies.length)),
-          fact('运行 generation', status.generation || lastResult?.generation || '—'),
-          fact('系统服务', healthy ? 'active' : '不可用'),
-          fact('上次 Apply', lastApply ? `#${lastApply.sequence} ${lastResult?.ok ? '✓' : '✗'}` : '—')
+          fact('运行 generation', status.generation || '—'),
+          fact('运行 digest', status.intent_digest ? status.intent_digest.slice(0, 12) : '—'),
+          fact('系统服务', healthy ? 'active' : (status.generation ? '不健康' : 'stopped')),
+          fact('上次 Apply', lastApply ? `${ui.applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')
         ]),
+        h('div', { class: 'u-mt-10' }, ui.applyRecord(status)),
         validation.errors.length || validation.warnings.length ? h('div', {}, [
           ui.issueList(validation.errors, ui.jumpToObject),
           ui.issueList(validation.warnings, ui.jumpToObject, true)

@@ -1,0 +1,23 @@
+{
+  "saved_revision": "\"sha256-saved\"",
+  "saved_valid": true,
+  "pending_apply": true,
+  "status": {
+    "healthy": true,
+    "generation": "candidate.active-old",
+    "intent_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "runtime_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "last_apply": {
+      "sequence": "1787731200000000000",
+      "timestamp": "2026-08-26T08:00:00Z",
+      "result": {
+        "ok": false,
+        "error": "start candidate Linux generation: systemd refused start",
+        "candidate_generation": "/run/steer/generations/candidate.failed-new",
+        "activated": false,
+        "intent_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+        "runtime_digest": "4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    }
+  }
+}
