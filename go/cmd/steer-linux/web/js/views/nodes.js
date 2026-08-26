@@ -192,16 +192,25 @@
         const port = ui.input({ type: 'number', value: draft.server_port || '', placeholder: '443' });
         const endpoint = h('div', { class: 'field--row' });
         const specBox = h('div', {});
+        let listControls = [];
 
         function specControl(field) {
           const key = field.key;
           if (field.control === 'boolean') return ui.toggleRow(FIELD_LABEL[key] || field.label, !!draft[key], (v) => { draft[key] = v; });
-          if (field.control === 'string-list') return ui.chips(asList(draft[key]), { placeholder: field.placeholder || '', onchange: (v) => { draft[key] = v; } });
+          if (field.control === 'string-list') {
+            const control = ui.chips(asList(draft[key]), { placeholder: field.placeholder || '', onchange: (v) => { draft[key] = v; } });
+            listControls.push(control);
+            return control;
+          }
           if (field.control === 'select' || field.control === 'select-integer') return ui.select(
             field.options.map((item) => [item.value, item.label]), String(draft[key] ?? field.default ?? ''),
             (v) => { draft[key] = field.control === 'select-integer' && v !== '' ? Number(v) : v; rebuildSpec(); }
           );
           if (field.control === 'integer') return ui.input({ type: 'number', value: draft[key] ?? '', placeholder: field.placeholder || '', oninput: (e) => { draft[key] = e.target.value === '' ? undefined : Number(e.target.value); } });
+          if (field.multiline) return ui.textarea({
+            value: draft[key] ?? '', placeholder: field.placeholder || '', sensitive: !!field.sensitive,
+            oninput: (e) => { draft[key] = e.target.value; }
+          });
           return ui.input({
             type: field.control === 'password' ? 'password' : 'text', value: draft[key] ?? '',
             placeholder: field.placeholder || '', oninput: (e) => { draft[key] = e.target.value; }
@@ -209,6 +218,8 @@
         }
 
         function rebuildSpec() {
+          listControls.forEach((control) => control.commitPending());
+          listControls = [];
           specBox.replaceChildren();
           endpoint.replaceChildren();
           endpoint.hidden = draft.type === 'tor';
@@ -235,6 +246,7 @@
 
         return {
           submit() {
+            listControls.forEach((control) => control.commitPending());
             const trim = (v) => String(v ?? '').trim();
             if (!trim(name.value)) { ui.toast('名称不能为空', 'err'); return false; }
             draft.name = trim(name.value);

@@ -45,6 +45,28 @@ func TestIntentStoreRoundTripAndRevisionConflict(t *testing.T) {
 	}
 }
 
+func TestIntentStorePreservesPrivateKeyBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	store := IntentStore{Path: path}
+	value := validIntent()
+	privateKey := "-----BEGIN OPENSSH PRIVATE KEY-----\r\nline one  \r\n\r\nline two\r\n-----END OPENSSH PRIVATE KEY-----\r\n"
+	value.Nodes = []model.Node{{
+		ID: "ssh-node", Enabled: true, Type: "ssh", Server: "ssh.example", ServerPort: 22,
+		NodeCredentials: model.NodeCredentials{Username: "root", PrivateKey: privateKey},
+	}}
+
+	if _, err := store.Save(value, ""); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Nodes) != 1 || loaded.Nodes[0].PrivateKey != privateKey {
+		t.Fatal("private key changed during save/load round trip")
+	}
+}
+
 func TestLinuxValidationAcceptsNativeSourceMAC(t *testing.T) {
 	value := validIntent()
 	macRule := model.Rule{ID: "mac", Enabled: true, SourceMACAddress: []string{"02:00:00:00:00:10"}, DNSProfile: "public", Route: "direct"}

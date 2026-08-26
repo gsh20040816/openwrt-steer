@@ -101,6 +101,7 @@
         );
         return {
           submit() {
+            [inboundChips, srcCidr, srcMac, nets, protos, ports].forEach((control) => control.commitPending());
             if (!name.value.trim()) { ui.toast('名称不能为空', 'err'); return false; }
             draft.name = name.value.trim();
             draft.dns_profile = dnsSel.value;
