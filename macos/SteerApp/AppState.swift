@@ -139,6 +139,37 @@ struct DraftRevisionConflict: Sendable {
     let operation: DraftConflictOperation
 }
 
+enum DraftGuardAction: Sendable, Equatable {
+    case reload
+    case installSystemComponents
+    case terminate
+
+    var title: String {
+        switch self {
+        case .reload: return "重新载入前处理 Draft"
+        case .installSystemComponents: return "安装或修复前处理 Draft"
+        case .terminate: return "退出前处理 Draft"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .reload:
+            return "保存会先保存当前 Draft 再重新载入；丢弃会从 Saved 配置替换当前 Draft。"
+        case .installSystemComponents:
+            return "保存会保留当前 Draft 并在继续前写入 Saved；丢弃会在安装完成后重新载入 Saved 配置。"
+        case .terminate:
+            return "保存会在成功写入 Saved 后退出；丢弃会直接退出。取消不会修改 Draft、Saved 或 Active。"
+        }
+    }
+}
+
+enum DraftGuardDecision: Sendable, Equatable {
+    case save
+    case discard
+    case cancel
+}
+
 struct ProbeResult: Decodable, Sendable {
     let ok: Bool
     let status: Int?
@@ -732,12 +763,16 @@ final class AppModel: ObservableObject {
     @Published var geoipNames: [String] = []
     @Published private(set) var savedRevision = ""
     @Published private(set) var revisionConflict: DraftRevisionConflict?
+    @Published private(set) var pendingDraftAction: DraftGuardAction?
+    @Published private(set) var hasInitializedDraft = false
     @Published private(set) var activeProbeKeys: Set<String> = []
     @Published private(set) var isBatchNodeProbeRunning = false
     @Published private(set) var activeSubscriptionOperationIDs: Set<String> = []
 
     private let backend: BackendClient
     private var draftMutationSequence: UInt64 = 0
+    private var initialStateLoadInProgress = false
+    private var terminationReply: ((Bool) -> Void)?
 
     init(backend: BackendClient? = nil) {
         self.backend = backend ?? HelperBackendClient()
@@ -745,6 +780,40 @@ final class AppModel: ObservableObject {
 
     var draftEnabled: Bool {
         parseDraft()?.objectValue?["main"]?.objectValue?["enabled"]?.boolValue ?? false
+    }
+
+    var canSaveDraft: Bool {
+        !isBusy && pendingDraftAction == nil && isDirty
+            && savedRevision.isEmpty == false && draftSyntaxError == nil
+    }
+
+    var canSaveForPendingDraftAction: Bool {
+        !isBusy && isDirty && draftSyntaxError == nil && pendingDraftAction != nil
+            && (savedRevision.isEmpty == false
+                || (pendingDraftAction == .installSystemComponents && !systemComponentsInstalled))
+    }
+
+    var canApplySaved: Bool {
+        !isBusy && savedRevision.isEmpty == false && pendingDraftAction == nil
+    }
+
+    var canSaveAndApplyDraft: Bool {
+        !isBusy && pendingDraftAction == nil
+            && savedRevision.isEmpty == false && draftSyntaxError == nil
+    }
+
+    var canEditDraft: Bool { !isBusy && pendingDraftAction == nil }
+
+    var canToggleEnabled: Bool {
+        canSaveAndApplyDraft && !isDirty
+    }
+
+    var draftGuardTitle: String {
+        pendingDraftAction?.title ?? "处理未保存的 Draft"
+    }
+
+    var draftGuardExplanation: String {
+        pendingDraftAction?.explanation ?? ""
     }
 
     var draftSyntaxError: String? {
@@ -778,7 +847,7 @@ final class AppModel: ObservableObject {
     }
 
     func setDraftValue(in section: String, key: String, value: JSONValue?) {
-        guard !isBusy, var root = parseDraft()?.objectValue else { return }
+        guard canEditDraft, var root = parseDraft()?.objectValue else { return }
         var object = root[section]?.objectValue ?? [:]
         if let value {
             object[key] = value
@@ -796,49 +865,70 @@ final class AppModel: ObservableObject {
     func markDirty() {
         draftMutationSequence &+= 1
         isDirty = true
-        message = "有未应用的 draft 修改"
+        message = "有未保存的 Draft 修改"
+    }
+
+    func updateRawDraft(_ document: String) {
+        guard canEditDraft else { return }
+        rawJSON = document
+        markDirty()
     }
 
     func loadInitialState() {
-        perform(message: "正在连接 Steer 后端…") {
-            let components = await self.backend.componentStatus()
-            self.systemComponentsInstalled = components.installed
-            self.embeddedInstallerAvailable = components.embeddedInstallerAvailable
-            self.systemComponentsUpdateAvailable = components.updateAvailable
-            guard components.installed else {
-                self.message = components.embeddedInstallerAvailable
-                    ? "尚未安装系统组件；请在“系统”页完成一次管理员授权安装"
-                    : "尚未安装系统组件；当前为源码开发构建"
-                return
+        guard !hasInitializedDraft, !initialStateLoadInProgress,
+              !isBusy, pendingDraftAction == nil else { return }
+        initialStateLoadInProgress = true
+        isBusy = true
+        message = "正在连接 Steer 后端…"
+        let documentBeforeLoad = rawJSON
+        let sequenceBeforeLoad = draftMutationSequence
+        let draftWasDirtyBeforeLoad = isDirty
+        Task {
+            defer {
+                self.initialStateLoadInProgress = false
+                self.isBusy = false
             }
-            self.replaceDraft(with: try await self.backend.loadConfiguration())
-            self.runtime = try await self.backend.status()
-            self.versions = try await self.backend.versions()
-            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
-            self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
-            self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
-            self.message = self.runtime.healthy ? "Steer 运行正常" : "已连接后端，Steer 当前未运行"
+            do {
+                let components = await self.backend.componentStatus()
+                self.updateComponentStatus(components)
+                guard components.installed else {
+                    self.hasInitializedDraft = true
+                    self.message = components.embeddedInstallerAvailable
+                        ? "尚未安装系统组件；请在“系统”页完成一次管理员授权安装"
+                        : "尚未安装系统组件；当前为源码开发构建"
+                    return
+                }
+
+                let snapshot = try await self.backend.loadConfiguration()
+                let preservedConcurrentDraft = draftWasDirtyBeforeLoad || !self.draftMatches(
+                    document: documentBeforeLoad, sequence: sequenceBeforeLoad
+                )
+                if preservedConcurrentDraft {
+                    self.savedRevision = snapshot.revision
+                    self.revisionConflict = nil
+                    self.isDirty = true
+                } else {
+                    self.replaceDraft(with: snapshot)
+                }
+                self.hasInitializedDraft = true
+                self.runtime = try await self.backend.status()
+                self.versions = try await self.backend.versions()
+                self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
+                self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
+                self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
+                if preservedConcurrentDraft {
+                    self.message = "已连接后端；载入期间产生的本地 Draft 已保留，尚未保存"
+                } else {
+                    self.message = self.runtime.healthy ? "Steer 运行正常" : "已连接后端，Steer 当前未运行"
+                }
+            } catch {
+                self.message = "连接 Steer 后端失败：\(error.localizedDescription)"
+            }
         }
     }
 
     func installSystemComponents() {
-        perform(message: "正在安装 Steer 系统组件；macOS 将请求一次管理员授权…") {
-            try await self.backend.installSystemComponents()
-            let components = await self.backend.componentStatus()
-            self.systemComponentsInstalled = components.installed
-            self.embeddedInstallerAvailable = components.embeddedInstallerAvailable
-            self.systemComponentsUpdateAvailable = components.updateAvailable
-            guard components.installed else {
-                throw BackendClientError.processFailed("安装器已结束，但系统组件验收未通过。")
-            }
-            self.replaceDraft(with: try await self.backend.loadConfiguration())
-            self.runtime = try await self.backend.status()
-            self.versions = try await self.backend.versions()
-            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
-            self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
-            self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
-            self.message = "系统组件安装完成；后续保存和应用不再请求管理员密码"
-        }
+        requestGuardedDraftAction(.installSystemComponents)
     }
 
     func refreshStatus() {
@@ -856,7 +946,7 @@ final class AppModel: ObservableObject {
     }
 
     func importNodes(_ document: String) async -> Bool {
-        guard !isBusy else { return false }
+        guard !isBusy, pendingDraftAction == nil else { return false }
         isBusy = true
         message = "正在解析节点分享链接…"
         defer { isBusy = false }
@@ -888,12 +978,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func apply() {
+    func saveAndApplyDraft() {
+        guard !isBusy, pendingDraftAction == nil, savedRevision.isEmpty == false else { return }
         let document = rawJSON
         let expectedRevision = savedRevision
+        let draftSequence = draftMutationSequence
         perform(message: "正在保存并应用配置…") {
             do {
-                try await self.applyCurrentDraft(document: document, expectedRevision: expectedRevision)
+                try await self.applyCurrentDraft(
+                    document: document,
+                    expectedRevision: expectedRevision,
+                    draftSequence: draftSequence
+                )
             } catch {
                 if self.recordRevisionConflict(error, operation: .apply) { return }
                 throw error
@@ -901,8 +997,69 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // Compatibility for callers that still use the old name. New UI surfaces use
+    // the explicit Save and Apply wording so its persistence side effect is clear.
+    func apply() {
+        saveAndApplyDraft()
+    }
+
+    func applySaved() {
+        guard !isBusy, pendingDraftAction == nil else { return }
+        let draftWasDirty = isDirty
+        let draftDocumentBeforeApply = rawJSON
+        let draftSequenceBeforeApply = draftMutationSequence
+        perform(message: "正在应用 Saved 配置…") {
+            let snapshot = try await self.backend.loadConfiguration()
+            let outcome: ApplyOutcome
+            do {
+                outcome = try await self.backend.apply(
+                    document: snapshot.document,
+                    expectedRevision: snapshot.revision
+                )
+            } catch let error as BackendClientError {
+                if case .revisionConflict = error {
+                    self.message = "Saved 配置在 Apply 前再次变化；未切换 Active，请重试 Apply Saved"
+                    return
+                }
+                throw error
+            }
+
+            self.runtime = outcome.status
+            guard outcome.saved else {
+                throw BackendClientError.processFailed(
+                    outcome.error.isEmpty ? "Saved 配置未应用" : outcome.error
+                )
+            }
+            if !draftWasDirty,
+               self.draftMatches(
+                   document: draftDocumentBeforeApply,
+                   sequence: draftSequenceBeforeApply
+               ) {
+                self.replaceDraft(with: ConfigurationSnapshot(
+                    document: snapshot.document,
+                    revision: outcome.revision
+                ))
+            }
+            if outcome.applied {
+                self.message = self.runtime.healthy
+                    ? "Saved 配置已应用，Steer 运行正常"
+                    : "Saved 配置已应用，Steer 已停用"
+            } else {
+                self.message = "Saved 配置 Apply 失败：\(outcome.error.isEmpty ? "Active 未切换" : outcome.error)"
+            }
+        }
+    }
+
     func setEnabledAndApply(_ enabled: Bool) {
-        guard !isBusy, enabled != draftEnabled else { return }
+        guard !isBusy, pendingDraftAction == nil, enabled != draftEnabled else { return }
+        guard !isDirty else {
+            message = "请先保存或丢弃当前 Draft；启用状态不会静默部署未完成修改"
+            return
+        }
+        guard savedRevision.isEmpty == false else {
+            message = "尚未加载 Saved 配置，无法切换运行状态"
+            return
+        }
         guard var root = parseDraft()?.objectValue else {
             message = "当前工作副本不是合法的 JSON，无法切换运行状态"
             return
@@ -921,6 +1078,7 @@ final class AppModel: ObservableObject {
         let updatedDocument = String(decoding: data, as: UTF8.self)
         rawJSON = updatedDocument
         draftMutationSequence &+= 1
+        let operationDraftSequence = draftMutationSequence
         isDirty = true
         isBusy = true
         message = enabled ? "正在启用并应用 Steer…" : "正在停用并清理 Steer…"
@@ -929,36 +1087,55 @@ final class AppModel: ObservableObject {
             do {
                 let outcome = try await backend.apply(document: updatedDocument, expectedRevision: expectedRevision)
                 runtime = outcome.status
-                if outcome.saved {
-                    isDirty = false
-                    savedRevision = outcome.revision
-                    revisionConflict = nil
+                guard outcome.saved else {
+                    throw BackendClientError.processFailed(
+                        outcome.error.isEmpty ? "启用状态未保存" : outcome.error
+                    )
                 }
+                let draftStayedAtAppliedCandidate: Bool
+                draftStayedAtAppliedCandidate = adoptSavedRevision(
+                    outcome.revision,
+                    document: updatedDocument,
+                    draftSequence: operationDraftSequence
+                )
                 if outcome.applied {
-                    message = enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源"
-                } else if outcome.saved {
-                    message = "启用状态已保存，但 Apply 失败：\(outcome.error)"
+                    message = draftStayedAtAppliedCandidate
+                        ? (enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源")
+                        : "启用状态已应用；操作期间产生的新 Draft 修改仍未保存"
                 } else {
-                    throw BackendClientError.processFailed(outcome.error)
+                    message = draftStayedAtAppliedCandidate
+                        ? "启用状态已保存，但 Apply 失败：\(outcome.error)"
+                        : "启用状态已保存但 Apply 失败；操作期间产生的新 Draft 修改仍未保存"
                 }
             } catch {
                 if recordRevisionConflict(error, operation: .apply) {
                     isDirty = true
                     return
                 }
-                rawJSON = previousDocument
-                isDirty = previousDirty
-                message = "切换 Steer 状态失败：\(error.localizedDescription)"
+                if draftMatches(document: updatedDocument, sequence: operationDraftSequence) {
+                    rawJSON = previousDocument
+                    isDirty = previousDirty
+                    message = "切换 Steer 状态失败：\(error.localizedDescription)"
+                } else {
+                    isDirty = true
+                    message = "切换 Steer 状态失败；操作期间产生的新 Draft 修改已保留"
+                }
             }
         }
     }
 
     func saveDraft() {
+        guard !isBusy, pendingDraftAction == nil, isDirty, savedRevision.isEmpty == false else { return }
         let document = rawJSON
         let expectedRevision = savedRevision
+        let draftSequence = draftMutationSequence
         perform(message: "正在保存配置…") {
             do {
-                try await self.saveCurrentDraft(document: document, expectedRevision: expectedRevision)
+                try await self.saveCurrentDraft(
+                    document: document,
+                    expectedRevision: expectedRevision,
+                    draftSequence: draftSequence
+                )
             } catch {
                 if self.recordRevisionConflict(error, operation: .save) { return }
                 throw error
@@ -967,10 +1144,231 @@ final class AppModel: ObservableObject {
     }
 
     func loadDraft() {
-        perform(message: "正在读取配置…") {
-            self.replaceDraft(with: try await self.backend.loadConfiguration())
-            self.message = "已读取系统配置"
+        requestGuardedDraftAction(.reload)
+    }
+
+    func beginTerminationGuard(reply: @escaping (Bool) -> Void) -> Bool {
+        guard isDirty else { return false }
+        guard !isBusy, pendingDraftAction == nil else {
+            message = "当前操作尚未完成，已取消退出"
+            return false
         }
+        pendingDraftAction = .terminate
+        terminationReply = reply
+        return true
+    }
+
+    func resolveDraftGuard(_ decision: DraftGuardDecision) {
+        guard let action = pendingDraftAction else { return }
+        pendingDraftAction = nil
+
+        switch decision {
+        case .cancel:
+            message = "已取消；Draft、Saved 与 Active 均未改变"
+            finishTerminationIfNeeded(action: action, allow: false)
+        case .discard:
+            switch action {
+            case .reload:
+                reloadDraftNow(discardedLocalChanges: true)
+            case .installSystemComponents:
+                installSystemComponentsNow(decision: .discard)
+            case .terminate:
+                finishTerminationIfNeeded(action: action, allow: true)
+            }
+        case .save:
+            switch action {
+            case .reload:
+                saveThenReloadDraft()
+            case .installSystemComponents:
+                installSystemComponentsNow(decision: .save)
+            case .terminate:
+                saveBeforeTermination()
+            }
+        }
+    }
+
+    private func requestGuardedDraftAction(_ action: DraftGuardAction) {
+        guard !isBusy, pendingDraftAction == nil else { return }
+        guard isDirty else {
+            switch action {
+            case .reload:
+                reloadDraftNow(discardedLocalChanges: false)
+            case .installSystemComponents:
+                installSystemComponentsNow(decision: nil)
+            case .terminate:
+                break
+            }
+            return
+        }
+        pendingDraftAction = action
+        message = "当前 Draft 有未保存修改；请选择保存、丢弃或取消"
+    }
+
+    private func reloadDraftNow(discardedLocalChanges: Bool) {
+        let documentBeforeReload = rawJSON
+        let sequenceBeforeReload = draftMutationSequence
+        perform(message: "正在读取 Saved 配置…") {
+            let snapshot = try await self.backend.loadConfiguration()
+            guard self.draftMatches(
+                document: documentBeforeReload,
+                sequence: sequenceBeforeReload
+            ) else {
+                self.isDirty = true
+                self.message = "Reload 期间产生的新 Draft 修改已保留；Saved 未替换当前工作副本"
+                return
+            }
+            self.replaceDraft(with: snapshot)
+            self.message = discardedLocalChanges
+                ? "已丢弃本地修改并重新载入 Saved 配置"
+                : "已读取 Saved 配置"
+        }
+    }
+
+    private func saveThenReloadDraft() {
+        let document = rawJSON
+        let expectedRevision = savedRevision
+        let draftSequence = draftMutationSequence
+        perform(message: "正在保存并重新载入配置…") {
+            do {
+                let draftStayedAtSavedVersion = try await self.saveCurrentDraft(
+                    document: document,
+                    expectedRevision: expectedRevision,
+                    draftSequence: draftSequence
+                )
+                guard draftStayedAtSavedVersion else {
+                    self.message = "操作开始时的 Draft 已保存；期间产生的新修改已保留，未执行 Reload"
+                    return
+                }
+            } catch {
+                if self.recordRevisionConflict(error, operation: .save) { return }
+                throw error
+            }
+            let snapshot = try await self.backend.loadConfiguration()
+            guard self.draftMatches(document: document, sequence: draftSequence) else {
+                self.isDirty = true
+                self.message = "Draft 已保存；Reload 期间产生的新修改已保留"
+                return
+            }
+            self.replaceDraft(with: snapshot)
+            self.message = "Draft 已保存并重新载入"
+        }
+    }
+
+    private func installSystemComponentsNow(decision: DraftGuardDecision?) {
+        let document = rawJSON
+        let expectedRevision = savedRevision
+        let wasInstalled = systemComponentsInstalled
+        let draftSequence = draftMutationSequence
+        perform(message: "正在安装 Steer 系统组件；macOS 将请求一次管理员授权…") {
+            if decision == .save, wasInstalled {
+                do {
+                    let draftStayedAtSavedVersion = try await self.saveCurrentDraft(
+                        document: document,
+                        expectedRevision: expectedRevision,
+                        draftSequence: draftSequence
+                    )
+                    guard draftStayedAtSavedVersion else {
+                        self.message = "操作开始时的 Draft 已保存；期间产生的新修改已保留，未继续安装"
+                        return
+                    }
+                } catch {
+                    if self.recordRevisionConflict(error, operation: .save) { return }
+                    throw error
+                }
+            }
+
+            try await self.backend.installSystemComponents()
+            let components = await self.backend.componentStatus()
+            self.updateComponentStatus(components)
+            guard components.installed else {
+                throw BackendClientError.processFailed("安装器已结束，但系统组件验收未通过。")
+            }
+
+            let installedSnapshot = try await self.backend.loadConfiguration()
+            if decision == .save, !wasInstalled {
+                do {
+                    try await self.saveCurrentDraft(
+                        document: document,
+                        expectedRevision: installedSnapshot.revision,
+                        draftSequence: draftSequence
+                    )
+                } catch {
+                    if self.recordRevisionConflict(error, operation: .save) { return }
+                    throw error
+                }
+            } else if decision != .save {
+                if self.draftMatches(document: document, sequence: draftSequence) {
+                    self.replaceDraft(with: installedSnapshot)
+                } else {
+                    if !wasInstalled {
+                        self.savedRevision = installedSnapshot.revision
+                        self.revisionConflict = nil
+                    }
+                    self.isDirty = true
+                }
+            }
+
+            self.hasInitializedDraft = true
+            self.runtime = try await self.backend.status()
+            self.versions = try await self.backend.versions()
+            self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
+            self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
+            self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
+            if self.isDirty {
+                self.message = "系统组件安装完成；安装期间产生的新 Draft 修改已保留，尚未保存"
+                return
+            }
+            switch decision {
+            case .save:
+                self.message = "系统组件安装完成；当前 Draft 已保存并保留，运行态未自动 Apply"
+            case .discard:
+                self.message = "系统组件安装完成；本地修改已丢弃并重新载入 Saved 配置"
+            case .cancel:
+                break
+            case nil:
+                self.message = "系统组件安装完成；已载入 Saved 配置"
+            }
+        }
+    }
+
+    private func saveBeforeTermination() {
+        guard !isBusy else {
+            finishTerminationIfNeeded(action: .terminate, allow: false)
+            return
+        }
+        let document = rawJSON
+        let expectedRevision = savedRevision
+        let draftSequence = draftMutationSequence
+        isBusy = true
+        message = "正在保存 Draft；保存成功后退出…"
+        Task {
+            var allowTermination = false
+            defer {
+                self.isBusy = false
+                self.finishTerminationIfNeeded(action: .terminate, allow: allowTermination)
+            }
+            do {
+                allowTermination = try await self.saveCurrentDraft(
+                    document: document,
+                    expectedRevision: expectedRevision,
+                    draftSequence: draftSequence
+                )
+                if !allowTermination {
+                    self.message = "退出前的 Draft 快照已保存；操作期间产生的新修改已保留，退出已取消"
+                }
+            } catch {
+                if !self.recordRevisionConflict(error, operation: .save) {
+                    self.message = "退出前保存失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func finishTerminationIfNeeded(action: DraftGuardAction, allow: Bool) {
+        guard action == .terminate else { return }
+        let reply = terminationReply
+        terminationReply = nil
+        reply?(allow)
     }
 
     var revisionConflictExplanation: String {
@@ -993,9 +1391,20 @@ final class AppModel: ObservableObject {
     }
 
     func reloadSavedAfterRevisionConflict() {
+        let documentBeforeReload = rawJSON
+        let sequenceBeforeReload = draftMutationSequence
         revisionConflict = nil
         perform(message: "正在重新载入 Saved 配置…") {
-            self.replaceDraft(with: try await self.backend.loadConfiguration())
+            let snapshot = try await self.backend.loadConfiguration()
+            guard self.draftMatches(
+                document: documentBeforeReload,
+                sequence: sequenceBeforeReload
+            ) else {
+                self.isDirty = true
+                self.message = "Reload Saved 期间产生的新 Draft 修改已保留"
+                return
+            }
+            self.replaceDraft(with: snapshot)
             self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
             self.message = "已重新载入 Saved 配置；本地 Draft 修改已丢弃"
         }
@@ -1004,12 +1413,17 @@ final class AppModel: ObservableObject {
     func overwriteAfterRevisionConflict() {
         guard let conflict = revisionConflict else { return }
         let document = rawJSON
+        let draftSequence = draftMutationSequence
         revisionConflict = nil
         switch conflict.operation {
         case .apply:
             perform(message: "正在显式覆盖 Saved 并 Apply…") {
                 do {
-                    try await self.applyCurrentDraft(document: document, expectedRevision: conflict.currentRevision)
+                    try await self.applyCurrentDraft(
+                        document: document,
+                        expectedRevision: conflict.currentRevision,
+                        draftSequence: draftSequence
+                    )
                 } catch {
                     if self.recordRevisionConflict(error, operation: .apply) { return }
                     throw error
@@ -1018,8 +1432,12 @@ final class AppModel: ObservableObject {
         case .save, .subscriptionInventory:
             perform(message: "正在显式覆盖 Saved 配置…") {
                 do {
-                    try await self.saveCurrentDraft(document: document, expectedRevision: conflict.currentRevision)
-                    if conflict.operation == .subscriptionInventory {
+                    let draftStayedAtSavedVersion = try await self.saveCurrentDraft(
+                        document: document,
+                        expectedRevision: conflict.currentRevision,
+                        draftSequence: draftSequence
+                    )
+                    if conflict.operation == .subscriptionInventory, draftStayedAtSavedVersion {
                         self.message = "已显式覆盖 Saved 配置；订阅操作未自动 Apply"
                     }
                 } catch {
@@ -1031,6 +1449,7 @@ final class AppModel: ObservableObject {
     }
 
     func runProbe(kind: String, nodeID: String? = nil, routeID: String? = nil, download: Bool = false) {
+        guard pendingDraftAction == nil else { return }
         let key = probeKey(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
         guard activeProbeKeys.insert(key).inserted else { return }
         message = download ? "正在运行下载测速…" : "正在运行连接测试…"
@@ -1050,7 +1469,8 @@ final class AppModel: ObservableObject {
     }
 
     func runAllNodeProbes(download: Bool, nodeIDs: [String]) {
-        guard !isBatchNodeProbeRunning, !nodeIDs.isEmpty else { return }
+        guard pendingDraftAction == nil,
+              !isBatchNodeProbeRunning, !nodeIDs.isEmpty else { return }
         isBatchNodeProbeRunning = true
         message = download ? "正在批量下载测速…" : "正在批量连接测试…"
         Task {
@@ -1088,6 +1508,7 @@ final class AppModel: ObservableObject {
 
     func updateSubscription(_ id: String) {
         let operationID = "update:\(id)"
+        guard pendingDraftAction == nil else { return }
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
         let startingWasDirty = isDirty
         let startingDraftSequence = draftMutationSequence
@@ -1112,6 +1533,7 @@ final class AppModel: ObservableObject {
 
     func cleanSubscriptionNode(subscriptionID: String, nodeID: String) {
         let operationID = "clean:\(subscriptionID):\(nodeID)"
+        guard pendingDraftAction == nil else { return }
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
         let startingWasDirty = isDirty
         let startingDraftSequence = draftMutationSequence
@@ -1342,27 +1764,75 @@ final class AppModel: ObservableObject {
         isDirty = false
     }
 
-    private func saveCurrentDraft(document: String, expectedRevision: String) async throws {
-        let revision = try await backend.save(document: document, expectedRevision: expectedRevision)
-        savedRevision = revision
-        revisionConflict = nil
-        isDirty = false
-        message = "配置已保存；运行态未改变"
+    private func updateComponentStatus(_ components: SystemComponentsStatus) {
+        systemComponentsInstalled = components.installed
+        embeddedInstallerAvailable = components.embeddedInstallerAvailable
+        systemComponentsUpdateAvailable = components.updateAvailable
     }
 
-    private func applyCurrentDraft(document: String, expectedRevision: String) async throws {
+    private func draftMatches(document: String, sequence: UInt64) -> Bool {
+        draftMutationSequence == sequence && rawJSON == document
+    }
+
+    @discardableResult
+    private func adoptSavedRevision(
+        _ revision: String,
+        document: String,
+        draftSequence: UInt64
+    ) -> Bool {
+        let draftStayedAtSavedVersion = draftMatches(document: document, sequence: draftSequence)
+        savedRevision = revision
+        revisionConflict = nil
+        isDirty = !draftStayedAtSavedVersion
+        return draftStayedAtSavedVersion
+    }
+
+    @discardableResult
+    private func saveCurrentDraft(
+        document: String,
+        expectedRevision: String,
+        draftSequence: UInt64
+    ) async throws -> Bool {
+        let revision = try await backend.save(document: document, expectedRevision: expectedRevision)
+        let draftStayedAtSavedVersion = adoptSavedRevision(
+            revision,
+            document: document,
+            draftSequence: draftSequence
+        )
+        message = draftStayedAtSavedVersion
+            ? "配置已保存；运行态未改变"
+            : "操作开始时的 Draft 已保存；期间产生的新修改仍未保存"
+        return draftStayedAtSavedVersion
+    }
+
+    @discardableResult
+    private func applyCurrentDraft(
+        document: String,
+        expectedRevision: String,
+        draftSequence: UInt64
+    ) async throws -> Bool {
         let outcome = try await backend.apply(document: document, expectedRevision: expectedRevision)
         runtime = outcome.status
-        isDirty = !outcome.saved
-        if outcome.saved {
-            savedRevision = outcome.revision
-            revisionConflict = nil
+        guard outcome.saved else {
+            throw BackendClientError.processFailed(
+                outcome.error.isEmpty ? "配置未保存，Active 未切换" : outcome.error
+            )
         }
-        if outcome.saved && !outcome.applied {
-            message = "配置已保存，但 Apply 失败：\(outcome.error.isEmpty ? "运行态未切换" : outcome.error)"
+        let draftStayedAtSavedVersion = adoptSavedRevision(
+            outcome.revision,
+            document: document,
+            draftSequence: draftSequence
+        )
+        if !outcome.applied {
+            message = draftStayedAtSavedVersion
+                ? "配置已保存，但 Apply 失败：\(outcome.error.isEmpty ? "运行态未切换" : outcome.error)"
+                : "操作开始时的 Draft 已保存但 Apply 失败；期间产生的新修改仍未保存"
         } else {
-            message = runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用"
+            message = draftStayedAtSavedVersion
+                ? (runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用")
+                : "操作开始时的 Draft 已应用；期间产生的新修改仍未保存"
         }
+        return draftStayedAtSavedVersion
     }
 
     @discardableResult
@@ -1385,7 +1855,7 @@ final class AppModel: ObservableObject {
     }
 
     private func perform(message pendingMessage: String, operation: @escaping () async throws -> Void) {
-        guard !isBusy else { return }
+        guard !isBusy, pendingDraftAction == nil else { return }
         isBusy = true
         message = pendingMessage
         Task {
@@ -1404,6 +1874,7 @@ final class AppModel: ObservableObject {
     }
 
     private func mutateCollection(_ key: String, _ mutate: (inout [JSONValue]) -> Void) {
+        guard pendingDraftAction == nil else { return }
         guard var root = parseDraft()?.objectValue else {
             message = "当前 draft 不是 JSON object，无法修改 \(key)"
             return
@@ -1416,6 +1887,7 @@ final class AppModel: ObservableObject {
     }
 
     private func writeDraft(_ value: JSONValue, context: String) {
+        guard pendingDraftAction == nil else { return }
         do {
             let data = try JSONEncoder.pretty.encode(value)
             rawJSON = String(decoding: data, as: UTF8.self)

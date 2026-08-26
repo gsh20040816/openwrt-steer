@@ -145,6 +145,8 @@ Linux Web 将 Draft、Saved 与 Active 分开显示：`dirty` 只表示浏览器
 
 macOS Load 必须同时返回 Saved revision，Save/Apply 必须携带 `expected_revision`。revision conflict 不得修改 Saved、Active 或本地 Draft；UI 必须提供 Reload Saved、保留本地 Draft 和显式覆盖。订阅手动更新完成时只能在 Draft 未发生变化的情况下自动 reload，否则保留 Draft 并进入同一冲突选择；订阅库存变更始终不自动 Apply。
 
+macOS 每个 App 生命周期只初始化一次 Draft。所有页面与菜单栏共用 Save、Apply Saved、Save and Apply；Apply Saved 只部署磁盘 Saved，不得夹带 dirty Draft。Reload、安装/Repair 和退出等会替换或结束 Draft 的动作必须走同一个 Save / Discard / Cancel guard，dirty 时 Enable 必须禁用或显式确认全部副作用。安装完成默认保留编辑中的 Draft，Apply 失败时 Active 只显示后端实际 generation。
+
 ## 生成与测试门
 
 `go generate` 生成 LuCI、Linux Web 和 SwiftUI 使用的只读规格。提交必须包含已更新的生成文件。CI 必须检查重新生成后工作树无差异，并验证：

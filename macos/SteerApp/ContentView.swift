@@ -2,6 +2,33 @@
 
 import SwiftUI
 
+struct DraftActionButtons: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        Button {
+            model.saveDraft()
+        } label: {
+            Label("保存", systemImage: "square.and.arrow.down")
+        }
+        .disabled(!model.canSaveDraft)
+
+        Button {
+            model.applySaved()
+        } label: {
+            Label("Apply Saved", systemImage: "bolt")
+        }
+        .disabled(!model.canApplySaved)
+
+        Button {
+            model.saveAndApplyDraft()
+        } label: {
+            Label("保存并应用", systemImage: "bolt.fill")
+        }
+        .disabled(!model.canSaveAndApplyDraft)
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var model: AppModel
 
@@ -24,16 +51,37 @@ struct ContentView: View {
                     Label("刷新状态", systemImage: "arrow.clockwise")
                 }
                 .help("刷新 LaunchDaemon 运行状态")
-                .disabled(model.isBusy)
+                .disabled(model.isBusy || model.pendingDraftAction != nil)
                 Button { model.validate() } label: {
                     Label("校验", systemImage: "checkmark.shield")
                 }
                 .disabled(model.isBusy || model.draftSyntaxError != nil)
-                Button { model.apply() } label: {
-                    Label("应用", systemImage: "bolt.fill")
-                }
-                .disabled(model.isBusy || model.draftSyntaxError != nil)
+                DraftActionButtons(model: model)
             }
+        }
+        .confirmationDialog(
+            model.draftGuardTitle,
+            isPresented: Binding(
+                get: {
+                    model.pendingDraftAction != nil && model.pendingDraftAction != .terminate
+                },
+                set: { isPresented in
+                    guard !isPresented else { return }
+                    DispatchQueue.main.async {
+                        if model.pendingDraftAction != nil {
+                            model.resolveDraftGuard(.cancel)
+                        }
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("保存") { model.resolveDraftGuard(.save) }
+                .disabled(!model.canSaveForPendingDraftAction)
+            Button("丢弃", role: .destructive) { model.resolveDraftGuard(.discard) }
+            Button("取消", role: .cancel) { model.resolveDraftGuard(.cancel) }
+        } message: {
+            Text(model.draftGuardExplanation)
         }
         .alert(
             "Saved revision 冲突",
@@ -249,13 +297,12 @@ struct OverviewView: View {
                         set: { model.setEnabledAndApply($0) }
                     ))
                     .toggleStyle(.switch)
-                    .disabled(model.isBusy)
+                    .disabled(!model.canToggleEnabled)
+                    .help(model.isDirty ? "请先保存或丢弃 Draft，避免连同半成品一起部署" : "立即保存并应用启用状态")
                     ControlGroup {
                         Button("校验") { model.validate() }
                             .disabled(model.draftSyntaxError != nil)
-                        Button("应用") { model.apply() }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(model.draftSyntaxError != nil)
+                        DraftActionButtons(model: model)
                         Button { model.refreshStatus() } label: {
                             Image(systemName: "arrow.clockwise")
                         }
@@ -361,13 +408,9 @@ struct ConfigurationView: View {
                 Spacer()
                 ControlGroup {
                     Button("重新载入") { model.loadDraft() }
-                    Button("保存") { model.saveDraft() }
-                        .disabled(!model.isDirty)
                     Button("校验") { model.validate() }
                         .disabled(model.draftSyntaxError != nil)
-                    Button("保存并应用") { model.apply() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.draftSyntaxError != nil)
+                    DraftActionButtons(model: model)
                 }
                 .disabled(model.isBusy)
             }
@@ -377,11 +420,11 @@ struct ConfigurationView: View {
                 Divider()
                 TextEditor(text: Binding(
                     get: { model.rawJSON },
-                    set: { model.rawJSON = $0; model.markDirty() }
+                    set: { model.updateRawDraft($0) }
                 ))
                 .font(.system(.body, design: .monospaced))
                 .textSelection(.enabled)
-                .disabled(model.isBusy)
+                .disabled(!model.canEditDraft)
             }
             if !model.message.isEmpty {
                 Label(model.message, systemImage: "info.circle")
@@ -682,7 +725,7 @@ struct DraftCollectionView: View {
                     if descriptor.ordered { moveItems(identifiers, to: destination) }
                 }
             }
-            .disabled(model.isBusy)
+            .disabled(!model.canEditDraft)
             .overlay {
                 if items.isEmpty {
                     VStack(spacing: 9) {
