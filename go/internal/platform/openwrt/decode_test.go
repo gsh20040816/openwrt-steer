@@ -2,6 +2,9 @@
 package openwrt
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -68,6 +71,28 @@ func TestDecodedUCIDNSProfileOptionsRemainSubjectToSemanticValidation(t *testing
 		if !found {
 			t.Fatalf("raw UCI retained unsupported %q without a stable error: %#v", option, validation.Errors)
 		}
+	}
+}
+
+func TestDecodePackagedFreshDefaults(t *testing.T) {
+	configPath := filepath.Join("..", "..", "..", "..", "steer", "files", "etc", "config", "steer")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := DecodeBytes(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoutes := []model.Route{
+		{ID: "direct", Enabled: true, Kind: "direct"},
+		{ID: "block", Enabled: false, Kind: "block"},
+	}
+	if !reflect.DeepEqual(value.Routes, wantRoutes) {
+		t.Fatalf("packaged fresh routes changed: %#v", value.Routes)
+	}
+	if validation := model.Validate(value); !validation.OK {
+		t.Fatalf("packaged fresh defaults are invalid: %#v", validation.Errors)
 	}
 }
 

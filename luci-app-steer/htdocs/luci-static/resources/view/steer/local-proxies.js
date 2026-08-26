@@ -34,7 +34,8 @@ return view.extend({
 		o.editable = true;
 
 		o = s.option(form.Value, 'name', _('Name'));
-		o.rmempty = false;
+		o.rmempty = true;
+		o.optional = true;
 		o.modalonly = true;
 
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));

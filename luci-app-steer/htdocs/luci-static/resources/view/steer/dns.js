@@ -54,7 +54,7 @@ return view.extend({
 		s.tab('tls', _('TLS'));
 
 		o = s.taboption('general', form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
-		o = s.taboption('general', form.Value, 'name', _('Name')); o.rmempty = false; o.modalonly = true;
+		o = s.taboption('general', form.Value, 'name', _('Name')); o.rmempty = true; o.optional = true; o.modalonly = true;
 		o = s.taboption('general', form.ListValue, 'protocol', _('Protocol'));
 		uiSpec.dns_protocols.forEach((item) => o.value(item.value, item.label));
 		o.rmempty = false; o.editable = true;
