@@ -31,6 +31,7 @@
       const saveApplyButton = h('button', { class: 'btn btn--primary', onclick: () => ui.onSave(true) }, '保存并 Apply');
 
       let matches = [];
+	  let validationEpoch = null;
       const syncState = () => {
         const valid = S.store.draftValid !== false;
         if (editor.value !== S.store.draftText) editor.value = S.store.draftText;
@@ -78,7 +79,14 @@
           issues.replaceChildren(h('div', { class: 'alert alert--err' }, `当前 JSON Draft 无效：${S.store.draftError}`));
           return;
         }
-        const v = await S.api.validate(S.store.intent);
+		const requestedEpoch = S.store.draftEpoch;
+		const v = await S.api.validate(S.store.intent);
+		if (requestedEpoch !== S.store.draftEpoch) {
+			issues.replaceChildren(h('div', { class: 'alert' }, '校验期间 Draft 已变化；旧结果已丢弃。'));
+			validationEpoch = null;
+			return;
+		}
+		validationEpoch = requestedEpoch;
         issues.replaceChildren(
           h('div', { class: 'card__head validation-head' }, h('div', {}, h('span', { class: 'eyebrow' }, '校验'), h('div', { class: 'card__title' }, `${v.errors.length} 错误 · ${v.warnings.length} 警告`))),
           ui.issueList(v.errors, ui.jumpToObject),
@@ -90,6 +98,10 @@
       const unsubscribe = S.store.subscribe(() => {
         if (!isCurrent()) return;
         syncState();
+		if (validationEpoch != null && validationEpoch !== S.store.draftEpoch) {
+			issues.replaceChildren(h('div', { class: 'alert' }, 'Draft 已变化；先前校验结果已过期，请重新校验。'));
+			validationEpoch = null;
+		}
       });
       isCurrent.onDispose(unsubscribe);
       syncState();

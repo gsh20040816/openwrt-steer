@@ -52,6 +52,15 @@ struct DraftEditorTarget: Identifiable {
     let index: Int?
     let title: String
     let object: [String: JSONValue]
+    let focusOption: String?
+
+    init(key: String, index: Int?, title: String, object: [String: JSONValue], focusOption: String? = nil) {
+        self.key = key
+        self.index = index
+        self.title = title
+        self.object = object
+        self.focusOption = focusOption
+    }
 }
 
 struct DraftItemEditor: View {
@@ -73,6 +82,11 @@ struct DraftItemEditor: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(target.title)
                         .font(.title2.weight(.semibold))
+                    if let option = target.focusOption, !option.isEmpty {
+                        Label("已定位字段：\(option)", systemImage: "scope")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.orange)
+                    }
                 }
                 Spacer()
             }
@@ -625,6 +639,10 @@ private struct DefaultRuleDraftForm: View {
 private struct RuleDraftForm: View {
     @ObservedObject var model: AppModel
     @Binding var object: [String: JSONValue]
+    private var missingInbounds: [String] {
+        let known = Set(model.draftItems(for: "local_proxies").map(\.identifier))
+        return (object["inbound"]?.arrayValue ?? []).compactMap(\.stringValue).filter { !known.contains($0) }
+    }
 
     var body: some View {
         Section("规则") {
@@ -671,6 +689,14 @@ private struct RuleDraftForm: View {
                     }
                 }
             }
+            ForEach(missingInbounds, id: \.self) { identifier in
+                Toggle("缺失本地入口：\(identifier)", isOn: membershipBinding($object, "inbound", identifier))
+                    .foregroundStyle(.red)
+            }
+            let capability = SteerUISpec.contract.platformCapabilities["macos"]
+            Label("Source MAC 不可用：\(capability?.sourceMACReason ?? "此平台不支持该匹配")", systemImage: "nosign")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         Section("连接条件") {
             ForEach(SteerUISpec.contract.ruleNetworks) { option in
@@ -681,6 +707,9 @@ private struct RuleDraftForm: View {
                     Toggle(option.label, isOn: membershipBinding($object, "protocol", option.value))
                 }
             }
+            Text("IP match、Network、Protocol 与 Port 只参与连接阶段；规则只有这些条件时，DNS 会继续匹配后续规则。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }

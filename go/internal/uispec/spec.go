@@ -46,9 +46,20 @@ type Field struct {
 }
 
 type PlatformCapabilities struct {
-	RawEditor        bool `json:"raw_editor"`
-	SourceMAC        bool `json:"source_mac"`
-	SystemComponents bool `json:"system_components"`
+	RawEditor        bool   `json:"raw_editor"`
+	SourceMAC        bool   `json:"source_mac"`
+	SourceMACReason  string `json:"source_mac_reason,omitempty"`
+	SystemComponents bool   `json:"system_components"`
+}
+
+// CollectionReference describes one inbound reference that must block
+// deleting the target object in every frontend.
+type CollectionReference struct {
+	TargetCollection string `json:"target_collection"`
+	SourceCollection string `json:"source_collection"`
+	SourceObjectType string `json:"source_object_type"`
+	Field            string `json:"field"`
+	Multiple         bool   `json:"multiple,omitempty"`
 }
 
 type NavigationItem struct {
@@ -77,6 +88,8 @@ type Contract struct {
 	RuleNetworks                      []Choice                        `json:"rule_networks"`
 	RuleProtocols                     []Choice                        `json:"rule_protocols"`
 	RuleMatchFields                   []string                        `json:"rule_match_fields"`
+	RuleConnectionOnlyFields          []string                        `json:"rule_connection_only_fields"`
+	CollectionReferences              []CollectionReference           `json:"collection_references"`
 	DomainPrefixes                    []string                        `json:"domain_prefixes"`
 	IPPrefixes                        []string                        `json:"ip_prefixes"`
 	PlatformCapabilities              map[string]PlatformCapabilities `json:"platform_capabilities"`
@@ -145,13 +158,21 @@ func ContractValue() Contract {
 			"tls", "TLS", "http", "HTTP", "quic", "QUIC", "dns", "DNS", "stun", "STUN",
 			"bittorrent", "BitTorrent", "dtls", "DTLS", "ssh", "SSH", "rdp", "RDP", "ntp", "NTP",
 		),
-		RuleMatchFields: []string{"inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"},
-		DomainPrefixes:  []string{"full:", "domain:", "regexp:", "geosite:"},
-		IPPrefixes:      []string{"geoip:"},
+		RuleMatchFields:          []string{"inbound", "domain_match", "ip_match", "source_ip_cidr", "source_mac_address", "network", "protocol", "port"},
+		RuleConnectionOnlyFields: []string{"ip_match", "network", "protocol", "port"},
+		CollectionReferences: []CollectionReference{
+			{TargetCollection: "nodes", SourceCollection: "routes", SourceObjectType: "route", Field: "node"},
+			{TargetCollection: "routes", SourceCollection: "rules", SourceObjectType: "rule", Field: "route"},
+			{TargetCollection: "routes", SourceCollection: "routes", SourceObjectType: "route", Field: "detour"},
+			{TargetCollection: "dns_profiles", SourceCollection: "rules", SourceObjectType: "rule", Field: "dns_profile"},
+			{TargetCollection: "local_proxies", SourceCollection: "rules", SourceObjectType: "rule", Field: "inbound", Multiple: true},
+		},
+		DomainPrefixes: []string{"full:", "domain:", "regexp:", "geosite:"},
+		IPPrefixes:     []string{"geoip:"},
 		PlatformCapabilities: map[string]PlatformCapabilities{
 			"openwrt": {RawEditor: false, SourceMAC: true, SystemComponents: false},
 			"linux":   {RawEditor: true, SourceMAC: true, SystemComponents: false},
-			"macos":   {RawEditor: true, SourceMAC: false, SystemComponents: true},
+			"macos":   {RawEditor: true, SourceMAC: false, SourceMACReason: "macOS utun traffic does not expose the original LAN neighbor MAC address", SystemComponents: true},
 		},
 		Navigation: []NavigationGroup{
 			{Key: "status", Label: "Status", Items: []NavigationItem{{Key: "overview", Label: "Overview"}}},

@@ -112,13 +112,91 @@
 
   function jumpToObject(issue) {
     const target = { node: 'nodes', route: 'routes', rule: 'rules', dns_profile: 'dns', local_proxy: 'proxies', subscription: 'subscriptions' }[issue.object_type];
-    if (target && S.router) S.router(target);
+    if (!target || !S.router) return false;
+    S.pendingObjectFocus = { ...issue };
+    document.querySelectorAll('.dialog-overlay').forEach((overlay) => {
+      const close = overlay.querySelector('.dialog__close');
+      if (typeof close?.click === 'function') close.click(); else overlay.remove();
+    });
+    S.router(target);
+    return true;
+  }
+
+  function takeObjectFocus(objectType) {
+    if (S.pendingObjectFocus?.object_type !== objectType) return null;
+    const focus = S.pendingObjectFocus;
+    S.pendingObjectFocus = null;
+    return focus;
+  }
+
+  function focusDrawerOption(option) {
+    if (!option) return;
+    setTimeout(() => {
+      const selector = `[data-option="${option}"]`;
+      const target = document.querySelector('#drawer-root')?.querySelector(selector) || document.querySelector(selector);
+      if (!target) return;
+      target.classList.add('is-focused');
+      target.querySelector('input, select, textarea, button')?.focus();
+      target.scrollIntoView?.({ block: 'center' });
+    }, 0);
+  }
+
+  function collectionReferences(intent, targetCollection, targetId) {
+    if (!intent || !targetId) return [];
+    if (targetCollection === 'subscriptions') {
+      const owned = new Set(asList(intent.nodes).filter((node) => node.source_subscription === targetId).map((node) => node.id));
+      return asList(intent.routes).filter((route) => owned.has(route.node)).map((route) => ({
+        source_collection: 'routes', source_object_type: 'route', source_id: route.id,
+        source_label: route.name || route.id, field: 'node'
+      }));
+    }
+    const references = [];
+    for (const relation of S.uiSpec.collection_references || []) {
+      if (relation.target_collection !== targetCollection) continue;
+      for (const source of asList(intent[relation.source_collection])) {
+        const value = source?.[relation.field];
+        const matched = relation.multiple ? asList(value).includes(targetId) : value === targetId;
+        if (!matched) continue;
+        references.push({
+          source_collection: relation.source_collection,
+          source_object_type: relation.source_object_type,
+          source_id: source.id,
+          source_label: source.name || source.id,
+          field: relation.field
+        });
+      }
+    }
+    return references;
+  }
+
+  function guardCollectionDeletion(targetCollection, targetId, label) {
+    const references = collectionReferences(S.store.intent, targetCollection, targetId);
+    if (!references.length) return true;
+    dialog({
+      title: `不能删除 · ${label || targetId}`,
+      body: h('div', {}, [
+        h('p', {}, '以下对象仍在引用它。请先修改这些引用；Steer 不会自动级联改写规则或路由。'),
+        h('ul', { class: 'issue-list' }, references.map((reference) => h('li', { class: 'issue issue--warning' }, [
+          h('span', { class: 'issue__code' }, reference.source_object_type),
+          h('span', { class: 'issue__where' }, `${reference.source_label} / ${reference.field}`),
+          h('button', { class: 'btn btn--sm', onclick: () => jumpToObject({
+            object_type: reference.source_object_type, object_id: reference.source_id, option: reference.field
+          }) }, '前往引用')
+        ])))
+      ]),
+      actions: [['关闭', null]]
+    });
+    return false;
   }
 
   async function onSave(apply) {
     try {
       const res = await S.store.save(apply);
       if (res.ok) {
+        const writeValidation = res.res.apply_result?.validation || res.res.validation;
+        if ((writeValidation?.errors?.length || 0) + (writeValidation?.warnings?.length || 0) > 0) {
+          showValidation(writeValidation, apply && res.res.applied === false ? 'Save / Apply 校验结果' : '保存校验结果');
+        }
         const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
         if (apply && res.res.applied === false) {
           toast(`快照已保存但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
@@ -179,10 +257,12 @@
       if (result.busy) {
         toast('已有 Save、Apply 或 reload 操作正在进行，请等待完成。', 'warn');
       } else if (result.ok) {
+        if (result.validation?.warnings?.length) showValidation(result.validation, 'Apply Saved 校验结果');
         if (result.overviewError) toast(`已 Apply 已保存配置；状态刷新失败：${result.overviewError.message}`, 'warn');
         else toast('已 Apply 已保存配置。', 'ok');
       } else {
-        toast(`Apply 已保存配置失败：${applyFailureSummary(result)}${result.overviewError ? `；状态刷新失败：${result.overviewError.message}` : ''}`, 'err');
+        if (result.validation) showValidation(result.validation, 'Apply Saved 校验失败');
+        else toast(`Apply 已保存配置失败：${applyFailureSummary(result)}${result.overviewError ? `；状态刷新失败：${result.overviewError.message}` : ''}`, 'err');
       }
     } catch (error) {
       toast(`Apply 已保存配置失败：${error.message}`, 'err');
@@ -464,9 +544,9 @@
   }
 
   /* ---------- 表单件 ---------- */
-  function field(label, control, hint) {
+  function field(label, control, hint, option) {
     const id = `f-${Math.random().toString(36).slice(2, 7)}`;
-    const el = h('div', { class: 'field' });
+    const el = h('div', { class: 'field', dataset: option ? { option } : null });
     if (label) {
       el.append(h('label', { for: id }, label));
       if (control.inputControl) control.inputControl.setAttribute('id', id);
@@ -534,6 +614,31 @@
   function select(options, value, onchange) {
     return h('select', { class: 'select', onchange: (e) => onchange?.(e.target.value) },
       options.map(([v, label]) => h('option', { value: v, selected: String(v) === String(value) }, label)));
+  }
+
+  function multiChoice(options, values = [], { onchange, missingLabel = '缺失' } = {}) {
+    const selected = new Set(asList(values).map(String));
+    const choices = options.slice();
+    for (const value of selected) {
+      if (!choices.some(([candidate]) => String(candidate) === value)) choices.push([value, `${missingLabel}：${value}`]);
+    }
+    const root = h('div', { class: 'choice-grid' });
+    const emit = () => onchange?.([...selected]);
+    for (const [rawValue, label] of choices) {
+      const value = String(rawValue);
+      const button = h('button', {
+        class: 'choice-toggle', type: 'button', role: 'checkbox', 'aria-checked': String(selected.has(value)),
+        onclick: () => {
+          if (selected.has(value)) selected.delete(value); else selected.add(value);
+          button.setAttribute('aria-checked', String(selected.has(value)));
+          emit();
+        }
+      }, label);
+      root.append(button);
+    }
+    Object.defineProperty(root, 'value', { enumerable: true, get: () => [...selected] });
+    root.commitPending = () => {};
+    return root;
   }
 
   function toggle(checked, onchange, label) {
@@ -763,5 +868,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, multiChoice, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject, takeObjectFocus, focusDrawerOption, collectionReferences, guardCollectionDeletion } });
 })();

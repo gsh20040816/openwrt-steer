@@ -46,6 +46,8 @@ return view.extend({
 		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
 		steer.configureNamedSection(s, { enabled: '1', protocol: defaultProtocol.value, server_port: String(defaultProtocol.default_port) });
+		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('dns_profiles', sectionId),
+			_('DNS profile is still referenced'));
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add DNS profile');
@@ -77,7 +79,7 @@ return view.extend({
 		o = s.taboption('tls', form.Flag, 'insecure', _('Skip certificate verification')); o.default = '0'; o.modalonly = true;
 		dependOnDNSField(o, 'insecure');
 
-		return m.render();
+		return m.render().then((formNode) => steer.focusSection(s, 'dns_profile').then(() => formNode));
 	},
 
 	handleSaveApply: function(ev, mode) { return steer.apply(this, ev, mode); }

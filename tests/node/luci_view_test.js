@@ -21,6 +21,9 @@ const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-
 const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
 const probeDiagnosticsFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/probe-diagnostics-fixtures.json'), 'utf8'));
 const stateLifecycleFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/state-lifecycle-fixtures.json'), 'utf8'));
+const validationIssueFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/validation-issue-fixtures.json'), 'utf8'));
+const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-reference-fixtures.json'), 'utf8'));
+const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -42,6 +45,23 @@ function parseUCIConfig(content) {
 			current[match[2]] = match[3];
 	}
 	return sections;
+}
+
+function canonicalFixtureSections(intent) {
+	const result = {};
+	for (const [collection, values] of Object.entries(intent)) {
+		const type = { nodes: 'node', routes: 'route', dns_profiles: 'dns_profile', local_proxies: 'local_proxy', subscriptions: 'subscription', rules: 'rule' }[collection];
+		if (!type) continue;
+		result[type] = values.map((value) => {
+			const section = { '.name': value.id };
+			for (const [key, item] of Object.entries(value)) {
+				if (key == 'id') continue;
+				section[key] = typeof(item) == 'boolean' ? (item ? '1' : '0') : item;
+			}
+			return section;
+		});
+	}
+	return result;
 }
 
 function element(tag, attributes, children) {
@@ -311,6 +331,28 @@ function createEnvironment(sections) {
 			section.addBeforeSectionId = beforeSectionId;
 			return section;
 		},
+		configureRemovalGuard: (section, referencesFor) => {
+			section.removalReferences = referencesFor;
+			return section;
+		},
+		collectionReferences: (targetCollection, targetId) => {
+			if (targetCollection == 'subscriptions') {
+				const owned = new Set((sections.node || []).filter((node) => node.source_subscription == targetId).map((node) => node['.name']));
+				return (sections.route || []).filter((route) => owned.has(route.node)).map((route) => ({
+					objectType: 'route', id: route['.name'], label: route.name || route['.name'], option: 'node'
+				}));
+			}
+			return uiSpec.collection_references.filter((relation) => relation.target_collection == targetCollection)
+				.flatMap((relation) => (sections[relation.source_object_type] || []).filter((source) => {
+					const value = source[relation.field];
+					return relation.multiple ? (Array.isArray(value) ? value : [ value ]).includes(targetId) : value == targetId;
+				}).map((source) => ({
+					objectType: relation.source_object_type, id: source['.name'],
+					label: source.name || source['.name'], option: relation.field
+				})));
+		},
+		focusSection: () => Promise.resolve(false),
+		focusIssue: () => false,
 		status: () => Promise.resolve({}),
 		overviewState: () => Promise.resolve(environment.lifecycleState),
 		validate: () => Promise.resolve({ ok: true, errors: [], warnings: [] }),
@@ -765,6 +807,41 @@ async function main() {
 		[ 'direct', undefined, 'direct' ],
 		[ 'block', '0', 'block' ]
 	], 'The packaged fresh UCI keeps Direct before a disabled Reject route');
+
+	for (const fixture of ruleSummaryFixtures.cases) {
+		const rule = { '.name': 'fixture_rule', ...fixture.rule };
+		if (typeof(rule.default) == 'boolean') rule.default = rule.default ? '1' : '0';
+		let fixtureEnvironment = await renderRules({ rule: [ rule ], dns_profile: [], route: [], local_proxy: [] });
+		const summaryOption = allOptions(fixtureEnvironment).find((option) => option.name == '_match');
+		assert.deepEqual(summaryOption.summaryTokens('fixture_rule'), fixture.tokens, fixture.name);
+		assert.equal(summaryOption.dnsContinues('fixture_rule'), fixture.dns_continues, fixture.name);
+		const renderedSummary = summaryOption.cfgvalue('fixture_rule');
+		if (fixture.name == 'protocol-only' || fixture.name == 'network-only') {
+			assert.ok(!renderedSummary.includes('No match condition') && renderedSummary.includes('DNS continues'), fixture.name);
+		}
+	}
+
+	const referenceSections = canonicalFixtureSections(collectionReferenceFixtures.intent);
+	const referenceEnvironments = {
+		nodes: await renderNodes(referenceSections, '', { subscriptions: [] }, 'nodes'),
+		routes: await renderNodes(referenceSections, '', { subscriptions: [] }, 'routes'),
+		dns_profiles: await renderDns(referenceSections),
+		local_proxies: await renderLocalProxies(referenceSections),
+		subscriptions: await renderNodes(referenceSections, '', { subscriptions: [] }, 'subscriptions')
+	};
+	for (const fixture of collectionReferenceFixtures.cases) {
+		const environment = referenceEnvironments[fixture.target_collection];
+		const type = { nodes: 'node', routes: 'route', dns_profiles: 'dns_profile', local_proxies: 'local_proxy', subscriptions: 'subscription' }[fixture.target_collection];
+		const section = environment.maps.flatMap((map) => map.sections).find((candidate) => candidate.sectionType == type && candidate.removalReferences);
+		const actual = section.removalReferences(fixture.target_id).map((reference) => ({
+			source_collection: reference.objectType == 'rule' ? 'rules' : 'routes',
+			source_object_type: reference.objectType,
+			source_id: reference.id,
+			field: reference.option
+		}));
+		assert.deepEqual(actual, fixture.references,
+			`LuCI reference guard drifted for ${fixture.target_collection}/${fixture.target_id}`);
+	}
 
 	let environment = await renderRules({
 		rule: [ {

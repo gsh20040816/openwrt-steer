@@ -43,6 +43,9 @@ swift test --disable-sandbox
 - `subscription-status-fixtures.json`：三端共享的 never-fetched、success、skipped、failed-after-success、disabled 与部分 stale 引用状态；
 - `probe-diagnostics-fixtures.json`：三端共享的完整 sanitized probe 报告与 enabled/disabled 操作事实；
 - `state-lifecycle-fixtures.json`：三端共享的 fresh、pending-disable、failed-Apply 与 active Draft/Saved/Active 状态；
+- `validation-issue-fixtures.json`：三端写失败的完整问题定位与无凭据消息合同；
+- `collection-reference-fixtures.json`：Node/Route/DNS/Local Proxy/Subscription 删除引用保护合同；
+- `rule-summary-fixtures.json`：完整 Rule match 摘要与 DNS/连接阶段边界合同；
 - `luci_view_test.js`：表单语义、Local Proxy 暴露/认证门、detour 可清空、节点/路由/概览测试按钮；
 - `steer_helper_test.js`：UCI commit 后的 Apply 观察、独立 validate、最小 status；
 - `linux_web_test.js`：Linux Web 开关/冲突回滚、Rules/Node chips 与 SSH 私钥、Local Proxy 认证 DOM 往返、Advanced JSON 单一 Draft、无效 JSON 导航保护及确认式 Discard；

@@ -101,7 +101,7 @@ struct RuntimeApplyResult: Decodable, Sendable {
     let error: String?
 }
 
-struct ValidationIssue: Codable, Identifiable {
+struct ValidationIssue: Codable, Identifiable, Sendable, Equatable {
     var id: String { "\(code):\(objectID ?? ""):\(option ?? "")" }
     let code: String
     let objectType: String?
@@ -118,7 +118,7 @@ struct ValidationIssue: Codable, Identifiable {
     }
 }
 
-struct ValidationResult: Codable {
+struct ValidationResult: Codable, Sendable, Equatable {
     let ok: Bool
     let errors: [ValidationIssue]
     let warnings: [ValidationIssue]
@@ -135,6 +135,12 @@ struct ApplyOutcome: Sendable {
     let applied: Bool
     let revision: String
     let error: String
+    let validation: ValidationResult?
+}
+
+struct SaveOutcome: Sendable {
+    let revision: String
+    let validation: ValidationResult
 }
 
 struct ConfigurationSnapshot: Sendable {
@@ -421,12 +427,13 @@ private struct ControlResponse: Decodable {
     let applied: Bool?
     let revision: String?
     let payload: JSONValue?
+    let validation: ValidationResult?
     let errorCode: String?
     let error: String?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
-        case ok, status, saved, applied, revision, payload, error
+        case ok, status, saved, applied, revision, payload, validation, error
         case errorCode = "error_code"
     }
 }
@@ -505,7 +512,7 @@ struct NodeImportResult: Decodable, Sendable {
 enum BackendClientError: LocalizedError {
     case helperUnavailable
     case invalidResponse
-    case validationFailed
+    case validationFailed(ValidationResult)
     case revisionConflict(currentRevision: String)
     case processFailed(String)
 
@@ -530,7 +537,7 @@ protocol BackendClient: Sendable {
     func installSystemComponents() async throws
     func validate(document: String) async throws -> ValidationResult
     func loadConfiguration() async throws -> ConfigurationSnapshot
-    func save(document: String, expectedRevision: String) async throws -> String
+    func save(document: String, expectedRevision: String) async throws -> SaveOutcome
     func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome
     func status() async throws -> RuntimeStatus
     func logs() async throws -> String
@@ -624,9 +631,9 @@ struct HelperBackendClient: BackendClient {
         return ConfigurationSnapshot(document: document, revision: Self.configurationRevision(output))
     }
 
-    func save(document: String, expectedRevision: String) async throws -> String {
+    func save(document: String, expectedRevision: String) async throws -> SaveOutcome {
         let validation = try await validate(document: document)
-        guard validation.ok else { throw BackendClientError.validationFailed }
+        guard validation.ok else { throw BackendClientError.validationFailed(validation) }
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
         try requireExecutable(helper)
         return try await withTemporaryDocument(document) { url in
@@ -635,6 +642,9 @@ struct HelperBackendClient: BackendClient {
                 "--expected-revision", expectedRevision,
             ])
             let response = try Self.decodeControlResponse(result)
+            if let validation = response.validation, !validation.ok {
+                throw BackendClientError.validationFailed(validation)
+            }
             if response.errorCode == "REVISION_CONFLICT" {
                 guard let revision = response.revision, !revision.isEmpty else {
                     throw BackendClientError.invalidResponse
@@ -647,13 +657,13 @@ struct HelperBackendClient: BackendClient {
             guard let revision = response.revision, !revision.isEmpty else {
                 throw BackendClientError.invalidResponse
             }
-            return revision
+            return SaveOutcome(revision: revision, validation: response.validation ?? validation)
         }
     }
 
     func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome {
         let validation = try await validate(document: document)
-        guard validation.ok else { throw BackendClientError.validationFailed }
+        guard validation.ok else { throw BackendClientError.validationFailed(validation) }
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
         try requireExecutable(helper)
         return try await withTemporaryDocument(document) { url in
@@ -662,6 +672,9 @@ struct HelperBackendClient: BackendClient {
                 "--expected-revision", expectedRevision,
             ])
             let response = try Self.decodeControlResponse(result)
+            if let validation = response.validation, !validation.ok {
+                throw BackendClientError.validationFailed(validation)
+            }
             if response.errorCode == "REVISION_CONFLICT" {
                 guard let revision = response.revision, !revision.isEmpty else {
                     throw BackendClientError.invalidResponse
@@ -682,7 +695,8 @@ struct HelperBackendClient: BackendClient {
             }
             return ApplyOutcome(
                 status: status, saved: true, applied: response.applied == true,
-                revision: revision, error: response.error ?? ""
+                revision: revision, error: response.error ?? "",
+                validation: response.validation ?? validation
             )
         }
     }
@@ -909,6 +923,7 @@ final class AppModel: ObservableObject {
     @Published var rawJSON = "{\n  \"main\": {}\n}"
     @Published var runtime = RuntimeStatus()
     @Published var validation: ValidationResult?
+    @Published private(set) var validationFocus: ValidationIssue?
     @Published var isDirty = false
     @Published var isBusy = false
     @Published var message = ""
@@ -1034,6 +1049,8 @@ final class AppModel: ObservableObject {
     func markDirty() {
         draftMutationSequence &+= 1
         isDirty = true
+        validation = nil
+        validationFocus = nil
         message = "有未保存的 Draft 修改"
     }
 
@@ -1156,10 +1173,41 @@ final class AppModel: ObservableObject {
     }
 
     func validate() {
+        let document = rawJSON
+        let sequence = draftMutationSequence
         perform(message: "正在校验…") {
-            self.validation = try await self.backend.validate(document: self.rawJSON)
-            self.message = self.validation?.ok == true ? "校验通过" : "校验发现问题"
+            let result = try await self.backend.validate(document: document)
+            guard self.draftMatches(document: document, sequence: sequence) else {
+                self.message = "校验完成，但 Draft 已变化；旧结果已丢弃"
+                return
+            }
+            self.validation = result
+            self.message = result.ok ? "校验通过" : "校验发现问题"
         }
+    }
+
+    func focusValidationIssue(_ issue: ValidationIssue) {
+        let page: AppPage?
+        switch issue.objectType {
+        case "steer", "bootstrap": page = .general
+        case "node": page = .nodes
+        case "route": page = .routes
+        case "dns_profile": page = .dns
+        case "local_proxy": page = .proxies
+        case "rule": page = .rules
+        case "subscription": page = .subscriptions
+        default: page = nil
+        }
+        guard let page else { return }
+        validationFocus = issue
+        selectedPage = page
+    }
+
+    func takeValidationFocus(objectType: String) -> ValidationIssue? {
+        guard validationFocus?.objectType == objectType else { return nil }
+        let issue = validationFocus
+        validationFocus = nil
+        return issue
     }
 
     func saveAndApplyDraft() {
@@ -1175,6 +1223,7 @@ final class AppModel: ObservableObject {
                     draftSequence: draftSequence
                 )
             } catch {
+                if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
                 if self.recordRevisionConflict(error, operation: .apply) { return }
                 throw error
             }
@@ -1205,6 +1254,14 @@ final class AppModel: ObservableObject {
                     self.message = "Saved 配置在 Apply 前再次变化；未切换 Active，请重试 Apply Saved"
                     return
                 }
+                if case let .validationFailed(result) = error {
+                    if !draftWasDirty,
+                       self.draftMatches(document: snapshot.document, sequence: draftSequenceBeforeApply) {
+                        self.validation = result
+                    }
+                    self.message = "Saved 配置校验失败：\(result.errors.count) 个错误，Active 未切换"
+                    return
+                }
                 throw error
             }
 
@@ -1223,6 +1280,7 @@ final class AppModel: ObservableObject {
                     document: snapshot.document,
                     revision: outcome.revision
                 ))
+                self.validation = outcome.validation
             }
             if outcome.applied {
                 self.message = self.runtime.healthy
@@ -1282,6 +1340,9 @@ final class AppModel: ObservableObject {
                     document: updatedDocument,
                     draftSequence: operationDraftSequence
                 )
+                if draftStayedAtAppliedCandidate, let writeValidation = outcome.validation {
+                    validation = writeValidation
+                }
                 if outcome.applied {
                     message = draftStayedAtAppliedCandidate
                         ? (enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源")
@@ -1321,6 +1382,7 @@ final class AppModel: ObservableObject {
                     draftSequence: draftSequence
                 )
             } catch {
+                if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
                 if self.recordRevisionConflict(error, operation: .save) { return }
                 throw error
             }
@@ -1424,6 +1486,7 @@ final class AppModel: ObservableObject {
                     return
                 }
             } catch {
+                if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
                 if self.recordRevisionConflict(error, operation: .save) { return }
                 throw error
             }
@@ -1456,6 +1519,7 @@ final class AppModel: ObservableObject {
                         return
                     }
                 } catch {
+                    if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
                     if self.recordRevisionConflict(error, operation: .save) { return }
                     throw error
                 }
@@ -1477,6 +1541,7 @@ final class AppModel: ObservableObject {
                         draftSequence: draftSequence
                     )
                 } catch {
+                    if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
                     if self.recordRevisionConflict(error, operation: .save) { return }
                     throw error
                 }
@@ -1541,6 +1606,9 @@ final class AppModel: ObservableObject {
                     self.message = "退出前的 Draft 快照已保存；操作期间产生的新修改已保留，退出已取消"
                 }
             } catch {
+                if self.recordValidationFailure(error, document: document, sequence: draftSequence) {
+                    return
+                }
                 if !self.recordRevisionConflict(error, operation: .save) {
                     self.message = "退出前保存失败：\(error.localizedDescription)"
                 }
@@ -1609,6 +1677,7 @@ final class AppModel: ObservableObject {
                         draftSequence: draftSequence
                     )
                 } catch {
+                    if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
                     if self.recordRevisionConflict(error, operation: .apply) { return }
                     throw error
                 }
@@ -1625,6 +1694,7 @@ final class AppModel: ObservableObject {
                         self.message = "已显式覆盖 Saved 配置；订阅操作未自动 Apply"
                     }
                 } catch {
+                    if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
                     if self.recordRevisionConflict(error, operation: conflict.operation) { return }
                     throw error
                 }
@@ -1953,6 +2023,10 @@ final class AppModel: ObservableObject {
     }
 
     func removeDraftItem(from key: String, at index: Int) {
+        if let reason = deletionBlockReason(for: key, at: index) {
+            message = reason
+            return
+        }
         if key == "rules", let object = draftItemObject(for: key, at: index), RuleDraftPolicy.isDefault(object) {
             message = "Default 规则必须保留"
             return
@@ -1984,51 +2058,26 @@ final class AppModel: ObservableObject {
               let identifier = object["id"]?.stringValue else { return "项目已不存在" }
 
         switch key {
-        case "nodes":
-            let references = root["routes"]?.arrayValue?.filter {
-                $0.objectValue?["node"]?.stringValue == identifier
-            }.count ?? 0
-            if references > 0 { return "仍有 \(references) 条路由使用这个节点" }
         case "routes":
             let kind = object["kind"]?.stringValue ?? ""
             if kind == "direct" || kind == "block" { return "Direct 和 Reject 是系统路由，不能删除" }
-            let ruleReferences = root["rules"]?.arrayValue?.filter {
-                $0.objectValue?["route"]?.stringValue == identifier
-            }.count ?? 0
-            let detourReferences = root["routes"]?.arrayValue?.filter {
-                $0.objectValue?["detour"]?.stringValue == identifier
-            }.count ?? 0
-            if ruleReferences + detourReferences > 0 {
-                return "仍有 \(ruleReferences + detourReferences) 个对象使用这条路由"
-            }
-        case "dns_profiles":
-            let references = root["rules"]?.arrayValue?.filter {
-                $0.objectValue?["dns_profile"]?.stringValue == identifier
-            }.count ?? 0
-            if references > 0 { return "仍有 \(references) 条规则使用这个 DNS Profile" }
-        case "local_proxies":
-            let references = root["rules"]?.arrayValue?.filter {
-                $0.objectValue?["inbound"]?.arrayValue?.contains(where: {
-                    $0.stringValue == identifier
-                }) == true
-            }.count ?? 0
-            if references > 0 { return "仍有 \(references) 条规则使用这个本地入口" }
-        case "subscriptions":
-            let ownedNodeIDs: Set<String> = Set((root["nodes"]?.arrayValue ?? []).compactMap {
-                let node = $0.objectValue
-                return node?["source_subscription"]?.stringValue == identifier ? node?["id"]?.stringValue : nil
-            })
-            let references = root["routes"]?.arrayValue?.filter {
-                guard let nodeID = $0.objectValue?["node"]?.stringValue else { return false }
-                return ownedNodeIDs.contains(nodeID)
-            }.count ?? 0
-            if references > 0 { return "仍有 \(references) 条路由使用这个订阅的节点" }
         case "rules":
             if object["default"]?.boolValue == true { return "Default 规则必须保留" }
         default:
             break
         }
+        let references = SteerUISpec.inboundReferences(root: root, targetCollection: key, targetID: identifier)
+        if !references.isEmpty {
+            return "仍被引用：" + references.map { "\($0.sourceObjectType) \($0.sourceLabel) / \($0.field)" }.joined(separator: "，")
+        }
         return nil
+    }
+
+    func deletionReferences(for key: String, at index: Int) -> [UIObjectReference] {
+        guard let root = parseDraft()?.objectValue,
+              case let .array(values)? = root[key], values.indices.contains(index),
+              let identifier = values[index].objectValue?["id"]?.stringValue else { return [] }
+        return SteerUISpec.inboundReferences(root: root, targetCollection: key, targetID: identifier)
     }
 
     func moveDraftItem(in key: String, from source: IndexSet, to destination: Int) {
@@ -2052,6 +2101,8 @@ final class AppModel: ObservableObject {
         savedRevision = snapshot.revision
         revisionConflict = nil
         isDirty = false
+        validation = nil
+        validationFocus = nil
         diagnosticsSavedDigest = ""
     }
 
@@ -2085,12 +2136,13 @@ final class AppModel: ObservableObject {
         expectedRevision: String,
         draftSequence: UInt64
     ) async throws -> Bool {
-        let revision = try await backend.save(document: document, expectedRevision: expectedRevision)
+        let outcome = try await backend.save(document: document, expectedRevision: expectedRevision)
         let draftStayedAtSavedVersion = adoptSavedRevision(
-            revision,
+            outcome.revision,
             document: document,
             draftSequence: draftSequence
         )
+        if draftStayedAtSavedVersion { validation = outcome.validation }
         message = draftStayedAtSavedVersion
             ? "配置已保存；运行态未改变"
             : "操作开始时的 Draft 已保存；期间产生的新修改仍未保存"
@@ -2115,6 +2167,9 @@ final class AppModel: ObservableObject {
             document: document,
             draftSequence: draftSequence
         )
+        if draftStayedAtSavedVersion, let writeValidation = outcome.validation {
+            validation = writeValidation
+        }
         if !outcome.applied {
             message = draftStayedAtSavedVersion
                 ? "配置已保存，但 Apply 失败：\(outcome.error.isEmpty ? "运行态未切换" : outcome.error)"
@@ -2134,6 +2189,20 @@ final class AppModel: ObservableObject {
         revisionConflict = DraftRevisionConflict(currentRevision: currentRevision, operation: operation)
         isDirty = true
         message = "Saved 配置已变化；本地 Draft、Saved 与 Active 均未被此次操作修改"
+        return true
+    }
+
+    @discardableResult
+    private func recordValidationFailure(_ error: Error, document: String, sequence: UInt64) -> Bool {
+        guard let backendError = error as? BackendClientError,
+              case let .validationFailed(result) = backendError else { return false }
+        if draftMatches(document: document, sequence: sequence) {
+            validation = result
+            validationFocus = nil
+            message = "配置校验失败：\(result.errors.count) 个错误，\(result.warnings.count) 个警告；未保存也未 Apply"
+        } else {
+            message = "写操作校验失败，但 Draft 已变化；旧问题结果已丢弃"
+        }
         return true
     }
 
@@ -2243,6 +2312,26 @@ final class AppModel: ObservableObject {
             let detour = referencedTitle(key: "routes", identifier: object["detour"]?.stringValue)
             if !detour.isEmpty { return "\(detour) → \(node.isEmpty ? "未选择节点" : node)" }
             return node.isEmpty ? "未选择节点" : node
+        }
+        if key == "rules" {
+            let labels = [
+                "inbound": "Inbound", "domain_match": "Domain", "ip_match": "IP",
+                "source_ip_cidr": "Source CIDR", "source_mac_address": "Source MAC",
+                "network": "Network", "protocol": "Protocol", "port": "Port",
+            ]
+            var summary = SteerUISpec.ruleSummaryTokens(object).map { token -> String in
+                if token == "default" { return "Default" }
+                let parts = token.split(separator: ":", maxSplits: 1).map(String.init)
+                return "\(labels[parts[0]] ?? parts[0]) \(parts.count > 1 ? parts[1] : "")"
+            }
+            if summary.isEmpty { summary = ["无匹配条件"] }
+            if SteerUISpec.ruleDNSContinues(object) { summary.append("DNS 继续后续规则") }
+            let decision = [
+                object["dns_profile"]?.stringValue.map { "DNS \($0)" },
+                object["route"]?.stringValue.map { "Route \($0)" },
+            ].compactMap { $0 }.joined(separator: " · ")
+            if !decision.isEmpty { summary.append(decision) }
+            return summary.joined(separator: " · ")
         }
         let route = object["route"]?.stringValue
         let dns = object["dns_profile"]?.stringValue

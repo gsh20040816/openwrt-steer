@@ -11,9 +11,9 @@
     return intent.rules.filter((r) => asList(r.inbound).includes(proxyId)).length;
   }
 
-  function openEditor(proxy) {
+  function openEditor(proxy, focusOption) {
     const isNew = !S.store.intent.local_proxies.includes(proxy);
-    ui.drawer({
+    const opened = ui.drawer({
       eyebrow: `本地代理 · ${proxy.id}`, title: proxy.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(proxy));
@@ -55,15 +55,15 @@
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '端点'), [
-            ui.field('名称', name),
-            ui.field('启用', enabled),
-            h('div', { class: 'field--row' }, [ui.field('协议', protocol), ui.field('监听端口', port)]),
-            ui.field('监听地址', listen, '通常保持环回地址'),
+            ui.field('名称', name, null, 'name'),
+            ui.field('启用', enabled, null, 'enabled'),
+            h('div', { class: 'field--row' }, [ui.field('协议', protocol, null, 'protocol'), ui.field('监听端口', port, null, 'listen_port')]),
+            ui.field('监听地址', listen, '通常保持环回地址', 'listen'),
             exposure,
             ui.field('认证操作', auth),
             h('div', { class: 'field--row' }, [
-              ui.field('用户名', username),
-              ui.field('新密码', password)
+              ui.field('用户名', username, null, 'username'),
+              ui.field('新密码', password, null, 'password')
             ]),
             authStatus
           ])
@@ -121,6 +121,8 @@
         return true;
       }
     });
+    ui.focusDrawerOption(focusOption);
+    return opened;
   }
 
   const view = {
@@ -139,6 +141,7 @@
           h('td', {}, h('div', { class: 'row-actions' }, [
             h('button', { class: 'btn btn--sm', onclick: () => openEditor(p) }, '编辑'),
             h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
+              if (!ui.guardCollectionDeletion('local_proxies', p.id, p.name || p.id)) return;
               S.store.intent.local_proxies = S.store.intent.local_proxies.filter((x) => x.id !== p.id);
               S.store.touch();
               ui.toast(`已删除 ${p.name} · 未保存`, 'warn');
@@ -156,6 +159,9 @@
           ? h('section', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table))
           : h('div', { class: 'empty' }, '还没有本地代理端点')
       );
+      const focus = ui.takeObjectFocus('local_proxy');
+      const focused = focus && intent.local_proxies.find((proxy) => proxy.id === focus.object_id);
+      if (focused) openEditor(focused, focus.option);
     }
   };
 

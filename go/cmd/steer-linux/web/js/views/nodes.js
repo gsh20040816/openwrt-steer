@@ -193,9 +193,9 @@
   }
 
   /* ---------- 节点编辑抽屉 ---------- */
-  function openNodeEditor(node) {
+  function openNodeEditor(node, focusOption) {
     const isNew = !S.store.intent.nodes.includes(node);
-    ui.drawer({
+    const opened = ui.drawer({
       eyebrow: `节点 · ${node.id}`, title: node.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(node));
@@ -237,13 +237,14 @@
           specBox.replaceChildren();
           endpoint.replaceChildren();
           endpoint.hidden = draft.type === 'tor';
-          if (draft.type !== 'tor') endpoint.append(ui.field('服务器', server), ui.field('端口', port));
+          if (draft.type !== 'tor') endpoint.append(ui.field('服务器', server, null, 'server'), ui.field('端口', port, null, 'server_port'));
           for (const field of fieldsFor(draft.type).filter((candidate) => !['enabled', 'name', 'server', 'server_port'].includes(candidate.key))) {
             if (field.when && !field.when.values.includes(String(draft[field.when.field] ?? ''))) continue;
             specBox.append(ui.field(
               FIELD_LABEL[field.key] || field.label,
               specControl(field),
-              field.sensitive ? '敏感字段；留空表示不设置' : null
+              field.sensitive ? '敏感字段；留空表示不设置' : null,
+              field.key
             ));
           }
         }
@@ -251,8 +252,8 @@
 
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '基本信息'), [
-            ui.field('名称', name), ui.field('启用', enabled),
-            ui.field('协议', typeSel, '协议字段来自共享 UI 规格'),
+            ui.field('名称', name, null, 'name'), ui.field('启用', enabled, null, 'enabled'),
+            ui.field('协议', typeSel, '协议字段来自共享 UI 规格', 'type'),
             endpoint
           ]),
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '协议参数'), specBox)
@@ -292,6 +293,8 @@
         return true;
       }
     });
+    ui.focusDrawerOption(focusOption);
+    return opened;
   }
 
   /* ---------- 视图 ---------- */
@@ -300,6 +303,9 @@
     render(root) {
       const isCurrent = ui.beginRender(root);
       const intent = S.store.intent;
+      const pendingFocus = S.pendingObjectFocus?.object_type === 'node' ? S.pendingObjectFocus : null;
+      const pendingNode = pendingFocus && intent.nodes.find((node) => node.id === pendingFocus.object_id);
+      if (pendingNode) activeGroup = groupOf(pendingNode);
       rowButtons.clear();
       const groupList = groups(intent);
       if (!groupList.some((g) => g.id === activeGroup)) activeGroup = MANUAL;
@@ -321,6 +327,7 @@
           rowButtons.set(node.id, { conn, down });
           const edit = editable ? h('button', { class: 'btn btn--sm', onclick: () => openNodeEditor(node) }, '编辑') : h('span', { class: 'badge' }, '订阅');
           const del = editable ? h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
+            if (!ui.guardCollectionDeletion('nodes', node.id, node.name || node.id)) return;
             S.store.intent.nodes = S.store.intent.nodes.filter((n) => n.id !== node.id);
             S.store.touch();
             ui.toast(`已删除 ${node.name} · 未保存`, 'warn');
@@ -359,6 +366,11 @@
       root.append(
         nodes.length ? h('div', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table)) : h('div', { class: 'empty' }, '该分组没有节点')
       );
+
+      const focus = ui.takeObjectFocus('node');
+      const focusedNode = focus && intent.nodes.find((node) => node.id === focus.object_id);
+      if (focusedNode && !focusedNode.source_subscription) openNodeEditor(focusedNode, focus.option);
+      else if (focusedNode) ui.toast(`已定位订阅节点 ${focusedNode.name || focusedNode.id}；该对象只读，请修改订阅源或高级配置`, 'warn');
     }
   };
 

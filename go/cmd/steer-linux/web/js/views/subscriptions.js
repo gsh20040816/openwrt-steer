@@ -30,12 +30,7 @@
   function requestDelete(subscription) {
     const intent = S.store.intent;
     const owned = intent.nodes.filter((node) => node.source_subscription === subscription.id);
-    const ownedIDs = new Set(owned.map((node) => node.id));
-    const referenced = intent.routes.filter((route) => ownedIDs.has(route.node));
-    if (referenced.length) {
-      ui.toast(`不能删除：${referenced.length} 条路由仍引用该订阅节点`, 'err');
-      return;
-    }
+    if (!ui.guardCollectionDeletion('subscriptions', subscription.id, subscription.name || subscription.id)) return;
     ui.dialog({
       title: `删除订阅 · ${subscription.name || subscription.id}`,
       body: h('p', {}, `将从工作副本删除订阅和 ${owned.length} 个订阅节点。保存前可重新加载恢复。`),
@@ -53,9 +48,9 @@
     });
   }
 
-  function openEditor(sub) {
+  function openEditor(sub, focusOption) {
     const isNew = !sub;
-    ui.drawer({
+    const opened = ui.drawer({
       eyebrow: `订阅 · ${isNew ? '新建' : sub.id}`, title: sub?.name || '新订阅', submitLabel: '保存到工作副本',
       renderBody(body) {
         const defaultInterval = S.uiSpec.subscription_update_interval_default;
@@ -67,11 +62,11 @@
         const interval = ui.input({ value: draft.update_interval || '', placeholder: defaultInterval });
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '订阅'), [
-            ui.field('ID', id, isNew ? '1–32 位小写字母开头（稳定 ID，创建后不可改）' : '稳定 ID · 不可修改'),
-            ui.field('名称', name),
-            ui.field('启用', enabled),
-            ui.field('订阅 URL', url),
-            ui.field('更新间隔', interval, '定时调度使用 · 留空表示仅手动更新')
+            ui.field('ID', id, isNew ? '1–32 位小写字母开头（稳定 ID，创建后不可改）' : '稳定 ID · 不可修改', 'id'),
+            ui.field('名称', name, null, 'name'),
+            ui.field('启用', enabled, null, 'enabled'),
+            ui.field('订阅 URL', url, null, 'url'),
+            ui.field('更新间隔', interval, '定时调度使用 · 留空表示仅手动更新', 'update_interval')
           ])
         );
         return {
@@ -96,6 +91,8 @@
         return true;
       }
     });
+    ui.focusDrawerOption(focusOption);
+    return opened;
   }
 
   function openCleanup(subscription, nodes, isCurrent, root) {
@@ -112,6 +109,7 @@
         h('span', { class: 'issue__where' }, node.id),
         h('span', { class: 'issue__msg' }, node.name || node.id),
         h('button', { class: 'btn btn--sm btn--danger', onclick: async () => {
+          if (!ui.guardCollectionDeletion('nodes', node.id, node.name || node.id)) return;
           if (S.store.dirty) {
             ui.toast('请先保存或放弃工作副本修改，再清理 stale 节点', 'warn');
             return;
@@ -242,6 +240,9 @@
           ? h('section', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table))
           : h('div', { class: 'empty' }, '还没有订阅')
       );
+      const focus = ui.takeObjectFocus('subscription');
+      const focused = focus && intent.subscriptions.find((subscription) => subscription.id === focus.object_id);
+      if (focused) openEditor(focused, focus.option);
     }
   };
 

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "all-fields",
+      "rule": { "inbound": ["proxy_a"], "domain_match": ["domain:example.com", "geosite:cn"], "ip_match": ["geoip:cn"], "source_ip_cidr": ["192.168.1.0/24"], "source_mac_address": ["02:00:00:00:00:10"], "network": ["tcp", "udp"], "protocol": ["tls", "http"], "port": [443, 8443] },
+      "tokens": ["inbound:1", "domain_match:2", "ip_match:1", "source_ip_cidr:1", "source_mac_address:1", "network:tcp/udp", "protocol:tls/http", "port:2"],
+      "dns_continues": false
+    },
+    { "name": "protocol-only", "rule": { "protocol": ["quic"] }, "tokens": ["protocol:quic"], "dns_continues": true },
+    { "name": "network-only", "rule": { "network": ["udp"] }, "tokens": ["network:udp"], "dns_continues": true },
+    { "name": "connection-only", "rule": { "ip_match": ["10.0.0.0/8"], "network": ["tcp"], "protocol": ["tls"], "port": [443] }, "tokens": ["ip_match:1", "network:tcp", "protocol:tls", "port:1"], "dns_continues": true },
+    { "name": "empty", "rule": {}, "tokens": [], "dns_continues": false },
+    { "name": "default", "rule": { "default": true }, "tokens": ["default"], "dns_continues": false }
+  ]
+}

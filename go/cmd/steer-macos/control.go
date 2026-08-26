@@ -412,8 +412,8 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		return response
 	}
 	validation := macosplatform.ValidateWithGeoDataDirectory(value, service.options.GeoDataDirectory)
+	response.Validation = &validation
 	if !validation.OK {
-		response.Validation = &validation
 		response.Error = fmt.Sprintf("canonical configuration has %d validation error(s)", len(validation.Errors))
 		return response
 	}
