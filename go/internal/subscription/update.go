@@ -43,6 +43,8 @@ type Snapshot struct {
 	FetchedAt      time.Time    `json:"fetched_at"`
 	Nodes          []model.Node `json:"nodes"`
 	Skipped        int          `json:"skipped"`
+	Added          int          `json:"added,omitempty"`
+	LastFailure    *Failure     `json:"last_failure,omitempty"`
 }
 
 // AutomaticUpdateDue applies the shared scheduling semantics used by every

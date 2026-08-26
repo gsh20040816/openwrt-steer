@@ -181,31 +181,39 @@ func (app webApplication) handleSubscriptions(writer http.ResponseWriter, reques
 	remainder := strings.TrimPrefix(request.URL.Path, prefix)
 	parts := strings.Split(strings.TrimSuffix(remainder, "/"), "/")
 	if len(parts) == 2 && parts[1] == "update" && request.Method == http.MethodPost {
-		var snapshots []linuxplatform.SubscriptionSnapshot
 		err := withOperationLock(app.RunDirectory, func() error {
 			var err error
-			snapshots, err = linuxplatform.UpdateConfiguredSubscriptions(request.Context(), &http.Client{Timeout: 30 * time.Second}, app.ConfigPath, app.StateDirectory, parts[0])
+			_, err = linuxplatform.UpdateConfiguredSubscriptions(request.Context(), &http.Client{Timeout: 30 * time.Second}, app.ConfigPath, app.StateDirectory, parts[0])
 			return err
 		})
 		if err != nil {
 			writeWebError(writer, err, http.StatusUnprocessableEntity)
 			return
 		}
-		writeWebJSON(writer, map[string]any{"snapshots": snapshots})
+		statuses, err := linuxplatform.ReadSubscriptionStatus(app.ConfigPath, app.StateDirectory)
+		if err != nil {
+			writeWebError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writeWebJSON(writer, map[string]any{"subscriptions": statuses})
 		return
 	}
 	if len(parts) == 3 && parts[1] == "nodes" && request.Method == http.MethodDelete {
-		var snapshot linuxplatform.SubscriptionSnapshot
 		err := withOperationLock(app.RunDirectory, func() error {
 			var err error
-			snapshot, err = linuxplatform.CleanSubscriptionNode(app.ConfigPath, app.StateDirectory, parts[0], parts[2])
+			_, err = linuxplatform.CleanSubscriptionNode(app.ConfigPath, app.StateDirectory, parts[0], parts[2])
 			return err
 		})
 		if err != nil {
 			writeWebError(writer, err, http.StatusUnprocessableEntity)
 			return
 		}
-		writeWebJSON(writer, map[string]any{"snapshot": snapshot})
+		statuses, err := linuxplatform.ReadSubscriptionStatus(app.ConfigPath, app.StateDirectory)
+		if err != nil {
+			writeWebError(writer, err, http.StatusInternalServerError)
+			return
+		}
+		writeWebJSON(writer, map[string]any{"subscriptions": statuses})
 		return
 	}
 	http.NotFound(writer, request)

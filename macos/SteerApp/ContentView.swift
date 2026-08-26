@@ -463,6 +463,64 @@ private struct NodeCollectionGroup: Identifiable {
     let count: Int
 }
 
+private struct SubscriptionStaleList: View {
+    @ObservedObject var model: AppModel
+    let status: SubscriptionRuntimeStatus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("stale 节点", systemImage: "clock.badge.exclamationmark")
+                    .font(.headline)
+                Text(status.name ?? status.id)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(status.stale.count) 项")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(status.stale) { node in
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(node.name?.isEmpty == false ? node.name! : node.id)
+                                .fontWeight(.medium)
+                            Text(node.id)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                            Label("pinned-stale", systemImage: "pin.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                        Text(node.referencedBy.isEmpty
+                             ? "所属订阅 \(status.id) · 未被 Route 引用，可独立清理"
+                             : "阻止原因：" + node.referencedBy.map(referenceLabel).joined(separator: "，"))
+                            .font(.caption)
+                            .foregroundStyle(node.referencedBy.isEmpty ? Color.secondary : Color.red)
+                    }
+                    Spacer()
+                    Button("清理") {
+                        model.cleanSubscriptionNode(subscriptionID: status.id, nodeID: node.id)
+                    }
+                    .disabled(model.isBusy || model.isDirty
+                              || model.subscriptionOperationInProgress(status.id)
+                              || !node.referencedBy.isEmpty)
+                    .help(node.referencedBy.isEmpty ? "只移除这个 stale 节点；不会自动 Apply" : "仍被引用，不能清理")
+                }
+                .padding(.vertical, 3)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
+    }
+
+    private func referenceLabel(_ reference: SubscriptionReference) -> String {
+        let label = reference.name?.isEmpty == false ? reference.name! : reference.id
+        return "\(reference.objectType) \(label)"
+    }
+}
+
 private struct DefaultRuleCard: View {
     let item: DraftItem
     let detail: String
@@ -600,13 +658,12 @@ struct DraftCollectionView: View {
                 }
                 if descriptor.key == "subscriptions", let selectedItem {
                     Button("立即更新") { model.updateSubscription(selectedItem.identifier) }
-                        .disabled(model.isBusy || model.isDirty || model.subscriptionOperationInProgress(selectedItem.identifier))
-                    if let stale = model.subscriptionStatus(selectedItem.identifier)?.staleNodeIDs.first {
-                        Button("清理 stale") {
-                            model.cleanSubscriptionNode(subscriptionID: selectedItem.identifier, nodeID: stale)
-                        }
-                        .disabled(model.isBusy || model.isDirty || model.subscriptionOperationInProgress(selectedItem.identifier))
-                    }
+                        .disabled(model.isBusy || model.isDirty
+                                  || model.subscriptionOperationInProgress(selectedItem.identifier)
+                                  || model.subscriptionStatus(selectedItem.identifier)?.enabled == false)
+                        .help(model.subscriptionStatus(selectedItem.identifier)?.enabled == false
+                              ? "已停用的订阅不能更新；请先启用并保存"
+                              : "更新 Saved 节点库，不自动 Apply")
                 }
                 Button { addItem() } label: {
                     Label(descriptor.addLabel, systemImage: "plus")
@@ -636,7 +693,15 @@ struct DraftCollectionView: View {
                 TableColumn("名称") { item in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(item.title).fontWeight(.medium)
+                            HStack(spacing: 6) {
+                                Text(item.title).fontWeight(.medium)
+                                if descriptor.key == "nodes", item.pinnedStale {
+                                    Label("stale", systemImage: "pin.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                        .help("pinned-stale · 所属订阅 \(item.sourceSubscription ?? "未知")")
+                                }
+                            }
                         }
                         Spacer(minLength: 0)
                     }
@@ -663,7 +728,11 @@ struct DraftCollectionView: View {
                                 }
                             }
                             .buttonStyle(.borderless)
-                            .disabled(model.isDirty || model.subscriptionOperationInProgress(item.identifier))
+                            .disabled(model.isDirty || model.subscriptionOperationInProgress(item.identifier)
+                                      || model.subscriptionStatus(item.identifier)?.enabled == false)
+                            .help(model.subscriptionStatus(item.identifier)?.enabled == false
+                                  ? "已停用的订阅不能更新"
+                                  : "更新 Saved 节点库，不自动 Apply")
                         }
                         if item.subscriptionOwned {
                             Image(systemName: "lock.fill")
@@ -762,6 +831,11 @@ struct DraftCollectionView: View {
                 if let id = selected.first, let item = items.first(where: { $0.id == id }) {
                     edit(item)
                 }
+            }
+
+            if descriptor.key == "subscriptions", let selectedItem,
+               let status = model.subscriptionStatus(selectedItem.identifier), !status.stale.isEmpty {
+                SubscriptionStaleList(model: model, status: status)
             }
 
             if let defaultRule {
@@ -940,8 +1014,9 @@ struct DraftCollectionView: View {
         guard descriptor.key == "subscriptions", let status = model.subscriptionStatus(item.identifier) else {
             return item.detail.isEmpty ? "—" : item.detail
         }
-        let fetched = status.fetchedAt ?? (status.error == nil ? "未抓取" : "更新失败")
-        return "\(status.nodeCount) 节点 · stale \(status.staleNodeIDs.count) · \(fetched)"
+        let success = status.lastSuccess ?? "—"
+        let failure = status.lastFailure.map { " · 最近失败 \($0.summary)" } ?? ""
+        return "\(status.stateLabel) · \(status.inventorySummary) · 最近成功 \(success)\(failure)"
     }
 }
 

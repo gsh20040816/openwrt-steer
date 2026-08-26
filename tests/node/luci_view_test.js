@@ -18,6 +18,7 @@ if (typeof String.prototype.format != 'function') {
 const root = path.resolve(__dirname, '../..');
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
 const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
+const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -120,6 +121,7 @@ function findElements(root, predicate) {
 
 function createEnvironment(sections) {
 	const maps = [];
+	let pendingChanges = [];
 	class DynamicList {}
 	DynamicList.prototype.renderWidget = function() {};
 	DynamicList.extend = function(definition) {
@@ -256,6 +258,7 @@ function createEnvironment(sections) {
 	};
 	const uci = {
 		load: () => Promise.resolve(),
+		changes: () => Promise.resolve({ steer: pendingChanges }),
 		sections: (config, type) => (sections[type] || []).map((section) => ({ ...section })),
 		add: (config, type, sectionId) => {
 			if (Object.values(sections).flat().some((section) => section['.name'] == sectionId))
@@ -292,6 +295,7 @@ function createEnvironment(sections) {
 	const routeSpeedtestCalls = [];
 	const overviewProbeCalls = [];
 	const cleanSubscriptionCalls = [];
+	const updateSubscriptionCalls = [];
 	const notifications = [];
 	let statusRenderCalls = 0;
 	const steer = {
@@ -308,7 +312,10 @@ function createEnvironment(sections) {
 		geodataCatalog: () => Promise.resolve({}),
 		subscriptions: () => Promise.resolve({ subscriptions: [] }),
 		renderStatus: () => { statusRenderCalls++; return element('div'); },
-		updateSubscription: () => Promise.resolve({ ok: true }),
+		updateSubscription: (id) => {
+			updateSubscriptionCalls.push(id);
+			return Promise.resolve(environment.updateSubscriptionResult);
+		},
 		cleanSubscription: (id, node) => {
 			cleanSubscriptionCalls.push({ id, node });
 			return Promise.resolve(environment.cleanSubscriptionResult);
@@ -331,7 +338,9 @@ function createEnvironment(sections) {
 		apply: () => Promise.resolve()
 	};
 	const ui = {
-		addNotification: (title, body, level) => notifications.push({ title, body, level })
+		addNotification: (title, body, level) => notifications.push({ title, body, level }),
+		showModal: () => {},
+		hideModal: () => {}
 	};
 	const window = { location: {
 		pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '', reloadCount: 0,
@@ -341,9 +350,11 @@ function createEnvironment(sections) {
 
 	const environment = {
 		form, uci, view, steer, ui, window, maps, translate,
-		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, cleanSubscriptionCalls, notifications,
+		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, cleanSubscriptionCalls, updateSubscriptionCalls, notifications,
+		setPendingChanges: (changes) => { pendingChanges = changes; },
 		get statusRenderCalls() { return statusRenderCalls; },
 		cleanSubscriptionResult: { ok: true },
+		updateSubscriptionResult: { ok: true, subscriptions: [] },
 		speedtestResult: { ok: true, results: [ {
 			url: 'https://speed.example/', ok: true, status: 204, attempts: 1,
 			first_byte_milliseconds: 42, downloaded_bytes: 1000000, download_milliseconds: 1000
@@ -517,6 +528,30 @@ function testCommittedUcodePreviewAndObservedCandidateGuard() {
 	runtime.onUbusCall = null;
 }
 
+function testSubscriptionRPCRejectsPendingSession() {
+	const runtime = {
+		values: {},
+		changes: [ [ 'set', 'feed', 'url', 'https://pending.example/sub' ] ],
+		validation: { ok: true, errors: [], warnings: [] },
+		intent: {}, ubusCalls: [], commands: [], documents: [], commitCalls: 0
+	};
+	const methods = loadUcodeRPC(runtime);
+	for (const [ method, args ] of [
+		[ methods.subscription_update, { id: 'feed' } ],
+		[ methods.subscription_clean, { id: 'feed', node: 'feed_stale' } ]
+	]) {
+		const response = callUcodeMethod(method, args);
+		assert.equal(response.ok, false);
+		assert.equal(response.error_code, 'PENDING_CHANGES');
+	}
+	assert.equal(runtime.commands.length, 0,
+		'server-side pending guard rejects update and clean before starting the Steer command');
+	runtime.changes = [];
+	callUcodeMethod(methods.subscription_update, { id: 'feed' });
+	assert.equal(runtime.commands.length, 1);
+	assert.ok(runtime.commands[0].includes('subscription update --id'));
+}
+
 function allOptions(environment) {
 	return environment.maps.flatMap((map) => map.sections.flatMap((section) => section.options));
 }
@@ -540,8 +575,9 @@ async function renderRules(sections, catalog = {}) {
 	return environment;
 }
 
-async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes') {
+async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes', pendingChanges = []) {
 	const environment = createEnvironment(sections);
+	environment.setPendingChanges(pendingChanges);
 	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
 	environment.window.location.search = search;
 	const view = loadView(
@@ -558,7 +594,7 @@ async function renderNodes(sections, search = '', subscriptionStatus, page = 'no
 			_: environment.translate
 		}
 	);
-	environment.rendered = await view.render([ null, subscriptionStatus ]);
+	environment.rendered = await view.render([ null, subscriptionStatus, { steer: pendingChanges } ]);
 	return environment;
 }
 
@@ -655,6 +691,7 @@ function assertExplicitIdsAndOptionalNames(environment, message) {
 
 async function main() {
 	testCommittedUcodePreviewAndObservedCandidateGuard();
+	testSubscriptionRPCRejectsPendingSession();
 	const freshSections = parseUCIConfig(fs.readFileSync(path.join(root, 'steer/files/etc/config/steer'), 'utf8'));
 	assert.deepEqual(freshSections.route.map((route) => [ route['.name'], route.enabled, route.kind ]), [
 		[ 'direct', undefined, 'direct' ],
@@ -1241,7 +1278,12 @@ async function main() {
 		node: [ { '.name': 'jdub_stale', name: 'Stale', source_subscription: 'jdub' } ],
 		route: [],
 		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
-	}, '', { subscriptions: [ { id: 'jdub', name: 'Jdub', node_count: 1, stale_node_ids: [ 'jdub_stale' ] } ] }, 'subscriptions');
+	}, '', { subscriptions: [ {
+		id: 'jdub', name: 'Jdub', enabled: true, never_fetched: false,
+		last_success: '2026-08-26T01:00:00Z', last_failure: null,
+		node_count: 1, current: 0, added: 0, skipped: 0,
+		stale: [ { id: 'jdub_stale', name: 'Stale', referenced_by: [] } ]
+	} ] }, 'subscriptions');
 	const removeStale = findElements(environment.rendered,
 		(node) => node.tag == 'button' && node.children?.[0] == 'Remove jdub_stale')[0];
 	assert.ok(removeStale, 'Subscription status exposes cleanup only for stale nodes');
@@ -1258,6 +1300,77 @@ async function main() {
 	await removeStale.attributes.click();
 	assert.equal(environment.window.location.reloadCount, 1,
 		'Successful stale cleanup reloads the current subscription view');
+
+	const sharedStatuses = subscriptionStatusFixtures.cases.map((fixture) => fixture.status);
+	environment = await renderNodes({
+		node: [
+			{ '.name': 'failed_blocked', name: 'Blocked stale', source_subscription: 'failed', pinned_stale: '1' },
+			{ '.name': 'failed_removable', name: 'Removable stale', source_subscription: 'failed', pinned_stale: '1' }
+		],
+		route: [ { '.name': 'proxy', name: 'Proxy route', node: 'failed_blocked' } ],
+		subscription: sharedStatuses.map((status) => ({
+			'.name': status.id, enabled: status.enabled ? '1' : '0', name: status.name, url: status.url
+		}))
+	}, '', { subscriptions: sharedStatuses }, 'subscriptions');
+	const sharedText = elementText(environment.rendered);
+	for (const expected of [ 'Not fetched', 'subscription server returned HTTP 503', '1 current / 2 stale / 1 skipped' ])
+		assert.ok(sharedText.includes(expected), `LuCI must render shared subscription status ${expected}`);
+	const sharedUpdateButtons = findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Update now');
+	assert.equal(sharedUpdateButtons.length, sharedStatuses.length);
+	const disabledIndex = sharedStatuses.findIndex((status) => status.id == 'disabled');
+	assert.equal(sharedUpdateButtons[disabledIndex].disabled, true,
+		'disabled subscription Update is visibly disabled');
+	await sharedUpdateButtons[disabledIndex].attributes.click();
+	assert.deepEqual(environment.updateSubscriptionCalls, [],
+		'disabled subscription Update never reaches RPC');
+
+	const successStatus = sharedStatuses.find((status) => status.id == 'success');
+	environment = await renderNodes({
+		node: [], route: [],
+		subscription: [ { '.name': 'success', enabled: '1', name: 'Successful', url: successStatus.url } ]
+	}, '', { subscriptions: [ successStatus ] }, 'subscriptions', [ [ 'set', 'success', 'url', 'https://pending.example/sub' ] ]);
+	const pendingUpdate = findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Update now')[0];
+	assert.equal(pendingUpdate.disabled, true);
+	assert.ok(pendingUpdate.title.includes('Pending Steer changes'));
+	await pendingUpdate.attributes.click();
+	assert.deepEqual(environment.updateSubscriptionCalls, [],
+		'pending unrelated Steer changes block subscription Update');
+	assert.equal(environment.notifications.at(-1)?.level, 'warning');
+
+	environment = await renderNodes({
+		node: [], route: [],
+		subscription: [ { '.name': 'success', enabled: '1', name: 'Successful', url: successStatus.url } ]
+	}, '', { subscriptions: [ successStatus ] }, 'subscriptions');
+	const visibleUpdate = findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Update now')[0];
+	const formNode = findElements(environment.rendered, (node) => node.tag == 'form')[0];
+	formNode.listeners.input[0]({});
+	assert.equal(visibleUpdate.disabled, true, 'visible unsubmitted input immediately disables Update');
+	await visibleUpdate.attributes.click();
+	assert.deepEqual(environment.updateSubscriptionCalls, [],
+		'visible unsubmitted input blocks Update without reloading the page');
+	assert.equal(environment.window.location.reloadCount, 0);
+
+	environment = await renderNodes({
+		node: [], route: [],
+		subscription: [ { '.name': 'success', enabled: '1', name: 'Successful', url: successStatus.url } ]
+	}, '', { subscriptions: [ successStatus ] }, 'subscriptions');
+	const updateGate = {};
+	updateGate.promise = new Promise((resolve) => { updateGate.resolve = resolve; });
+	environment.updateSubscriptionResult = updateGate.promise;
+	const inFlightUpdate = findElements(environment.rendered,
+		(node) => node.tag == 'button' && node.children?.[0] == 'Update now')[0];
+	const inFlightForm = findElements(environment.rendered, (node) => node.tag == 'form')[0];
+	const updating = inFlightUpdate.attributes.click();
+	await Promise.resolve();
+	inFlightForm.listeners.change[0]({});
+	updateGate.resolve({ ok: true, subscriptions: [ successStatus ] });
+	await updating;
+	assert.equal(environment.window.location.reloadCount, 0,
+		'visible edits made during Update are preserved instead of being lost to reload');
+	assert.ok(environment.notifications.some((notification) => elementText(notification.body).includes('were preserved')));
 	environment = await renderOverview({ subscription: [] }, 'general');
 	const probeOptions = [ 'probe_direct', 'probe_proxy', 'speedtest_proxy' ].map((name) =>
 		allOptions(environment).find((option) => option.name == name));
@@ -1314,7 +1427,8 @@ async function main() {
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
 		nodesSource.includes("_('Update now')") &&
-		nodesSource.includes("_('Subscription updated; %d invalid nodes skipped.')") &&
+		nodesSource.includes("_('Inventory updated: added %d, current %d, stale %d, skipped %d. Running configuration was not changed.')") &&
+		nodesSource.includes('subscriptionOperationGate') &&
 		nodesSource.includes("_('Connection test')") &&
 		nodesSource.includes("_('Download test')") &&
 		nodesSource.includes("_('Batch connection test')") &&

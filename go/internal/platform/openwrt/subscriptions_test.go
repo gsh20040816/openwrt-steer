@@ -296,6 +296,35 @@ config route 'block'`, 1)
 	}
 }
 
+func TestFailedRefreshKeepsLastSuccessfulSnapshot(t *testing.T) {
+	var fail atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		if fail.Load() {
+			http.Error(writer, "temporary", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = writer.Write([]byte("socks://user:pass@127.0.0.1:1080#Imported\n"))
+	}))
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "steer")
+	stateDirectory := t.TempDir()
+	if err := os.WriteFile(configPath, []byte(validSubscriptionConfig(server.URL)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writer := func(context.Context, string) error { return nil }
+	if _, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, stateDirectory, "public", writer); err != nil {
+		t.Fatal(err)
+	}
+	fail.Store(true)
+	if _, err := UpdateConfiguredSubscriptionsWithWriter(context.Background(), server.Client(), configPath, stateDirectory, "public", writer); err == nil || err.Error() != "update subscription public: subscription server returned HTTP 503" {
+		t.Fatalf("unexpected safe update failure: %v", err)
+	}
+	snapshot, err := readSubscriptionSnapshot(SubscriptionSnapshotPath(stateDirectory, "public"))
+	if err != nil || snapshot.FetchedAt.IsZero() || snapshot.LastFailure == nil || len(snapshot.Nodes) != 1 {
+		t.Fatalf("failed refresh destroyed successful snapshot: %#v %v", snapshot, err)
+	}
+}
+
 func TestUpdateSubscriptionSkipsControlCharactersBeforeUCI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = response.Write([]byte("trojan://secret@example.com:443?sni=example.com#bad%0Aname\n" +

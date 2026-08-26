@@ -37,6 +37,22 @@ for listen, classification in {
 }.items():
     if fixture_by_listen.get(listen, {}).get("classification") != classification:
         raise SystemExit(f"check-ui-contract: missing local proxy fixture {listen!r}")
+subscription_status_fixtures = json.loads(
+    (ROOT / "ui/subscription-status-fixtures.json").read_text()
+)
+if subscription_status_fixtures.get("schema_version") != 1:
+    raise SystemExit("check-ui-contract: invalid subscription status fixture schema")
+subscription_cases = {item.get("name"): item.get("status", {}) for item in subscription_status_fixtures.get("cases", [])}
+required_subscription_cases = {
+    "never-fetched", "success", "success-with-skipped",
+    "failed-after-success-with-partial-stale-block", "disabled",
+}
+if set(subscription_cases) != required_subscription_cases:
+    raise SystemExit(f"check-ui-contract: subscription lifecycle fixture drift: {set(subscription_cases)!r}")
+for name, status in subscription_cases.items():
+    for field in ("never_fetched", "last_success", "last_failure", "node_count", "current", "added", "skipped", "stale"):
+        if field not in status:
+            raise SystemExit(f"check-ui-contract: fixture {name!r} lacks {field!r}")
 expected_navigation = [
     ("status", ["overview"]),
     ("configuration", ["general", "nodes", "routes", "dns", "proxies", "rules"]),
@@ -105,6 +121,7 @@ if actual_dns_protocols != expected_dns_protocols:
     raise SystemExit(f"check-ui-contract: DNS protocol field matrix drift: {actual_dns_protocols!r}")
 
 linux_ui = (ROOT / "go/cmd/steer-linux/web/js/ui.js").read_text()
+linux_web_api = (ROOT / "go/cmd/steer-linux/web_api.go").read_text()
 linux_lib = (ROOT / "go/cmd/steer-linux/web/js/lib.js").read_text()
 linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
 linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
@@ -118,6 +135,8 @@ mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
 mac_state = (ROOT / "macos/SteerApp/AppState.swift").read_text()
 mac_editors = (ROOT / "macos/SteerApp/DraftEditors.swift").read_text()
 mac_ui_spec = (ROOT / "macos/SteerApp/UISpec.swift").read_text()
+openwrt_cli = (ROOT / "go/cmd/steer-openwrt/main.go").read_text()
+mac_control = (ROOT / "go/cmd/steer-macos/control.go").read_text()
 
 require(linux_ui, "S.uiSpec.navigation", "Linux navigation")
 require(linux_nodes, "S.uiSpec.node_fields", "Linux node form")
@@ -163,6 +182,31 @@ fixture_consumers = (
 for consumer in fixture_consumers:
     consumer_content = (ROOT / consumer).read_text()
     require(consumer_content, "local-proxy-listen-fixtures.json", consumer)
+
+subscription_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/SubscriptionStatusTests.swift",
+)
+for consumer in subscription_fixture_consumers:
+    consumer_content = (ROOT / consumer).read_text()
+    require(consumer_content, "subscription-status-fixtures.json", consumer)
+
+require(linux_subscriptions, "last_failure", "Linux subscription failure state")
+require(linux_subscriptions, "status.stale", "Linux subscription stale state")
+require(luci_nodes, "subscriptionOperationGate", "LuCI pending subscription gate")
+require(luci_nodes, "Running configuration was not changed", "LuCI no-Apply inventory warning")
+require(mac_state, "SubscriptionStaleNode", "macOS stale node contract")
+require(mac_content, "SubscriptionStaleList", "macOS per-node stale management")
+require(mac_content, "pinned-stale", "macOS stale node badge")
+for source, owner in (
+    (linux_web_api, "Linux subscription API"),
+    (openwrt_cli, "OpenWrt subscription CLI"),
+    (mac_control, "macOS subscription control"),
+):
+    if 'json:"snapshots"' in source or 'json:"snapshot"' in source:
+        raise SystemExit(f"check-ui-contract: {owner} exposes credential-bearing internal snapshots")
+    require(source, '"subscriptions"', owner)
 
 for content, owner in (
     (linux_nodes, "Linux nodes"),

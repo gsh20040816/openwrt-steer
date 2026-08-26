@@ -3,9 +3,6 @@ msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 
-msgid "%d (%d stale)"
-msgstr "%d（其中 %d 个已失联）"
-
 msgid "%d client MAC addresses"
 msgstr "%d 个客户端 MAC 地址"
 
@@ -489,12 +486,6 @@ msgstr "配置项 ID 无效"
 msgid "Subscription update failed"
 msgstr "订阅更新失败"
 
-msgid "Subscription updated."
-msgstr "订阅已更新。"
-
-msgid "Subscription updated; %d invalid nodes skipped."
-msgstr "订阅已更新；已跳过 %d 个无效节点。"
-
 msgid "Subscription node removal failed"
 msgstr "删除订阅节点失败"
 
@@ -506,9 +497,6 @@ msgstr "仍有 %d 条路由使用该订阅的节点。"
 
 msgid "Update now"
 msgstr "立即更新"
-
-msgid "Update failed"
-msgstr "更新失败"
 
 msgid "Updating subscription"
 msgstr "正在更新订阅"
@@ -704,3 +692,39 @@ msgstr "解析并预览"
 
 msgid "Paste one node link per line, or paste a Base64-wrapped subscription document. Steer parses and validates it before it enters the pending configuration."
 msgstr "每行粘贴一个节点链接，也可以粘贴 Base64 包装的订阅内容。Steer 会在其进入待保存配置前统一解析并校验。"
+
+msgid "%d current / %d stale / %d skipped"
+msgstr "%d 当前 / %d stale / %d 已跳过"
+
+msgid "Disabled subscriptions cannot be updated. Enable and save this subscription first."
+msgstr "已停用的订阅不能更新。请先启用并保存该订阅。"
+
+msgid "Inventory updated: added %d, current %d, stale %d, skipped %d. Running configuration was not changed."
+msgstr "节点库已更新：新增 %d，当前 %d，stale %d，跳过 %d。运行配置未改变。"
+
+msgid "Last failure: %s · %s"
+msgstr "最近失败：%s · %s"
+
+msgid "Pending Steer changes must be applied or discarded before changing subscription inventory."
+msgstr "更改订阅节点库前，必须先应用或放弃 Steer 待处理修改。"
+
+msgid "Pending Steer changes must be applied or discarded first."
+msgstr "必须先应用或放弃 Steer 待处理修改。"
+
+msgid "Subscription inventory is locked"
+msgstr "订阅节点库已锁定"
+
+msgid "Stale node removed from Saved inventory. Running configuration was not changed."
+msgstr "stale 节点已从 Saved 节点库移除。运行配置未改变。"
+
+msgid "The visible subscription form has unsaved input."
+msgstr "当前订阅表单有未保存输入。"
+
+msgid "The visible subscription form has unsaved input. Save and apply or discard it first."
+msgstr "当前订阅表单有未保存输入。请先保存并应用，或放弃修改。"
+
+msgid "Visible edits appeared while cleanup was running; they were preserved and the page was not reloaded."
+msgstr "清理期间出现了可见编辑；已保留这些修改，页面未重新加载。"
+
+msgid "Visible edits appeared while the update was running; they were preserved and the page was not reloaded."
+msgstr "更新期间出现了可见编辑；已保留这些修改，页面未重新加载。"

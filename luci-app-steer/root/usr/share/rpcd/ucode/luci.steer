@@ -75,6 +75,33 @@ function session_id(request) {
 	return session;
 }
 
+function with_committed_subscription(request, callback) {
+	const session = session_id(request);
+	if (!session) {
+		request.reply({ ok: false, error_code: 'PENDING_STATE_UNAVAILABLE', error: 'The LuCI UCI session is unavailable.' });
+		return;
+	}
+	return ubus.defer('uci', 'changes', {
+		config: 'steer',
+		ubus_rpc_session: session
+	}, function(code, reply) {
+		const changes = reply?.changes;
+		if (code != 0 || type(changes) != 'array') {
+			request.reply({ ok: false, error_code: 'PENDING_STATE_UNAVAILABLE', error: 'Unable to inspect pending Steer changes.' });
+			return;
+		}
+		if (length(changes) > 0) {
+			request.reply({
+				ok: false,
+				error_code: 'PENDING_CHANGES',
+				error: 'Save and apply or discard pending Steer changes before updating subscription inventory.'
+			});
+			return;
+		}
+		request.reply(callback());
+	});
+}
+
 function candidate_document(reply) {
 	const sections = reply?.values;
 	if (type(sections) != 'object' || sections == null)
@@ -330,7 +357,9 @@ const methods = {
 			const id = request?.args?.id;
 			if (!id)
 				return { ok: false, error: '缺少订阅 ID' };
-			return command_json('/usr/sbin/steer subscription update --id ' + shellquote(id));
+			return with_committed_subscription(request, function() {
+				return command_json('/usr/sbin/steer subscription update --id ' + shellquote(id));
+			});
 		}
 	},
 	subscription_clean: {
@@ -340,7 +369,9 @@ const methods = {
 			const node = request?.args?.node;
 			if (!id || !node)
 				return { ok: false, error: '缺少订阅 ID 或节点 ID' };
-			return command_json('/usr/sbin/steer subscription clean --id ' + shellquote(id) + ' --node ' + shellquote(node));
+			return with_committed_subscription(request, function() {
+				return command_json('/usr/sbin/steer subscription clean --id ' + shellquote(id) + ' --node ' + shellquote(node));
+			});
 		}
 	},
 	node_speedtest: {
