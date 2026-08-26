@@ -226,6 +226,12 @@ async function flushUI() {
   await Promise.resolve();
 }
 
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((onResolve, onReject) => { resolve = onResolve; reject = onReject; });
+  return { promise, resolve, reject };
+}
+
 function fieldWithLabel(rootElement, label) {
   return findAll(rootElement, (element) => classSet(element).has('field')).find((element) => {
     const labelElement = element.children.find((child) => child instanceof Element && child.tag === 'label');
@@ -353,10 +359,10 @@ async function testFailedToggleRestoresDraft() {
 }
 
 async function testConflictRestoresUntilOverwriteIsChosen() {
-  let calls = 0;
-  const environment = createEnvironment(async () => {
-    calls++;
-    if (calls === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
+  const calls = [];
+  const environment = createEnvironment(async (apply, force) => {
+    calls.push({ apply, force });
+    if (calls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
     return { ok: true, res: { applied: true } };
   });
   await environment.S.ui.onToggleEnabled(false);
@@ -370,7 +376,40 @@ async function testConflictRestoresUntilOverwriteIsChosen() {
 
   assert.strictEqual(environment.S.store.intent.main.enabled, false, 'overwrite must reapply the requested toggle');
   assert.strictEqual(environment.touchCount, 1, 'overwrite must mark the reapplied toggle dirty before saving');
-  assert.strictEqual(calls, 2, 'overwrite must issue one forced save after the conflicted save');
+  assert.deepStrictEqual(calls, [{ apply: true, force: undefined }, { apply: true, force: true }],
+    'Disable conflict overwrite must preserve Apply intent');
+}
+
+async function testConflictOverwritePreservesEverySaveIntent() {
+  async function exercise(apply) {
+    const calls = [];
+    const environment = createEnvironment(async (requestedApply, force) => {
+      calls.push({ apply: requestedApply, force });
+      if (calls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
+      return { ok: true, res: { applied: requestedApply } };
+    });
+    await environment.S.ui.onSave(apply);
+    lastButtonWithText(environment.body, '覆盖保存（保留本地修改）').listeners.click();
+    await flushUI();
+    return calls;
+  }
+
+  assert.deepStrictEqual(await exercise(false), [{ apply: false, force: undefined }, { apply: false, force: true }],
+    'ordinary Save conflict overwrite must remain Save-only');
+  assert.deepStrictEqual(await exercise(true), [{ apply: true, force: undefined }, { apply: true, force: true }],
+    'Save and Apply conflict overwrite must still Apply');
+
+  const enableCalls = [];
+  const enabled = createEnvironment(async (apply, force) => {
+    enableCalls.push({ apply, force });
+    if (enableCalls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
+    return { ok: true, res: { applied: true } };
+  }, { main: { enabled: false } });
+  await enabled.S.ui.onToggleEnabled(true);
+  lastButtonWithText(enabled.body, '覆盖保存（保留本地修改）').listeners.click();
+  await flushUI();
+  assert.deepStrictEqual(enableCalls, [{ apply: true, force: undefined }, { apply: true, force: true }],
+    'Enable conflict overwrite must preserve Apply intent');
 }
 
 async function testNewRulesAreStoredBeforeDefault() {
@@ -689,7 +728,10 @@ function draftLifecycleIntent() {
       probe_direct: 'https://direct.example/', probe_proxy: 'https://proxy.example/', speedtest_proxy: 'https://speed.example/'
     },
     bootstrap: { id: 'bootstrap', protocol: 'udp', server: '1.1.1.1', server_port: 53, strategy: 'prefer_ipv4' },
-    nodes: [{ id: 'node', enabled: true, name: 'Node', type: 'socks', server: 'node.example', server_port: 1080 }],
+    nodes: [
+      { id: 'node', enabled: true, name: 'Node', type: 'socks', server: 'node.example', server_port: 1080 },
+      { id: 'feed_stale', enabled: true, name: 'Stale', type: 'socks', server: 'stale.example', server_port: 1080, source_subscription: 'feed', pinned_stale: true }
+    ],
     subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h' }],
     routes: [
       { id: 'direct', enabled: true, kind: 'direct' },
@@ -706,7 +748,7 @@ function createDraftBackend() {
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const state = {
     intent: draftLifecycleIntent(), revision: '"revision-1"', configCalls: 0, puts: [],
-    nodeTests: 0, routeTests: 0, subscriptionUpdates: 0
+    nodeTests: 0, routeTests: 0, subscriptionUpdates: 0, subscriptionCleans: 0, applyCalls: 0
   };
   state.api = {
     async config() { state.configCalls++; return { intent: clone(state.intent), revision: state.revision }; },
@@ -720,16 +762,17 @@ function createDraftBackend() {
       state.revision = `"revision-${state.puts.length + 2}"`;
       return { saved: true, applied: !!apply, revision: state.revision, request_ok: true };
     },
-    async applySaved() { return { ok: true }; },
+    async applySaved() { state.applyCalls++; return { ok: true }; },
     async speedtestNode() { state.nodeTests++; return { results: [] }; },
     async speedtestRoute() { state.routeTests++; return { results: [] }; },
     async subscriptions() {
-      return { subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h', node_count: 0, skipped: 0 }] };
+      return { subscriptions: [{ id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h', node_count: 1, skipped: 0, stale_node_ids: ['feed_stale'] }] };
     },
     async updateSubscription() {
       state.subscriptionUpdates++;
-      return { snapshots: [{ node_count: 0, skipped: 0 }] };
-    }
+      return { snapshots: [{ node_count: 1, skipped: 0 }] };
+    },
+    async cleanNode() { state.subscriptionCleans++; return { snapshot: {} }; }
   };
   return state;
 }
@@ -772,6 +815,120 @@ async function testJSONDraftStoreLifecycle() {
   assert.match(environment.S.store.draftText, /"log_level": "info"/, 'structured edits must synchronize back to Advanced JSON');
 }
 
+async function testStoreSnapshotsAndAsyncOrdering() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  await environment.S.store.init();
+
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  const saveGate = deferred();
+  let capturedSnapshot = null;
+  let saveRequests = 0;
+  backend.api.putConfig = async (snapshot, revision, apply) => {
+    saveRequests++;
+    capturedSnapshot = snapshot;
+    assert.strictEqual(revision, '"revision-1"');
+    assert.strictEqual(apply, false);
+    await saveGate.promise;
+    return { saved: true, applied: false, revision: '"revision-saved"' };
+  };
+
+  const saving = environment.S.store.save(false);
+  await Promise.resolve();
+  assert.strictEqual(environment.S.store.saving, true);
+  assert.strictEqual(capturedSnapshot.main.log_level, 'debug');
+  const duplicate = await environment.S.store.save(false);
+  assert.strictEqual(duplicate.busy, true, 'double Save must not start a second request');
+  assert.strictEqual(saveRequests, 1);
+  const configCallsBeforeBusyReload = backend.configCalls;
+  const busyReload = await environment.S.store.reload();
+  assert.strictEqual(busyReload.busy, true, 'Discard/reload must not race an in-flight Save');
+  assert.strictEqual(backend.configCalls, configCallsBeforeBusyReload, 'busy reload must not read a stale server revision');
+
+  environment.S.store.intent.main.log_level = 'info';
+  environment.S.store.touch();
+  assert.strictEqual(capturedSnapshot.main.log_level, 'debug', 'Save request must hold an immutable Draft snapshot');
+  saveGate.resolve();
+  const saved = await saving;
+  assert.strictEqual(saved.ok, true);
+  assert.strictEqual(saved.staleDraft, true, 'Save response must detect edits made while it was in flight');
+  assert.strictEqual(environment.S.store.dirty, true, 'old Save response must not clean newer Draft edits');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'info');
+  assert.match(environment.S.store.draftText, /"log_level": "info"/, 'old Save response must not replace newer Draft text');
+  assert.strictEqual(environment.S.store.revision, '"revision-saved"', 'revision may advance only for the saved snapshot');
+
+  const reloadGate = deferred();
+  const serverIntent = draftLifecycleIntent();
+  serverIntent.main.log_level = 'warn';
+  backend.api.config = async () => reloadGate.promise;
+  const reloading = environment.S.store.reload();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'error';
+  environment.S.store.touch();
+  reloadGate.resolve({ intent: serverIntent, revision: '"revision-reloaded"' });
+  const reloadResult = await reloading;
+  assert.strictEqual(reloadResult.staleDraft, true, 'reload must detect edits made after it started');
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'error', 'stale reload response must preserve newer Draft Intent');
+  assert.strictEqual(environment.S.store.revision, '"revision-saved"', 'stale reload response must not replace the Draft base revision');
+
+  const applyGate = deferred();
+  let applyRequests = 0;
+  backend.api.applySaved = async () => { applyRequests++; await applyGate.promise; return { ok: true }; };
+  const applying = environment.S.store.applySaved();
+  await Promise.resolve();
+  assert.strictEqual(environment.S.store.applying, true);
+  assert.strictEqual((await environment.S.store.save(false)).busy, true, 'Save must not overlap Apply Saved');
+  assert.strictEqual((await environment.S.store.reload()).busy, true, 'reload must not overlap Apply Saved');
+  assert.strictEqual((await environment.S.store.applySaved()).busy, true, 'double Apply Saved must not start twice');
+  assert.strictEqual(applyRequests, 1);
+  applyGate.resolve();
+  assert.strictEqual((await applying).ok, true);
+}
+
+async function testEnableConflictUsesCurrentDraftObject() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  await environment.S.store.init();
+  const conflictGate = deferred();
+  const requests = [];
+  backend.api.putConfig = async (snapshot, _revision, apply) => {
+    requests.push({ snapshot: JSON.parse(JSON.stringify(snapshot)), apply });
+    if (requests.length === 1) {
+      await conflictGate.promise;
+      const error = new Error('revision conflict');
+      error.code = 'CONFLICT';
+      error.serverRevision = '"revision-2"';
+      error.external = {};
+      throw error;
+    }
+    return { saved: true, applied: true, revision: '"revision-3"' };
+  };
+
+  const toggling = environment.S.ui.onToggleEnabled(false);
+  await Promise.resolve();
+  const replacement = draftLifecycleIntent();
+  replacement.main.enabled = true;
+  replacement.main.log_level = 'debug';
+  environment.S.store.editJSON(JSON.stringify(replacement, null, 2));
+  const currentMain = environment.S.store.intent.main;
+  conflictGate.resolve();
+  await toggling;
+  assert.strictEqual(environment.S.store.intent.main, currentMain, 'conflict must not roll back through a stale main object');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'debug', 'newer Advanced Draft must survive the conflict response');
+
+  lastButtonWithText(environment.body, '覆盖保存（保留本地修改）').listeners.click();
+  await flushUI();
+  assert.strictEqual(environment.S.store.intent.main, currentMain);
+  assert.strictEqual(environment.S.store.intent.main.enabled, false, 'overwrite callback must mutate the current Draft main');
+  assert.strictEqual(requests[1].snapshot.main.log_level, 'debug');
+  assert.strictEqual(requests[1].snapshot.main.enabled, false);
+  assert.strictEqual(requests[1].apply, true, 'Enable/Disable overwrite must retain Apply intent');
+}
+
 async function testAdvancedRouterDiscardAndGuardedActions() {
   const backend = createDraftBackend();
   const environment = createEnvironment(async () => ({ ok: true }));
@@ -780,6 +937,16 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   const application = loadApplication(environment, '#/advanced');
   await application.start();
   await flushUI();
+
+  assert.strictEqual(environment.S.store.listenerCount, 2, 'status strip plus Advanced should own exactly two store listeners');
+  for (let index = 0; index < 3; index++) {
+    environment.S.router('general');
+    await flushUI();
+    assert.strictEqual(environment.S.store.listenerCount, 1, 'leaving Advanced must synchronously dispose its store listener');
+    environment.S.router('advanced');
+    await flushUI();
+    assert.strictEqual(environment.S.store.listenerCount, 2, 'returning to Advanced must add only one current listener');
+  }
 
   let editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
   assert.ok(editor, 'Advanced view must render the shared Draft textarea');
@@ -826,6 +993,18 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   assert.match(text(environment.strip), /revision-2/, 'Discard must synchronize the status strip revision');
   editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
   assert.match(editor.value, /"log_level": "error"/, 'Discard must rerender the current Advanced page from Saved');
+
+  const applyGate = deferred();
+  let applyRequests = 0;
+  backend.api.applySaved = async () => { applyRequests++; await applyGate.promise; return { ok: true }; };
+  const applying = environment.S.store.applySaved();
+  await Promise.resolve();
+  const busyApplyButton = buttonWithText(environment.strip, 'Apply 已保存配置');
+  assert.ok(busyApplyButton.disabled, 'Apply Saved button must disable during any control operation');
+  await busyApplyButton.listeners.click();
+  assert.strictEqual(applyRequests, 1, 'busy guard must prevent a concurrent Apply Saved request');
+  applyGate.resolve();
+  await applying;
 
   environment.S.router('nodes');
   await flushUI();
@@ -887,12 +1066,92 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   await flushUI();
   editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
   assert.strictEqual(editor.value, roundTripText, 'structured ↔ Advanced navigation must retain the one shared Draft text');
+
+  const reloadGate = deferred();
+  backend.api.config = async () => reloadGate.promise;
+  buttonWithText(environment.strip, '放弃修改').listeners.click();
+  const discardOverlay = findAll(environment.body, (element) => classSet(element).has('dialog-overlay')).at(-1);
+  const discarding = lastButtonWithText(environment.body, '放弃修改并重新载入').listeners.click();
+  await Promise.resolve();
+  parsed = JSON.parse(editor.value);
+  parsed.main.log_level = 'info';
+  editor.value = JSON.stringify(parsed, null, 2);
+  editor.listeners.input({ target: editor });
+  reloadGate.resolve({ intent: backend.intent, revision: '"revision-too-old"' });
+  await discarding;
+  assert.strictEqual(environment.S.store.dirty, true, 'edit during Discard reload must remain dirty');
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'info');
+  assert.notStrictEqual(discardOverlay.removed, true, 'stale Discard response must not close as if the Draft was discarded');
+  assert.match(text(environment.toasts), /reload 期间 Draft 又发生变化/);
+}
+
+async function testSubscriptionAsyncWorkPreservesNewDraftAndRoute() {
+  const backend = createDraftBackend();
+  const environment = createEnvironment(async () => ({ ok: true }));
+  attachRealStore(environment, backend.api);
+  for (const name of ['general', 'subscriptions']) loadView(environment, name);
+  const application = loadApplication(environment, '#/subscriptions');
+  await application.start();
+  await flushUI();
+
+  const updateGate = deferred();
+  backend.api.updateSubscription = async () => {
+    backend.subscriptionUpdates++;
+    await updateGate.promise;
+    return { snapshots: [{ node_count: 1, skipped: 0 }] };
+  };
+  const configCallsBeforeUpdate = backend.configCalls;
+  const updating = buttonWithText(environment.view, '立即更新').listeners.click();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  environment.S.router('general');
+  await flushUI();
+  updateGate.resolve();
+  await updating;
+  await flushUI();
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'debug', 'subscription response must preserve edits made while it was in flight');
+  assert.strictEqual(backend.configCalls, configCallsBeforeUpdate, 'changed Draft must prevent unconditional subscription reload');
+  assert.strictEqual(application.location.hash, '#/general');
+  assert.match(text(environment.view), /基础设置/, 'stale subscription render must not overwrite the newer route');
+  assert.match(text(environment.toasts), /Draft 已变化/, 'inventory update must explain why Draft was preserved');
+
+  await environment.S.store.reload();
+  environment.S.renderCurrent();
+  await flushUI();
+  environment.S.router('subscriptions');
+  await flushUI();
+  const cleanGate = deferred();
+  backend.api.cleanNode = async () => {
+    backend.subscriptionCleans++;
+    await cleanGate.promise;
+    return { snapshot: {} };
+  };
+  buttonWithText(environment.view, '清理 stale ×1').listeners.click();
+  const configCallsBeforeClean = backend.configCalls;
+  const cleaning = lastButtonWithText(environment.body, '移除').listeners.click();
+  await Promise.resolve();
+  environment.S.store.intent.main.log_level = 'info';
+  environment.S.store.touch();
+  environment.S.router('general');
+  await flushUI();
+  cleanGate.resolve();
+  await cleaning;
+  await flushUI();
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.intent.main.log_level, 'info', 'clean response must preserve edits made while it was in flight');
+  assert.ok(environment.S.store.intent.nodes.some((node) => node.id === 'feed_stale'), 'preserved Draft must retain its local inventory object');
+  assert.strictEqual(backend.configCalls, configCallsBeforeClean, 'changed Draft must prevent unconditional clean reload');
+  assert.strictEqual(application.location.hash, '#/general');
+  assert.match(text(environment.view), /基础设置/, 'stale clean render must not overwrite the newer route');
 }
 
 Promise.resolve()
   .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
   .then(testConflictRestoresUntilOverwriteIsChosen)
+  .then(testConflictOverwritePreservesEverySaveIntent)
   .then(testNewRulesAreStoredBeforeDefault)
   .then(testChipsCommitPendingTokensConsistently)
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
@@ -902,7 +1161,10 @@ Promise.resolve()
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)
   .then(testJSONDraftStoreLifecycle)
+  .then(testStoreSnapshotsAndAsyncOrdering)
+  .then(testEnableConflictUsesCurrentDraftObject)
   .then(testAdvancedRouterDiscardAndGuardedActions)
+  .then(testSubscriptionAsyncWorkPreservesNewDraftAndRoute)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);

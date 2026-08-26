@@ -42,8 +42,9 @@
         dirtyBadge.hidden = !S.store.dirty;
         invalidBadge.hidden = valid;
         invalidBadge.title = S.store.draftError || '';
-        saveButton.disabled = !S.store.dirty || !valid;
-        saveApplyButton.disabled = !S.store.dirty || !valid;
+        const busy = S.store.saving === true || S.store.reloading === true || S.store.applying === true;
+        saveButton.disabled = !S.store.dirty || !valid || busy;
+        saveApplyButton.disabled = !S.store.dirty || !valid || busy;
       };
       const renderSuggestions = () => {
         const token = currentGeoToken(editor.value, editor.selectionStart);
@@ -87,9 +88,10 @@
 
       if (!isCurrent()) return;
       const unsubscribe = S.store.subscribe(() => {
-        if (!isCurrent()) { unsubscribe(); return; }
+        if (!isCurrent()) return;
         syncState();
       });
+      isCurrent.onDispose(unsubscribe);
       syncState();
 
       root.append(

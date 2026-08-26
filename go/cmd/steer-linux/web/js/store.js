@@ -9,6 +9,11 @@
   let dirty = false;
   let draftText = '';
   let draftError = '';
+  let mutationEpoch = 0;
+  let stateEpoch = 0;
+  let saving = false;
+  let reloading = false;
+  let applying = false;
   let overview = null;
   let runtime = null;
 
@@ -25,7 +30,9 @@
     intent = normalizeIntent(value);
     draftText = serializeIntent();
     draftError = '';
+    mutationEpoch++;
   };
+  const snapshotIntent = () => JSON.parse(JSON.stringify(intent));
   const parseDraft = (text) => {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -45,6 +52,11 @@
     get draftText() { return draftText; },
     get draftValid() { return draftError === ''; },
     get draftError() { return draftError; },
+    get draftEpoch() { return mutationEpoch; },
+    get saving() { return saving; },
+    get reloading() { return reloading; },
+    get applying() { return applying; },
+    get listenerCount() { return listeners.size; },
     get pendingApply() { return overview?.pending_apply === true; },
     get overview() { return overview; },
     get runtime() { return runtime; },
@@ -65,6 +77,7 @@
     touch() {
       draftText = serializeIntent();
       draftError = '';
+      mutationEpoch++;
       dirty = true;
       emit();
     },
@@ -76,11 +89,19 @@
       } catch (error) {
         draftError = error.message;
       }
+      mutationEpoch++;
       dirty = true;
       emit();
       return { ok: draftError === '', error: draftError };
     },
-    async refreshOverview() { overview = await S.api.overview(); emit(); },
+    async refreshOverview() {
+      const expectedState = stateEpoch;
+      const refreshed = await S.api.overview();
+      if (expectedState !== stateEpoch) return { ok: false, superseded: true };
+      overview = refreshed;
+      emit();
+      return { ok: true };
+    },
 
     /* 保存（可选 Apply）。修订冲突以 { ok:false, conflict } 返回，由 UI 弹冲突对话框。 */
     async save(apply, force = false) {
@@ -89,34 +110,75 @@
         error.code = 'INVALID_DRAFT';
         throw error;
       }
+      if (saving || reloading || applying) return { ok: false, busy: true };
+      const savedSnapshot = snapshotIntent();
+      const savedRevision = force ? null : revision;
+      const startedMutation = mutationEpoch;
+      const expectedState = stateEpoch;
+      saving = true;
+      emit();
       try {
-        const res = await S.api.putConfig(intent, force ? null : revision, apply);
+        const res = await S.api.putConfig(savedSnapshot, savedRevision, apply);
+        const refreshedOverview = await S.api.overview();
+        if (expectedState !== stateEpoch) return { ok: false, superseded: true };
         revision = res.revision;
-        dirty = false;
-        draftText = serializeIntent();
-        await store.refreshOverview();
+        overview = refreshedOverview;
+        const staleDraft = mutationEpoch !== startedMutation;
+        if (!staleDraft) {
+          dirty = false;
+          draftText = serializeIntent();
+        }
         emit();
-        return { ok: true, res };
+        return { ok: true, res, staleDraft };
       } catch (err) {
-        if (err.code === 'CONFLICT') { emit(); return { ok: false, conflict: err }; }
+        if (expectedState !== stateEpoch) return { ok: false, superseded: true };
+        const staleDraft = mutationEpoch !== startedMutation;
+        if (err.code === 'CONFLICT') { emit(); return { ok: false, conflict: err, staleDraft }; }
+        err.staleDraft = staleDraft;
         throw err;
+      } finally {
+        saving = false;
+        emit();
       }
     },
 
     async applySaved() {
-      const result = await S.api.applySaved();
-      await store.refreshOverview();
-      return result;
+      if (saving || reloading || applying) return { ok: false, busy: true };
+      applying = true;
+      emit();
+      try {
+        const result = await S.api.applySaved();
+        await store.refreshOverview();
+        return result;
+      } finally {
+        applying = false;
+        emit();
+      }
     },
 
     /* 以服务器为准：丢弃本地修改。 */
     async reload() {
-      const [config, ov] = await Promise.all([S.api.config(), S.api.overview()]);
-      installIntent(config.intent);
-      revision = config.revision;
-      overview = ov;
-      dirty = false;
+      if (saving || reloading || applying) return { ok: false, busy: true };
+      const operation = ++stateEpoch;
+      const startedMutation = mutationEpoch;
+      reloading = true;
       emit();
+      try {
+        const [config, ov] = await Promise.all([S.api.config(), S.api.overview()]);
+        if (operation !== stateEpoch) return { ok: false, superseded: true };
+        if (mutationEpoch !== startedMutation) return { ok: false, staleDraft: true };
+        installIntent(config.intent);
+        revision = config.revision;
+        overview = ov;
+        dirty = false;
+        emit();
+        return { ok: true };
+      } finally {
+        if (operation === stateEpoch) {
+          reloading = false;
+          emit();
+        }
+      }
     }
   };
 
