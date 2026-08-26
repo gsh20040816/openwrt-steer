@@ -16,15 +16,18 @@ const DefaultGeoDataDirectory = "/Library/Application Support/Steer/geodata-seed
 
 var defaultRouteAddress = []string{"0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"}
 
-var nonGlobalIPv4 = []string{
-	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
-	"172.16.0.0/12", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16",
+var privateRouteAddress = []string{
+	"10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
+}
+
+var routeExcludeIPv4 = []string{
+	"0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "192.0.2.0/24", "192.88.99.0/24",
 	"198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
 }
 
-var nonGlobalIPv6 = []string{
+var routeExcludeIPv6 = []string{
 	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b:1::/48", "100::/64", "100:0:0:1::/64",
-	"2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fc00::/7", "fe80::/10", "ff00::/8",
+	"2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fe80::/10", "ff00::/8",
 }
 
 type Plan struct {
@@ -33,55 +36,35 @@ type Plan struct {
 }
 
 type Resources struct {
-	TunAddresses          []string `json:"tun_addresses"`
-	ActiveLANPrefixes     []string `json:"active_lan_prefixes"`
-	RouteExcludeAddresses []string `json:"route_exclude_addresses"`
+	TunAddresses []string `json:"tun_addresses"`
 }
 
-func NewPlanForHost(value model.Intent) (Plan, error) {
-	prefixes, err := DiscoverActiveLANPrefixes()
-	if err != nil {
-		return Plan{}, err
-	}
-	return NewPlanWithLANPrefixes(value, prefixes)
-}
-
-func NewPlanWithLANPrefixes(_ model.Intent, prefixes []string) (Plan, error) {
-	normalized, err := normalizeLANPrefixes(prefixes)
-	if err != nil {
-		return Plan{}, err
-	}
-	excluded := append(append([]string{}, nonGlobalIPv4...), nonGlobalIPv6...)
-	excluded, err = excludeActiveLANPrefixes(excluded, normalized)
-	if err != nil {
-		return Plan{}, err
-	}
-	return Plan{SchemaVersion: 2, Resources: Resources{
-		TunAddresses:          []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"},
-		ActiveLANPrefixes:     normalized,
-		RouteExcludeAddresses: excluded,
-	}}, nil
+func NewPlan(_ model.Intent) Plan {
+	return Plan{SchemaVersion: 3, Resources: Resources{
+		TunAddresses: []string{"198.18.0.1/30", "fdfe:dcba:9876::1/126"},
+	}}
 }
 
 // CompilerTarget is the supported no-Apple-Developer runtime path. sing-box
 // owns the Darwin utun device and auto_route; macOS does not use Linux's
-// auto_redirect, nftables, or pf. Active LAN subnets are added as explicit TUN
-// routes and removed from the broad private-address exclusions. The compiler
-// then hijacks destination port 53 first and routes the remaining LAN unicast
-// traffic through Direct before sniffing or evaluating user Internet rules.
+// auto_redirect, nftables, or pf. RFC1918, CGNAT and ULA are always routed into
+// the TUN. The compiler then hijacks destination port 53 first and routes the
+// remaining private unicast traffic through Direct before sniffing or
+// evaluating user Internet rules.
 func (plan Plan) CompilerTarget() compiler.Target {
-	routes := append(append([]string{}, defaultRouteAddress...), plan.Resources.ActiveLANPrefixes...)
+	routes := append(append([]string{}, defaultRouteAddress...), privateRouteAddress...)
+	excluded := append(append([]string{}, routeExcludeIPv4...), routeExcludeIPv6...)
 	return compiler.Target{
 		Inbounds: []any{
 			map[string]any{
 				"type": "tun", "tag": "steer-tun", "address": plan.Resources.TunAddresses,
 				"mtu": TunMTU, "dns_mode": "disabled", "auto_route": true, "stack": "system",
-				"route_address": routes, "route_exclude_address": plan.Resources.RouteExcludeAddresses,
+				"route_address": routes, "route_exclude_address": excluded,
 			},
 		},
 		DNSCapture:           compiler.DNSCapture{Mode: compiler.DNSCaptureTUNPort53Hijack, InboundTags: []string{"steer-tun"}},
 		SniffInboundTags:     []string{"steer-tun"},
-		DirectRouteAddress:   append([]string{}, plan.Resources.ActiveLANPrefixes...),
+		DirectRouteAddress:   append([]string{}, privateRouteAddress...),
 		RequiredCapabilities: []string{"tun", "auto_route"},
 	}
 }

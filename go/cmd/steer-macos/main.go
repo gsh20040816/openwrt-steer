@@ -178,9 +178,6 @@ func runCompile(args []string, stdout io.Writer) error {
 	backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, macosplatform.BackendOptions{
 		StateDirectory: *stateDirectory, GeoDataDirectory: *geoDataDirectory,
 	})
-	if err := backend.PlanningError(); err != nil {
-		return err
-	}
 	bundle := compiler.Compile(value, backend.CompilerOptions())
 	return writeJSON(stdout, bundle)
 }
@@ -201,9 +198,6 @@ func runPrepare(args []string, stdout io.Writer) error {
 		return err
 	}
 	backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, options.value())
-	if err := backend.PlanningError(); err != nil {
-		return err
-	}
 	compiled := compiler.Compile(value, backend.CompilerOptions())
 	candidate, err := backend.Prepare(context.Background(), value, compiled)
 	if err != nil {
@@ -229,9 +223,6 @@ func runApply(args []string, stdout io.Writer) error {
 			return coreapply.Result{}, err
 		}
 		backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, options.value())
-		if err := backend.PlanningError(); err != nil {
-			return coreapply.Result{}, err
-		}
 		return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 	}, stdout)
 }
@@ -317,9 +308,6 @@ func prepareColdStart(configPath string, options macosplatform.BackendOptions) e
 		return err
 	}
 	backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, options)
-	if err := backend.PlanningError(); err != nil {
-		return err
-	}
 	compiled := compiler.Compile(value, backend.CompilerOptions())
 	if !value.Main.Enabled {
 		return errors.New("macOS Steer is disabled")

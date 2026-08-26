@@ -31,16 +31,12 @@ type BackendOptions struct {
 	IfconfigBinary    string
 	HealthTimeout     time.Duration
 	CheckTUN          func([]string) error
-	// LANPrefixes overrides host discovery when non-nil. It is used by the
-	// network-change reconciler and deterministic tests.
-	LANPrefixes []string
 }
 
 type Backend struct {
 	runner  Runner
 	options BackendOptions
 	plan    Plan
-	planErr error
 }
 
 func NewBackend(runner Runner, value model.Intent, options BackendOptions) *Backend {
@@ -48,19 +44,8 @@ func NewBackend(runner Runner, value model.Intent, options BackendOptions) *Back
 		runner = ExecRunner{}
 	}
 	options = normalizeBackendOptions(options)
-	prefixes := options.LANPrefixes
-	var err error
-	if prefixes == nil {
-		prefixes, err = DiscoverActiveLANPrefixes()
-	}
-	plan := Plan{}
-	if err == nil {
-		plan, err = NewPlanWithLANPrefixes(value, prefixes)
-	}
-	return &Backend{runner: runner, options: options, plan: plan, planErr: err}
+	return &Backend{runner: runner, options: options, plan: NewPlan(value)}
 }
-
-func (backend *Backend) PlanningError() error { return backend.planErr }
 
 func (backend *Backend) CompilerOptions() compiler.Options {
 	return compiler.Options{
@@ -70,9 +55,6 @@ func (backend *Backend) CompilerOptions() compiler.Options {
 }
 
 func (backend *Backend) Prepare(ctx context.Context, value model.Intent, compiled compiler.Output) (candidate generation.Candidate, returnErr error) {
-	if backend.planErr != nil {
-		return generation.Candidate{}, backend.planErr
-	}
 	validation := Validate(value)
 	if !validation.OK {
 		return generation.Candidate{}, ValidationError{Validation: validation}

@@ -4,6 +4,7 @@ package macos
 
 import (
 	"encoding/json"
+	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,11 +13,10 @@ import (
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
-func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
-	activeLAN := []string{"192.168.50.0/24", "fd12:3456:789a::/64"}
-	plan, err := NewPlanWithLANPrefixes(model.Intent{}, activeLAN)
-	if err != nil {
-		t.Fatal(err)
+func TestPlanStaticallyCapturesPrivateNetworksAndUsesPort53DNSCapture(t *testing.T) {
+	plan := NewPlan(model.Intent{})
+	if plan.SchemaVersion != 3 {
+		t.Fatalf("unexpected static macOS plan schema: %d", plan.SchemaVersion)
 	}
 	target := plan.CompilerTarget()
 	if len(target.Inbounds) != 1 || target.DNSCapture.Mode != compiler.DNSCaptureTUNPort53Hijack {
@@ -44,24 +44,46 @@ func TestPlanUsesDarwinAutoRouteTUNAndPort53DNSCapture(t *testing.T) {
 			t.Fatal("macOS must not exclude the IPv4 subnet containing the system-stack peer")
 		}
 	}
-	for _, active := range activeLAN {
-		if contains(excluded, active) {
-			t.Fatalf("active LAN subnet %s remained excluded from TUN capture", active)
+	for _, private := range privateRouteAddress {
+		if prefixCoveredByAny(private, excluded) {
+			t.Fatalf("static private range %s remained excluded from TUN capture: %#v", private, excluded)
 		}
 	}
-	for _, inactive := range []string{"10.0.0.0/8", "172.16.0.0/12"} {
-		if !contains(excluded, inactive) {
-			t.Fatalf("inactive private range %s was imported into TUN", inactive)
+	for _, preserved := range []string{"127.0.0.0/8", "169.254.0.0/16", "192.0.2.0/24", "fe80::/10", "ff00::/8"} {
+		if !contains(excluded, preserved) {
+			t.Fatalf("non-private exclusion %s was lost: %#v", preserved, excluded)
 		}
 	}
 	routeAddress := tun["route_address"].([]string)
-	for _, required := range append(defaultRouteAddress, activeLAN...) {
+	for _, required := range append(append([]string{}, defaultRouteAddress...), privateRouteAddress...) {
 		if !contains(routeAddress, required) {
 			t.Fatalf("TUN route_address is missing %s: %#v", required, routeAddress)
 		}
 	}
-	if !reflect.DeepEqual(target.DirectRouteAddress, activeLAN) {
-		t.Fatalf("active LAN Direct rule drifted: %#v", target.DirectRouteAddress)
+	if !reflect.DeepEqual(target.DirectRouteAddress, privateRouteAddress) {
+		t.Fatalf("static private Direct rule drifted: %#v", target.DirectRouteAddress)
+	}
+	globalOnLink := "2001:4860:4860::/64"
+	if prefixCoveredByAny(globalOnLink, excluded) || prefixCoveredByAny(globalOnLink, target.DirectRouteAddress) {
+		t.Fatalf("global IPv6 on-link prefix was treated as special private traffic: %s", globalOnLink)
+	}
+}
+
+func TestPlanDoesNotBroadenScopedIPv6LinkLocalCapture(t *testing.T) {
+	resolver := netip.MustParseAddr("fe80::1%en0")
+	if resolver.Zone() != "en0" {
+		t.Fatalf("test resolver lost its real interface scope: %s", resolver)
+	}
+	target := NewPlan(model.Intent{}).CompilerTarget()
+	tun := target.Inbounds[0].(map[string]any)
+	if !prefixContainsAddress("fe80::/10", resolver.WithZone("")) ||
+		!contains(tun["route_exclude_address"].([]string), "fe80::/10") {
+		t.Fatalf("scoped link-local resolver is no longer covered by the explicit link-local exclusion: %s", resolver)
+	}
+	for _, prefix := range target.DirectRouteAddress {
+		if prefixContainsAddress(prefix, resolver.WithZone("")) {
+			t.Fatalf("scoped resolver %s was broadened into private Direct range %s", resolver, prefix)
+		}
 	}
 }
 
@@ -73,10 +95,7 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 		DNSProfiles: []model.DNSProfile{{ID: "dns", Enabled: true, Protocol: "udp", Server: "1.1.1.1", ServerPort: 53}},
 		Rules:       []model.Rule{{ID: "default", Enabled: true, Default: true, DNSProfile: "dns", Route: "direct"}},
 	}
-	plan, err := NewPlanWithLANPrefixes(value, []string{"192.168.50.0/24"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	plan := NewPlan(value)
 	bundle := compiler.Compile(value, plan.CompilerOptions("/tmp/steer-state"))
 	encoded, _ := json.Marshal(bundle.SingBox["route"])
 	if !strings.Contains(string(encoded), `"action":"hijack-dns"`) || !strings.Contains(string(encoded), `"port":[53]`) {
@@ -98,13 +117,28 @@ func TestPlanCompilerOutputRetainsDedicatedDNSHijack(t *testing.T) {
 	}
 	direct := rules[1].(map[string]any)
 	if direct["action"] != "route" || direct["outbound"] != "steer-route-direct" ||
-		!reflect.DeepEqual(direct["ip_cidr"], []string{"192.168.50.0/24"}) ||
+		!reflect.DeepEqual(direct["ip_cidr"], privateRouteAddress) ||
 		!reflect.DeepEqual(direct["inbound"], []string{"steer-tun"}) {
-		t.Fatalf("active LAN unicast must route Direct after DNS capture: %#v", rules)
+		t.Fatalf("private unicast must route Direct after DNS capture: %#v", rules)
 	}
 	if rules[2].(map[string]any)["action"] != "sniff" {
 		t.Fatalf("sniff must run after DNS and LAN classification: %#v", rules)
 	}
+}
+
+func prefixCoveredByAny(prefix string, values []string) bool {
+	target := netip.MustParsePrefix(prefix)
+	for _, value := range values {
+		candidate := netip.MustParsePrefix(value)
+		if candidate.Contains(target.Addr()) && candidate.Bits() <= target.Bits() {
+			return true
+		}
+	}
+	return false
+}
+
+func prefixContainsAddress(prefix string, address netip.Addr) bool {
+	return netip.MustParsePrefix(prefix).Contains(address)
 }
 
 func contains(values []string, target string) bool {

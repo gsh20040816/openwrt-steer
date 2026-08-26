@@ -100,7 +100,7 @@ Canonical Intent / Validate / Compiler
 - macOS 不支持 `source_mac_address`，UI 必须说明原因，不能伪造支持；
 - Canonical JSON 原文编辑只适用于 JSON 真相源；OpenWrt 提供 Canonical 只读预览，UCI 仍是唯一真相；
 - macOS 系统组件安装/升级只属于 macOS；
-- macOS 的 LAN Do53 捕获使用平台动态 plan：只导入当前活动 LAN 子网，固定按“目标端口 53 劫持 → LAN Direct → sniff/用户规则”排序，并在接口/DHCP 子网变化时重新 Apply；
+- macOS 的私网 Do53 捕获使用静态平台 plan：RFC1918、CGNAT 与 ULA 固定按“目标端口 53 劫持 → 私网 Direct → sniff/用户规则”排序，接口/DHCP 变化不触发 Apply；
 - LuCI ACL、Linux Bearer token 和 macOS peer credential 是 transport 权限，不进入共享 Intent；
 - 日志来源和订阅调度器属于平台实现，但用户操作和结果合同保持一致。
 
