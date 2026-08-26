@@ -3,8 +3,10 @@
 package macos
 
 import (
+	"path/filepath"
 	"testing"
 
+	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
@@ -36,15 +38,21 @@ func TestValidateAcceptsCanonicalLocalTrafficIntent(t *testing.T) {
 	}
 }
 
-func TestValidateLeavesGeoToolchainChecksToPrepare(t *testing.T) {
+func TestValidateRequiresReadableGeoManifestBeforePrepare(t *testing.T) {
 	value := validIntent()
 	value.Rules = append(value.Rules[:len(value.Rules)-1], model.Rule{
 		ID: "geo", Enabled: true, DNSProfile: "dns", Route: "direct", DomainMatch: []string{"geosite:cn"},
 	}, value.Rules[len(value.Rules)-1])
-	validation := Validate(value)
-	if !validation.OK {
-		t.Fatalf("macOS Geo rule should be semantically valid before toolchain checks: %#v", validation)
+	validation := ValidateWithGeoDataDirectory(value, filepath.Join(t.TempDir(), "missing"))
+	if validation.OK {
+		t.Fatalf("macOS Geo rule passed without an installed manifest: %#v", validation)
 	}
+	for _, issue := range validation.Errors {
+		if issue.Code == geodata.ErrorManifestInvalid && issue.ObjectID == "geo" && issue.Option == "domain_match" {
+			return
+		}
+	}
+	t.Fatalf("manifest issue is missing: %#v", validation.Errors)
 }
 
 func validIntent() model.Intent {

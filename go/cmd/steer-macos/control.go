@@ -53,6 +53,7 @@ type controlResponse struct {
 	Applied       bool                  `json:"applied"`
 	Revision      string                `json:"revision,omitempty"`
 	Status        *macosplatform.Status `json:"status,omitempty"`
+	Validation    *model.Validation     `json:"validation,omitempty"`
 	Payload       json.RawMessage       `json:"payload,omitempty"`
 	ErrorCode     string                `json:"error_code,omitempty"`
 	Error         string                `json:"error,omitempty"`
@@ -319,8 +320,9 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = "decode canonical configuration: " + err.Error()
 		return response
 	}
-	validation := macosplatform.Validate(value)
+	validation := macosplatform.ValidateWithGeoDataDirectory(value, service.options.GeoDataDirectory)
 	if !validation.OK {
+		response.Validation = &validation
 		response.Error = fmt.Sprintf("canonical configuration has %d validation error(s)", len(validation.Errors))
 		return response
 	}

@@ -247,7 +247,7 @@ func readTestIntent(configPath, operation string) (model.Intent, error) {
 	if err != nil {
 		return model.Intent{}, err
 	}
-	validation := model.Validate(value)
+	validation := Validate(value)
 	if !validation.OK {
 		return model.Intent{}, ValidationError{Validation: validation}
 	}

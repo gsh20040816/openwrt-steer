@@ -223,6 +223,58 @@ func TestWebOverviewMarksEnabledSavedConfigPendingWithoutCurrent(t *testing.T) {
 	}
 }
 
+func TestWebConfigRejectsUnknownGeoSelectorWithoutSaving(t *testing.T) {
+	root := t.TempDir()
+	seedDirectory := writeWebSeed(t, root)
+	configPath := filepath.Join(root, "config.json")
+	store := linuxplatform.IntentStore{Path: configPath, GeoDataDirectory: seedDirectory}
+	base := webTestIntent()
+	revision, err := store.Save(base, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := webTestIntent()
+	candidate.Rules = append([]model.Rule{{
+		ID: "unknown", Enabled: true, DNSProfile: "public", Route: "direct",
+		DomainMatch: []string{"geosite:not-installed"},
+	}}, candidate.Rules...)
+	body, err := json.Marshal(map[string]any{"intent": candidate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(string(body)))
+	request.Header.Set("If-Match", revision)
+	response := httptest.NewRecorder()
+	app := webApplication{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), SeedDirectory: seedDirectory}
+	app.handleConfig(response, request)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown selector returned %d: %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Saved      bool             `json:"saved"`
+		Validation model.Validation `json:"validation"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Saved || result.Validation.OK {
+		t.Fatalf("invalid candidate response = %#v", result)
+	}
+	found := false
+	for _, issue := range result.Validation.Errors {
+		if issue.Code == geodata.ErrorCategoryNotFound && issue.ObjectID == "unknown" && issue.Option == "domain_match" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("structured Geo issue is missing: %#v", result.Validation.Errors)
+	}
+	loaded, loadedRevision, err := store.Load()
+	if err != nil || loadedRevision != revision || len(loaded.Rules) != len(base.Rules) {
+		t.Fatalf("invalid candidate changed the saved config: revision=%q value=%#v err=%v", loadedRevision, loaded, err)
+	}
+}
+
 func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	root := t.TempDir()
 	app := webApplication{WebConfigPath: filepath.Join(root, "web.json"), ConfigPath: filepath.Join(root, "config.json"), RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
@@ -254,8 +306,8 @@ func TestWebAssetsRunUnderStrictCSP(t *testing.T) {
 	}
 	apiScript := httptest.NewRecorder()
 	handler.ServeHTTP(apiScript, httptest.NewRequest(http.MethodGet, "/js/api.js", nil))
-	if strings.Contains(apiScript.Body.String(), "/api/v1/platform") || !strings.Contains(apiScript.Body.String(), "validateGeoCategories") || strings.Contains(apiScript.Body.String(), "category.split('@', 1)[0]") || strings.Contains(apiScript.Body.String(), "sha256") {
-		t.Fatalf("API adapter retained platform settings, lost exact Geo validation or exposes hashes: %s", apiScript.Body.String())
+	if strings.Contains(apiScript.Body.String(), "/api/v1/platform") || strings.Contains(apiScript.Body.String(), "validateGeoCategories") || strings.Contains(apiScript.Body.String(), "category.split('@', 1)[0]") || strings.Contains(apiScript.Body.String(), "sha256") {
+		t.Fatalf("API adapter retained platform settings, duplicates canonical Geo validation or exposes hashes: %s", apiScript.Body.String())
 	}
 	systemScript := httptest.NewRecorder()
 	handler.ServeHTTP(systemScript, httptest.NewRequest(http.MethodGet, "/js/views/system.js", nil))

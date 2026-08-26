@@ -8,6 +8,7 @@
 
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
 const callValidate = rpc.declare({ object: 'luci.steer', method: 'validate', expect: { '': {} } });
+const callCommitCandidate = rpc.declare({ object: 'luci.steer', method: 'commit_candidate', expect: { '': {} } });
 const callIntent = rpc.declare({ object: 'luci.steer', method: 'intent', expect: { '': {} } });
 const callRuntime = rpc.declare({ object: 'luci.steer', method: 'runtime', expect: { '': {} } });
 const callLogs = rpc.declare({ object: 'luci.steer', method: 'logs', expect: { '': {} } });
@@ -19,7 +20,6 @@ const callNodeSpeedtest = rpc.declare({ object: 'luci.steer', method: 'node_spee
 const callRouteSpeedtest = rpc.declare({ object: 'luci.steer', method: 'route_speedtest', params: [ 'route', 'download' ], expect: { '': {} } });
 const callOverviewProbe = rpc.declare({ object: 'luci.steer', method: 'overview_probe', params: [ 'kind' ], expect: { '': {} } });
 const callNodeImport = rpc.declare({ object: 'luci.steer', method: 'node_import', params: [ 'document' ], expect: { '': {} } });
-const callUCICommit = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ], expect: { '': 0 } });
 const sectionIDPattern = /^[a-z][a-z0-9_]{0,31}$/;
 
 function issueText(issue) {
@@ -57,6 +57,7 @@ return baseclass.extend({
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },
 	validate: function() { return L.resolveDefault(callValidate(), {}); },
+	commitCandidate: function() { return L.resolveDefault(callCommitCandidate(), {}); },
 	intent: function() { return L.resolveDefault(callIntent(), {}); },
 	runtime: function() { return L.resolveDefault(callRuntime(), {}); },
 	logs: function() { return L.resolveDefault(callLogs(), {}); },
@@ -91,24 +92,35 @@ return baseclass.extend({
 		return L.resolveDefault(callStatus(), {})
 			.then((status) => { previousSequence = status?.last_apply?.sequence || ''; })
 			.then(() => view.handleSave(ev))
-			.then(() => callUCICommit('steer'))
-			.then(() => uci.changes())
-			.then((changes) => ui.changes.renderChangeIndicator(changes))
-			.then(() => {
-				ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
-				return waitForApply(previousSequence, 240);
-			})
-			.then(({ result, status }) => this.validate().then((validation) => ({ result, status, validation })))
-			.then(({ result, status, validation }) => {
-				if (status)
-					this.refreshStatus(status, validation);
-				ui.hideModal();
-				if (!result?.ok) {
-					ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
-					return result;
+			.then(() => this.commitCandidate())
+			.then((commit) => {
+				const validation = commit?.validation;
+				if (commit?.committed !== true) {
+					return uci.changes()
+						.then((changes) => ui.changes.renderChangeIndicator(changes))
+						.then(() => {
+							const result = { ok: false, saved: false, validation, error: commit?.error };
+							ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
+							return result;
+						});
 				}
-				ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
-				return result;
+				return uci.changes()
+					.then((changes) => ui.changes.renderChangeIndicator(changes))
+					.then(() => {
+						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
+						return waitForApply(previousSequence, 240);
+					})
+					.then(({ result, status }) => {
+						if (status)
+							this.refreshStatus(status, validation);
+						ui.hideModal();
+						if (!result?.ok) {
+							ui.addNotification(_('Steer rejected the candidate'), resultMessage(result), 'danger');
+							return result;
+						}
+						ui.addNotification(null, E('p', {}, _('Steer configuration applied.')), 'info');
+						return result;
+					});
 			});
 	},
 

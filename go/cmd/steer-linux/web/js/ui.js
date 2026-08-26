@@ -70,18 +70,9 @@
   }
 
   /* ---------- 状态条 ---------- */
-  async function onValidate() {
-    const [v, geosite, geoip] = await Promise.all([
-      S.api.validate(S.store.intent), S.api.geodata('geosite'), S.api.geodata('geoip')
-    ]);
-    const geoErrors = S.validateGeoCategories(S.store.intent, { geosite, geoip }).map((message) => ({
-      code: 'UNKNOWN_GEO_CATEGORY', object_type: 'rule', message
-    }));
-    v.errors.push(...geoErrors);
-    v.ok = v.errors.length === 0;
-    if (!v.errors.length && !v.warnings.length) { toast('校验通过 · 0 错误 · 0 警告', 'ok'); return; }
+  function showValidation(v, title = '配置校验') {
     dialog({
-      title: '配置校验',
+      title,
       body: h('div', {}, [
         h('p', { class: 'muted' }, `${v.errors.length} 错误 · ${v.warnings.length} 警告 · 校验的是当前工作副本`),
         issueList(v.errors, jumpToObject),
@@ -89,6 +80,12 @@
       ]),
       actions: [['关闭', null]]
     });
+  }
+
+  async function onValidate() {
+    const v = await S.api.validate(S.store.intent);
+    if (!v.errors.length && !v.warnings.length) { toast('校验通过 · 0 错误 · 0 警告', 'ok'); return; }
+    showValidation(v);
   }
 
   function jumpToObject(issue) {
@@ -109,7 +106,8 @@
         conflictDialog(res.conflict);
       }
     } catch (error) {
-      toast(`保存失败：${error.message}`, 'err');
+      if (error.details?.validation) showValidation(error.details.validation, '保存前校验失败');
+      else toast(`保存失败：${error.message}`, 'err');
     }
   }
 

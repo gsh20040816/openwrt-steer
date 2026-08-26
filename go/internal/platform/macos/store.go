@@ -65,7 +65,8 @@ func (paths Paths) Ensure() error {
 }
 
 type IntentStore struct {
-	Paths Paths
+	Paths            Paths
+	GeoDataDirectory string
 }
 
 func (store IntentStore) Load() (model.Intent, string, error) {
@@ -81,7 +82,7 @@ func (store IntentStore) Load() (model.Intent, string, error) {
 }
 
 func (store IntentStore) Save(value model.Intent, expectedRevision string) (string, error) {
-	validation := Validate(value)
+	validation := ValidateWithGeoDataDirectory(value, store.geoDataDirectory())
 	if !validation.OK {
 		return "", ValidationError{Validation: validation}
 	}
@@ -102,6 +103,10 @@ func (store IntentStore) Save(value model.Intent, expectedRevision string) (stri
 		return "", fmt.Errorf("write macOS canonical intent: %w", err)
 	}
 	return contentRevision(encoded.Bytes()), nil
+}
+
+func (store IntentStore) geoDataDirectory() string {
+	return normalizeGeoDataDirectory(store.GeoDataDirectory)
 }
 
 type Status struct {

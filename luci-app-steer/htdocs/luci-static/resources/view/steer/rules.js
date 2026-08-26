@@ -181,7 +181,6 @@ function configureMatchEditor(option, catalog, kind) {
 	const geoKind = kind == 'domain' ? 'geosite' : 'geoip';
 	const source = catalog?.[geoKind] || {};
 	const names = Array.isArray(source.names) ? source.names : [];
-	const known = new Set(names);
 	option.matchKind = kind;
 	option.catalogNames = names;
 	option.currentLine = currentLine;
@@ -189,15 +188,6 @@ function configureMatchEditor(option, catalog, kind) {
 	option.editorLines = editorLines;
 	option.acceptsSuggestion = acceptsSuggestion;
 	option.rows = 7;
-	option.validate = function(sectionId, value) {
-		for (const line of editorLines(value)) {
-			const prefix = geoKind + ':';
-			const category = line.slice(prefix.length);
-			if (line.startsWith(prefix) && source.ok === true && !known.has(category))
-				return _('%s is not a valid %s name in the current Geo data.').format(line.slice(prefix.length), geoKind);
-		}
-		return true;
-	};
 	option.description = source.ok === true ?
 		_('%d valid %s names are available for dynamic completion.').format(names.length, geoKind) :
 		_('The valid-name catalog is unavailable: %s').format(source.error || _('Unknown error'));

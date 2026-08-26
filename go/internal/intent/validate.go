@@ -2,7 +2,6 @@
 package intent
 
 import (
-	"net"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -32,6 +31,27 @@ var (
 )
 
 func Validate(intent Intent) Validation {
+	return ValidateWithOptions(intent, ValidationOptions{IPv6WildcardDualStack: true})
+}
+
+// Listener describes an already allocated socket address. Owner is used only
+// to make a collision diagnostic identify the listener that owns the address.
+type Listener struct {
+	Address string
+	Port    int
+	Owner   string
+}
+
+// ValidationOptions describes runtime listener semantics which cannot be
+// inferred from platform-independent Canonical Intent.
+type ValidationOptions struct {
+	ReservedListeners     []Listener
+	IPv6WildcardDualStack bool
+}
+
+// ValidateWithOptions combines the Canonical contract with the listener
+// addresses reserved by one platform adapter.
+func ValidateWithOptions(intent Intent, options ValidationOptions) Validation {
 	validation := Validation{Errors: []Issue{}, Warnings: []Issue{}}
 	err := func(code, objectType, objectID, option, message string) {
 		validation.Errors = append(validation.Errors, Issue{Code: code, ObjectType: objectType, ObjectID: objectID, Option: option, Message: message})
@@ -156,19 +176,21 @@ func Validate(intent Intent) Validation {
 		validateDNSProfile(profile, err, warn)
 	}
 	localProxies := make(map[string]LocalProxy, len(intent.LocalProxies))
-	listenPorts := map[string]string{}
+	listeners := append([]Listener{}, options.ReservedListeners...)
 	for _, proxy := range intent.LocalProxies {
 		localProxies[proxy.ID] = proxy
 		if !proxy.Enabled {
 			continue
 		}
 		validateLocalProxy(proxy, err)
-		key := net.JoinHostPort(proxy.Listen, strconv.Itoa(proxy.ListenPort))
-		if previous, exists := listenPorts[key]; exists {
-			err("PORT_COLLISION", "local_proxy", proxy.ID, "listen_port", "listen address collides with "+previous)
-		} else {
-			listenPorts[key] = proxy.ID
+		listener := Listener{Address: proxy.Listen, Port: proxy.ListenPort, Owner: proxy.ID}
+		for _, previous := range listeners {
+			if ListenersOverlap(listener, previous, options.IPv6WildcardDualStack) {
+				err("PORT_COLLISION", "local_proxy", proxy.ID, "listen_port", "listen address collides with "+previous.Owner)
+				break
+			}
 		}
+		listeners = append(listeners, listener)
 	}
 
 	defaultCount, defaultSeen := 0, false
@@ -191,6 +213,36 @@ func Validate(intent Intent) Validation {
 	validation.OK = len(validation.Errors) == 0
 	return validation
 }
+
+// ListenersOverlap reports whether two listener addresses would compete for
+// the same port. An IPv4 wildcard owns only IPv4. An IPv6 wildcard additionally
+// owns IPv4 when the target runtime opens it as a dual-stack socket.
+func ListenersOverlap(first, second Listener, ipv6WildcardDualStack bool) bool {
+	if first.Port < 1 || first.Port > 65535 || first.Port != second.Port {
+		return false
+	}
+	firstAddress, firstErr := netip.ParseAddr(first.Address)
+	secondAddress, secondErr := netip.ParseAddr(second.Address)
+	if firstErr != nil || secondErr != nil {
+		return false
+	}
+	firstAddress = firstAddress.Unmap()
+	secondAddress = secondAddress.Unmap()
+	if firstAddress == secondAddress {
+		return true
+	}
+	if firstAddress.Is4() == secondAddress.Is4() {
+		return firstAddress.IsUnspecified() || secondAddress.IsUnspecified()
+	}
+	if !ipv6WildcardDualStack {
+		return false
+	}
+	return (firstAddress.Is6() && firstAddress.IsUnspecified()) || (secondAddress.Is6() && secondAddress.IsUnspecified())
+}
+
+// ValidGeoCategory exposes the Canonical selector grammar to the shared
+// platform validator without duplicating it in each frontend or adapter.
+func ValidGeoCategory(value string) bool { return validGeo.MatchString(value) }
 
 func validateProbeURL(raw, objectID, option string, err issueFn) {
 	if raw == "" {

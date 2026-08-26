@@ -438,12 +438,8 @@ async function main() {
 	assert.deepEqual(domainMatch.currentLine('full:a.example\ngeosite:media\nregexp:x', 27),
 		{ start: 15, end: 28, value: 'geosite:media' },
 		'Completion reads only the line under the cursor');
-	assert.equal(domainMatch.validate('geo_rule', 'geosite:category-media@test'), true,
-		'GeoSite attribute selectors pass only when the exact selector is known');
-	assert.notEqual(domainMatch.validate('geo_rule', 'geosite:category-media@missing'), true,
-		'Unknown GeoSite attribute selectors are rejected even when the base category exists');
-	assert.notEqual(domainMatch.validate('geo_rule', 'geosite:not-present@cn'), true,
-		'Names absent from current Geo data are rejected in the editor');
+	assert.equal(domainMatch.validate, undefined,
+		'Geo existence is decided by the shared backend validator, not duplicated in the editor');
 	const editorInstance = Object.create(domainMatch.type.prototype);
 	editorInstance.option = 'domain_match';
 	assert.equal(editorInstance.cfgvalue('geo_rule'),
@@ -733,8 +729,11 @@ async function main() {
 		steerSource.includes('routeSpeedtest: function(route, download)') &&
 		steerSource.includes('overviewProbe: function(kind)') &&
 		steerSource.includes('validate: function()') &&
+		steerSource.includes('commitCandidate: function()') &&
+		steerSource.includes('this.commitCandidate()') &&
+		!steerSource.includes('callUCICommit') &&
 		!steerSource.includes('callPlan'),
-		'LuCI helper exposes diagnostics and independent validation without a plan contract');
+		'LuCI helper exposes diagnostics and backend-validates candidates before commit without a plan contract');
 	const rpcSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/root/usr/share/rpcd/ucode/luci.steer'), 'utf8');
 	assert.ok(rpcSource.includes("args: { node: '', download: false }") &&
@@ -752,6 +751,14 @@ async function main() {
 	assert.ok(rpcSource.includes("args: { id: '' }") &&
 		rpcSource.includes("args: { id: '', node: '' }"),
 		'Subscription RPC methods declare their input arguments');
+	assert.ok(rpcSource.includes("'-P', deltaDirectory, 'export', 'steer'") &&
+		rpcSource.includes("command_json('/usr/sbin/steer validate --config '") &&
+		rpcSource.includes('request?.args?.ubus_rpc_session') &&
+		rpcSource.includes("ubus.defer('uci', 'commit'") &&
+		rpcSource.includes('function(code, reply)') &&
+		rpcSource.includes('committed: code == 0') &&
+		rpcSource.includes('call: commit_candidate'),
+		'One backend transaction validates the current LuCI session overlay before standard UCI commit');
 
 	console.log('LuCI view regression tests passed.');
 }

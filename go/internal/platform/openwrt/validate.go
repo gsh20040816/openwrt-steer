@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package linux
+package openwrt
 
 import (
 	"github.com/gsh20040816/steer/go/internal/geodata"
@@ -15,8 +15,7 @@ func Validate(value model.Intent) model.Validation {
 func ValidateWithGeoDataDirectory(value model.Intent, seedDirectory string) model.Validation {
 	return platformvalidation.Validate(value, platformvalidation.Options{
 		ReservedListeners: []model.Listener{
-			platformvalidation.ReservedListener("0.0.0.0", DNSPort, "Linux DNS IPv4"),
-			platformvalidation.ReservedListener("::", DNSPort6, "Linux DNS IPv6"),
+			platformvalidation.ReservedListener("::", DNSPort, "OpenWrt DNS"),
 		},
 		IPv6WildcardDualStack: true,
 		GeoDataDirectory:      seedDirectory,

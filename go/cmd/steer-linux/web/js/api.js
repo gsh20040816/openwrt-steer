@@ -72,23 +72,6 @@
     return data;
   }
 
-  function validateGeoCategories(intent, catalogs) {
-    const errors = [];
-    (intent.rules || []).forEach((rule) => {
-      [['geosite', rule.domain_match], ['geoip', rule.ip_match]].forEach(([kind, values]) => {
-        if (!catalogs[kind]?.readable) return;
-        const known = new Set(catalogs[kind].names || []);
-        S.asList(values).filter((value) => String(value).startsWith(`${kind}:`)).forEach((value) => {
-          const category = String(value).slice(kind.length + 1);
-          if (!known.has(category)) {
-            errors.push(`${rule.id || 'rule'}: ${value} 不存在于当前 ${kind} 数据库`);
-          }
-        });
-      });
-    });
-    return errors;
-  }
-
   const api = {
     async overview() { return (await request('/api/v1/overview')).data; },
     async runtime() { return (await request('/api/v1/runtime')).data; },
@@ -187,5 +170,5 @@
     }
   };
 
-  Object.assign(S, { api, auth, validateGeoCategories });
+  Object.assign(S, { api, auth });
 })();

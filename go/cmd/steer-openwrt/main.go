@@ -165,6 +165,7 @@ func runParseNodes(args []string) error {
 func runValidate(args []string) error {
 	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
 	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -176,7 +177,7 @@ func runValidate(args []string) error {
 		writeJSON(decodeValidation)
 		return errors.New("configuration decode failed")
 	}
-	validation := model.Validate(value)
+	validation := openwrt.ValidateWithGeoDataDirectory(value, *seedDirectory)
 	writeJSON(validation)
 	if !validation.OK {
 		return errors.New("configuration validation failed")
@@ -190,6 +191,7 @@ func runApply(args []string) error {
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
+	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
 	nftBinary := flags.String("nft", "/usr/sbin/nft", "nft binary")
 	initScript := flags.String("init", "/etc/init.d/steer", "procd init script")
 	if err := flags.Parse(args); err != nil {
@@ -203,9 +205,13 @@ func runApply(args []string) error {
 		if !decodeValidation.OK {
 			return coreapply.Result{Validation: &decodeValidation}, errors.New("configuration decode failed")
 		}
+		validation := openwrt.ValidateWithGeoDataDirectory(value, *seedDirectory)
+		if !validation.OK {
+			return coreapply.Result{Validation: &validation}, openwrt.ValidationError{Validation: validation}
+		}
 		backend := openwrt.NewBackend(openwrt.ExecRunner{}, value, openwrt.BackendOptions{
 			RunDirectory: *runDirectory, StateDirectory: *stateDirectory, SingBoxBinary: *singBoxPath,
-			NFTBinary: *nftBinary, InitScript: *initScript,
+			GeoDataDirectory: *seedDirectory, NFTBinary: *nftBinary, InitScript: *initScript,
 		})
 		return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
 	})
@@ -275,6 +281,7 @@ func runServiceStart(args []string) error {
 	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
+	seedDirectory := flags.String("seed-dir", "/usr/share/steer/geodata-seed", "package-owned Geo seed directory")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
 	nftBinary := flags.String("nft", "/usr/sbin/nft", "nft binary")
 	if err := flags.Parse(args); err != nil {
@@ -292,7 +299,7 @@ func runServiceStart(args []string) error {
 	if !decodeValidation.OK {
 		return errors.New(decodeValidation.Errors[0].Message)
 	}
-	validation := model.Validate(value)
+	validation := openwrt.ValidateWithGeoDataDirectory(value, *seedDirectory)
 	if !validation.OK {
 		issue := validation.Errors[0]
 		return fmt.Errorf("configuration validation failed at %s %q option %q: %s", issue.ObjectType, issue.ObjectID, issue.Option, issue.Message)
@@ -301,7 +308,7 @@ func runServiceStart(args []string) error {
 		return errors.New("cannot start a disabled configuration")
 	}
 	backend := openwrt.NewBackend(openwrt.ExecRunner{}, value, openwrt.BackendOptions{
-		RunDirectory: *runDirectory, StateDirectory: *stateDirectory, SingBoxBinary: *singBoxPath, NFTBinary: *nftBinary,
+		RunDirectory: *runDirectory, StateDirectory: *stateDirectory, GeoDataDirectory: *seedDirectory, SingBoxBinary: *singBoxPath, NFTBinary: *nftBinary,
 	})
 	compiled := compiler.Compile(value, backend.CompilerOptions())
 	candidate, err := backend.Prepare(context.Background(), value, compiled)

@@ -190,7 +190,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		return nil, fmt.Errorf("enabled subscription %q was not found", id)
 	}
 	if len(changes) > 0 {
-		validation := model.Validate(intent)
+		validation := Validate(intent)
 		if !validation.OK {
 			issue := validation.Errors[0]
 			return nil, fmt.Errorf("subscription update produced invalid candidate: %s %q option %q: %s", issue.ObjectType, issue.ObjectID, issue.Option, issue.Message)
@@ -266,7 +266,7 @@ func CleanSubscriptionNodeWithWriter(configPath, stateDirectory, id, nodeID stri
 	if !found {
 		return SubscriptionSnapshot{}, fmt.Errorf("subscription node %q is not present in UCI", nodeID)
 	}
-	validation := model.Validate(candidate)
+	validation := Validate(candidate)
 	if !validation.OK {
 		for _, issue := range validation.Errors {
 			if issue.Code == "DANGLING_NODE" && issue.ObjectType == "route" && issue.Option == "node" {

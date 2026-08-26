@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	macosplatform "github.com/gsh20040816/steer/go/internal/platform/macos"
 )
@@ -97,6 +98,49 @@ func TestControlServiceRejectsInvalidDocumentBeforeWrite(t *testing.T) {
 	if response.OK || !strings.Contains(response.Error, "decode canonical configuration") {
 		t.Fatalf("unexpected response: %+v", response)
 	}
+}
+
+func TestControlServiceReturnsStructuredGeoValidationBeforeWrite(t *testing.T) {
+	document, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := model.DecodeJSON(bytes.NewReader(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value.Rules = append([]model.Rule{{
+		ID: "geo", Enabled: true, DNSProfile: value.Rules[0].DNSProfile, Route: value.Rules[0].Route,
+		DomainMatch: []string{"geosite:cn"},
+	}}, value.Rules...)
+	var candidate bytes.Buffer
+	if err := model.EncodeJSON(&candidate, value); err != nil {
+		t.Fatal(err)
+	}
+	written := false
+	service := &controlService{
+		configPath: filepath.Join(t.TempDir(), "config.json"),
+		revision:   func(string) (string, error) { return "current", nil },
+		options: macosplatform.BackendOptions{
+			GeoDataDirectory: filepath.Join(t.TempDir(), "missing"),
+		},
+		write: func(string, []byte, int) error { written = true; return nil },
+	}
+	response := service.handle(controlRequest{
+		SchemaVersion: controlSchemaVersion, Operation: "save", Document: candidate.String(), ExpectedRevision: "current",
+	})
+	if response.OK || response.Saved || written || response.Validation == nil {
+		t.Fatalf("invalid candidate reached persistence: response=%+v written=%v", response, written)
+	}
+	if response.ErrorCode == controlRevisionRequired || response.ErrorCode == controlRevisionConflict {
+		t.Fatalf("Geo validation was masked by revision handling: %+v", response)
+	}
+	for _, issue := range response.Validation.Errors {
+		if issue.Code == geodata.ErrorManifestInvalid && issue.ObjectType == "rule" && issue.ObjectID == "geo" && issue.Option == "domain_match" {
+			return
+		}
+	}
+	t.Fatalf("structured manifest issue is missing: %#v", response.Validation.Errors)
 }
 
 func TestControlServiceSavedOnlyConfigurationCannotReachApplyHook(t *testing.T) {
