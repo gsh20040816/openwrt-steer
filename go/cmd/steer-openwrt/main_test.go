@@ -45,6 +45,29 @@ func TestExportPackagedFreshDefaultsAsCanonicalIntent(t *testing.T) {
 	}
 }
 
+func TestRuntimeReportsStructuredSingBoxVersionAndBuildTags(t *testing.T) {
+	root := t.TempDir()
+	singBox := filepath.Join(root, "sing-box")
+	if err := os.WriteFile(singBox, []byte("#!/bin/sh\nprintf 'sing-box version 1.14.0\\nTags: with_quic,with_utls\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output := captureStdout(t, func() error {
+		return runRuntime([]string{"--sing-box", singBox, "--geodata", filepath.Join(root, "missing-geodata")})
+	})
+	var result struct {
+		SingBox struct {
+			Version string   `json:"version"`
+			Tags    []string `json:"tags"`
+		} `json:"sing_box"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.SingBox.Version != "1.14.0" || strings.Join(result.SingBox.Tags, ",") != "with_quic,with_utls" {
+		t.Fatalf("unexpected structured sing-box runtime facts: %s", output)
+	}
+}
+
 func captureStdout(t *testing.T, run func() error) []byte {
 	t.Helper()
 	reader, writer, err := os.Pipe()

@@ -60,6 +60,14 @@ struct ConfigurationFormView: View {
                     Text("Bootstrap 服务器必须填写 IP 地址，避免解析环路。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let boundary = SteerUISpec.contract.dnsBoundaries["macos"] {
+                        Text(boundary.bootstrapBoundary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(boundary.encryptedDNSBoundary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .formStyle(.grouped)

@@ -26,11 +26,12 @@ const (
 // Diagnostics is the shared, sanitized report-history contract. Platform
 // adapters add their own validation, Apply and log facts around this payload.
 type Diagnostics struct {
-	Reports          []Report `json:"reports"`
-	SavedDigest      string   `json:"saved_digest,omitempty"`
-	ActiveGeneration string   `json:"active_generation,omitempty"`
-	ActiveDigest     string   `json:"active_digest,omitempty"`
-	Warnings         []string `json:"warnings"`
+	Reports          []Report             `json:"reports"`
+	SavedDigest      string               `json:"saved_digest,omitempty"`
+	ActiveGeneration string               `json:"active_generation,omitempty"`
+	ActiveDigest     string               `json:"active_digest,omitempty"`
+	DNSCapture       DNSCaptureDiagnostic `json:"dns_capture"`
+	Warnings         []string             `json:"warnings"`
 }
 
 func FailureReport(scope, objectID, kind string, err error) Report {

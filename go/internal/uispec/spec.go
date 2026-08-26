@@ -93,6 +93,26 @@ type IDPolicy struct {
 	CollectionPrefixes map[string]string `json:"collection_prefixes"`
 }
 
+type PageResponsibility struct {
+	Summary string   `json:"summary"`
+	Facts   []string `json:"facts"`
+}
+
+type DNSBoundary struct {
+	CaptureMode          string   `json:"capture_mode"`
+	CaptureScope         string   `json:"capture_scope"`
+	Exclusions           []string `json:"exclusions"`
+	BootstrapBoundary    string   `json:"bootstrap_boundary"`
+	EncryptedDNSBoundary string   `json:"encrypted_dns_boundary"`
+	DiagnosticBoundary   string   `json:"diagnostic_boundary"`
+}
+
+type SubscriptionInventoryContract struct {
+	ChangesActiveGeneration bool   `json:"changes_active_generation"`
+	StaleReferencedNodes    string `json:"stale_referenced_nodes"`
+	Notice                  string `json:"notice"`
+}
+
 type Contract struct {
 	SchemaVersion                     int                               `json:"schema_version"`
 	CanonicalSchema                   int                               `json:"canonical_schema"`
@@ -118,6 +138,9 @@ type Contract struct {
 	IPPrefixes                        []string                          `json:"ip_prefixes"`
 	PlatformCapabilities              map[string]PlatformCapabilities   `json:"platform_capabilities"`
 	Navigation                        []NavigationGroup                 `json:"navigation"`
+	PageResponsibilities              map[string]PageResponsibility     `json:"page_responsibilities"`
+	DNSBoundaries                     map[string]DNSBoundary            `json:"dns_boundaries"`
+	SubscriptionInventory             SubscriptionInventoryContract     `json:"subscription_inventory"`
 }
 
 func choices(values ...string) []Choice {
@@ -242,6 +265,42 @@ func ContractValue() Contract {
 			}},
 			{Key: "advanced", Label: "Advanced", Items: []NavigationItem{{Key: "advanced", Label: "Advanced Configuration"}}},
 		},
+		PageResponsibilities: map[string]PageResponsibility{
+			"overview": {
+				Summary: "Draft, Saved and Active summary with last Apply, object scale, warnings and a few recovery actions",
+				Facts:   []string{"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
+			},
+			"diagnostics": {
+				Summary: "Validation, probes, recent reports, port-53 capture inspection and logs",
+				Facts:   []string{"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+			},
+			"system": {
+				Summary: "Runtime, schema, generation, Geo, build, paths and platform component facts",
+				Facts:   []string{"versions", "canonical_schema", "generation", "last_apply", "geo", "build_tags", "dns_capture", "paths", "platform_components"},
+			},
+		},
+		DNSBoundaries: map[string]DNSBoundary{
+			"linux": dnsBoundary(
+				"dedicated_shim",
+				"Host and forwarded TCP/UDP destination port 53 is redirected by nftables to dedicated IPv4/IPv6 DNS inbounds.",
+				[]string{"TUN routing excludes non-global destinations", "marked Steer DNS and TUN traffic is excluded from recapture"},
+			),
+			"openwrt": dnsBoundary(
+				"dedicated_shim",
+				"Router and LAN TCP/UDP destination port 53 is redirected by nftables to the dedicated DNS inbound.",
+				[]string{"TUN routing excludes non-global destinations", "marked Steer DNS and TUN traffic is excluded from recapture"},
+			),
+			"macos": dnsBoundary(
+				"tun_port53_hijack",
+				"TCP/UDP destination port 53 is hijacked only after traffic enters the Steer TUN, including static private ranges.",
+				[]string{"loopback", "link-local", "multicast", "document and reserved special-use ranges"},
+			),
+		},
+		SubscriptionInventory: SubscriptionInventoryContract{
+			ChangesActiveGeneration: false,
+			StaleReferencedNodes:    "preserved",
+			Notice:                  "Subscription inventory updated; current Active configuration was not changed. Nodes still referenced by Routes are preserved as stale.",
+		},
 	}
 
 	contract.NodeFields = []Field{
@@ -301,6 +360,15 @@ func ContractValue() Contract {
 		}
 	}
 	return contract
+}
+
+func dnsBoundary(mode, scope string, exclusions []string) DNSBoundary {
+	return DNSBoundary{
+		CaptureMode: mode, CaptureScope: scope, Exclusions: exclusions,
+		BootstrapBoundary:    "Bootstrap resolves infrastructure hostnames such as a DNS upstream hostname. Direct UDP/TCP bootstrap can use plaintext port 53, but it does not carry the original user query name.",
+		EncryptedDNSBoundary: "Application-owned DoH, DoT and DoQ is ordinary business traffic. Port-53 capture alone neither identifies nor redirects it; control requires that traffic to enter the captured path and a separately verified block or redirect policy.",
+		DiagnosticBoundary:   "The diagnostic verifies port-53 artifacts in the published Active generation; it is not packet observation and does not prove encrypted-DNS blocking or zero leakage.",
+	}
 }
 
 func (contract Contract) FieldsForNodeType(nodeType string) []Field {

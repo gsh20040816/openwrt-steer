@@ -127,6 +127,9 @@ struct ValidationResult: Codable, Sendable, Equatable {
 struct RuntimeVersions {
     var helper = "—"
     var singBox = "—"
+    var singBoxTags: [String] = []
+    var geoVersion = "—"
+    var geoRuleCount: Int? = nil
 }
 
 struct ApplyOutcome: Sendable {
@@ -297,6 +300,7 @@ struct ProbeDiagnostics: Decodable, Sendable {
     let savedDigest: String?
     let activeGeneration: String?
     let activeDigest: String?
+    let dnsCapture: DNSCaptureDiagnostic?
     let warnings: [String]
 
     enum CodingKeys: String, CodingKey {
@@ -304,11 +308,24 @@ struct ProbeDiagnostics: Decodable, Sendable {
         case savedDigest = "saved_digest"
         case activeGeneration = "active_generation"
         case activeDigest = "active_digest"
+        case dnsCapture = "dns_capture"
     }
 
     static let empty = ProbeDiagnostics(
-        reports: [], savedDigest: nil, activeGeneration: nil, activeDigest: nil, warnings: []
+        reports: [], savedDigest: nil, activeGeneration: nil, activeDigest: nil, dnsCapture: nil, warnings: []
     )
+}
+
+struct DNSCaptureDiagnostic: Decodable, Sendable {
+    let mode: String
+    let activeGeneration: String?
+    let configured: Bool
+    let detail: String
+
+    enum CodingKeys: String, CodingKey {
+        case mode, configured, detail
+        case activeGeneration = "active_generation"
+    }
 }
 
 struct SubscriptionFailure: Decodable, Sendable {
@@ -411,6 +428,12 @@ private struct SubscriptionStatusResponse: Decodable {
 private struct GeoCatalogResponse: Decodable {
     let kind: String
     let names: [String]
+}
+
+private struct GeoManifestSummary: Decodable {
+    struct Upstream: Decodable { let version: String }
+    let upstream: Upstream
+    let rules: [JSONValue]
 }
 
 struct SystemComponentFact: Identifiable, Sendable, Equatable {
@@ -906,9 +929,26 @@ struct HelperBackendClient: BackendClient {
         try requireExecutable(singBox)
         let helperResult = try await Self.execute(helper, ["version"])
         let singBoxResult = try await Self.execute(singBox, ["version", "--name"])
+        let singBoxBuild = try await Self.execute(singBox, ["version"])
+        let buildText = String(decoding: singBoxBuild.stdout, as: UTF8.self)
+        let buildLines = buildText.split(separator: "\n")
+        let tagsLine = buildLines.first {
+            String($0).trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("tags:")
+        }
+        let tagsText = tagsLine.flatMap {
+            $0.split(separator: ":", maxSplits: 1).last.map(String.init)
+        } ?? ""
+        let tags = tagsText.split { $0 == "," || $0.isWhitespace }.map(String.init)
+        let manifest = try? JSONDecoder().decode(
+            GeoManifestSummary.self,
+            from: Data(contentsOf: URL(fileURLWithPath: Self.geoManifestPath))
+        )
         return RuntimeVersions(
             helper: String(decoding: helperResult.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines),
-            singBox: String(decoding: singBoxResult.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            singBox: String(decoding: singBoxResult.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines),
+            singBoxTags: tags,
+            geoVersion: manifest?.upstream.version ?? "—",
+            geoRuleCount: manifest?.rules.count
         )
     }
 
@@ -1197,6 +1237,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var probeReports: [String: ProbeReport] = [:]
     @Published private(set) var diagnosticsSavedDigest = ""
     @Published private(set) var diagnosticsWarnings: [String] = []
+    @Published private(set) var diagnosticsDNSCapture: DNSCaptureDiagnostic?
     @Published var geositeNames: [String] = []
     @Published var geoipNames: [String] = []
     @Published private(set) var savedRevision = ""
@@ -1933,7 +1974,7 @@ final class AppModel: ObservableObject {
         guard let revisionConflict else { return "" }
         switch revisionConflict.operation {
         case .subscriptionInventory:
-            return "订阅节点库存已更新，但更新期间本地 Draft 也发生了修改。Reload Saved 会丢弃本地修改；显式覆盖只保存本地 Draft，不会自动 Apply。"
+            return "订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。更新期间本地 Draft 也发生了修改；Reload Saved 会丢弃本地修改，显式覆盖只保存本地 Draft。"
         case .apply:
             return "Saved 配置已在加载后发生变化。Reload Saved 会丢弃本地修改；显式覆盖会保存并 Apply 当前本地 Draft。"
         case .save:
@@ -2136,6 +2177,7 @@ final class AppModel: ObservableObject {
     private func installDiagnostics(_ diagnostics: ProbeDiagnostics) {
         diagnosticsSavedDigest = diagnostics.savedDigest ?? ""
         diagnosticsWarnings = diagnostics.warnings
+        diagnosticsDNSCapture = diagnostics.dnsCapture
         for report in diagnostics.reports {
             let key = reportKey(report)
             probeReports[key] = report
@@ -2178,7 +2220,7 @@ final class AppModel: ObservableObject {
                 let updateSummary = subscriptionStatus(id)?.inventorySummary ?? "节点库存已更新"
                 if !startingWasDirty && draftMutationSequence == startingDraftSequence {
                     replaceDraft(with: snapshot)
-                    message = "订阅已更新：\(updateSummary)；运行配置未改变，未自动 Apply"
+                    message = "订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。\(updateSummary)"
                 } else {
                     presentSubscriptionInventoryConflict(snapshot)
                 }
@@ -2602,7 +2644,7 @@ final class AppModel: ObservableObject {
             operation: .subscriptionInventory
         )
         isDirty = true
-        message = "订阅已更新 Saved 节点库存；更新期间的本地 Draft 已保留，运行态未自动 Apply"
+        message = "订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。更新期间的本地 Draft 已保留。"
     }
 
     private func perform(message pendingMessage: String, operation: @escaping () async throws -> Void) {

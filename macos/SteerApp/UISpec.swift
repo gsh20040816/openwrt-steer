@@ -173,6 +173,41 @@ struct UIIDPolicy: Decodable {
     }
 }
 
+struct UIPageResponsibility: Decodable {
+    let summary: String
+    let facts: [String]
+}
+
+struct UIDNSBoundary: Decodable {
+    let captureMode: String
+    let captureScope: String
+    let exclusions: [String]
+    let bootstrapBoundary: String
+    let encryptedDNSBoundary: String
+    let diagnosticBoundary: String
+
+    enum CodingKeys: String, CodingKey {
+        case exclusions
+        case captureMode = "capture_mode"
+        case captureScope = "capture_scope"
+        case bootstrapBoundary = "bootstrap_boundary"
+        case encryptedDNSBoundary = "encrypted_dns_boundary"
+        case diagnosticBoundary = "diagnostic_boundary"
+    }
+}
+
+struct UISubscriptionInventoryContract: Decodable {
+    let changesActiveGeneration: Bool
+    let staleReferencedNodes: String
+    let notice: String
+
+    enum CodingKeys: String, CodingKey {
+        case notice
+        case changesActiveGeneration = "changes_active_generation"
+        case staleReferencedNodes = "stale_referenced_nodes"
+    }
+}
+
 struct UIContract: Decodable {
     let schemaVersion: Int
     let canonicalSchema: Int
@@ -198,6 +233,9 @@ struct UIContract: Decodable {
     let ipPrefixes: [String]
     let platformCapabilities: [String: UIPlatformCapabilities]
     let navigation: [UINavigationGroup]
+    let pageResponsibilities: [String: UIPageResponsibility]
+    let dnsBoundaries: [String: UIDNSBoundary]
+    let subscriptionInventory: UISubscriptionInventoryContract
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -224,6 +262,9 @@ struct UIContract: Decodable {
         case ipPrefixes = "ip_prefixes"
         case platformCapabilities = "platform_capabilities"
         case navigation
+        case pageResponsibilities = "page_responsibilities"
+        case dnsBoundaries = "dns_boundaries"
+        case subscriptionInventory = "subscription_inventory"
     }
 }
 

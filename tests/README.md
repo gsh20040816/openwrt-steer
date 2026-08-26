@@ -41,7 +41,7 @@ swift test --disable-sandbox
 
 - `internal/subscription` Go 测试：三端共享的代理 URI、多行与 Base64 解析；
 - `subscription-status-fixtures.json`：三端共享的 never-fetched、success、skipped、failed-after-success、disabled 与部分 stale 引用状态；
-- `probe-diagnostics-fixtures.json`：三端共享的完整 sanitized probe 报告与 enabled/disabled 操作事实；
+- `probe-diagnostics-fixtures.json`：三端共享的完整 sanitized probe 报告、Active port-53 配置检查与 enabled/disabled 操作事实；
 - `state-lifecycle-fixtures.json`：三端共享的 fresh、pending-disable、failed-Apply 与 active Draft/Saved/Active 状态；
 - `validation-issue-fixtures.json`：三端写失败的完整问题定位与无凭据消息合同；
 - `collection-reference-fixtures.json`：Node/Route/DNS/Local Proxy/Subscription 删除引用保护合同；

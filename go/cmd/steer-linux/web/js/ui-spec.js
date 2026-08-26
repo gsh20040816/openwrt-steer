@@ -1363,5 +1363,86 @@
         }
       ]
     }
-  ]
+  ],
+  "page_responsibilities": {
+    "diagnostics": {
+      "summary": "Validation, probes, recent reports, port-53 capture inspection and logs",
+      "facts": [
+        "validation",
+        "probes",
+        "recent_reports",
+        "dns_capture",
+        "last_apply",
+        "logs"
+      ]
+    },
+    "overview": {
+      "summary": "Draft, Saved and Active summary with last Apply, object scale, warnings and a few recovery actions",
+      "facts": [
+        "draft",
+        "saved",
+        "active",
+        "last_apply",
+        "object_counts",
+        "warning_summary",
+        "quick_actions"
+      ]
+    },
+    "system": {
+      "summary": "Runtime, schema, generation, Geo, build, paths and platform component facts",
+      "facts": [
+        "versions",
+        "canonical_schema",
+        "generation",
+        "last_apply",
+        "geo",
+        "build_tags",
+        "dns_capture",
+        "paths",
+        "platform_components"
+      ]
+    }
+  },
+  "dns_boundaries": {
+    "linux": {
+      "capture_mode": "dedicated_shim",
+      "capture_scope": "Host and forwarded TCP/UDP destination port 53 is redirected by nftables to dedicated IPv4/IPv6 DNS inbounds.",
+      "exclusions": [
+        "TUN routing excludes non-global destinations",
+        "marked Steer DNS and TUN traffic is excluded from recapture"
+      ],
+      "bootstrap_boundary": "Bootstrap resolves infrastructure hostnames such as a DNS upstream hostname. Direct UDP/TCP bootstrap can use plaintext port 53, but it does not carry the original user query name.",
+      "encrypted_dns_boundary": "Application-owned DoH, DoT and DoQ is ordinary business traffic. Port-53 capture alone neither identifies nor redirects it; control requires that traffic to enter the captured path and a separately verified block or redirect policy.",
+      "diagnostic_boundary": "The diagnostic verifies port-53 artifacts in the published Active generation; it is not packet observation and does not prove encrypted-DNS blocking or zero leakage."
+    },
+    "macos": {
+      "capture_mode": "tun_port53_hijack",
+      "capture_scope": "TCP/UDP destination port 53 is hijacked only after traffic enters the Steer TUN, including static private ranges.",
+      "exclusions": [
+        "loopback",
+        "link-local",
+        "multicast",
+        "document and reserved special-use ranges"
+      ],
+      "bootstrap_boundary": "Bootstrap resolves infrastructure hostnames such as a DNS upstream hostname. Direct UDP/TCP bootstrap can use plaintext port 53, but it does not carry the original user query name.",
+      "encrypted_dns_boundary": "Application-owned DoH, DoT and DoQ is ordinary business traffic. Port-53 capture alone neither identifies nor redirects it; control requires that traffic to enter the captured path and a separately verified block or redirect policy.",
+      "diagnostic_boundary": "The diagnostic verifies port-53 artifacts in the published Active generation; it is not packet observation and does not prove encrypted-DNS blocking or zero leakage."
+    },
+    "openwrt": {
+      "capture_mode": "dedicated_shim",
+      "capture_scope": "Router and LAN TCP/UDP destination port 53 is redirected by nftables to the dedicated DNS inbound.",
+      "exclusions": [
+        "TUN routing excludes non-global destinations",
+        "marked Steer DNS and TUN traffic is excluded from recapture"
+      ],
+      "bootstrap_boundary": "Bootstrap resolves infrastructure hostnames such as a DNS upstream hostname. Direct UDP/TCP bootstrap can use plaintext port 53, but it does not carry the original user query name.",
+      "encrypted_dns_boundary": "Application-owned DoH, DoT and DoQ is ordinary business traffic. Port-53 capture alone neither identifies nor redirects it; control requires that traffic to enter the captured path and a separately verified block or redirect policy.",
+      "diagnostic_boundary": "The diagnostic verifies port-53 artifacts in the published Active generation; it is not packet observation and does not prove encrypted-DNS blocking or zero leakage."
+    }
+  },
+  "subscription_inventory": {
+    "changes_active_generation": false,
+    "stale_referenced_nodes": "preserved",
+    "notice": "Subscription inventory updated; current Active configuration was not changed. Nodes still referenced by Routes are preserved as stale."
+  }
 }; })();

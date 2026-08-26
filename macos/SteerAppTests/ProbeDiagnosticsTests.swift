@@ -45,6 +45,10 @@ final class ProbeDiagnosticsTests: XCTestCase {
         XCTAssertEqual(document.objects.routes.map(\.enabled), [true, false])
         XCTAssertEqual(document.objects.subscriptions.map(\.enabled), [true, false])
         XCTAssertEqual(document.diagnostics.reports.map(\.scope), ["overview", "nodes", "routes"])
+        XCTAssertEqual(document.diagnostics.dnsCapture?.mode, "dedicated_shim")
+        XCTAssertEqual(document.diagnostics.dnsCapture?.activeGeneration, "generation-a")
+        XCTAssertEqual(document.diagnostics.dnsCapture?.configured, true)
+        XCTAssertTrue(document.diagnostics.dnsCapture?.detail.contains("port-53 capture artifacts") == true)
 
         let overview = document.diagnostics.reports[0]
         XCTAssertEqual(overview.results.first?.url, "https://probe.example/REDACTED")

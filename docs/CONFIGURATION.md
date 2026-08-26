@@ -29,7 +29,7 @@ config bootstrap 'bootstrap'
 - `probe_proxy`：按当前 Active 规则访问的代理测试目标，以及裸节点和路由链临时测试的默认目标；
 - `speedtest_proxy`：完整下载测速。
 
-后端不会补默认 URL。Bootstrap 只支持 UDP/TCP，服务器必须是 IP 字面量，策略为 `prefer_ipv4`、`prefer_ipv6`、`ipv4_only` 或 `ipv6_only`。
+后端不会补默认 URL。Bootstrap 只支持 UDP/TCP，服务器必须是 IP 字面量，策略为 `prefer_ipv4`、`prefer_ipv6`、`ipv4_only` 或 `ipv6_only`。Bootstrap 只解析 DNS 上游等基础设施主机名；Direct UDP/TCP Bootstrap 可能产生明文 53，但其中不是原始业务查询域名。
 
 ## 节点、路由和前置代理
 
@@ -82,6 +82,8 @@ config dns_profile 'secure_dns'
 ```
 
 协议支持 `udp tcp tls https quic h3`。规则选择代理 Route 时，DNS transport 使用同一 Route 及其完整前置链。本地 SOCKS、HTTP 或 Mixed 入口收到域名目标后，会在业务路由前通过 sing-box 原生 `resolve` action 复用同一组 DNS rules，因此按匹配规则选择 DNS Profile；Direct 不会再用 Bootstrap 解析业务域名，Proxy 也使用所选 Profile 的解析结果。已经是 IP 的目标不会触发该查询。Steer 不设置全局 `dns.strategy`，普通客户端明确发出的 A/AAAA 查询保持透明；DNS server 使用域名时，其 `domain_resolver.strategy` 来自独立的 `bootstrap.strategy`。sing-box 1.14 已废弃 DNS rule action 的 query-level `strategy`，schema 9 删除了原 `dns_profile.strategy`，Steer 不再生成该字段。缓存容量、持久化与乐观缓存是全局设置。
+
+平台 capture 只接管进入各自捕获路径的 TCP/UDP 目标端口 53。应用自带 DoH、DoT、DoQ 是普通业务流量，port-53 capture 本身无法识别或重定向；除非另有经过验证的阻断/重定向策略，否则 UI 和文档都不承诺“全部 DNS 必然经过所选 Profile”。Diagnostics 的 DNS 检查只核对已发布 Active generation 中的预期 sing-box/nftables 配置，不是流量抓包，也不证明零泄漏。为保持网络稳定，Steer 不把整个 TUN 或本地链路流量无差别送入 DNS hijack。
 
 ## 规则
 
@@ -144,7 +146,7 @@ steer subscription clean --id public --node <node-id>
 
 三端新增订阅的默认更新周期统一为 `6h`。`update_interval` 留空时订阅仅允许手动更新；平台每 15 分钟运行一次轻量调度器，只有非空周期首次抓取或已到期时才下载。带 `--id` 的显式更新属于手动操作，始终忽略周期限制。
 
-URL 必须是可访问的 HTTP 或 HTTPS 地址，允许私网地址和正常重定向。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。单条无效节点会被跳过并计数；如果没有任何有效节点，更新失败并保留上次成功节点库。非空更新使用稳定 ID，保留本地启用状态；上游消失的节点标为 `pinned_stale`，必须显式 clean。订阅提交节点后不自动 Apply。
+URL 必须是可访问的 HTTP 或 HTTPS 地址，允许私网地址和正常重定向。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。单条无效节点会被跳过并计数；如果没有任何有效节点，更新失败并保留上次成功节点库。非空更新使用稳定 ID，保留本地启用状态；上游消失且仍被 Route 引用的节点保留并标为 `pinned_stale`，必须先解除引用再显式 clean，cleanup 不级联改写 Route。订阅提交节点后不自动 Apply、不创建仅由库存变化触发的 generation；三端提示同时展示 added/current/stale/skipped，并明确当前 Active 配置未改变。
 
 三端共用同一状态契约：`never_fetched`、可空的 `last_success`、独立的 `last_failure`、`node_count`、`current`、`added`、`skipped` 和逐节点 `stale`。失败只写入时间与脱敏摘要，不覆盖上次成功时间和节点库；`stale.referenced_by` 列出阻止清理的 Route。已停用订阅不能 Update。
 

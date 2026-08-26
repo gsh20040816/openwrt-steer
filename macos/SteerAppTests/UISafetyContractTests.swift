@@ -149,6 +149,25 @@ final class UISafetyContractTests: XCTestCase {
         XCTAssertFalse(SteerUISpec.contract.platformCapabilities["macos"]?.sourceMACReason?.isEmpty ?? true)
     }
 
+    func testSharedPageDNSAndSubscriptionResponsibilityContractsDecode() throws {
+        XCTAssertEqual(
+            Set(SteerUISpec.contract.pageResponsibilities["overview"]?.facts ?? []),
+            Set(["draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"])
+        )
+        XCTAssertTrue(SteerUISpec.contract.pageResponsibilities["diagnostics"]?.facts.contains("dns_capture") == true)
+        XCTAssertTrue(SteerUISpec.contract.pageResponsibilities["system"]?.facts.contains("build_tags") == true)
+
+        let boundary = try XCTUnwrap(SteerUISpec.contract.dnsBoundaries["macos"])
+        XCTAssertEqual(boundary.captureMode, "tun_port53_hijack")
+        XCTAssertFalse(boundary.exclusions.isEmpty)
+        XCTAssertTrue(boundary.bootstrapBoundary.contains("infrastructure hostnames"))
+        XCTAssertTrue(boundary.encryptedDNSBoundary.contains("Port-53 capture alone"))
+        XCTAssertTrue(boundary.diagnosticBoundary.contains("does not prove"))
+
+        XCTAssertFalse(SteerUISpec.contract.subscriptionInventory.changesActiveGeneration)
+        XCTAssertEqual(SteerUISpec.contract.subscriptionInventory.staleReferencedNodes, "preserved")
+    }
+
     func testSharedValidationIssuesPreserveLocationWithoutSecrets() throws {
         let document = try decode(ValidationDocument.self, "ui/validation-issue-fixtures.json")
         XCTAssertEqual(document.schemaVersion, 1)

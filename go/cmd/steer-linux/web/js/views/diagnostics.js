@@ -82,6 +82,8 @@
         S.api.validate(S.store.intent).catch((error) => ({ errors: [{ code: 'VALIDATION_UNAVAILABLE', message: error.message }], warnings: [] }))
       ]);
       const status = S.store.overview?.status || {};
+      const dnsBoundary = S.uiSpec.dns_boundaries.linux;
+      const dnsCapture = diagnostics.dns_capture || {};
       if (!isCurrent()) return;
       const refresh = h('button', { class: 'btn', onclick: async () => {
         refresh.disabled = true;
@@ -98,6 +100,21 @@
           h('span', { class: 'eyebrow' }, '能力边界'),
           h('p', { class: 'muted' }, overviewBoundary),
           h('p', { class: 'muted' }, '节点与路由测试使用独立临时核心验证所选链路访问测试目标，不代表当前 Active 规则命中了该节点或路由。')
+        ]),
+        h('section', { class: 'card card--edge edge--dns' }, [
+          h('div', { class: 'card__head' }, [
+            h('div', {}, h('span', { class: 'eyebrow' }, 'DNS capture'), h('div', { class: 'card__title' }, 'Active port-53 配置检查')),
+            h('span', { class: `badge ${dnsCapture.configured ? 'badge--ok' : 'badge--warn'}` }, dnsCapture.configured ? '已配置' : '未确认')
+          ]),
+          h('div', { class: 'facts' }, [
+            fact('模式', dnsCapture.mode || dnsBoundary.capture_mode),
+            fact('Active generation', dnsCapture.active_generation || '—'),
+            fact('结果', dnsCapture.detail || '—'),
+            fact('捕获范围', dnsBoundary.capture_scope),
+            fact('exclusions', dnsBoundary.exclusions.join(' · '))
+          ]),
+          h('p', { class: 'muted' }, dnsBoundary.diagnostic_boundary),
+          h('p', { class: 'muted' }, dnsBoundary.encrypted_dns_boundary)
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Reports'), h('div', { class: 'card__title' }, '最近 Overview / Node / Route 报告'))),

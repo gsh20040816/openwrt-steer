@@ -168,7 +168,8 @@ final class AppStateRevisionTests: XCTestCase {
         XCTAssertTrue(model.isDirty)
         XCTAssertEqual(model.revisionConflict?.currentRevision, "revision-2")
         XCTAssertEqual(model.revisionConflict?.operation, .subscriptionInventory)
-        XCTAssertTrue(model.message.contains("运行态未自动 Apply"))
+        XCTAssertTrue(model.message.contains("当前运行配置未改变"))
+        XCTAssertTrue(model.message.contains("保留为 stale"))
         let appliedBeforeOverwrite = await backend.appliedCount()
         XCTAssertEqual(appliedBeforeOverwrite, 0)
 

@@ -44,6 +44,14 @@ def collect_labels(value) -> set[str]:
 
 generated_labels = collect_labels(ui_spec)
 source_ids.update(generated_labels)
+openwrt_dns_boundary = ui_spec.get("dns_boundaries", {}).get("openwrt", {})
+for field in (
+    "capture_scope", "bootstrap_boundary", "encrypted_dns_boundary",
+    "diagnostic_boundary",
+):
+    if isinstance(openwrt_dns_boundary.get(field), str):
+        source_ids.add(openwrt_dns_boundary[field])
+source_ids.update(openwrt_dns_boundary.get("exclusions", []))
 
 formats = ui_spec.get("input_formats", {})
 expected_formats = {"probe_url", "subscription_url", "positive_duration", "dns_http_path"}

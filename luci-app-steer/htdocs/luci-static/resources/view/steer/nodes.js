@@ -542,7 +542,7 @@ function renderSubscriptionStatus(result, gate) {
 								});
 							}
 							const status = (update.subscriptions || []).find((item) => item.id == subscription.id) || {};
-							const message = _('Inventory updated: added %d, current %d, stale %d, skipped %d. Running configuration was not changed.').format(
+							const message = _('Subscription inventory updated; the current Active configuration was not changed. Nodes still referenced by Routes but no longer advertised by the subscription were preserved as stale. Added %d, current %d, stale %d, skipped %d.').format(
 								status.added || 0, status.current || 0, (status.stale || []).length, status.skipped || 0);
 							ui.addNotification(null, E('p', {}, message), 'warning');
 							return gate.mayReload(startVersion).then((reload) => {

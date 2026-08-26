@@ -855,10 +855,26 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   const diagnosticsRoot = new Element('main');
   await environment.S.views.diagnostics.render(diagnosticsRoot);
   const renderedDiagnostics = text(diagnosticsRoot);
-  for (const expected of ['不证明具体 outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'tested_at', 'steer-web probe log', '最近 Apply 结果']) {
+  for (const expected of ['不证明具体 outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'tested_at', 'steer-web probe log', '最近 Apply 结果', 'Active port-53 配置检查', 'expected port-53 capture artifacts']) {
     assert.match(renderedDiagnostics, new RegExp(expected), `Linux Diagnostics must render ${expected}`);
   }
   assert.doesNotMatch(renderedDiagnostics, /验证 Direct 路径|验证当前代理路径/);
+  assert.strictEqual(findAll(diagnosticsRoot, (element) => element.tag === 'button' && text(element) === '运行测试').length, 3,
+    'Diagnostics exclusively owns the three Overview probes');
+
+  loadView(environment, 'overview');
+  const overviewRoot = new Element('main');
+  await environment.S.views.overview.render(overviewRoot);
+  assert.strictEqual(findAll(overviewRoot, (element) => element.tag === 'button' && text(element) === '运行测试').length, 0,
+    'Overview must not duplicate Diagnostics probes');
+  assert.match(text(overviewRoot), /Draft \/ Saved \/ Active/);
+
+  loadView(environment, 'dns');
+  const dnsRoot = new Element('main');
+  environment.S.views.dns.render(dnsRoot);
+  for (const expected of ['Bootstrap 与应用自带加密 DNS', 'infrastructure hostnames', 'Port-53 capture alone']) {
+    assert.match(text(dnsRoot), new RegExp(expected), `Linux DNS must render ${expected}`);
+  }
 
   loadView(environment, 'nodes');
   const nodesRoot = new Element('main');
@@ -1824,8 +1840,11 @@ async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
   const successIndex = statuses.findIndex((status) => status.id === 'success');
   await updateButtons[successIndex].listeners.click();
   assert.strictEqual(updates, 1);
-  assert.match(text(environment.toasts), /added 2 · current 2 · stale 0 · skipped 0/,
+  const updateToast = text(environment.toasts);
+  assert.match(updateToast, /added 2 · current 2 · stale 0 · skipped 0/,
     'update toast uses the same status contract and all inventory counters');
+  assert.match(updateToast, /当前运行配置未改变/);
+  assert.match(updateToast, /Route 引用.*保留为 stale/);
 }
 
 Promise.resolve()

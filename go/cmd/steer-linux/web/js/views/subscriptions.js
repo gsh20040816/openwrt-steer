@@ -27,6 +27,11 @@
     return `added ${status.added || 0} · current ${status.current || 0} · stale ${(status.stale || []).length} · skipped ${status.skipped || 0}`;
   }
 
+  function updateNotice(status) {
+    const counts = status ? ` ${updateSummary(status)}。` : '';
+    return `订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。${counts}`;
+  }
+
   function requestDelete(subscription) {
     const intent = S.store.intent;
     const owned = intent.nodes.filter((node) => node.source_subscription === subscription.id);
@@ -185,9 +190,7 @@
                 reloaded = reload?.ok === true;
                 if (!reloaded) ui.toast('节点库存已更新；Draft 未自动 reload，请稍后重试', 'warn');
               }
-              if (reloaded) ui.toast(updated
-                ? `节点库存已更新 · ${updateSummary(updated)}；运行配置未改变，未自动 Apply`
-                : '节点库存已更新；运行配置未改变，未自动 Apply', 'warn');
+              if (reloaded) ui.toast(updateNotice(updated), 'warn');
               updateBtn.textContent = '立即更新';
               if (isCurrent()) await view.render(root);
             } catch (e) {
@@ -232,7 +235,7 @@
 
       if (!isCurrent()) return;
       root.append(
-        ui.viewHead('订阅', 'systemd timer 只更新配置，不自动 Apply；更新失败保留旧配置', [
+        ui.viewHead('订阅', 'systemd timer 只更新节点库存，不自动 Apply；被 Route 引用的消失节点保留为 stale', [
           h('button', { class: 'btn btn--primary', onclick: () => openEditor(null) }, '添加订阅')
         ]),
         statuses.length
