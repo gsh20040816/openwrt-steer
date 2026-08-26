@@ -220,35 +220,16 @@ function configureSubscriptionRemoval(section, nodes) {
 }
 
 function protocolLabel(value) {
-	return uiSpec.node_types.find((item) => item.value == value)?.label || value || null;
+	const label = uiSpec.node_types.find((item) => item.value == value)?.label;
+	return label ? steer.uiSpecLabel(label) : (value || null);
 }
 
 function nodeFieldLabel(field) {
-	const labels = {
-		uuid: _('UUID'), username: _('Username'), password: _('Password'), method: 'Method', plugin: 'Plugin',
-		plugin_options: 'Plugin options', security: 'Security', alter_id: 'Alter ID', network: 'Network',
-		packet_encoding: _('UDP packet encoding'), flow: _('Flow'), transport: _('Transport'),
-		transport_path: 'Transport path', transport_host: 'Transport host', service_name: 'gRPC service name',
-		server_ports: _('Port hopping ranges'), hop_interval: _('Port hopping interval'), obfs_type: _('Obfuscation'),
-		obfs_password: _('Obfuscation password'), up_mbps: _('Upload Mbps'), down_mbps: _('Download Mbps'),
-		version: 'Version', congestion_control: 'Congestion control', udp_relay_mode: 'UDP relay mode',
-		udp_over_stream: 'UDP over stream', zero_rtt_handshake: '0-RTT handshake', heartbeat: 'Heartbeat',
-		quic: 'QUIC', quic_congestion_control: 'QUIC congestion control', insecure_concurrency: 'Insecure concurrency',
-		private_key: 'Private key', host_key: 'Host key', host_key_algorithms: 'Host key algorithms',
-		executable_path: 'Executable path', extra_args: 'Extra arguments', data_directory: 'Data directory',
-		tls_server_name: _('TLS server name'), insecure: _('Skip certificate verification'),
-		reality_public_key: _('REALITY public key'), reality_short_id: _('REALITY short ID'),
-		utls_fingerprint: _('uTLS fingerprint')
-	};
-	return labels[field.key] || field.label;
+	return steer.uiSpecLabel(field.label);
 }
 
 function nodeChoiceLabel(item) {
-	const labels = {
-		'': _('Default'), 'None': _('None'), 'Default': _('Default'),
-		'System default': _('System default')
-	};
-	return labels[item.label] || item.label;
+	return steer.uiSpecLabel(item.label);
 }
 
 const SensitiveTextValue = form.TextValue.extend({
@@ -428,16 +409,17 @@ function hasPendingSteerChanges(changes) {
 	return changes?.steer != null && Object.keys(changes.steer).length > 0;
 }
 
-function subscriptionOperationGate(initialChanges, formNode) {
+function subscriptionOperationGate(initialChanges, formNode, permissions) {
 	let formDirty = false;
 	let pending = hasPendingSteerChanges(initialChanges);
 	let version = 0;
 	const buttons = [];
 	const refresh = function() {
 		buttons.forEach((entry) => {
-			const reason = entry.disabledReason || (formDirty
+			const reason = permissions?.[entry.method] === true ? (entry.disabledReason || (formDirty
 				? _('The visible subscription form has unsaved input.')
-				: (pending ? _('Pending Steer changes must be applied or discarded first.') : ''));
+				: (pending ? _('Pending Steer changes must be applied or discarded first.') : '')))
+				: _('Your session does not have permission to perform this action.');
 			entry.button.disabled = reason != '';
 			entry.button.title = reason;
 		});
@@ -451,13 +433,15 @@ function subscriptionOperationGate(initialChanges, formNode) {
 	formNode?.addEventListener?.('change', markDirty);
 
 	return {
-		bind: function(button, disabledReason) {
-			buttons.push({ button, disabledReason: disabledReason || '' });
+		bind: function(button, disabledReason, method) {
+			buttons.push({ button, disabledReason: disabledReason || '', method });
 			refresh();
 			return button;
 		},
 		version: function() { return version; },
-		blockedReason: function(disabledReason) {
+		blockedReason: function(disabledReason, method) {
+			if (permissions?.[method] !== true)
+				return Promise.resolve(_('Your session does not have permission to perform this action.'));
 			if (disabledReason)
 				return Promise.resolve(disabledReason);
 			if (formDirty)
@@ -476,20 +460,21 @@ function subscriptionOperationGate(initialChanges, formNode) {
 	};
 }
 
-function probeOperationGate(initialChanges) {
+function probeOperationGate(initialChanges, allowed) {
 	let pending = hasPendingSteerChanges(initialChanges);
 	const buttons = [];
 	const updateButtons = function() {
 		buttons.forEach((button) => {
-			button.disabled = pending;
-			button.title = pending ? _('Pending Steer changes must be applied or discarded before testing committed Nodes or Routes.') : (button._steerTitle || '');
+			button.disabled = !allowed || pending;
+			button.title = !allowed ? _('Your session does not have permission to test committed Nodes or Routes.')
+				: (pending ? _('Pending Steer changes must be applied or discarded before testing committed Nodes or Routes.') : (button._steerTitle || ''));
 		});
 	};
 	const refresh = function() {
 		return uci.changes().then((changes) => {
 			pending = hasPendingSteerChanges(changes);
 			updateButtons();
-			return !pending;
+			return allowed && !pending;
 		});
 	};
 	const stateChanged = function() { refresh(); };
@@ -508,6 +493,10 @@ function probeOperationGate(initialChanges) {
 			Array.from(formNode?.querySelectorAll?.(selector) || []).forEach((button) => this.bind(button, button.title));
 		},
 		allow: function() {
+			if (!allowed) {
+				ui.addNotification(_('Probe is not permitted'), E('p', {}, _('Your session does not have permission to test committed Nodes or Routes.')), 'warning');
+				return Promise.resolve(false);
+			}
 			return refresh().then((allowed) => {
 				if (!allowed)
 					ui.addNotification(_('Probe is locked'), E('p', {}, _('Apply or discard pending Steer changes before testing the committed configuration.')), 'warning');
@@ -532,7 +521,7 @@ function renderSubscriptionStatus(result, gate) {
 				const updateButton = E('button', {
 					'class': 'btn cbi-button-action',
 					'click': function() {
-						return gate.blockedReason(disabledUpdate).then((reason) => {
+						return gate.blockedReason(disabledUpdate, 'subscription_update').then((reason) => {
 							if (reason) {
 								ui.addNotification(_('Subscription inventory is locked'), E('p', {}, reason), 'warning');
 								return;
@@ -542,7 +531,7 @@ function renderSubscriptionStatus(result, gate) {
 							return steer.updateSubscription(subscription.id).then((update) => {
 							ui.hideModal();
 							if (!update?.ok) {
-								ui.addNotification(_('Subscription update failed'), E('p', {}, update?.error || _('Unknown error')), 'danger');
+								ui.addNotification(_('Subscription update failed'), E('p', {}, steer.rpcErrorText(update)), 'danger');
 								return gate.mayReload(startVersion).then((reload) => {
 									if (reload && update?.error_code != 'PENDING_CHANGES') window.location.reload();
 									return update;
@@ -561,7 +550,7 @@ function renderSubscriptionStatus(result, gate) {
 						});
 					}
 				}, _('Update now'));
-				gate.bind(updateButton, disabledUpdate);
+				gate.bind(updateButton, disabledUpdate, 'subscription_update');
 				const actions = [ updateButton ];
 				stale.forEach((node) => {
 					const references = node.referenced_by || [];
@@ -577,7 +566,7 @@ function renderSubscriptionStatus(result, gate) {
 							]))), 'danger');
 							return;
 						}
-						return gate.blockedReason('').then((reason) => {
+						return gate.blockedReason('', 'subscription_clean').then((reason) => {
 							if (reason) {
 								ui.addNotification(_('Subscription inventory is locked'), E('p', {}, reason), 'warning');
 								return;
@@ -585,7 +574,7 @@ function renderSubscriptionStatus(result, gate) {
 							const startVersion = gate.version();
 							return steer.cleanSubscription(subscription.id, node.id).then((clean) => {
 							if (!clean?.ok) {
-								ui.addNotification(_('Subscription node removal failed'), E('p', {}, clean?.error || _('Unknown error')), 'danger');
+								ui.addNotification(_('Subscription node removal failed'), E('p', {}, steer.rpcErrorText(clean)), 'danger');
 								return clean;
 							}
 							ui.addNotification(null, E('p', {}, _('Stale node removed from Saved inventory. Running configuration was not changed.')), 'warning');
@@ -598,7 +587,7 @@ function renderSubscriptionStatus(result, gate) {
 						});
 					}
 				}, references.length ? _('Referenced: %s').format(node.id) : _('Remove %s').format(node.id));
-					gate.bind(cleanButton, '');
+					gate.bind(cleanButton, '', 'subscription_clean');
 					actions.push(' ', cleanButton);
 				});
 				const failureDetail = failure
@@ -672,7 +661,7 @@ function renderImportPreview(node, index, nameInput) {
 	]);
 }
 
-function renderImportButton() {
+function renderImportButton(allowed) {
 	return E('section', { 'class': 'cbi-section' }, [
 		E('div', { 'class': 'steer-section-heading' }, [
 			E('div', {}, [
@@ -681,8 +670,14 @@ function renderImportButton() {
 			]),
 			E('button', {
 				'class': 'cbi-button cbi-button-add',
+				'disabled': allowed ? null : true,
+				'title': allowed ? '' : _('Your session does not have permission to import Nodes.'),
 				click: function(ev) {
 					ev.preventDefault();
+					if (!allowed) {
+						ui.addNotification(_('Node import is not permitted'), E('p', {}, _('Your session does not have permission to import Nodes.')), 'warning');
+						return;
+					}
 					showImportDialog();
 				}
 			}, _('Import nodes'))
@@ -837,7 +832,7 @@ function showImportDialog() {
 		return steer.importNodes(input.value).then((parsed) => {
 			const nodes = parsed?.nodes || [];
 			if (!nodes.length)
-				throw new Error(parsed?.error || _('No valid node was returned.'));
+				throw new Error(parsed?.ok === false ? steer.rpcErrorText(parsed) : _('No valid node was returned.'));
 			input.value = '';
 			const nameInput = nodes.length == 1 ? E('input', {
 				'class': 'cbi-input-text', 'value': nodes[0].name, 'autocomplete': 'off'
@@ -896,7 +891,10 @@ function showImportDialog() {
 
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.subscriptions(), uci.changes() ]);
+		return Promise.all([
+			uci.load('steer'), steer.subscriptions(), uci.changes(),
+			steer.permissions([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import' ], true)
+		]);
 	},
 
 	render: function(data) {
@@ -913,6 +911,7 @@ return view.extend({
 			.map((node) => node['.name']);
 		const summaryOnly = activeNodeGroup != manualNodeGroup;
 		const page = (window.location.pathname || '').split('/').pop();
+		const permissions = data?.[3] || {};
 		steer.loadStyle();
 
 		m = new form.Map('steer', page == 'routes' ? _('Routes') : (page == 'subscriptions' ? _('Node subscriptions') : _('Proxy nodes')));
@@ -929,15 +928,18 @@ return view.extend({
 			};
 			o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 			o = s.option(form.Value, 'name', _('Name')); o.rmempty = true; o.optional = true; o.modalonly = true;
-			o = s.option(form.Value, 'url', _('Subscription URL')); o.datatype = 'url'; o.rmempty = false; o.editable = true;
-			o = s.option(form.Value, 'update_interval', 'Update interval'); o.placeholder = uiSpec.subscription_update_interval_default; o.modalonly = true;
+			o = s.option(form.Value, 'url', _('Subscription URL')); o.rmempty = false; o.editable = true;
+			o.validate = function(_sectionId, value) { return steer.validateInput('subscription_url', value); };
+			o = s.option(form.Value, 'update_interval', _('Update interval')); o.placeholder = uiSpec.subscription_update_interval_default; o.modalonly = true;
+			o.validate = function(_sectionId, value) { return steer.validateInput('positive_duration', value); };
 			const subscriptionSection = s;
 			return m.render().then((formNode) => steer.focusSection(subscriptionSection, 'subscription').then(() => {
-				const gate = subscriptionOperationGate(data?.[2], formNode);
+				const gate = subscriptionOperationGate(data?.[2], formNode, permissions);
 				return E([], [ renderSubscriptionStatus(data?.[1], gate), formNode ]);
 			}));
 		}
-		const probeGate = probeOperationGate(data?.[2]);
+		const probeGate = probeOperationGate(data?.[2], page == 'routes'
+			? permissions.route_speedtest === true : permissions.node_speedtest === true);
 
 		if (page == 'routes') {
 			addSystemRouteSection(m, routes.find((route) => route.kind == 'direct'));
@@ -1094,7 +1096,7 @@ return view.extend({
 			if (batchSpeedtests)
 				contents.push(batchSpeedtests);
 			if (activeNodeGroup == manualNodeGroup)
-				contents.push(renderImportButton());
+				contents.push(renderImportButton(permissions.node_import === true && permissions.uci_write === true));
 			contents.push(formNode);
 			return E([], contents);
 		}));

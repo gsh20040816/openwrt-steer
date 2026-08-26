@@ -57,9 +57,6 @@ msgstr "地址策略"
 msgid "All conditions"
 msgstr "所有条件"
 
-msgid "Apply failed without a diagnostic message."
-msgstr "应用失败，且没有诊断信息。"
-
 msgid "Applying Steer"
 msgstr "正在应用 Steer"
 
@@ -372,14 +369,8 @@ msgstr "跳过证书验证"
 msgid "Steer"
 msgstr "Steer"
 
-msgid "Steer configuration applied."
-msgstr "Steer 配置已应用。"
-
 msgid "Steer is disabled"
 msgstr "Steer 已停用"
-
-msgid "Steer rejected the candidate"
-msgstr "Steer 已拒绝候选配置"
 
 msgid "System"
 msgstr "系统"
@@ -410,9 +401,6 @@ msgstr "UDP 数据包编码"
 
 msgid "UUID"
 msgstr "UUID"
-
-msgid "Unknown error"
-msgstr "未知错误"
 
 msgid "Unnamed"
 msgstr "未命名"
@@ -873,9 +861,6 @@ msgstr "Pending desired"
 msgid "Pending desired values differ from Saved. Active traffic is unchanged until Save & Apply succeeds."
 msgstr "Pending desired 与 Saved 不同。在保存并应用成功前，Active 流量不会改变。"
 
-msgid "Pending warning: %s · %s"
-msgstr "Pending 警告：%s · %s"
-
 msgid "Running"
 msgstr "运行中"
 
@@ -890,9 +875,6 @@ msgstr "Saved desired"
 
 msgid "Saved revision"
 msgstr "Saved revision"
-
-msgid "Saved warning: %s · %s"
-msgstr "Saved 警告：%s · %s"
 
 msgid "Subscription inventory refreshes do not change Route or Rule selection and do not create pending Apply by themselves."
 msgstr "订阅节点库刷新不会改变 Route 或 Rule 选择，也不会自行产生 pending Apply。"
@@ -935,3 +917,522 @@ msgstr "Saved %s"
 
 msgid "stopped"
 msgstr "已停止"
+
+msgid "0-RTT handshake"
+msgstr "0-RTT 握手"
+
+msgid "1"
+msgstr "1"
+
+msgid "2"
+msgstr "2"
+
+msgid "3"
+msgstr "3"
+
+msgid "A Node ID is required."
+msgstr "必须提供 Node ID。"
+
+msgid "A Route ID is required."
+msgstr "必须提供 Route ID。"
+
+msgid "A Subscription ID and Node ID are required."
+msgstr "必须同时提供 Subscription ID 和 Node ID。"
+
+msgid "A Subscription ID is required."
+msgstr "必须提供 Subscription ID。"
+
+msgid "A private import workspace could not be created."
+msgstr "无法创建私有导入工作区。"
+
+msgid "A required value is missing or incomplete."
+msgstr "必填值缺失或不完整。"
+
+msgid "Advanced Configuration"
+msgstr "高级配置"
+
+msgid "Alter ID"
+msgstr "Alter ID"
+
+msgid "An enabled Rule appears after the Default Rule."
+msgstr "Default Rule 之后存在已启用的 Rule。"
+
+msgid "AnyTLS"
+msgstr "AnyTLS"
+
+msgid "Apply or discard pending Steer changes before operating on the committed configuration."
+msgstr "操作已提交配置前，请先应用或放弃待处理的 Steer 修改。"
+
+msgid "BitTorrent"
+msgstr "BitTorrent"
+
+msgid "Choose the direct, proxy, or speed-test probe."
+msgstr "请选择 direct、proxy 或 speed-test 探测。"
+
+msgid "Configuration saved; Active unchanged"
+msgstr "配置已保存；Active 未切换"
+
+msgid "Configuration saved; Steer was disabled and its runtime resources were cleaned up."
+msgstr "配置已保存；Steer 已停用并清理运行时资源。"
+
+msgid "Configuration validation failed."
+msgstr "配置校验失败。"
+
+msgid "Congestion control"
+msgstr "拥塞控制"
+
+msgid "Connect"
+msgstr "连接"
+
+msgid "DNS"
+msgstr "DNS"
+
+msgid "DNS cannot evaluate this Rule’s connection-stage conditions, so DNS continues to later Rules."
+msgstr "DNS 无法判断此 Rule 的连接阶段条件，因此 DNS 会继续匹配后续 Rule。"
+
+msgid "DTLS"
+msgstr "DTLS"
+
+msgid "Data directory"
+msgstr "数据目录"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "DoH"
+msgstr "DoH"
+
+msgid "DoH3"
+msgstr "DoH3"
+
+msgid "DoQ"
+msgstr "DoQ"
+
+msgid "DoT"
+msgstr "DoT"
+
+msgid "Enter a positive duration such as 30m, 6h, or 250ms."
+msgstr "请输入正 duration，例如 30m、6h 或 250ms。"
+
+msgid "Enter an absolute HTTP or HTTPS URL."
+msgstr "请输入绝对 HTTP 或 HTTPS URL。"
+
+msgid "Enter an absolute HTTPS URL without credentials or a fragment."
+msgstr "请输入不含凭据和 fragment 的绝对 HTTPS URL。"
+
+msgid "Exactly one enabled Default Rule is required."
+msgstr "必须恰好存在一个已启用的 Default Rule。"
+
+msgid "Exactly one enabled Direct Route is required."
+msgstr "必须恰好存在一个已启用的 Direct Route。"
+
+msgid "Executable path"
+msgstr "可执行文件路径"
+
+msgid "Extra arguments"
+msgstr "额外参数"
+
+msgid "Fix the reported problem, then choose Apply Saved configuration."
+msgstr "修复报告的问题后，再选择 Apply Saved 配置。"
+
+msgid "Generation"
+msgstr "Generation"
+
+msgid "Geo rules"
+msgstr "Geo 规则"
+
+msgid "Geo seed"
+msgstr "Geo seed"
+
+msgid "HTTP"
+msgstr "HTTP"
+
+msgid "HTTP CONNECT"
+msgstr "HTTP CONNECT"
+
+msgid "Heartbeat"
+msgstr "心跳"
+
+msgid "Host key"
+msgstr "Host key"
+
+msgid "Host key algorithms"
+msgstr "Host key 算法"
+
+msgid "Hysteria"
+msgstr "Hysteria"
+
+msgid "Hysteria2"
+msgstr "Hysteria2"
+
+msgid "IPv4 only"
+msgstr "仅 IPv4"
+
+msgid "IPv6 only"
+msgstr "仅 IPv6"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Insecure concurrency"
+msgstr "不安全并发"
+
+msgid "Method"
+msgstr "方法"
+
+msgid "Mixed (SOCKS + HTTP)"
+msgstr "Mixed（SOCKS + HTTP）"
+
+msgid "NTP"
+msgstr "NTP"
+
+msgid "NaiveProxy"
+msgstr "NaiveProxy"
+
+msgid "Node import is not permitted"
+msgstr "不允许导入 Node"
+
+msgid "Operation failed (%s)."
+msgstr "操作失败（%s）。"
+
+msgid "PacketAddr"
+msgstr "PacketAddr"
+
+msgid "Paste at least one node share link."
+msgstr "请粘贴至少一个 Node 分享链接。"
+
+msgid "Pending warning: %s"
+msgstr "Pending 警告：%s"
+
+msgid "Plugin"
+msgstr "插件"
+
+msgid "Plugin options"
+msgstr "插件参数"
+
+msgid "Prefer IPv4"
+msgstr "优先 IPv4"
+
+msgid "Prefer IPv6"
+msgstr "优先 IPv6"
+
+msgid "Private key"
+msgstr "私钥"
+
+msgid "Probe is not permitted"
+msgstr "不允许执行探测"
+
+msgid "QUIC"
+msgstr "QUIC"
+
+msgid "QUIC congestion control"
+msgstr "QUIC 拥塞控制"
+
+msgid "RDP"
+msgstr "RDP"
+
+msgid "Recent Steer logs could not be read."
+msgstr "无法读取最近的 Steer 日志。"
+
+msgid "SOCKS"
+msgstr "SOCKS"
+
+msgid "SSH"
+msgstr "SSH"
+
+msgid "STUN"
+msgstr "STUN"
+
+msgid "Salamander"
+msgstr "Salamander"
+
+msgid "Saved warning: %s"
+msgstr "Saved 警告：%s"
+
+msgid "Security"
+msgstr "安全性"
+
+msgid "Services"
+msgstr "服务"
+
+msgid "ShadowTLS"
+msgstr "ShadowTLS"
+
+msgid "Shadowsocks"
+msgstr "Shadowsocks"
+
+msgid "Steer candidate was not saved"
+msgstr "Steer candidate 未保存"
+
+msgid "Steer configuration saved and activated."
+msgstr "Steer 配置已保存并激活。"
+
+msgid "TCP"
+msgstr "TCP"
+
+msgid "TCP / Raw"
+msgstr "TCP / Raw"
+
+msgid "TLS certificate verification is disabled."
+msgstr "TLS 证书校验已关闭。"
+
+msgid "TTFB"
+msgstr "TTFB"
+
+msgid "TUIC"
+msgstr "TUIC"
+
+msgid "Technical details"
+msgstr "技术详情"
+
+msgid "Tested at"
+msgstr "测试时间"
+
+msgid "The DNS HTTP path must start with /."
+msgstr "DNS HTTP path 必须以 / 开头。"
+
+msgid "The Route detour chain contains a cycle."
+msgstr "Route detour 链存在环。"
+
+msgid "The Steer configuration preview could not be decoded."
+msgstr "无法解码 Steer 配置预览。"
+
+msgid "The Steer control program could not be started."
+msgstr "无法启动 Steer 控制程序。"
+
+msgid "The Steer control program failed."
+msgstr "Steer 控制程序执行失败。"
+
+msgid "The Steer control program returned an invalid response."
+msgstr "Steer 控制程序返回了无效响应。"
+
+msgid "The Steer lifecycle state could not be read."
+msgstr "无法读取 Steer 生命周期状态。"
+
+msgid "The Steer node parser could not be started."
+msgstr "无法启动 Steer Node 解析器。"
+
+msgid "The Steer node parser returned an invalid response."
+msgstr "Steer Node 解析器返回了无效响应。"
+
+msgid "The configuration was committed to Saved, but validation or activation failed. Traffic continues using the previous Active generation."
+msgstr "配置已提交到 Saved，但校验或激活失败。流量继续使用上一 Active generation。"
+
+msgid "The current platform cannot match the original source MAC address."
+msgstr "当前平台无法匹配原始来源 MAC 地址。"
+
+msgid "The field value is invalid."
+msgstr "字段值无效。"
+
+msgid "The listener conflicts with another configured listener."
+msgstr "监听地址与另一个已配置监听器冲突。"
+
+msgid "The node share-link document could not be parsed."
+msgstr "无法解析 Node 分享链接文档。"
+
+msgid "The pending Steer configuration cannot be inspected."
+msgstr "无法检查待处理的 Steer 配置。"
+
+msgid "The pending Steer configuration changed during validation. Review it and retry."
+msgstr "待处理的 Steer 配置在校验期间发生变化。请检查后重试。"
+
+msgid "The pending Steer configuration changed while lifecycle state was read. Retry."
+msgstr "读取生命周期状态时，待处理的 Steer 配置发生变化。请重试。"
+
+msgid "The pending Steer configuration could not be read."
+msgstr "无法读取待处理的 Steer 配置。"
+
+msgid "The pending Steer configuration could not be validated."
+msgstr "无法校验待处理的 Steer 配置。"
+
+msgid "The pending configuration failed validation or could not be committed. Saved and Active were not changed."
+msgstr "待处理配置校验失败或无法提交；Saved 与 Active 均未变化。"
+
+msgid "The pending lifecycle state could not be read."
+msgstr "无法读取待处理的生命周期状态。"
+
+msgid "The referenced DNS Profile does not exist."
+msgstr "引用的 DNS Profile 不存在。"
+
+msgid "The referenced DNS Profile is disabled."
+msgstr "引用的 DNS Profile 已停用。"
+
+msgid "The referenced Local Proxy does not exist."
+msgstr "引用的 Local Proxy 不存在。"
+
+msgid "The referenced Local Proxy is disabled."
+msgstr "引用的 Local Proxy 已停用。"
+
+msgid "The referenced Node does not exist."
+msgstr "引用的 Node 不存在。"
+
+msgid "The referenced Node is disabled."
+msgstr "引用的 Node 已停用。"
+
+msgid "The referenced Route does not exist."
+msgstr "引用的 Route 不存在。"
+
+msgid "The referenced Route is disabled."
+msgstr "引用的 Route 已停用。"
+
+msgid "The referenced detour Route does not exist."
+msgstr "引用的 detour Route 不存在。"
+
+msgid "The referenced detour Route is disabled."
+msgstr "引用的 detour Route 已停用。"
+
+msgid "The subscription no longer advertises this Node; it is retained until explicitly removed."
+msgstr "订阅已不再提供此 Node；在显式移除前会继续保留。"
+
+msgid "The validated Steer configuration could not be committed."
+msgstr "无法提交已校验的 Steer 配置。"
+
+msgid "This Rule has only connection-stage conditions, so DNS continues to later Rules."
+msgstr "此 Rule 仅含连接阶段条件，因此 DNS 会继续匹配后续 Rule。"
+
+msgid "This field is not applicable here."
+msgstr "此字段在当前位置不适用。"
+
+msgid "This field is required by the selected encrypted DNS protocol."
+msgstr "所选加密 DNS 协议要求填写此字段。"
+
+msgid "This value is not supported."
+msgstr "不支持此值。"
+
+msgid "Tor"
+msgstr "Tor"
+
+msgid "Transport host"
+msgstr "传输主机"
+
+msgid "Transport path"
+msgstr "传输路径"
+
+msgid "Trojan"
+msgstr "Trojan"
+
+msgid "UDP"
+msgstr "UDP"
+
+msgid "UDP over stream"
+msgstr "UDP over stream"
+
+msgid "UDP relay mode"
+msgstr "UDP 中继模式"
+
+msgid "URL"
+msgstr "URL"
+
+msgid "Update interval"
+msgstr "更新周期"
+
+msgid "VLESS"
+msgstr "VLESS"
+
+msgid "VMess"
+msgstr "VMess"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "WebSocket"
+msgstr "WebSocket"
+
+msgid "XTLS Vision"
+msgstr "XTLS Vision"
+
+msgid "XUDP"
+msgstr "XUDP"
+
+msgid "You do not have permission to run Overview probes."
+msgstr "你没有执行 Overview 探测的权限。"
+
+msgid "Your session does not have permission to import Nodes."
+msgstr "当前会话没有导入 Node 的权限。"
+
+msgid "Your session does not have permission to perform this action."
+msgstr "当前会话没有执行此操作的权限。"
+
+msgid "Your session does not have permission to run Overview probes."
+msgstr "当前会话没有执行 Overview 探测的权限。"
+
+msgid "Your session does not have permission to test committed Nodes or Routes."
+msgstr "当前会话没有测试已提交 Node 或 Route 的权限。"
+
+msgid "aes-128-ctr"
+msgstr "aes-128-ctr"
+
+msgid "aes-128-gcm"
+msgstr "aes-128-gcm"
+
+msgid "auto"
+msgstr "auto"
+
+msgid "bbr"
+msgstr "bbr"
+
+msgid "bbr2"
+msgstr "bbr2"
+
+msgid "chacha20-poly1305"
+msgstr "chacha20-poly1305"
+
+msgid "chrome"
+msgstr "chrome"
+
+msgid "cubic"
+msgstr "cubic"
+
+msgid "edge"
+msgstr "edge"
+
+msgid "firefox"
+msgstr "firefox"
+
+msgid "gRPC"
+msgstr "gRPC"
+
+msgid "gRPC service name"
+msgstr "gRPC 服务名"
+
+msgid "native"
+msgstr "native"
+
+msgid "new_reno"
+msgstr "new_reno"
+
+msgid "none"
+msgstr "none"
+
+msgid "obfs-local"
+msgstr "obfs-local"
+
+msgid "quic"
+msgstr "quic"
+
+msgid "random"
+msgstr "random"
+
+msgid "reno"
+msgstr "reno"
+
+msgid "safari"
+msgstr "safari"
+
+msgid "v2ray-plugin"
+msgstr "v2ray-plugin"
+
+msgid "zero"
+msgstr "zero"
+
+msgid "Configuration saved; activation failed"
+msgstr "配置已保存；激活失败"
+
+msgid "Current Active generation: %s"
+msgstr "当前 Active generation：%s"
+
+msgid "The configuration was committed to Saved, but activation failed after Active state changed. Check Diagnostics before relying on traffic stability."
+msgstr "配置已提交到 Saved，但 Active 状态变化后激活失败。确认流量稳定性前请检查 Diagnostics。"

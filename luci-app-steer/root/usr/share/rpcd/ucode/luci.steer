@@ -7,6 +7,10 @@ import { mkdtemp, open, popen, rmdir, unlink } from 'fs';
 
 const ubus = require('ubus').connect();
 
+function failure(code, detail, status) {
+	return { ok: false, error_code: code, error: detail, status };
+}
+
 function shellquote(value) {
 	if (value == null)
 		value = '';
@@ -17,7 +21,7 @@ function shellquote(value) {
 function command_json(command) {
 	const process = popen(command);
 	if (!process)
-		return { ok: false, error: '无法启动 Steer 控制程序' };
+		return failure('CONTROL_START_FAILED', 'Unable to start the Steer control program.');
 	const output = process.read('all') || '';
 	const status = process.close();
 	let result;
@@ -25,22 +29,27 @@ function command_json(command) {
 		result = json(output);
 	}
 	catch (error) {
-		return { ok: false, status, error: trim(output) || `${error}` };
+		return failure('CONTROL_OUTPUT_INVALID', trim(output) || `${error}`, status);
 	}
-	if (status !== 0 && result.error == null)
-		result.error = `Steer 控制程序退出状态：${status}`;
+	if (status !== 0) {
+		result.ok = false;
+		if (result.error_code == null)
+			result.error_code = 'CONTROL_EXIT_FAILED';
+		if (result.error == null)
+			result.error = `Steer control program exited with status ${status}.`;
+	}
 	return result;
 }
 
 function command_json_input(arguments, input) {
 	const directory = mkdtemp('/tmp/steer-import-XXXXXX');
 	if (!directory)
-		return { ok: false, error: '无法创建私有导入目录' };
+		return failure('IMPORT_TEMP_FAILED', 'Unable to create a private import workspace.');
 	const output = directory + '/result.json';
 	const process = popen([ '/usr/sbin/steer', ...arguments, '--output', output ], 'w');
 	if (!process) {
 		rmdir(directory);
-		return { ok: false, error: '无法启动 Steer 节点解析器' };
+		return failure('IMPORT_START_FAILED', 'Unable to start the Steer node parser.');
 	}
 	process.write(input || '');
 	const status = process.close();
@@ -51,19 +60,19 @@ function command_json_input(arguments, input) {
 	unlink(output);
 	rmdir(directory);
 	if (status != 0)
-		return { ok: false, status, error: '节点分享链接解析失败' };
+		return failure('IMPORT_PARSE_FAILED', 'The node share-link document could not be parsed.', status);
 	try {
 		return json(content);
 	}
 	catch (error) {
-		return { ok: false, status, error: trim(content) || `${error}` };
+		return failure('IMPORT_OUTPUT_INVALID', trim(content) || `${error}`, status);
 	}
 }
 
-function validation_failure(message) {
+function validation_failure(code, message) {
 	return {
 		ok: false,
-		errors: [ { code: 'DECODE_FAILED', object_type: 'uci', message } ],
+		errors: [ { code, object_type: 'uci', message } ],
 		warnings: []
 	};
 }
@@ -178,11 +187,11 @@ function run_candidate(document, action) {
 function validate_candidate(request, callback) {
 	return with_candidate(request, function(error, candidate) {
 		if (error) {
-			callback(validation_failure(error), null);
+			callback(validation_failure('CANDIDATE_READ_FAILED', error), null);
 			return;
 		}
 		const validation = run_candidate(candidate.document, 'validate');
-		callback(validation?.errors ? validation : validation_failure('Unable to validate the pending Steer configuration.'), candidate);
+		callback(validation?.errors ? validation : validation_failure('CANDIDATE_VALIDATE_FAILED', 'Unable to validate the pending Steer configuration.'), candidate);
 	});
 }
 
@@ -199,7 +208,7 @@ function commit_candidate(request) {
 			if (error || currentCandidate.document != validatedCandidate.document) {
 				request.reply({
 					committed: false,
-					validation: validation_failure(error || 'The pending Steer configuration changed during validation. Please review and retry.')
+					validation: validation_failure('CANDIDATE_CHANGED', error || 'The pending Steer configuration changed during validation. Please review and retry.')
 				});
 				return;
 			}
@@ -210,6 +219,7 @@ function commit_candidate(request) {
 				request.reply({
 					committed: code == 0,
 					validation,
+					error_code: code == 0 ? null : 'CANDIDATE_COMMIT_FAILED',
 					error: code == 0 ? null : 'Unable to commit the validated Steer configuration.'
 				});
 			});
@@ -237,8 +247,8 @@ function redact_secrets(value) {
 	return redacted;
 }
 
-function preview_failure(message) {
-	return { ok: false, source: 'unavailable', redacted: true, error: message };
+function preview_failure(code, message) {
+	return { ok: false, source: 'unavailable', redacted: true, error_code: code, error: message };
 }
 
 function pending_preview() {
@@ -255,27 +265,31 @@ function pending_preview() {
 function recent_logs() {
 	const process = popen([ '/sbin/logread', '-e', 'steer' ], 'r');
 	if (!process)
-		return { ok: false, error: 'Unable to read Steer logs.' };
+		return failure('LOG_READ_FAILED', 'Unable to read Steer logs.');
 	const output = process.read('all') || '';
 	const status = process.close();
-	return { ok: status == 0, output, error: status == 0 ? null : 'Unable to read Steer logs.' };
+	if (status == 0)
+		return { ok: true, output };
+	const result = failure('LOG_READ_FAILED', 'Unable to read Steer logs.', status);
+	result.output = output;
+	return result;
 }
 
 function overview_state(request) {
 	return with_candidate(request, function(error, candidate) {
 		if (error) {
-			request.reply({ ok: false, error: error });
+			request.reply(failure('LIFECYCLE_PENDING_READ_FAILED', error));
 			return;
 		}
 		const desired = run_candidate(candidate.document, '_state --saved-only');
 		const committed = command_json('/usr/sbin/steer _state');
 		if (desired?.saved == null || committed?.saved == null || committed?.active == null) {
-			request.reply({ ok: false, error: 'Unable to read Steer lifecycle state.' });
+			request.reply(failure('LIFECYCLE_STATE_FAILED', 'Unable to read Steer lifecycle state.'));
 			return;
 		}
 		return with_candidate(request, function(latestError, latest) {
 			if (latestError || latest.document != candidate.document) {
-				request.reply({ ok: false, error: latestError || 'Pending Steer changes changed while lifecycle state was read. Retry.' });
+				request.reply(failure('LIFECYCLE_CHANGED', latestError || 'Pending Steer changes changed while lifecycle state was read. Retry.'));
 				return;
 			}
 			return ubus.defer('uci', 'changes', {
@@ -283,7 +297,7 @@ function overview_state(request) {
 				ubus_rpc_session: latest.session
 			}, function(code, reply) {
 				if (code != 0 || type(reply?.changes) != 'array') {
-					request.reply({ ok: false, error: 'Unable to inspect pending Steer changes.' });
+					request.reply(failure('PENDING_STATE_UNAVAILABLE', 'Unable to inspect pending Steer changes.'));
 					return;
 				}
 				request.reply({
@@ -302,7 +316,7 @@ function overview_state(request) {
 function intent_preview(request) {
 	const session = session_id(request);
 	if (!session)
-		return preview_failure('The LuCI UCI session is unavailable.');
+		return preview_failure('PENDING_STATE_UNAVAILABLE', 'The LuCI UCI session is unavailable.');
 
 	return ubus.defer('uci', 'changes', {
 		config: 'steer',
@@ -310,7 +324,7 @@ function intent_preview(request) {
 	}, function(code, reply) {
 		const changes = reply?.changes;
 		if (code != 0 || type(changes) != 'array') {
-			request.reply(preview_failure('Unable to inspect the pending Steer configuration.'));
+			request.reply(preview_failure('PENDING_STATE_UNAVAILABLE', 'Unable to inspect the pending Steer configuration.'));
 			return;
 		}
 		/* Never substitute the committed intent for a pending Apply input. */
@@ -321,7 +335,7 @@ function intent_preview(request) {
 
 		const intent = command_json('/usr/sbin/steer _export-intent');
 		if (!intent || intent?.error != null) {
-			request.reply(preview_failure('Unable to decode the Steer configuration preview.'));
+			request.reply(preview_failure('PREVIEW_DECODE_FAILED', 'Unable to decode the Steer configuration preview.'));
 			return;
 		}
 		return ubus.defer('uci', 'changes', {
@@ -330,7 +344,7 @@ function intent_preview(request) {
 		}, function(code, reply) {
 			const latestChanges = reply?.changes;
 			if (code != 0 || type(latestChanges) != 'array') {
-				request.reply(preview_failure('Unable to inspect the pending Steer configuration.'));
+				request.reply(preview_failure('PENDING_STATE_UNAVAILABLE', 'Unable to inspect the pending Steer configuration.'));
 				return;
 			}
 			if (length(latestChanges) > 0) {
@@ -403,8 +417,8 @@ const methods = {
 			const geosite = command_json('/usr/sbin/steer geo-catalog --kind geosite');
 			const geoip = command_json('/usr/sbin/steer geo-catalog --kind geoip');
 			return {
-				geosite: geosite.names ? { ok: true, names: geosite.names } : { ok: false, names: [], error: geosite.error },
-				geoip: geoip.names ? { ok: true, names: geoip.names } : { ok: false, names: [], error: geoip.error }
+				geosite: geosite.names ? { ok: true, names: geosite.names } : { ok: false, names: [], error_code: geosite.error_code, error: geosite.error },
+				geoip: geoip.names ? { ok: true, names: geoip.names } : { ok: false, names: [], error_code: geoip.error_code, error: geoip.error }
 			};
 		}
 	},
@@ -418,7 +432,7 @@ const methods = {
 		call: function(request) {
 			const id = request?.args?.id;
 			if (!id)
-				return { ok: false, error: '缺少订阅 ID' };
+				return failure('MISSING_SUBSCRIPTION_ID', 'A Subscription ID is required.');
 			return with_committed_configuration(request, function() {
 				return command_json('/usr/sbin/steer subscription update --id ' + shellquote(id));
 			});
@@ -430,7 +444,7 @@ const methods = {
 			const id = request?.args?.id;
 			const node = request?.args?.node;
 			if (!id || !node)
-				return { ok: false, error: '缺少订阅 ID 或节点 ID' };
+				return failure('MISSING_SUBSCRIPTION_NODE_ID', 'A Subscription ID and Node ID are required.');
 			return with_committed_configuration(request, function() {
 				return command_json('/usr/sbin/steer subscription clean --id ' + shellquote(id) + ' --node ' + shellquote(node));
 			});
@@ -441,7 +455,7 @@ const methods = {
 		call: function(request) {
 			const node = request?.args?.node;
 			if (!node)
-				return { ok: false, error: '缺少节点 ID' };
+				return failure('MISSING_NODE_ID', 'A Node ID is required.');
 			return with_committed_configuration(request, function() {
 				let command = '/usr/sbin/steer probe --kind speedtest --node ' + shellquote(node);
 				if (request.args.download)
@@ -455,7 +469,7 @@ const methods = {
 		call: function(request) {
 			const route = request?.args?.route;
 			if (!route)
-				return { ok: false, error: '缺少路由 ID' };
+				return failure('MISSING_ROUTE_ID', 'A Route ID is required.');
 			return with_committed_configuration(request, function() {
 				let command = '/usr/sbin/steer probe --kind speedtest --route ' + shellquote(route);
 				if (request.args.download)
@@ -469,7 +483,7 @@ const methods = {
 		call: function(request) {
 			const kind = request?.args?.kind;
 			if (kind != 'direct' && kind != 'proxy' && kind != 'speedtest')
-				return { ok: false, error: '测试类型必须是 direct、proxy 或 speedtest' };
+				return failure('INVALID_PROBE_KIND', 'Probe kind must be direct, proxy, or speedtest.');
 			return command_json('/usr/sbin/steer probe --kind ' + kind);
 		}
 	},
@@ -478,7 +492,7 @@ const methods = {
 		call: function(request) {
 			const document = request?.args?.document;
 			if (!document)
-				return { ok: false, error: '缺少节点分享链接' };
+				return failure('MISSING_NODE_DOCUMENT', 'At least one node share link is required.');
 			return command_json_input([ '_parse-nodes' ], document);
 		}
 	}

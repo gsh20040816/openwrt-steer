@@ -200,7 +200,7 @@ function configureMatchEditor(option, catalog, kind) {
 	option.rows = 7;
 	option.description = source.ok === true ?
 		_('%d valid %s names are available for dynamic completion.').format(names.length, geoKind) :
-		_('The valid-name catalog is unavailable: %s').format(source.error || _('Unknown error'));
+		_('The valid-name catalog is unavailable: %s').format(steer.rpcErrorText(source));
 }
 
 function matchSummaryTokens(sectionId) {
@@ -362,12 +362,12 @@ return view.extend({
 		o = s.taboption('match', form.MultiValue, 'network', _('Network'));
 		o.modalonly = true;
 		o.description = _('Connection stage only. If a rule has only IP, network, protocol or port conditions, DNS continues to subsequent rules.');
-		uiSpec.rule_networks.forEach((item) => o.value(item.value, item.label));
+		uiSpec.rule_networks.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 
 		o = s.taboption('match', form.MultiValue, 'protocol', _('Detected protocol'));
 		o.modalonly = true;
 		o.description = _('Connection stage only. Values come from the shared protocol enumeration.');
-		uiSpec.rule_protocols.forEach((item) => o.value(item.value, item.label));
+		uiSpec.rule_protocols.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 
 		o = s.taboption('match', form.DynamicList, 'port', _('Destination ports'));
 		o.modalonly = true;

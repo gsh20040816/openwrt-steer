@@ -91,6 +91,24 @@ func TestSubscriptionCreationDefaultIsShared(t *testing.T) {
 	}
 }
 
+func TestHighFrequencyInputFormatsAreShared(t *testing.T) {
+	formats := ContractValue().InputFormats
+	probe := formats["probe_url"]
+	if probe.Kind != "url" || !probe.Absolute || !probe.ForbidCredentials || !probe.ForbidFragment || !reflect.DeepEqual(probe.Schemes, []string{"https"}) {
+		t.Fatalf("probe URL format drifted: %#v", probe)
+	}
+	subscription := formats["subscription_url"]
+	if subscription.Kind != "url" || !subscription.Absolute || !reflect.DeepEqual(subscription.Schemes, []string{"http", "https"}) {
+		t.Fatalf("subscription URL format drifted: %#v", subscription)
+	}
+	if duration := formats["positive_duration"]; duration.Kind != "duration" || !duration.Positive || duration.Pattern != `^[1-9][0-9]*(ms|s|m|h)$` {
+		t.Fatalf("duration format drifted: %#v", duration)
+	}
+	if path := formats["dns_http_path"]; path.Kind != "string" || path.Prefix != "/" {
+		t.Fatalf("DNS path format drifted: %#v", path)
+	}
+}
+
 func TestDNSProtocolFieldAndPortMatrix(t *testing.T) {
 	expected := map[string]struct {
 		fields []string

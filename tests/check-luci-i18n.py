@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 LUCI_ROOT = ROOT / "luci-app-steer"
 PO_PATH = LUCI_ROOT / "po" / "zh_Hans" / "steer.po"
 MENU_PATH = LUCI_ROOT / "root" / "usr" / "share" / "luci" / "menu.d" / "luci-app-steer.json"
+UI_SPEC_PATH = ROOT / "ui" / "steer-ui-spec.json"
+FORM_FIXTURES_PATH = ROOT / "ui" / "form-input-fixtures.json"
 
 
 def fail(message: str) -> None:
@@ -23,6 +25,48 @@ menu = json.loads(MENU_PATH.read_text())
 source_ids = {entry["title"] for entry in menu.values() if "title" in entry}
 for path in (LUCI_ROOT / "htdocs").rglob("*.js"):
     source_ids.update(re.findall(r"_\('([^']*)'\)", path.read_text()))
+
+ui_spec = json.loads(UI_SPEC_PATH.read_text())
+
+
+def collect_labels(value) -> set[str]:
+    labels = set()
+    if isinstance(value, dict):
+        if isinstance(value.get("label"), str):
+            labels.add(value["label"])
+        for child in value.values():
+            labels.update(collect_labels(child))
+    elif isinstance(value, list):
+        for child in value:
+            labels.update(collect_labels(child))
+    return labels
+
+
+generated_labels = collect_labels(ui_spec)
+source_ids.update(generated_labels)
+
+formats = ui_spec.get("input_formats", {})
+expected_formats = {"probe_url", "subscription_url", "positive_duration", "dns_http_path"}
+if set(formats) != expected_formats:
+    fail(f"shared input format metadata drifted: {sorted(formats)!r}")
+fixtures = json.loads(FORM_FIXTURES_PATH.read_text())
+if fixtures.get("schema_version") != 1 or not fixtures.get("cases"):
+    fail("invalid shared form input fixtures")
+for fixture in fixtures["cases"]:
+    if fixture.get("format") not in formats or not isinstance(fixture.get("value"), str) or not isinstance(fixture.get("valid"), bool):
+        fail(f"invalid shared form input fixture: {fixture!r}")
+
+ucode_source = (LUCI_ROOT / "root" / "usr" / "share" / "rpcd" / "ucode" / "luci.steer").read_text()
+if re.search(r"[\u3400-\u9fff]", ucode_source):
+    fail("ucode RPC contains a hard-coded single-language error")
+
+for relative in [
+    "view/steer/overview.js", "view/steer/nodes.js", "view/steer/dns.js",
+    "view/steer/local-proxies.js", "view/steer/rules.js"
+]:
+    content = (LUCI_ROOT / "htdocs" / "luci-static" / "resources" / relative).read_text()
+    if re.search(r"o\.value\(item\.value,\s*item\.label\)", content):
+        fail(f"{relative} bypasses generated choice-label localization")
 
 translations = {}
 current_id = None

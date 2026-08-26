@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "cases": [
+    { "format": "probe_url", "value": "https://probe.example/path?sample=1", "valid": true },
+    { "format": "probe_url", "value": "http://probe.example/", "valid": false },
+    { "format": "probe_url", "value": "https://user:secret@probe.example/", "valid": false },
+    { "format": "probe_url", "value": "https://probe.example/#fragment", "valid": false },
+    { "format": "probe_url", "value": "/relative", "valid": false },
+    { "format": "subscription_url", "value": "http://feed.example/list", "valid": true },
+    { "format": "subscription_url", "value": "https://feed.example/list", "valid": true },
+    { "format": "subscription_url", "value": "ftp://feed.example/list", "valid": false },
+    { "format": "subscription_url", "value": "feed.example/list", "valid": false },
+    { "format": "positive_duration", "value": "6h", "valid": true },
+    { "format": "positive_duration", "value": "250ms", "valid": true },
+    { "format": "positive_duration", "value": "", "valid": true },
+    { "format": "positive_duration", "value": "0s", "valid": false },
+    { "format": "positive_duration", "value": "-1h", "valid": false },
+    { "format": "positive_duration", "value": "1h30m", "valid": false },
+    { "format": "positive_duration", "value": "1d", "valid": false },
+    { "format": "dns_http_path", "value": "/dns-query", "valid": true },
+    { "format": "dns_http_path", "value": "", "valid": true },
+    { "format": "dns_http_path", "value": "dns-query", "valid": false }
+  ]
+}

@@ -125,7 +125,7 @@ return view.extend({
 		o.modalonly = true;
 
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
-		uiSpec.local_proxy_protocols.forEach((item) => o.value(item.value, item.label));
+		uiSpec.local_proxy_protocols.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 		o.rmempty = false;
 		o.editable = true;
 

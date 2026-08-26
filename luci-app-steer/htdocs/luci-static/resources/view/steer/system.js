@@ -21,13 +21,13 @@ return view.extend({
 			E('section', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Runtime')),
 				E('dl', { 'class': 'steer-status__facts' }, [
-					fact('Steer', runtime.steer),
+					fact(_('Steer'), runtime.steer),
 					fact('sing-box', runtime.sing_box || runtime.sing_box_error),
 					fact(_('Canonical schema'), runtime.canonical_schema),
-					fact('Generation', status?.last_apply?.result?.generation),
+					fact(_('Generation'), status?.last_apply?.result?.generation),
 					fact(_('Last Apply'), status?.last_apply?.sequence),
-					fact('Geo seed', runtime.geodata?.version || runtime.geodata_error),
-					fact('Geo rules', runtime.geodata?.rule_count)
+					fact(_('Geo seed'), runtime.geodata?.version || runtime.geodata_error),
+					fact(_('Geo rules'), runtime.geodata?.rule_count)
 				])
 			])
 		]);
