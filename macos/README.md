@@ -24,7 +24,8 @@ GUI 与 OpenWrt LuCI、Linux Web 同级：它编辑同一份 Canonical Intent，
 - `../go/internal/platform/macos/`：Darwin TUN、DNS port-53 capture、generation 和 launchd backend；
 - `launchd/`：运行、常驻 root control 与订阅调度 LaunchDaemon plist；
 - `scripts/build-app-bundle.sh`：唯一的 App/DMG 组装、验收和 ad-hoc 签名脚本；
-- `scripts/install-embedded-payload.sh`：正式 App 内置的固定 payload 安装器；
+- `scripts/install-embedded-payload.sh`：正式 App 内置的固定 payload 安装/Repair 工具；
+- `scripts/uninstall-embedded-payload.sh`：正式 App 内置的固定路径、幂等卸载器，默认保留 config/state/logs；
 - `scripts/install-launchdaemon.sh`：源码开发时构建 helper、发现 sing-box、安装并 bootstrap 服务；
 - `../go/cmd/steer-macos/`：macOS 后端 CLI。
 
@@ -38,6 +39,8 @@ steer-macos-x86_64.dmg
 ```
 
 将 App 拖入 `/Applications` 后，首次在“系统”页安装系统组件并输入一次管理员密码。之后 GUI Save/Apply 与订阅更新/清理经 `root:admin 0660` socket 和 Darwin peer credentials 保护的结构化 IPC 完成，不执行任意 shell 命令，也不再请求密码。
+
+系统页逐项验收 helper、sing-box、三个 LaunchDaemon plist/注册状态、config、Geo seed 与 control socket。任何缺失或版本不一致都会显示 Repair；卸载默认保留 config/state/logs，删除用户数据必须再经过一次独立确认。
 
 当前只有 ad-hoc 签名，没有 Developer ID 和 notarization。用户仍需按 macOS 未认证开发者流程首次确认；GitHub artifact attestation 可验证来源，但不会让 Gatekeeper 自动放行。
 

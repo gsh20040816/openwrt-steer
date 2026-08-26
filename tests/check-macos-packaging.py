@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
 BUNDLER = (ROOT / "macos/scripts/build-app-bundle.sh").read_text(encoding="utf-8")
 INSTALLER = (ROOT / "macos/scripts/install-embedded-payload.sh").read_text(encoding="utf-8")
+UNINSTALLER = (ROOT / "macos/scripts/uninstall-embedded-payload.sh").read_text(encoding="utf-8")
 
 
 def fail(message: str) -> None:
@@ -19,6 +20,7 @@ def fail(message: str) -> None:
 for path in (
     ROOT / "macos/scripts/build-app-bundle.sh",
     ROOT / "macos/scripts/install-embedded-payload.sh",
+    ROOT / "macos/scripts/uninstall-embedded-payload.sh",
     ROOT / "macos/launchd/com.steer.steer.control.plist",
     ROOT / "macos/launchd/com.steer.steer.subscription.plist",
 ):
@@ -72,6 +74,7 @@ for fragment in (
     "<string>13.0</string>",
     "STEER_BUILD_NUMBER must contain digits only",
     "PAYLOAD-SHA256SUMS",
+    "uninstall-embedded-payload.sh",
     "verify-geodata --directory",
     "validate --config",
     "parse-nodes --input",
@@ -123,11 +126,37 @@ for fragment in (
     "launchctl bootout system/com.steer.steer.control",
     "launchctl bootstrap system \"$control_plist_path\"",
     "launchctl bootstrap system \"$subscription_plist_path\"",
+    '"$script_dir/uninstall-embedded-payload.sh"',
 ):
     if fragment not in INSTALLER:
         fail(f"embedded installer is missing: {fragment}")
 
 if "command -v" in INSTALLER or "go build" in INSTALLER:
     fail("embedded installer must not depend on PATH discovery or source compilation")
+
+for fragment in (
+    '"--remove-user-data"',
+    'helper_directory="/usr/local/libexec/steer"',
+    'runtime_plist_path="/Library/LaunchDaemons/com.steer.steer.plist"',
+    'control_plist_path="/Library/LaunchDaemons/com.steer.steer.control.plist"',
+    'subscription_plist_path="/Library/LaunchDaemons/com.steer.steer.subscription.plist"',
+    'support_directory="/Library/Application Support/Steer"',
+    'logs_directory="/Library/Logs/Steer"',
+    'socket_directory="/var/run/steer"',
+    'Refusing to uninstall through a symbolic-link directory',
+    "/usr/bin/shasum -a 256 -c PAYLOAD-SHA256SUMS",
+    '/usr/bin/codesign --verify --deep --strict "$app_bundle"',
+    'launchctl bootout "system/$label"',
+    '/bin/rm -rf "$helper_directory"',
+    '/bin/rm -f "$socket_directory/control.sock"',
+    '/bin/rm -rf "$support_directory/run" "$support_directory/geodata-seed"',
+    'Preserved configuration, state, and logs.',
+):
+    if fragment not in UNINSTALLER:
+        fail(f"embedded uninstaller is missing: {fragment}")
+
+for forbidden in ("eval ", "sh -c", "command -v", "go build"):
+    if forbidden in UNINSTALLER:
+        fail(f"embedded uninstaller accepts an unsafe execution path: {forbidden}")
 
 print("macOS native DMG packaging checks passed")

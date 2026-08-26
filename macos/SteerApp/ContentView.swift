@@ -1272,16 +1272,18 @@ struct DiagnosticsView: View {
 
 struct SystemView: View {
     @ObservedObject var model: AppModel
+    @State private var showingUninstall = false
+    @State private var showingDeleteUserData = false
 
     var body: some View {
         List {
             Section("系统组件") {
                 LabeledContent("安装状态") {
                     Label(
-                        model.systemComponentsUpdateAvailable ? "可更新" : (model.systemComponentsInstalled ? "已安装" : "未安装"),
+                        model.systemComponentsUpdateAvailable ? "可更新" : (model.systemComponentsNeedRepair ? "安装不完整" : (model.systemComponentsInstalled ? "已安装" : "未安装")),
                         systemImage: model.systemComponentsUpdateAvailable
                             ? "arrow.down.circle.fill"
-                            : (model.systemComponentsInstalled ? "checkmark.seal.fill" : "shippingbox")
+                            : (model.systemComponentsNeedRepair ? "wrench.and.screwdriver.fill" : (model.systemComponentsInstalled ? "checkmark.seal.fill" : "shippingbox"))
                     )
                     .foregroundStyle(model.systemComponentsInstalled && !model.systemComponentsUpdateAvailable ? .green : .orange)
                 }
@@ -1290,6 +1292,12 @@ struct SystemView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isBusy)
                     Text("更新会再次请求一次管理员密码；用户配置和运行状态目录会保留。")
+                        .foregroundStyle(.secondary)
+                } else if model.systemComponentsNeedRepair, model.embeddedInstallerAvailable {
+                    Button("Repair 系统组件…") { model.installSystemComponents() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isBusy)
+                    Text("Repair 复用 App 内固定 payload，补齐缺失或无效组件；config、state 与当前 Draft 默认保留。")
                         .foregroundStyle(.secondary)
                 } else if !model.systemComponentsInstalled {
                     if model.embeddedInstallerAvailable {
@@ -1303,6 +1311,27 @@ struct SystemView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                if !model.systemComponentFacts.isEmpty {
+                    ForEach(model.systemComponentFacts) { fact in
+                        LabeledContent(fact.label) {
+                            Label(componentStateLabel(fact), systemImage: componentStateSymbol(fact))
+                                .foregroundStyle(fact.ready ? .green : .orange)
+                                .help("\(fact.path) · \(fact.detail)")
+                        }
+                    }
+                }
+                if model.systemComponentsHaveArtifacts {
+                    if model.embeddedUninstallerAvailable {
+                        Button("卸载系统组件…", role: .destructive) { showingUninstall = true }
+                            .disabled(model.isBusy)
+                    } else {
+                        Text("当前 App 不包含受控卸载器，不能从 GUI 卸载程序组件。")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("默认卸载会保留 /Library/Application Support/Steer/config、state 与 /Library/Logs/Steer。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("版本与运行时") {
                 LabeledContent("Canonical schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
@@ -1326,6 +1355,39 @@ struct SystemView: View {
             }
         }
         .listStyle(.inset)
+        .confirmationDialog("卸载 Steer 系统组件？", isPresented: $showingUninstall, titleVisibility: .visible) {
+            Button("卸载并保留用户数据", role: .destructive) {
+                model.uninstallSystemComponents(removeUserData: false)
+            }
+            Button("同时删除用户数据…", role: .destructive) {
+                DispatchQueue.main.async { showingDeleteUserData = true }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将停止三个 LaunchDaemon，并删除 helper、sing-box、plist、control socket 与 Geo/runtime 组件。config、state 和日志默认保留。")
+        }
+        .alert("同时删除用户数据？", isPresented: $showingDeleteUserData) {
+            Button("永久删除配置、状态与日志", role: .destructive) {
+                model.uninstallSystemComponents(removeUserData: true)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("这会额外删除 /Library/Application Support/Steer 和 /Library/Logs/Steer，无法从 Steer 恢复。")
+        }
+    }
+
+    private func componentStateLabel(_ fact: SystemComponentFact) -> String {
+        switch fact.state {
+        case .ready: return fact.detail
+        case .missing: return "缺失"
+        case .outdated: return "版本不一致"
+        case .inactive: return "未加载"
+        case .invalid: return "无效"
+        }
+    }
+
+    private func componentStateSymbol(_ fact: SystemComponentFact) -> String {
+        fact.ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
     }
 
     private func pathRow(_ title: String, _ path: String) -> some View {
