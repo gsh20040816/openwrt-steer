@@ -122,18 +122,42 @@ return baseclass.extend({
 	importNodes: function(document) { return callNodeImport(document); },
 
 	configureNamedSection: function(section, defaults, beforeSectionId) {
+		const handleAdd = section.handleAdd;
 		section.anonymous = false;
 		section.handleAdd = function(ev, sectionId) {
-			if (!sectionIDPattern.test(sectionId)) {
+			if (typeof(sectionId) != 'string' || !sectionIDPattern.test(sectionId)) {
 				ui.addNotification(_('Invalid section ID'), E('p', {}, _('Use 1–32 lowercase characters beginning with a letter.')), 'danger');
 				return;
 			}
-			const config = this.uciconfig || this.map.config;
-			this.map.data.add(config, this.sectiontype, sectionId);
-			Object.entries(defaults || {}).forEach((entry) => this.map.data.set(config, sectionId, entry[0], entry[1]));
-			if (beforeSectionId)
-				this.map.data.move(config, sectionId, beforeSectionId, false);
-			return this.map.save(null, true);
+			/* Keep GridSection's native provisional-section lifecycle so Add opens
+			 * the editor modal and Cancel removes the unsaved section. Inject the
+			 * Steer defaults synchronously at the native data.add() boundary so the
+			 * first modal render sees them. */
+			const data = this.map.data;
+			const nativeAdd = data.add;
+			const hadOwnAdd = Object.prototype.hasOwnProperty.call(data, 'add');
+			data.add = function(config, type, name) {
+				const addedSection = nativeAdd.call(this, config, type, name);
+				try {
+					Object.entries(defaults || {}).forEach((entry) => this.set(config, addedSection, entry[0], entry[1]));
+					if (beforeSectionId)
+						this.move(config, addedSection, beforeSectionId, false);
+					return addedSection;
+				}
+				catch (error) {
+					this.remove(config, addedSection);
+					throw error;
+				}
+			};
+			try {
+				return handleAdd.call(this, ev, sectionId);
+			}
+			finally {
+				if (hadOwnAdd)
+					data.add = nativeAdd;
+				else
+					delete data.add;
+			}
 		};
 		return section;
 	},

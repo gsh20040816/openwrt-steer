@@ -610,13 +610,27 @@ function renderSubscriptionStatus(result, gate) {
 	]);
 }
 
+function enabledFlag(value) {
+	return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+function hasCredentials(node) {
+	return [ 'uuid', 'username', 'password', 'private_key', 'obfs_password' ].some((field) => {
+		const value = node?.[field];
+		return Array.isArray(value) ? value.length > 0 : value != null && String(value) != '';
+	});
+}
+
 function previewFacts(node) {
 	const values = [
 		[ _('Protocol'), node.type ],
 		[ _('Server'), node.server ],
-		[ _('Port'), node.server_port ],
-		[ _('Credentials'), _('Present; hidden from preview') ]
+		[ _('Port'), node.server_port ]
 	];
+	if (hasCredentials(node))
+		values.push([ _('Credentials'), _('Present; hidden from preview') ]);
+	else
+		values.push([ _('Credentials'), _('None') ]);
 	if (node.server_ports?.length)
 		values.push([ _('Port hopping ranges'), node.server_ports.join(', ') ]);
 	if (node.tls_server_name)
@@ -637,8 +651,20 @@ function previewFacts(node) {
 		values.push([ _('Upload Mbps'), node.up_mbps ]);
 	if (node.down_mbps)
 		values.push([ _('Download Mbps'), node.down_mbps ]);
-	values.push([ _('Certificate verification'), node.insecure == '1' ? _('Disabled') : _('Enabled') ]);
+	values.push([ _('Certificate verification'), enabledFlag(node.insecure) ? _('Disabled') : _('Enabled') ]);
 	return values;
+}
+
+function renderImportPreview(node, index, nameInput) {
+	return E('article', { 'class': 'steer-test-card steer-import-node' }, [
+		E('h5', {}, _('%d. %s').format(index + 1, node.name || node.id || _('Unnamed node'))),
+		nameInput ? E('div', { 'class': 'cbi-value' }, [
+			E('label', { 'class': 'cbi-value-title' }, _('Name')),
+			E('div', { 'class': 'cbi-value-field' }, nameInput)
+		]) : '',
+		E('dl', { 'class': 'steer-status__facts' }, previewFacts(node).map((fact) =>
+			E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, String(fact[1])) ])))
+	]);
 }
 
 function renderImportButton() {
@@ -838,13 +864,9 @@ function showImportDialog() {
 			};
 			preview.replaceChildren(E('div', {}, [
 				E('h4', {}, _('%d node(s) ready to import').format(nodes.length)),
-				parsed.skipped ? E('p', { 'class': 'alert-message warning' }, _('%d invalid node(s) were skipped.').format(parsed.skipped)) : '',
-				nameInput ? E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title' }, _('Name')),
-					E('div', { 'class': 'cbi-value-field' }, nameInput)
-				]) : '',
-				E('dl', { 'class': 'steer-status__facts' }, previewFacts(nodes[0]).map((fact) =>
-					E('div', {}, [ E('dt', {}, fact[0]), E('dd', {}, String(fact[1])) ]))),
+				E('p', {}, _('Review every node below. Credentials are reported only as present or absent and their contents stay hidden.')),
+				parsed.skipped ? E('p', { 'class': 'alert-message warning' }, _('%d invalid node(s) were skipped; the complete valid batch is listed below.').format(parsed.skipped)) : '',
+				E('div', { 'class': 'steer-test-grid' }, nodes.map((node, index) => renderImportPreview(node, index, nameInput))),
 				E('div', { 'class': 'right' }, E('button', {
 					'class': 'cbi-button cbi-button-positive', click: save
 				}, _('Import into pending configuration')))

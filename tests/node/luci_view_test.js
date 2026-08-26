@@ -74,6 +74,7 @@ function element(tag, attributes, children) {
 		},
 		setAttribute: function(name, value) { this.attributes[name] = String(value); },
 		getAttribute: function(name) { return this.attributes[name]; },
+		focus: function() { this.focused = true; },
 		matches: function(selector) { return selector == this.tag; },
 		querySelector: function(selector) {
 			if (selector.startsWith('.')) {
@@ -296,6 +297,7 @@ function createEnvironment(sections) {
 	const speedtestCalls = [];
 	const routeSpeedtestCalls = [];
 	const overviewProbeCalls = [];
+	const importNodeCalls = [];
 	const cleanSubscriptionCalls = [];
 	const updateSubscriptionCalls = [];
 	const notifications = [];
@@ -339,6 +341,10 @@ function createEnvironment(sections) {
 			overviewProbeCalls.push(kind);
 			return Promise.resolve({ ok: true, results: [ { url: 'https://test.example/', ok: true, first_byte_milliseconds: 20 } ] });
 		},
+		importNodes: (document) => {
+			importNodeCalls.push(document);
+			return Promise.resolve(environment.importNodesResult);
+		},
 		applyPending: () => Promise.resolve({ ok: true }),
 		applySaved: () => Promise.resolve({ ok: true }),
 		discardPending: () => Promise.resolve(),
@@ -346,8 +352,8 @@ function createEnvironment(sections) {
 	};
 	const ui = {
 		addNotification: (title, body, level) => notifications.push({ title, body, level }),
-		showModal: () => {},
-		hideModal: () => {}
+		showModal: (title, content) => { environment.modal = { title, content }; },
+		hideModal: () => { environment.modalHidden = true; }
 	};
 	const window = { location: {
 		pathname: '/cgi-bin/luci/admin/services/steer/nodes', search: '', href: '', reloadCount: 0,
@@ -357,7 +363,7 @@ function createEnvironment(sections) {
 
 	const environment = {
 		form, uci, view, steer, ui, window, maps, translate,
-		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, cleanSubscriptionCalls, updateSubscriptionCalls, notifications,
+		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, importNodeCalls, cleanSubscriptionCalls, updateSubscriptionCalls, notifications,
 		setPendingChanges: (changes) => { pendingChanges = changes; },
 		get statusRenderCalls() { return statusRenderCalls; },
 		cleanSubscriptionResult: { ok: true },
@@ -372,7 +378,10 @@ function createEnvironment(sections) {
 		speedtestResult: { ok: true, results: [ {
 			url: 'https://speed.example/', ok: true, status: 204, attempts: 1,
 			first_byte_milliseconds: 42, downloaded_bytes: 1000000, download_milliseconds: 1000
-		} ] }
+		} ] },
+		importNodesResult: { nodes: [], skipped: 0 },
+		modal: null,
+		modalHidden: false
 	};
 	return environment;
 }
@@ -1544,6 +1553,46 @@ async function main() {
 	for (const expected of [ 'does not prove a particular outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'tested_at', 'Recent logs', 'Recent Apply', 'Validation' ])
 		assert.ok(diagnosticText.includes(expected), `LuCI Diagnostics must render ${expected}`);
 	assert.ok(!diagnosticText.includes('proves the Direct path') && !diagnosticText.includes('proves the proxy path'));
+
+	const importSections = { subscription: [], node: [], route: [] };
+	environment = await renderNodes(importSections, '', { subscriptions: [] });
+	environment.importNodesResult = {
+		nodes: [
+			{ enabled: true, name: 'Unsafe TLS', type: 'vless', server: 'unsafe.example', server_port: 443, uuid: 'hidden-uuid', password: 'never-render-this', insecure: true },
+			{ enabled: true, name: 'UCI-shaped flag', type: 'socks', server: 'socks.example', server_port: 1080, insecure: '1' }
+		],
+		skipped: 2
+	};
+	const importButton = findElements(environment.rendered,
+		(node) => node.tag == 'button' && elementText(node) == 'Import nodes')[0];
+	assert.ok(importButton, 'Manual Nodes exposes the batch import dialog');
+	importButton.attributes.click({ preventDefault: () => {} });
+	const importModal = element('div', {}, environment.modal.content);
+	const importInput = findElements(importModal, (node) => node.tag == 'textarea')[0];
+	importInput.value = 'two private share links';
+	const parseImport = findElements(importModal,
+		(node) => node.tag == 'button' && elementText(node) == 'Parse and preview')[0];
+	await parseImport.attributes.click({ preventDefault: () => {} });
+	assert.deepEqual(environment.importNodeCalls, [ 'two private share links' ]);
+	const previewCards = findElements(importModal,
+		(node) => node.tag == 'article' && String(node.attributes.class).includes('steer-import-node'));
+	assert.equal(previewCards.length, 2, 'The preview covers every valid node in the batch');
+	assert.ok(elementText(previewCards[0]).includes('Unsafe TLS') && elementText(previewCards[0]).includes('Certificate verification Disabled'));
+	assert.ok(elementText(previewCards[1]).includes('UCI-shaped flag') && elementText(previewCards[1]).includes('Certificate verification Disabled'),
+		'JSON true and UCI "1" normalize to the same insecure warning');
+	assert.ok(elementText(previewCards[0]).includes('Credentials Present; hidden from preview'));
+	assert.ok(elementText(previewCards[1]).includes('Credentials None'),
+		'Credential presence is reported only when a real credential field is populated');
+	assert.ok(!elementText(importModal).includes('hidden-uuid') && !elementText(importModal).includes('never-render-this'),
+		'Credential contents never enter the preview DOM');
+	assert.ok(elementText(importModal).includes('2 invalid node(s) were skipped; the complete valid batch is listed below.'));
+	const cancelImport = findElements(importModal,
+		(node) => node.tag == 'button' && elementText(node) == 'Cancel')[0];
+	cancelImport.attributes.click();
+	assert.equal(environment.modalHidden, true);
+	assert.equal(importSections.node.length, 0,
+		'Cancelling the reviewed batch creates no pending UCI section');
+
 	const nodeSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodeSource.includes('const id = nextManualNodeID();') &&

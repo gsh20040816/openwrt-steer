@@ -30,6 +30,9 @@ msgstr "%d 个端口"
 msgid "%d valid %s names are available for dynamic completion."
 msgstr "当前有 %d 个合法 %s 名称可用于动态补全。"
 
+msgid "%d. %s"
+msgstr "%d. %s"
+
 msgid "A disabled configuration stops Steer and removes its runtime resources when applied."
 msgstr "应用已禁用的配置会停止 Steer 并删除其运行时资源。"
 
@@ -414,6 +417,9 @@ msgstr "未知错误"
 msgid "Unnamed"
 msgstr "未命名"
 
+msgid "Unnamed node"
+msgstr "未命名节点"
+
 msgid "Upload Mbps"
 msgstr "上传 Mbps"
 
@@ -555,11 +561,14 @@ msgstr "将先通过所选单节点路由拨号。前置路由缺失、禁用、
 msgid "This older configuration has no Reject route. Create the fixed disabled system route once, then enable it when needed."
 msgstr "此旧配置缺少 Reject 路由。请一次性创建固定且默认禁用的系统路由，并在需要时启用。"
 
-msgid "%d invalid node(s) were skipped."
-msgstr "已跳过 %d 个无效节点。"
+msgid "%d invalid node(s) were skipped; the complete valid batch is listed below."
+msgstr "已跳过 %d 个无效节点；下方列出了完整的有效批次。"
 
 msgid "%d node(s) ready to import"
 msgstr "%d 个节点可以导入"
+
+msgid "Review every node below. Credentials are reported only as present or absent and their contents stay hidden."
+msgstr "请检查下方每个节点。凭据只显示存在或不存在，具体内容始终隐藏。"
 
 msgid "Advanced"
 msgstr "高级"
