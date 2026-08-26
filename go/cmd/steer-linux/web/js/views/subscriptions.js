@@ -101,7 +101,7 @@
             const startedEpoch = S.store.draftEpoch;
             await S.api.cleanNode(subscription.id, node.id);
             let reloaded = false;
-            if (S.store.draftEpoch !== startedEpoch) {
+            if (S.store.draftEpoch !== startedEpoch && S.store.dirty) {
               await S.store.refreshOverview();
               ui.toast(`已清理服务器库存中的 ${node.id}；期间 Draft 已变化，已保留本地修改`, 'warn');
             } else {
@@ -156,7 +156,7 @@
               const res = await S.api.updateSubscription(s.id);
               const snap = res.snapshots?.[0];
               let reloaded = false;
-              if (S.store.draftEpoch !== startedEpoch) {
+              if (S.store.draftEpoch !== startedEpoch && S.store.dirty) {
                 await S.store.refreshOverview();
                 ui.toast('节点库存已更新；期间 Draft 已变化，已保留本地修改且未自动 reload', 'warn');
               } else {

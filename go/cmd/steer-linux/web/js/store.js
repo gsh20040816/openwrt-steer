@@ -118,24 +118,37 @@
       saving = true;
       emit();
       try {
-        const res = await S.api.putConfig(savedSnapshot, savedRevision, apply);
-        const refreshedOverview = await S.api.overview();
-        if (expectedState !== stateEpoch) return { ok: false, superseded: true };
+        let res;
+        try {
+          res = await S.api.putConfig(savedSnapshot, savedRevision, apply);
+        } catch (err) {
+          if (expectedState !== stateEpoch) return { ok: false, superseded: true };
+          const staleDraft = mutationEpoch !== startedMutation;
+          if (err.code === 'CONFLICT') { emit(); return { ok: false, conflict: err, staleDraft }; }
+          err.staleDraft = staleDraft;
+          throw err;
+        }
+
+        /* PUT 已成功时先提交本地修订状态；overview 只是后续的状态刷新。 */
         revision = res.revision;
-        overview = refreshedOverview;
         const staleDraft = mutationEpoch !== startedMutation;
         if (!staleDraft) {
           dirty = false;
           draftText = serializeIntent();
         }
         emit();
-        return { ok: true, res, staleDraft };
-      } catch (err) {
-        if (expectedState !== stateEpoch) return { ok: false, superseded: true };
-        const staleDraft = mutationEpoch !== startedMutation;
-        if (err.code === 'CONFLICT') { emit(); return { ok: false, conflict: err, staleDraft }; }
-        err.staleDraft = staleDraft;
-        throw err;
+
+        let overviewError = null;
+        try {
+          const refreshedOverview = await S.api.overview();
+          if (expectedState === stateEpoch) {
+            overview = refreshedOverview;
+            emit();
+          }
+        } catch (error) {
+          overviewError = error;
+        }
+        return { ok: true, res, staleDraft, overviewError };
       } finally {
         saving = false;
         emit();
@@ -148,8 +161,13 @@
       emit();
       try {
         const result = await S.api.applySaved();
-        await store.refreshOverview();
-        return result;
+        let overviewError = null;
+        try {
+          await store.refreshOverview();
+        } catch (error) {
+          overviewError = error;
+        }
+        return { ...result, overviewError };
       } finally {
         applying = false;
         emit();

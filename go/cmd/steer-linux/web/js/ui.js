@@ -119,10 +119,13 @@
     try {
       const res = await S.store.save(apply);
       if (res.ok) {
-        if (res.staleDraft) {
-          toast(apply ? '请求时的 Draft 已保存并 Apply；期间新增修改仍未保存。' : '请求时的 Draft 已保存；期间新增修改仍未保存。', 'warn');
-        } else if (apply && !res.res.applied) {
-          toast(`已保存，但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}`, 'err');
+        const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
+        if (apply && res.res.applied === false) {
+          toast(`快照已保存但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
+        } else if (res.staleDraft) {
+          toast(`${apply ? '请求时的 Draft 已保存并 Apply；期间新增修改仍未保存' : '请求时的 Draft 已保存；期间新增修改仍未保存'}${overviewWarning}。`, 'warn');
+        } else if (res.overviewError) {
+          toast(`${apply ? '已保存并 Apply' : `已保存 · 修订 ${S.fmtRevision(S.store.revision)}`}${overviewWarning}`, 'warn');
         } else {
           toast(apply ? `已保存并 Apply · generation ${res.res.apply_result?.generation || '已切换'}` : `已保存 · 修订 ${S.fmtRevision(S.store.revision)}`, 'ok');
         }
@@ -176,9 +179,10 @@
       if (result.busy) {
         toast('已有 Save、Apply 或 reload 操作正在进行，请等待完成。', 'warn');
       } else if (result.ok) {
-        toast('已 Apply 已保存配置。', 'ok');
+        if (result.overviewError) toast(`已 Apply 已保存配置；状态刷新失败：${result.overviewError.message}`, 'warn');
+        else toast('已 Apply 已保存配置。', 'ok');
       } else {
-        toast(`Apply 已保存配置失败：${applyFailureSummary(result)}`, 'err');
+        toast(`Apply 已保存配置失败：${applyFailureSummary(result)}${result.overviewError ? `；状态刷新失败：${result.overviewError.message}` : ''}`, 'err');
       }
     } catch (error) {
       toast(`Apply 已保存配置失败：${error.message}`, 'err');
@@ -204,10 +208,13 @@
     try {
       const res = await S.store.save(true);
       if (res.ok) {
-        if (res.staleDraft) {
-          toast(`已保存并 Apply ${next ? '启用' : '禁用'}；期间新增修改仍未保存。`, 'warn');
-        } else if (!res.res.applied) {
-          toast(`已保存为${next ? '启用' : '禁用'}，但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}`, 'err');
+        const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
+        if (res.res.applied === false) {
+          toast(`已保存为${next ? '启用' : '禁用'}，但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
+        } else if (res.staleDraft) {
+          toast(`已保存并 Apply ${next ? '启用' : '禁用'}；期间新增修改仍未保存${overviewWarning}。`, 'warn');
+        } else if (res.overviewError) {
+          toast(`${next ? 'Steer 已启用并 Apply' : 'Steer 已禁用并清理运行资源'}${overviewWarning}`, 'warn');
         } else {
           toast(next ? 'Steer 已启用并 Apply。' : 'Steer 已禁用并清理运行资源。', 'ok');
         }
@@ -278,8 +285,10 @@
     try {
       const res = await S.store.save(!!apply, true);
       if (res.ok) {
-        if (res.staleDraft) toast('请求时的 Draft 已覆盖保存；期间新增修改仍未保存。', 'warn');
-        else if (apply && !res.res.applied) toast(`已覆盖保存，但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}`, 'err');
+        const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
+        if (apply && res.res.applied === false) toast(`快照已覆盖保存但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
+        else if (res.staleDraft) toast(`请求时的 Draft 已覆盖保存；期间新增修改仍未保存${overviewWarning}。`, 'warn');
+        else if (res.overviewError) toast(`${apply ? '已覆盖保存并 Apply' : `已覆盖保存 · 修订 ${S.fmtRevision(S.store.revision)}`}${overviewWarning}`, 'warn');
         else toast(apply ? '已覆盖保存并 Apply。' : `已覆盖保存 · 修订 ${S.fmtRevision(S.store.revision)}`, 'ok');
       } else if (res.busy) {
         toast('已有 Save 或 reload 操作正在进行，请等待完成。', 'warn');
