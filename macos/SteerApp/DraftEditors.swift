@@ -2,6 +2,49 @@
 
 import Foundation
 import SwiftUI
+import Darwin
+
+enum LocalProxyListenClassification: String, Codable {
+    case loopback
+    case nonLoopback = "non_loopback"
+    case invalid
+}
+
+private func parsedIPv4Bytes(_ value: String) -> [UInt8]? {
+    var address = in_addr()
+    guard value.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else { return nil }
+    return Swift.withUnsafeBytes(of: &address) { Array($0) }
+}
+
+private func parsedIPv6Bytes(_ value: String) -> [UInt8]? {
+    var literal = value
+    if let zoneStart = literal.firstIndex(of: "%") {
+        let zone = literal[literal.index(after: zoneStart)...]
+        guard !zone.isEmpty, !zone.contains("%") else { return nil }
+        literal = String(literal[..<zoneStart])
+    }
+    var address = in6_addr()
+    guard literal.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else { return nil }
+    return Swift.withUnsafeBytes(of: &address) { Array($0) }
+}
+
+func classifyLocalProxyListen(_ value: String) -> LocalProxyListenClassification {
+    if let bytes = parsedIPv4Bytes(value) {
+        return bytes.first == 127 ? .loopback : .nonLoopback
+    }
+    guard let bytes = parsedIPv6Bytes(value) else { return .invalid }
+    return bytes.dropLast().allSatisfy { $0 == 0 } && bytes.last == 1 ? .loopback : .nonLoopback
+}
+
+func validateLocalProxyAuthentication(listen: String, username: String, password: String) -> String? {
+    let classification = classifyLocalProxyListen(listen)
+    if classification == .invalid { return "监听地址必须是 IP literal，不能使用 hostname" }
+    if username.isEmpty != password.isEmpty { return "用户名和密码必须同时填写" }
+    if classification == .nonLoopback && username.isEmpty {
+        return "非 loopback 监听会扩大暴露范围，必须设置用户名和密码"
+    }
+    return nil
+}
 
 struct DraftEditorTarget: Identifiable {
     let id = UUID()
@@ -152,9 +195,11 @@ struct DraftItemEditor: View {
         case "local_proxies":
             if draftString(value, "listen").isEmpty { return "监听地址不能为空" }
             if !validPort(draftInt(value, "listen_port")) { return "监听端口必须是 1…65535" }
-            let username = draftString(value, "username")
-            let password = draftString(value, "password")
-            if username.isEmpty != password.isEmpty { return "用户名和密码必须同时填写" }
+            if let error = validateLocalProxyAuthentication(
+                listen: draftString(value, "listen"),
+                username: draftString(value, "username"),
+                password: draftString(value, "password")
+            ) { return error }
         case "rules":
             if draftString(value, "route").isEmpty { return "请选择 Route" }
             if draftString(value, "dns_profile").isEmpty { return "请选择 DNS Profile" }
@@ -435,6 +480,8 @@ private struct DNSDraftForm: View {
 
 private struct LocalProxyDraftForm: View {
     @Binding var object: [String: JSONValue]
+    private var listen: String { draftString(object, "listen") }
+    private var listenClassification: LocalProxyListenClassification { classifyLocalProxyListen(listen) }
 
     var body: some View {
         Section("本地入口") {
@@ -448,10 +495,23 @@ private struct LocalProxyDraftForm: View {
             TextField("监听地址", text: stringBinding($object, "listen", required: true), prompt: Text("127.0.0.1"))
             TextField("监听端口", value: intBinding($object, "listen_port", defaultValue: 1090), format: .number)
         }
+        if listenClassification == .nonLoopback {
+            Section {
+                Label("该监听地址可能允许局域网或公网客户端连接；必须同时设置用户名和密码。", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            } header: {
+                Text("暴露范围警告")
+            }
+        } else if listenClassification == .invalid && !listen.isEmpty {
+            Section {
+                Label("监听地址必须是 IPv4 或 IPv6 literal，不能使用 hostname。", systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+            }
+        }
         Section("认证（可选）") {
             TextField("用户名", text: stringBinding($object, "username"))
             SecureField("密码", text: stringBinding($object, "password"))
-            Text("非 loopback 监听必须同时设置用户名和密码。")
+            Text("用户名和密码必须成对设置；loopback 可不设置认证。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

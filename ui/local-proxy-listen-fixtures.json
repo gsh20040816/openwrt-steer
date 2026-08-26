@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "IPv4 loopback",
+      "listen": "127.0.0.1",
+      "classification": "loopback",
+      "allow_unauthenticated": true
+    },
+    {
+      "name": "IPv4 loopback range",
+      "listen": "127.42.0.9",
+      "classification": "loopback",
+      "allow_unauthenticated": true
+    },
+    {
+      "name": "IPv6 loopback",
+      "listen": "::1",
+      "classification": "loopback",
+      "allow_unauthenticated": true
+    },
+    {
+      "name": "IPv4 wildcard",
+      "listen": "0.0.0.0",
+      "classification": "non_loopback",
+      "allow_unauthenticated": false
+    },
+    {
+      "name": "IPv6 wildcard",
+      "listen": "::",
+      "classification": "non_loopback",
+      "allow_unauthenticated": false
+    },
+    {
+      "name": "LAN IPv4",
+      "listen": "192.168.50.1",
+      "classification": "non_loopback",
+      "allow_unauthenticated": false
+    },
+    {
+      "name": "LAN IPv6 ULA",
+      "listen": "fd12:3456:789a::1",
+      "classification": "non_loopback",
+      "allow_unauthenticated": false
+    },
+    {
+      "name": "LAN IPv6 link local",
+      "listen": "fe80::1",
+      "classification": "non_loopback",
+      "allow_unauthenticated": false
+    },
+    {
+      "name": "Hostname",
+      "listen": "router.lan",
+      "classification": "invalid",
+      "allow_unauthenticated": false
+    }
+  ]
+}

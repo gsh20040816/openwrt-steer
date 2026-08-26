@@ -8,6 +8,7 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '../..');
 const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json'), 'utf8'));
+const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -1305,6 +1306,158 @@ async function testSubscriptionAsyncWorkReloadsLatestAfterDiscard() {
     'cleanup completion must load the latest server inventory after the discarded Draft');
 }
 
+function localProxyIntent(proxy) {
+  const intent = representativeIntent('key');
+  intent.local_proxies = proxy ? [proxy] : [];
+  return intent;
+}
+
+function proxyControl(environment, label, tag) {
+  const field = fieldWithLabel(environment.drawerRoot, label);
+  assert.ok(field, `local proxy editor must expose ${label}`);
+  return find(field, (element) => element.tag === tag);
+}
+
+function openProxyEditor(environment) {
+  loadView(environment, 'proxies');
+  openOnlyEditor(environment, 'proxies');
+}
+
+function testLocalProxyAddressFixturesAndMixedLabel() {
+  const proxy = {
+    id: 'mixed-entry', enabled: true, name: 'Mixed entry', protocol: 'mixed',
+    listen: '127.0.0.1', listen_port: 1080
+  };
+  const environment = createEnvironment(async () => ({ ok: true }), localProxyIntent(proxy));
+  for (const fixture of localProxyFixtures.cases) {
+    assert.strictEqual(
+      environment.S.ui.classifyLocalProxyListen(fixture.listen),
+      fixture.classification,
+      `Linux classification drifted for ${fixture.name}`
+    );
+  }
+  loadView(environment, 'proxies');
+  environment.S.views.proxies.render(environment.view);
+  assert.ok(
+    find(environment.view, (element) => element.tag === 'span' && text(element) === 'Mixed (SOCKS + HTTP)'),
+    'Mixed local proxy rows must use the shared protocol label'
+  );
+}
+
+function testLocalProxyKeepsPasswordWhileUpdatingUsername() {
+  const proxy = {
+    id: 'entry', enabled: true, name: 'Entry', protocol: 'mixed', listen: '192.168.50.1', listen_port: 1080,
+    username: 'old-user', password: 'saved-secret'
+  };
+  const environment = createEnvironment(async () => ({ ok: true }), localProxyIntent(proxy));
+  openProxyEditor(environment);
+
+  const username = proxyControl(environment, '用户名', 'input');
+  const password = proxyControl(environment, '新密码', 'input');
+  assert.strictEqual(password.value, '', 'an existing password must never be placed back into the rendered input');
+  username.value = 'updated-user';
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.strictEqual(proxy.username, 'updated-user', 'editing username must write back to the draft');
+  assert.strictEqual(proxy.password, 'saved-secret', 'the keep action must retain the stored password');
+}
+
+function testLocalProxyReplacesAndRemovesAuthentication() {
+  let proxy = {
+    id: 'entry', enabled: true, name: 'Entry', protocol: 'socks', listen: '127.0.0.1', listen_port: 1080,
+    username: 'old-user', password: 'saved-secret'
+  };
+  let environment = createEnvironment(async () => ({ ok: true }), localProxyIntent(proxy));
+  openProxyEditor(environment);
+  let action = proxyControl(environment, '认证操作', 'select');
+  action.value = 'replace';
+  action.listeners.change({ target: action });
+  proxyControl(environment, '用户名', 'input').value = 'replacement-user';
+  proxyControl(environment, '新密码', 'input').value = 'replacement-secret';
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.strictEqual(proxy.username, 'replacement-user', 'replace must write the username');
+  assert.strictEqual(proxy.password, 'replacement-secret', 'replace must write the new password');
+
+  proxy = {
+    id: 'entry', enabled: true, name: 'Entry', protocol: 'http', listen: '127.0.0.1', listen_port: 8080,
+    username: 'old-user', password: 'saved-secret'
+  };
+  environment = createEnvironment(async () => ({ ok: true }), localProxyIntent(proxy));
+  openProxyEditor(environment);
+  action = proxyControl(environment, '认证操作', 'select');
+  action.value = 'remove';
+  action.listeners.change({ target: action });
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.ok(!Object.hasOwn(proxy, 'username') && !Object.hasOwn(proxy, 'password'),
+    'remove authentication must clear the paired fields together');
+}
+
+function testLocalProxyBlocksExposedUnauthenticatedDraftAndCreatesCredentials() {
+  const intent = localProxyIntent(null);
+  const environment = createEnvironment(async () => ({ ok: true }), intent);
+  loadView(environment, 'proxies');
+  environment.S.views.proxies.render(environment.view);
+  buttonWithText(environment.view, '添加端点').listeners.click();
+
+  proxyControl(environment, '名称', 'input').value = 'LAN entry';
+  const listen = proxyControl(environment, '监听地址', 'input');
+  const action = proxyControl(environment, '认证操作', 'select');
+  action.value = 'replace';
+  action.listeners.change({ target: action });
+  proxyControl(environment, '用户名', 'input').value = 'new-user';
+  const newPassword = proxyControl(environment, '新密码', 'input');
+  newPassword.value = 'new-secret';
+  listen.value = 'router.lan';
+  listen.listeners.input({ target: listen });
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.strictEqual(intent.local_proxies.length, 0, 'hostname listeners must not enter the Draft even with authentication');
+  assert.ok(text(environment.body.querySelector('#toasts')).includes('hostname'),
+    'a rejected hostname must explain the IP literal requirement');
+
+  listen.value = '127.0.0.1';
+  newPassword.value = '';
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.strictEqual(intent.local_proxies.length, 0, 'incomplete authentication must not enter the Draft');
+  assert.ok(text(environment.body.querySelector('#toasts')).includes('同时填写'),
+    'incomplete authentication must explain the paired-field requirement');
+  newPassword.value = 'new-secret';
+
+  action.value = 'remove';
+  action.listeners.change({ target: action });
+  listen.value = '0.0.0.0';
+  listen.listeners.input({ target: listen });
+  const warning = find(environment.drawerRoot, (element) => classSet(element).has('local-proxy-exposure'));
+  assert.ok(warning && warning.hidden === false && text(warning).includes('暴露范围'),
+    'non-loopback input must show a prominent exposure warning');
+
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.strictEqual(intent.local_proxies.length, 0, 'an exposed endpoint without authentication must not enter the Draft');
+  assert.ok(text(environment.body.querySelector('#toasts')).includes('暴露风险'),
+    'blocked exposed listeners must explain the risk');
+
+  action.value = 'replace';
+  action.listeners.change({ target: action });
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.strictEqual(intent.local_proxies.length, 1, 'paired authentication must allow an exposed endpoint into the Draft');
+  assert.strictEqual(intent.local_proxies[0].username, 'new-user', 'new username must be written to the Draft');
+  assert.strictEqual(intent.local_proxies[0].password, 'new-secret', 'new password must be written to the Draft');
+}
+
+function testLocalProxyBlocksRemovingAuthenticationFromExposedListener() {
+  const proxy = {
+    id: 'entry', enabled: true, name: 'LAN entry', protocol: 'mixed', listen: '::', listen_port: 1080,
+    username: 'user', password: 'secret'
+  };
+  const environment = createEnvironment(async () => ({ ok: true }), localProxyIntent(proxy));
+  openProxyEditor(environment);
+  const action = proxyControl(environment, '认证操作', 'select');
+  action.value = 'remove';
+  action.listeners.change({ target: action });
+  buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
+  assert.strictEqual(proxy.username, 'user', 'blocked removal must preserve the existing username');
+  assert.strictEqual(proxy.password, 'secret', 'blocked removal must preserve the existing password');
+  assert.strictEqual(environment.touchCount, 0, 'blocked removal must not mark the Draft dirty');
+}
+
 Promise.resolve()
   .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
@@ -1326,6 +1479,11 @@ Promise.resolve()
   .then(testAdvancedRouterDiscardAndGuardedActions)
   .then(testSubscriptionAsyncWorkPreservesNewDraftAndRoute)
   .then(testSubscriptionAsyncWorkReloadsLatestAfterDiscard)
+  .then(testLocalProxyAddressFixturesAndMixedLabel)
+  .then(testLocalProxyKeepsPasswordWhileUpdatingUsername)
+  .then(testLocalProxyReplacesAndRemovesAuthentication)
+  .then(testLocalProxyBlocksExposedUnauthenticatedDraftAndCreatesCredentials)
+  .then(testLocalProxyBlocksRemovingAuthenticationFromExposedListener)
   .then(() => console.log('Linux web regression tests passed.'))
   .catch((error) => {
     console.error(error);

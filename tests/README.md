@@ -32,10 +32,18 @@ python3 tests/check-macos-packaging.py
 python3 tests/check-ui-contract.py
 ```
 
+macOS 原生表单还包含 Swift XCTest：
+
+```sh
+cd macos
+swift test --disable-sandbox
+```
+
 - `internal/subscription` Go 测试：三端共享的代理 URI、多行与 Base64 解析；
-- `luci_view_test.js`：表单语义、detour 可清空、节点/路由/概览测试按钮；
+- `luci_view_test.js`：表单语义、Local Proxy 暴露/认证门、detour 可清空、节点/路由/概览测试按钮；
 - `steer_helper_test.js`：UCI commit 后的 Apply 观察、独立 validate、最小 status；
-- `linux_web_test.js`：Linux Web 开关/冲突回滚、Rules/Node chips 与 SSH 私钥、Advanced JSON 单一 Draft、无效 JSON 导航保护及确认式 Discard；
+- `linux_web_test.js`：Linux Web 开关/冲突回滚、Rules/Node chips 与 SSH 私钥、Local Proxy 认证 DOM 往返、Advanced JSON 单一 Draft、无效 JSON 导航保护及确认式 Discard；
+- Swift XCTest：共享 Local Proxy 地址 fixture 与 macOS 提交门；
 - Python 检查：中文覆盖、包所有权/版本/已删除接口、官方 SDK 缓存与 Linux 交付约束。
 
 ## OpenWrt VM

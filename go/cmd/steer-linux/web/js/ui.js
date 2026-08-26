@@ -524,6 +524,66 @@
     return row;
   }
 
+  function parseIPv4Literal(value) {
+    const pieces = String(value).split('.');
+    if (pieces.length !== 4) return null;
+    const octets = [];
+    for (const piece of pieces) {
+      if (!/^(0|[1-9]\d{0,2})$/.test(piece)) return null;
+      const octet = Number(piece);
+      if (octet > 255) return null;
+      octets.push(octet);
+    }
+    return octets;
+  }
+
+  function parseIPv6Literal(value) {
+    let address = String(value);
+    const zoneIndex = address.indexOf('%');
+    if (zoneIndex >= 0) {
+      if (zoneIndex === 0 || zoneIndex === address.length - 1 || address.indexOf('%', zoneIndex + 1) >= 0) return null;
+      address = address.slice(0, zoneIndex);
+    }
+    if (!address.includes(':') || address.indexOf('::') !== address.lastIndexOf('::')) return null;
+
+    const compressed = address.includes('::');
+    const halves = compressed ? address.split('::') : [address];
+    const parseWords = (part, allowIPv4Tail) => {
+      if (!part) return [];
+      const tokens = part.split(':');
+      const words = [];
+      for (let index = 0; index < tokens.length; index++) {
+        const token = tokens[index];
+        if (token.includes('.')) {
+          if (!allowIPv4Tail || index !== tokens.length - 1) return null;
+          const octets = parseIPv4Literal(token);
+          if (!octets) return null;
+          words.push((octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]);
+        } else {
+          if (!/^[0-9a-f]{1,4}$/i.test(token)) return null;
+          words.push(Number.parseInt(token, 16));
+        }
+      }
+      return words;
+    };
+
+    const left = parseWords(halves[0], !compressed);
+    const right = compressed ? parseWords(halves[1], true) : [];
+    if (!left || !right) return null;
+    if (!compressed) return left.length === 8 ? left : null;
+    const omitted = 8 - left.length - right.length;
+    return omitted >= 1 ? [...left, ...Array(omitted).fill(0), ...right] : null;
+  }
+
+  function classifyLocalProxyListen(value) {
+    const address = String(value ?? '');
+    const ipv4 = parseIPv4Literal(address);
+    if (ipv4) return ipv4[0] === 127 ? 'loopback' : 'non_loopback';
+    const ipv6 = parseIPv6Literal(address);
+    if (!ipv6) return 'invalid';
+    return ipv6.slice(0, 7).every((word) => word === 0) && ipv6[7] === 1 ? 'loopback' : 'non_loopback';
+  }
+
   /* chips：动态列表（回车 / 失焦 / 显式添加提交 pending token，× 删除） */
   function chips(values = [], { placeholder = '', onchange } = {}) {
     let current = asList(values).map(String);
@@ -673,5 +733,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, jumpToObject } });
 })();

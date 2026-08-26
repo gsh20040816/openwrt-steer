@@ -2,6 +2,9 @@
 package intent
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -94,6 +97,58 @@ func TestValidateAllowsHTTPSubscriptionURL(t *testing.T) {
 	intent.Subscriptions = []Subscription{{ID: "feed", Enabled: true, URL: "http://192.168.1.2/subscription"}}
 	if validation := Validate(intent); !validation.OK {
 		t.Fatalf("ordinary HTTP subscription URL was rejected: %#v", validation.Errors)
+	}
+}
+
+func TestLocalProxyAddressFixtureMatchesBackendValidation(t *testing.T) {
+	type fixtureCase struct {
+		Name                 string `json:"name"`
+		Listen               string `json:"listen"`
+		Classification       string `json:"classification"`
+		AllowUnauthenticated bool   `json:"allow_unauthenticated"`
+	}
+	var fixtures struct {
+		SchemaVersion int           `json:"schema_version"`
+		Cases         []fixtureCase `json:"cases"`
+	}
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "ui", "local-proxy-listen-fixtures.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(content, &fixtures); err != nil {
+		t.Fatal(err)
+	}
+	if fixtures.SchemaVersion != 1 || len(fixtures.Cases) == 0 {
+		t.Fatalf("invalid local proxy fixture header: %#v", fixtures)
+	}
+
+	for _, fixture := range fixtures.Cases {
+		t.Run(fixture.Name, func(t *testing.T) {
+			value := validIntent()
+			value.LocalProxies = []LocalProxy{{
+				ID: "entry", Enabled: true, Protocol: "mixed", Listen: fixture.Listen, ListenPort: 1080,
+			}}
+			validation := Validate(value)
+			classification := "loopback"
+			if hasIssue(validation, "INVALID_LISTEN_ADDRESS") {
+				classification = "invalid"
+			} else if hasIssue(validation, "LOCAL_PROXY_AUTH_REQUIRED") {
+				classification = "non_loopback"
+			}
+			if classification != fixture.Classification {
+				t.Fatalf("classification=%q, want %q; errors=%#v", classification, fixture.Classification, validation.Errors)
+			}
+			if validation.OK != fixture.AllowUnauthenticated {
+				t.Fatalf("unauthenticated result=%v, want %v; errors=%#v", validation.OK, fixture.AllowUnauthenticated, validation.Errors)
+			}
+
+			value.LocalProxies[0].Username = "user"
+			value.LocalProxies[0].Password = "secret"
+			authenticated := Validate(value)
+			if authenticated.OK != (fixture.Classification != "invalid") {
+				t.Fatalf("authenticated result=%v; errors=%#v", authenticated.OK, authenticated.Errors)
+			}
+		})
 	}
 }
 

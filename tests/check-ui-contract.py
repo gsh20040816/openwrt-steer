@@ -21,6 +21,22 @@ subprocess.run(
 )
 
 contract = json.loads((ROOT / "ui/steer-ui-spec.json").read_text())
+local_proxy_fixtures = json.loads(
+    (ROOT / "ui/local-proxy-listen-fixtures.json").read_text()
+)
+if local_proxy_fixtures.get("schema_version") != 1:
+    raise SystemExit("check-ui-contract: invalid local proxy fixture schema")
+fixture_by_listen = {
+    item["listen"]: item for item in local_proxy_fixtures.get("cases", [])
+}
+for listen, classification in {
+    "127.0.0.1": "loopback", "::1": "loopback",
+    "0.0.0.0": "non_loopback", "::": "non_loopback",
+    "192.168.50.1": "non_loopback", "fd12:3456:789a::1": "non_loopback",
+    "router.lan": "invalid",
+}.items():
+    if fixture_by_listen.get(listen, {}).get("classification") != classification:
+        raise SystemExit(f"check-ui-contract: missing local proxy fixture {listen!r}")
 expected_navigation = [
     ("status", ["overview"]),
     ("configuration", ["general", "nodes", "routes", "dns", "proxies", "rules"]),
@@ -94,8 +110,10 @@ linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
 linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
 linux_subscriptions = (ROOT / "go/cmd/steer-linux/web/js/views/subscriptions.js").read_text()
 linux_dns = (ROOT / "go/cmd/steer-linux/web/js/views/dns.js").read_text()
+linux_proxies = (ROOT / "go/cmd/steer-linux/web/js/views/proxies.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
 luci_dns = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/dns.js").read_text()
+luci_proxies = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/local-proxies.js").read_text()
 mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
 mac_state = (ROOT / "macos/SteerApp/AppState.swift").read_text()
 mac_editors = (ROOT / "macos/SteerApp/DraftEditors.swift").read_text()
@@ -124,6 +142,27 @@ require(mac_ui_spec, "UIDNSProtocolSpec", "macOS DNS field matrix")
 require(mac_ui_spec, "next.defaultPort", "macOS DNS port matrix")
 require(mac_ui_spec, "currentPort == $0.defaultPort", "macOS DNS custom-port preservation")
 require(mac_editors, "protocolSpec?.fields.contains", "macOS DNS field visibility")
+require(linux_ui, "classifyLocalProxyListen", "Linux local proxy address classification")
+require(linux_proxies, "PROTOCOL_LABEL", "Linux shared local proxy labels")
+require(linux_proxies, "保持已保存密码", "Linux explicit password retention")
+require(linux_proxies, "替换密码", "Linux explicit password replacement")
+require(linux_proxies, "移除认证", "Linux explicit authentication removal")
+require(luci_proxies, "classifyLocalProxyListen", "LuCI local proxy address classification")
+require(luci_proxies, "steer-exposure-warning", "LuCI local proxy exposure warning")
+require(mac_editors, "classifyLocalProxyListen", "macOS local proxy address classification")
+require(mac_editors, "validateLocalProxyAuthentication", "macOS local proxy authentication gate")
+if "value: draft.password" in linux_proxies:
+    raise SystemExit("check-ui-contract: Linux local proxy editor redisplays a saved password")
+
+fixture_consumers = (
+    "go/internal/intent/validate_test.go",
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/LocalProxyAddressTests.swift",
+)
+for consumer in fixture_consumers:
+    consumer_content = (ROOT / consumer).read_text()
+    require(consumer_content, "local-proxy-listen-fixtures.json", consumer)
 
 for content, owner in (
     (linux_nodes, "Linux nodes"),
