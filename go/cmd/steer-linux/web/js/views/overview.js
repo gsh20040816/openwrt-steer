@@ -48,6 +48,14 @@
       const lastResult = lastApply?.result || lastApply;
       const validation = await S.api.validate(intent);
       const healthy = !!status.healthy;
+      const externalChange = S.store.hasExternalChange === true;
+
+      const externalNotice = externalChange ? h('section', { class: 'card card--edge edge--err' }, [
+        h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Revision'), h('div', { class: 'card__title' }, '服务器 Saved 配置已变化'))),
+        h('p', {}, S.store.dirty
+          ? '当前 Draft 已保留且不会自动覆盖。请先保存、放弃或在顶部显式处理外部变更冲突。'
+          : '当前 Draft 仍是旧 Saved 基线。点击顶部“重载最新 Saved”即可安全更新对象列表。')
+      ]) : null;
 
       const pipeline = h('section', { class: 'card hero' }, [
         h('div', { class: 'card__head' }, [
@@ -79,25 +87,26 @@
 
       const summary = h('section', { class: 'card' }, [
         h('div', { class: 'card__head' }, [
-          h('div', {}, h('span', { class: 'eyebrow' }, '配置'), h('div', { class: 'card__title' }, '已保存配置')),
+          h('div', {}, h('span', { class: 'eyebrow' }, '状态模型'), h('div', { class: 'card__title' }, 'Draft / Saved / Active')),
           validation.ok ? h('span', { class: 'badge badge--ok' }, '合法') : h('span', { class: 'badge badge--err' }, `${validation.errors.length} 错误`)
         ]),
         h('div', { class: 'facts' }, [
-          fact('修订', S.fmtRevision(S.store.revision)),
-          fact('节点', String(intent.nodes.length)),
-          fact('订阅', String(intent.subscriptions.length)),
-          fact('DNS Profile', String(intent.dns_profiles.length)),
-          fact('本地代理', String(intent.local_proxies.length)),
-          fact('运行 generation', status.generation || '—'),
-          fact('运行 digest', status.intent_digest ? status.intent_digest.slice(0, 12) : '—'),
-          fact('系统服务', healthy ? 'active' : (status.generation ? '不健康' : 'stopped')),
+          fact('Draft', S.store.dirty ? '有未保存修改' : '与当前 Saved 基线一致'),
+          fact('Draft desired', intent.main?.enabled ? '启用' : '禁用'),
+          fact('Draft 对象', `节点 ${intent.nodes.length} · 规则 ${intent.rules.length} · 路由 ${intent.routes.length}`),
+          fact('Saved revision', S.fmtRevision(S.store.revision)),
+          fact('Saved desired', ov.saved_enabled ? '启用' : '禁用'),
+          fact('pending_apply', ov.pending_apply ? '是' : '否'),
+          fact('Active generation', status.generation || '—'),
+          fact('Active digest', status.intent_digest ? status.intent_digest.slice(0, 12) : '—'),
+          fact('Active health', healthy ? 'healthy' : (status.generation ? 'unhealthy' : 'stopped')),
           fact('上次 Apply', lastApply ? `${ui.applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')
         ]),
         h('div', { class: 'u-mt-10' }, ui.applyRecord(status)),
-        validation.errors.length || validation.warnings.length ? h('div', {}, [
+          validation.errors.length || validation.warnings.length ? h('div', {}, [
           ui.issueList(validation.errors, ui.jumpToObject),
           ui.issueList(validation.warnings, ui.jumpToObject, true)
-        ]) : h('p', { class: 'muted' }, '校验通过。切换运行态失败会保留现场，不会伪装成功。')
+        ]) : h('p', { class: 'muted' }, '当前 Draft 校验通过。切换运行态失败会保留 Saved revision，Active 仍以运行 Status 为准。')
       ]);
 
       function fact(label, value) {
@@ -105,10 +114,10 @@
       }
 
       if (!isCurrent()) return;
-      root.append(
+      root.append(...[
         ui.viewHead('总览', 'systemd Linux 透明代理控制面 · 主机及 VM/Docker 公网流量统一进入 Steer'),
-        pipeline, tests, summary
-      );
+        externalNotice, pipeline, tests, summary
+      ].filter(Boolean));
     }
   };
 

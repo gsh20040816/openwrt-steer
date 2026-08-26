@@ -138,19 +138,107 @@ function renderDiagnostics(status, validation, diagnostics, changes) {
 	]);
 }
 
+function lifecycleCounts(counts) {
+	counts = counts || {};
+	return _('Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d').format(
+		counts.nodes || 0, counts.routes || 0, counts.dns_profiles || 0, counts.local_proxies || 0, counts.rules || 0);
+}
+
+function renderLifecycleOverview(state) {
+	const desired = state?.desired || {};
+	const saved = state?.saved || {};
+	const active = state?.active || {};
+	const pending = state?.pending === true;
+	const lastApply = active.last_apply;
+	const lastResult = lastApply?.result;
+	const actionState = E('p', { 'class': 'steer-lifecycle-action' });
+	const runAction = function(button, action, success) {
+		button.disabled = true;
+		action().then((result) => {
+			if (result?.ok === false) throw new Error(result.error || _('Operation failed.'));
+			actionState.replaceChildren(success);
+			window.location.reload();
+		}).catch((error) => {
+			button.disabled = false;
+			actionState.replaceChildren(String(error));
+		});
+	};
+	const actions = [];
+	if (pending) {
+		const apply = E('button', { 'class': 'btn cbi-button-positive' }, _('Save & Apply pending changes'));
+		const discard = E('button', { 'class': 'btn cbi-button-negative' }, _('Discard pending changes'));
+		apply.addEventListener('click', () => runAction(apply, () => steer.applyPending(), _('Pending changes were saved and applied.')));
+		discard.addEventListener('click', () => runAction(discard, () => steer.discardPending(), _('Pending changes were discarded.')));
+		actions.push(apply, ' ', discard, actionState);
+	}
+	else if (state?.pending_apply === true) {
+		const applySaved = E('button', { 'class': 'btn cbi-button-positive' }, _('Apply Saved configuration'));
+		applySaved.addEventListener('click', () => runAction(applySaved, () => steer.applySaved(), _('Saved configuration was applied.')));
+		actions.push(applySaved, actionState);
+	}
+	const desiredWarnings = desired.validation?.warnings || [];
+	const savedWarnings = saved.validation?.warnings || [];
+	return E([], [
+		E('section', { 'class': 'cbi-section steer-lifecycle' }, [
+			E('h3', {}, _('Draft / Saved / Active')),
+			pending
+				? E('p', { 'class': 'alert-message warning' }, _('Pending desired values differ from Saved. Active traffic is unchanged until Save & Apply succeeds.'))
+				: E('p', {}, _('There are no pending Steer changes. Desired and Saved are aligned.')),
+			E('div', { 'class': 'steer-test-grid' }, [
+				E('article', { 'class': 'steer-test-card' }, [
+					E('h4', {}, _('Pending desired')),
+					E('dl', { 'class': 'steer-status__facts' }, [
+						diagnosticFact(_('Pending'), pending ? _('Yes') : _('No')),
+						diagnosticFact(_('Enabled'), desired.enabled ? _('Enabled') : _('Disabled')),
+						diagnosticFact(_('Objects'), lifecycleCounts(desired.counts)),
+						diagnosticFact(_('Validation'), desired.validation?.ok ? _('Valid') : _('Invalid'))
+					])
+				]),
+				E('article', { 'class': 'steer-test-card' }, [
+					E('h4', {}, _('Saved configuration')),
+					E('dl', { 'class': 'steer-status__facts' }, [
+						diagnosticFact(_('Saved desired'), saved.enabled ? _('Enabled') : _('Disabled')),
+						diagnosticFact(_('Saved revision'), saved.digest ? saved.digest.slice(0, 12) : '—'),
+						diagnosticFact('pending_apply', state?.pending_apply ? _('Yes') : _('No')),
+						diagnosticFact(_('Objects'), lifecycleCounts(saved.counts)),
+						diagnosticFact(_('Validation'), saved.validation?.ok ? _('Valid') : _('Invalid'))
+					])
+				]),
+				E('article', { 'class': 'steer-test-card' }, [
+					E('h4', {}, _('Active runtime')),
+					E('dl', { 'class': 'steer-status__facts' }, [
+						diagnosticFact(_('Running'), active.generation ? _('Yes') : _('No')),
+						diagnosticFact(_('Healthy'), active.healthy ? _('Yes') : _('No')),
+						diagnosticFact('Generation', active.generation),
+						diagnosticFact('Intent digest', active.intent_digest ? active.intent_digest.slice(0, 12) : '—'),
+						diagnosticFact(_('Last Apply'), lastApply?.sequence),
+						diagnosticFact(_('Apply result'), lastResult?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—'))
+					])
+				])
+			]),
+			...actions
+		]),
+		...desiredWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Pending warning: %s · %s').format(issue.code, issue.message))),
+		...savedWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Saved warning: %s · %s').format(issue.code, issue.message))),
+		lastResult?.ok === false ? E('p', { 'class': 'alert-message danger' }, _('The last Apply failed. Saved remains committed and Active remains the generation shown above.')) : '',
+		E('p', { 'class': 'alert-message notice' }, _('Subscription inventory refreshes do not change Route or Rule selection and do not create pending Apply by themselves.'))
+	]);
+}
+
 return view.extend({
 	load: function() {
-		return Promise.all([ uci.load('steer'), steer.status(), steer.validate(), steer.diagnostics(), uci.changes() ]);
+		return Promise.all([ uci.load('steer'), steer.overviewState(), steer.validate(), steer.diagnostics(), uci.changes() ]);
 	},
 
 	render: function(data) {
 		let m, s, o;
-		const status = data[1];
+		const lifecycle = data[1] || {};
+		const status = lifecycle.active || {};
 		const validation = data[2];
 		const page = (window.location.pathname || '').split('/').pop();
 		steer.loadStyle();
 		if (page == 'overview' || page == 'steer')
-			return E([], [ steer.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1') ]);
+			return renderLifecycleOverview(lifecycle);
 		if (page == 'diagnostics')
 			return renderDiagnostics(status, validation, data[3] || {}, data[4]);
 

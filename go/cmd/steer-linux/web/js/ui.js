@@ -189,6 +189,30 @@
     }
   }
 
+  async function onRefreshState() {
+    try {
+      const result = await S.store.refreshServerState();
+      if (result?.busy) {
+        toast('Save、Apply 或 reload 正在进行；稍后再刷新。', 'warn');
+      } else if (result?.changed) {
+        toast(S.store.dirty ? '服务器 Saved revision 已变化；当前 Draft 已保留，保存前请先处理冲突。' : '服务器 Saved revision 已变化；可一键重载最新 Saved 配置。', 'warn');
+      } else if (result?.ok) {
+        toast('服务器配置与运行状态已刷新。', 'info');
+      }
+      if (result?.ok) S.renderCurrent?.();
+    } catch (error) {
+      toast(`状态刷新失败：${error.message}`, 'err');
+    }
+  }
+
+  function onReloadExternal() {
+    if (S.store.dirty) {
+      toast('外部 Saved revision 已变化；当前 Draft 未被覆盖。请先保存、放弃或显式处理冲突。', 'warn');
+      return false;
+    }
+    return reloadSavedDraft(null, '已重载服务器上的最新 Saved 配置。');
+  }
+
   async function onToggleEnabled(next) {
     const main = S.store.intent?.main;
     if (!main || enabledToggleBusy || Boolean(main.enabled) === Boolean(next)) return;
@@ -306,20 +330,23 @@
     const lastApply = status.last_apply || null;
     const lastResult = lastApply?.result || lastApply;
     const desiredEnabled = S.store.intent?.main?.enabled === true;
+    const savedEnabled = ov.saved_enabled === true;
     const healthy = !!status.healthy;
     const active = !!status.generation;
     const dirty = S.store.dirty;
     const draftValid = S.store.draftValid !== false;
     const pendingApply = S.store.pendingApply === true;
     const busy = S.store.saving === true || S.store.reloading === true || S.store.applying === true;
+    const externalChange = S.store.hasExternalChange === true;
 
     strip.append(
       h('div', { class: 'strip__group' }, [
-        h('span', { class: `health-dot ${active ? (healthy ? 'is-ok' : 'is-err') : (desiredEnabled ? 'is-err' : 'is-disabled')}`, title: active ? (healthy ? '当前 generation 运行健康' : '当前 generation 不健康') : (desiredEnabled ? '已保存为启用，但当前无运行 generation' : '当前无运行 generation') }),
+        h('span', { class: `health-dot ${active ? (healthy ? 'is-ok' : 'is-err') : (savedEnabled ? 'is-err' : 'is-disabled')}`, title: active ? (healthy ? '当前 Active generation 运行健康' : '当前 Active generation 不健康') : (savedEnabled ? 'Saved 为启用，但当前无 Active generation' : (desiredEnabled !== savedEnabled ? 'Draft desired 与 Saved 不同；Active 未改变' : 'Saved 为禁用，当前无 Active generation')) }),
         h('div', { class: 'strip__toggle' }, [
           toggle(desiredEnabled, (next) => onToggleEnabled(next), '启用或禁用 Steer'),
-          h('div', {}, h('span', { class: 'strip__fact-label' }, 'Steer'), h('span', { class: 'strip__fact-value' }, desiredEnabled ? '已启用' : '已禁用'))
+          h('div', {}, h('span', { class: 'strip__fact-label' }, 'Draft desired'), h('span', { class: 'strip__fact-value' }, desiredEnabled ? '启用' : '禁用'))
         ]),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'Saved desired'), h('span', { class: 'strip__fact-value' }, savedEnabled ? '启用' : '禁用')),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, active ? (healthy ? 'healthy' : 'unhealthy') : 'stopped')),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'systemd'), h('span', { class: 'strip__fact-value' }, healthy ? 'active' : (active ? 'inactive' : 'stopped'))),
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'generation'), h('span', { class: 'strip__fact-value' }, status.generation || '—')),
@@ -327,9 +354,12 @@
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次 Apply'), h('span', { class: 'strip__fact-value', title: lastResult?.error || '' }, lastApply ? `${applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
         dirty ? h('span', { class: 'badge badge--warn', title: '工作副本有未保存修改' }, '工作副本已修改') : null,
         !draftValid ? h('span', { class: 'badge badge--err', title: S.store.draftError }, 'JSON Draft 无效') : null,
-        pendingApply ? h('span', { class: 'badge badge--warn', title: '已保存配置与运行态不同，或最近 Apply 失败' }, '已保存，待 Apply') : null
+        pendingApply ? h('span', { class: 'badge badge--warn', title: '已保存配置与运行态不同，或最近 Apply 失败' }, '已保存，待 Apply') : null,
+        externalChange ? h('span', { class: 'badge badge--err', title: `服务器 revision ${S.store.externalRevision} 与当前 Draft 基线不同；Draft 未被覆盖` }, '服务器配置已变化') : null
       ]),
       h('div', { class: 'strip__actions' }, [
+        h('button', { class: 'btn', onclick: onRefreshState, disabled: busy, title: S.store.lastRefreshedAt ? `上次刷新 ${S.fmtTime(S.store.lastRefreshedAt)}` : '刷新服务器事实' }, '刷新'),
+        externalChange ? h('button', { class: `btn ${dirty ? 'btn--danger' : 'btn--primary'}`, onclick: onReloadExternal, disabled: busy }, dirty ? '外部变更冲突' : '重载最新 Saved') : null,
         h('button', { class: 'btn', onclick: onValidate }, '校验'),
         dirty ? h('button', { class: 'btn btn--danger', onclick: onDiscard, disabled: busy }, '放弃修改') : null,
         h('button', { class: 'btn', onclick: () => onSave(false), disabled: !dirty || !draftValid || busy, title: !draftValid ? '请先修复或放弃无效 JSON Draft' : '' }, '保存'),
@@ -733,5 +763,5 @@
     return values;
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, jumpToObject } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject } });
 })();

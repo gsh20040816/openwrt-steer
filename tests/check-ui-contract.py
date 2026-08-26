@@ -43,6 +43,15 @@ subscription_status_fixtures = json.loads(
 probe_diagnostics_fixtures = json.loads(
     (ROOT / "ui/probe-diagnostics-fixtures.json").read_text()
 )
+state_lifecycle_fixtures = json.loads(
+    (ROOT / "ui/state-lifecycle-fixtures.json").read_text()
+)
+if state_lifecycle_fixtures.get("schema_version") != 1:
+    raise SystemExit("check-ui-contract: invalid state lifecycle fixture schema")
+if [item.get("name") for item in state_lifecycle_fixtures.get("cases", [])] != [
+    "fresh", "pending-disable", "failed-apply", "active"
+]:
+    raise SystemExit("check-ui-contract: state lifecycle fixture drift")
 if probe_diagnostics_fixtures.get("schema_version") != 1:
     raise SystemExit("check-ui-contract: invalid probe diagnostics fixture schema")
 probe_reports = probe_diagnostics_fixtures.get("diagnostics", {}).get("reports", [])
@@ -143,6 +152,7 @@ linux_dns = (ROOT / "go/cmd/steer-linux/web/js/views/dns.js").read_text()
 linux_proxies = (ROOT / "go/cmd/steer-linux/web/js/views/proxies.js").read_text()
 luci_nodes = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js").read_text()
 luci_overview = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js").read_text()
+luci_helper = (ROOT / "luci-app-steer/htdocs/luci-static/resources/steer.js").read_text()
 luci_dns = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/dns.js").read_text()
 luci_proxies = (ROOT / "luci-app-steer/htdocs/luci-static/resources/view/steer/local-proxies.js").read_text()
 mac_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
@@ -214,6 +224,24 @@ probe_fixture_consumers = (
 for consumer in probe_fixture_consumers:
     consumer_content = (ROOT / consumer).read_text()
     require(consumer_content, "probe-diagnostics-fixtures.json", consumer)
+
+state_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/StateLifecycleTests.swift",
+)
+for consumer in state_fixture_consumers:
+    consumer_content = (ROOT / consumer).read_text()
+    require(consumer_content, "state-lifecycle-fixtures.json", consumer)
+
+require(linux_ui, "Draft desired", "Linux Draft state")
+require(linux_ui, "Saved desired", "Linux Saved state")
+require(linux_ui, "重载最新 Saved", "Linux external revision reload")
+require(luci_overview, "Draft / Saved / Active", "LuCI lifecycle model")
+require(luci_overview, "Save & Apply pending changes", "LuCI pending Apply action")
+require(luci_helper, "steer-lifecycle-global", "LuCI global lifecycle actions")
+require(luci_helper, "applySaved", "LuCI Apply Saved action")
+require(mac_content, "DraftActionButtons", "macOS lifecycle actions")
 
 require(linux_diagnostics, "不证明具体 outbound", "Linux accurate probe boundary")
 require(luci_overview, "does not prove a particular outbound", "LuCI accurate probe boundary")

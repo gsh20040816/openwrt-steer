@@ -16,6 +16,8 @@
   let applying = false;
   let overview = null;
   let runtime = null;
+  let externalRevision = '';
+  let lastRefreshedAt = '';
 
   const listeners = new Set();
   const emit = () => { for (const fn of listeners) fn(); };
@@ -60,6 +62,9 @@
     get pendingApply() { return overview?.pending_apply === true; },
     get overview() { return overview; },
     get runtime() { return runtime; },
+    get externalRevision() { return externalRevision; },
+    get hasExternalChange() { return externalRevision !== '' && externalRevision !== revision; },
+    get lastRefreshedAt() { return lastRefreshedAt; },
 
     normalizeIntent,
 
@@ -71,6 +76,8 @@
       revision = config.revision;
       overview = ov;
       runtime = runtimeInfo;
+      externalRevision = ov.saved_revision && ov.saved_revision !== revision ? ov.saved_revision : '';
+      lastRefreshedAt = new Date().toISOString();
       emit();
     },
 
@@ -99,8 +106,23 @@
       const refreshed = await S.api.overview();
       if (expectedState !== stateEpoch) return { ok: false, superseded: true };
       overview = refreshed;
+      externalRevision = refreshed.saved_revision && refreshed.saved_revision !== revision ? refreshed.saved_revision : '';
+      lastRefreshedAt = new Date().toISOString();
       emit();
       return { ok: true };
+    },
+
+    async refreshServerState() {
+      if (saving || reloading || applying) return { ok: false, busy: true };
+      const expectedState = stateEpoch;
+      const [refreshedOverview, refreshedRuntime] = await Promise.all([S.api.overview(), S.api.runtime()]);
+      if (expectedState !== stateEpoch) return { ok: false, superseded: true };
+      overview = refreshedOverview;
+      runtime = refreshedRuntime;
+      externalRevision = refreshedOverview.saved_revision && refreshedOverview.saved_revision !== revision ? refreshedOverview.saved_revision : '';
+      lastRefreshedAt = new Date().toISOString();
+      emit();
+      return { ok: true, changed: externalRevision !== '', revision: refreshedOverview.saved_revision || '' };
     },
 
     /* 保存（可选 Apply）。修订冲突以 { ok:false, conflict } 返回，由 UI 弹冲突对话框。 */
@@ -114,7 +136,7 @@
       const savedSnapshot = snapshotIntent();
       const savedRevision = force ? null : revision;
       const startedMutation = mutationEpoch;
-      const expectedState = stateEpoch;
+      const expectedState = ++stateEpoch;
       saving = true;
       emit();
       try {
@@ -131,6 +153,7 @@
 
         /* PUT 已成功时先提交本地修订状态；overview 只是后续的状态刷新。 */
         revision = res.revision;
+        externalRevision = '';
         const staleDraft = mutationEpoch !== startedMutation;
         if (!staleDraft) {
           dirty = false;
@@ -157,6 +180,7 @@
 
     async applySaved() {
       if (saving || reloading || applying) return { ok: false, busy: true };
+      ++stateEpoch;
       applying = true;
       emit();
       try {
@@ -187,7 +211,9 @@
         if (mutationEpoch !== startedMutation) return { ok: false, staleDraft: true };
         installIntent(config.intent);
         revision = config.revision;
+        externalRevision = '';
         overview = ov;
+        lastRefreshedAt = new Date().toISOString();
         dirty = false;
         emit();
         return { ok: true };

@@ -42,7 +42,8 @@ func (app webApplication) handleOverview(writer http.ResponseWriter, request *ht
 	pendingApply := loadErr == nil && validation.OK && linuxplatform.HasPendingApply(value, status, options)
 	writeWebJSON(writer, map[string]any{
 		"saved_revision": revision, "saved_valid": loadErr == nil && validation.OK, "pending_apply": pendingApply,
-		"validation": validation, "status": status, "error": errorString(loadErr),
+		"saved_enabled": loadErr == nil && value.Main.Enabled,
+		"validation":    validation, "status": status, "error": errorString(loadErr),
 	})
 }
 

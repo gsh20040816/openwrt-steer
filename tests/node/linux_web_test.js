@@ -11,6 +11,7 @@ const uiSpec = JSON.parse(fs.readFileSync(path.join(root, 'ui/steer-ui-spec.json
 const localProxyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/local-proxy-listen-fixtures.json'), 'utf8'));
 const subscriptionStatusFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/subscription-status-fixtures.json'), 'utf8'));
 const probeDiagnosticsFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/probe-diagnostics-fixtures.json'), 'utf8'));
+const stateLifecycleFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/state-lifecycle-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -829,6 +830,104 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   assert.strictEqual(routeCalls, 0, 'disabled Linux Route test must not reach the backend');
 }
 
+async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const server = { intent: draftLifecycleIntent(), revision: 'saved-initial' };
+  let overview = {
+    saved_revision: server.revision, saved_enabled: true, pending_apply: false,
+    status: { healthy: true, generation: 'generation-initial', intent_digest: 'active-initial' }
+  };
+  let runtime = { steer: 'test-initial' };
+  const api = {
+    config: async () => ({ intent: clone(server.intent), revision: server.revision }),
+    overview: async () => clone(overview),
+    runtime: async () => clone(runtime)
+  };
+  const environment = createEnvironment(async () => ({ ok: true }), clone(server.intent));
+  attachRealStore(environment, api);
+  await environment.S.store.init();
+  environment.S.store.intent.main.log_level = 'debug';
+  environment.S.store.touch();
+  const localDraft = JSON.stringify(environment.S.store.intent);
+
+  server.intent.main.log_level = 'error';
+  server.revision = 'saved-external';
+  overview = { ...overview, saved_revision: server.revision };
+  const refreshed = await environment.S.store.refreshServerState();
+  assert.equal(refreshed.changed, true);
+  assert.equal(environment.S.store.externalRevision, 'saved-external');
+  assert.equal(JSON.stringify(environment.S.store.intent), localDraft,
+    'low-frequency refresh must never overwrite a dirty Draft after an external revision change');
+  assert.equal(environment.S.store.dirty, true);
+  environment.S.ui.renderStatusStrip();
+  assert.match(text(environment.strip), /服务器配置已变化/);
+  assert.match(text(environment.strip), /外部变更冲突/);
+
+  const reloaded = await environment.S.store.reload();
+  assert.equal(reloaded.ok, true);
+  assert.equal(environment.S.store.revision, 'saved-external');
+  assert.equal(environment.S.store.intent.main.log_level, 'error');
+  assert.equal(environment.S.store.hasExternalChange, false);
+
+  overview = { ...overview, status: { healthy: false, generation: 'generation-cli-apply', intent_digest: 'active-cli' } };
+  runtime = { steer: 'test-updated' };
+  const runtimeRefresh = await environment.S.store.refreshServerState();
+  assert.equal(runtimeRefresh.changed, false);
+  assert.equal(environment.S.store.overview.status.generation, 'generation-cli-apply',
+    'CLI Apply or service status changes must refresh without replacing the Draft');
+  assert.equal(environment.S.store.runtime.steer, 'test-updated',
+    'low-frequency refresh must update runtime facts as well as lifecycle status');
+
+  server.intent.main.log_level = 'warn';
+  server.revision = 'saved-external-clean';
+  overview = { ...overview, saved_revision: server.revision };
+  await environment.S.store.refreshServerState();
+  let renderedCurrent = 0;
+  environment.S.renderCurrent = () => { renderedCurrent++; };
+  environment.S.ui.renderStatusStrip();
+  const reloadLatest = find(environment.strip, (element) => element.tag === 'button' && text(element) === '重载最新 Saved');
+  assert.ok(reloadLatest, 'clean external revision exposes one-click reload');
+  reloadLatest.listeners.click();
+  await flushUI();
+  assert.equal(environment.S.store.revision, 'saved-external-clean');
+  assert.equal(environment.S.store.intent.main.log_level, 'warn');
+  assert.equal(renderedCurrent, 1, 'one-click reload redraws the current object page with one coherent snapshot');
+
+  for (const fixture of stateLifecycleFixtures.cases) {
+    const intent = draftLifecycleIntent();
+    intent.main.enabled = fixture.draft.enabled;
+    const status = {
+      healthy: fixture.active.healthy,
+      generation: fixture.active.generation || '',
+      intent_digest: fixture.active.digest || '',
+      last_apply: fixture.active.last_apply_ok == null ? null : {
+        sequence: '1', result: { ok: fixture.active.last_apply_ok, generation: fixture.active.generation || '', error: fixture.active.last_apply_ok ? '' : 'activation failed' }
+      }
+    };
+    const rendered = createEnvironment(async () => ({ ok: true }), intent, {
+      overview: { saved_enabled: fixture.saved.enabled, pending_apply: fixture.pending_apply, status },
+      pendingApply: fixture.pending_apply
+    });
+    rendered.S.store.dirty = fixture.draft.dirty;
+    rendered.S.ui.renderStatusStrip();
+    const strip = text(rendered.strip);
+    assert.match(strip, /Draft desired/);
+    assert.match(strip, /Saved desired/);
+    assert.match(strip, /运行状态/);
+    if (fixture.name === 'pending-disable') {
+      assert.match(strip, /Draft desired禁用/);
+      assert.match(strip, /Saved desired启用/);
+      assert.match(strip, /healthy/,
+        'pending disable must not hide the still-running Active generation');
+    }
+    if (fixture.name === 'failed-apply') assert.match(strip, /已保存，待 Apply/);
+  }
+
+  const appSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/app.js'), 'utf8');
+  assert.ok(appSource.includes('30_000') && appSource.includes('visibilitychange') && appSource.includes('refreshServerState'),
+    'Linux app must refresh visible server state at a low frequency');
+}
+
 function createDraftBackend() {
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const state = {
@@ -1581,6 +1680,7 @@ Promise.resolve()
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)
   .then(testSharedProbeDiagnosticsAndDisabledActions)
+  .then(testExternalRevisionRefreshPreservesDraftAndLifecycleFacts)
   .then(testJSONDraftStoreLifecycle)
   .then(testStoreSnapshotsAndAsyncOrdering)
   .then(testSaveAndApplySurviveOverviewRefreshFailure)

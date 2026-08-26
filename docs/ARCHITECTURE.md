@@ -126,6 +126,8 @@ Linux `status` 从 `current` generation 的实际 `intent.json` 与 `sing-box.js
 
 `last_apply.result` 永远不用于推导 Active。Linux Web 的 `pending_apply` 比较 Saved 与 Active 的编译运行投影，而不是全文 Intent digest；因此未被 Route 使用的订阅节点库存刷新不会要求 Apply。
 
+OpenWrt `status` 同样从 `current` generation 返回 Active generation、Intent digest、Runtime digest 与健康状态，`last_apply` 保持独立。LuCI 的 `_state` 内部接口只返回无凭据的 enabled/count/digest/validation 事实；当前 session candidate 与 committed UCI 分别读取，`pending_apply` 使用 Runtime digest，因此不会把订阅 inventory 误报成运行变更。
+
 配置诊断由 `validate` 独立返回。组件细节留在平台健康检查和系统日志中，不扩张跨平台状态合同。
 
 ## 订阅与测试

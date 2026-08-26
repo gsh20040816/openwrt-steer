@@ -261,6 +261,44 @@ function recent_logs() {
 	return { ok: status == 0, output, error: status == 0 ? null : 'Unable to read Steer logs.' };
 }
 
+function overview_state(request) {
+	return with_candidate(request, function(error, candidate) {
+		if (error) {
+			request.reply({ ok: false, error: error });
+			return;
+		}
+		const desired = run_candidate(candidate.document, '_state --saved-only');
+		const committed = command_json('/usr/sbin/steer _state');
+		if (desired?.saved == null || committed?.saved == null || committed?.active == null) {
+			request.reply({ ok: false, error: 'Unable to read Steer lifecycle state.' });
+			return;
+		}
+		return with_candidate(request, function(latestError, latest) {
+			if (latestError || latest.document != candidate.document) {
+				request.reply({ ok: false, error: latestError || 'Pending Steer changes changed while lifecycle state was read. Retry.' });
+				return;
+			}
+			return ubus.defer('uci', 'changes', {
+				config: 'steer',
+				ubus_rpc_session: latest.session
+			}, function(code, reply) {
+				if (code != 0 || type(reply?.changes) != 'array') {
+					request.reply({ ok: false, error: 'Unable to inspect pending Steer changes.' });
+					return;
+				}
+				request.reply({
+					ok: true,
+					pending: length(reply.changes) > 0,
+					pending_apply: committed.pending_apply == true,
+					desired: desired.saved,
+					saved: committed.saved,
+					active: committed.active
+				});
+			});
+		});
+	});
+}
+
 function intent_preview(request) {
 	const session = session_id(request);
 	if (!session)
@@ -316,6 +354,16 @@ const methods = {
 	status: {
 		call: function() {
 			return command_json('/usr/sbin/steer status');
+		}
+	},
+	overview_state: {
+		call: overview_state
+	},
+	apply_saved: {
+		call: function(request) {
+			return with_committed_configuration(request, function() {
+				return command_json('/usr/sbin/steer apply');
+			});
 		}
 	},
 	validate: {

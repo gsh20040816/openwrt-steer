@@ -57,6 +57,18 @@
     renderRequested(currentView());
     window.addEventListener('hashchange', () => renderRequested(currentView()));
 
+    let refreshInFlight = false;
+    const refreshVisibleState = async () => {
+      if (refreshInFlight || document.visibilityState === 'hidden') return;
+      refreshInFlight = true;
+      try { await S.store.refreshServerState(); } catch (_) { /* explicit Refresh reports errors */ }
+      finally { refreshInFlight = false; }
+    };
+    window.setInterval?.(refreshVisibleState, 30_000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshVisibleState();
+    });
+
     window.addEventListener('beforeunload', (e) => {
       if (S.store.dirty) {
         e.preventDefault();

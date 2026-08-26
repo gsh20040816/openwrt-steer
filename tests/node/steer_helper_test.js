@@ -31,7 +31,9 @@ function element(tag, attributes, children) {
 	return {
 		tag,
 		attributes: attributes || {},
-		children: children == null ? [] : (Array.isArray(children) ? children : [ children ])
+		children: children == null ? [] : (Array.isArray(children) ? children : [ children ]),
+		addEventListener(name, listener) { this.listeners = this.listeners || {}; this.listeners[name] = listener; },
+		remove() { this.removed = true; }
 	};
 }
 
@@ -83,6 +85,12 @@ function loadHelper(runtime) {
 				runtime.previewCalls.push(args[0]);
 				return Promise.resolve(runtime.previewResponse);
 			}
+			if (method == 'overview_state')
+				return Promise.resolve(runtime.lifecycleState);
+			if (method == 'apply_saved') {
+				runtime.applySavedCalls++;
+				return Promise.resolve(runtime.applySavedResult);
+			}
 			if (method == 'overview_probe' || method == 'route_speedtest' || method == 'node_speedtest') {
 				runtime.testCalls.push({ method, args });
 				return Promise.resolve({ ok: true });
@@ -108,14 +116,16 @@ function loadHelper(runtime) {
 	};
 	const document = {
 		head: { appendChild: () => {} },
-		getElementById: (id) => id == 'steer-runtime-status' ? runtime.currentStatusNode : null
+		getElementById: (id) => id == 'steer-runtime-status' ? runtime.currentStatusNode : (id == 'maincontent' ? runtime.mainContent : null)
 	};
 	const translate = (value) => String(value);
 	const uci = {
 		changes: () => Promise.resolve({}),
+		revert: (config) => { runtime.revertedConfigs.push(config); return Promise.resolve(); },
+		load: (config) => { runtime.loadedConfigs.push(config); return Promise.resolve(); },
 		get: (config, section, option) => config == 'steer' && section == 'main' && option == 'enabled' ? runtime.enabled : null
 	};
-	const window = { setTimeout: (callback) => callback(), location: { reload: () => { runtime.reloaded = true; } } };
+	const window = { setTimeout: (callback) => callback(), location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', reload: () => { runtime.reloaded = true; } } };
 
 	return new Function('baseclass', 'rpc', 'uci', 'ui', 'E', '_', 'L', 'document', 'window', source)(
 		baseclass, rpc, uci, ui, element, translate, L, document, window);
@@ -130,6 +140,8 @@ async function main() {
 		commitReply: { result: 'standard UCI commit reply' },
 		enabled: '1',
 		applyResult: { ok: true, output: 'applied' },
+		applySavedResult: { ok: true, generation: 'generation-saved' },
+		applySavedCalls: 0,
 		statusCalls: 0,
 		validationCalls: 0,
 		commitCalls: 0,
@@ -138,11 +150,30 @@ async function main() {
 		testCalls: [],
 		sequence: [],
 		notifications: [],
+		revertedConfigs: [],
+		loadedConfigs: [],
 		currentStatusNode: {
 			replaceWith: (value) => { runtime.replacement = value; }
+		},
+		mainContent: { prepend: (value) => { runtime.lifecycleBar = value; } },
+		lifecycleState: {
+			ok: true, pending: true, pending_apply: false,
+			saved: { digest: 'saved-a' }, active: { generation: 'generation-a' }
 		}
 	};
 	const helper = loadHelper(runtime);
+	helper.loadStyle();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.ok(textContent(runtime.lifecycleBar).includes('Draft / Saved / Active'));
+	assert.ok(textContent(runtime.lifecycleBar).includes('Save & Apply pending changes'));
+	runtime.lifecycleState = {
+		ok: true, pending: false, pending_apply: true,
+		saved: { digest: 'saved-b' }, active: { generation: 'generation-old' }
+	};
+	helper.loadStyle();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.ok(textContent(runtime.lifecycleBar).includes('Apply Saved configuration'),
+		'every configuration page exposes Apply Saved when the runtime projection is pending');
 	await helper.intentPreview(false);
 	await helper.intentPreview(true);
 	assert.deepEqual(runtime.previewCalls, [ false, true ],
@@ -238,6 +269,17 @@ async function main() {
 	assert.ok(textContent(runtime.replacement).includes('Traffic steering is active'),
 		'Apply replaces stale overview status with the final runtime result');
 	assert.equal(runtime.notifications.at(-1).level, 'info');
+
+	runtime.sequence = [];
+	await helper.applyPending();
+	assert.deepEqual(runtime.sequence, [ 'validate', 'commit' ],
+		'Overview Save & Apply commits the existing rpcd candidate without inventing a second form save');
+	const applySavedResult = await helper.applySaved();
+	assert.equal(applySavedResult.generation, 'generation-saved');
+	assert.equal(runtime.applySavedCalls, 1, 'Apply Saved uses its restricted RPC without touching pending form data');
+	await helper.discardPending();
+	assert.deepEqual(runtime.revertedConfigs, [ 'steer' ]);
+	assert.deepEqual(runtime.loadedConfigs, [ 'steer' ]);
 
 	runtime.sequence = [];
 	runtime.candidateValidation = {

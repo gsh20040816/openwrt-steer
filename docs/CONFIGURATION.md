@@ -157,7 +157,7 @@ steer health --timeout 10s
 steer status
 ```
 
-`validate` 只做严格解码和共享语义校验。`apply` 还会执行能力检查、Geo 准备、sing-box/nftables 原生检查、切换与本地健康检查。`status` 只包含 `healthy` 和可选 `last_apply`，不会把配置合法性或组件明细混在状态对象中。
+`validate` 只做严格解码和共享语义校验。`apply` 还会执行能力检查、Geo 准备、sing-box/nftables 原生检查、切换与本地健康检查。`status` 只包含 Active generation/Intent/Runtime digest、`healthy` 和可选 `last_apply`；Draft、Saved、配置合法性和组件明细不会混入 Active 状态对象。
 
 概览测试读取当前运行 generation 的 Intent；未 Apply 的修改不会参与。三端保存的概览报告包含 `active_generation`、`active_digest` 和 `tested_at`，没有 Active generation 时拒绝请求：
 
