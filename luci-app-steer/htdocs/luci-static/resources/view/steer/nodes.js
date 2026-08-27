@@ -381,6 +381,8 @@ function addGeneratedNodeField(section, field) {
 		option.rows = 6;
 	if (field.placeholder)
 		option.placeholder = field.placeholder;
+	if (field.default !== undefined)
+		option.default = typeof(field.default) == 'boolean' ? (field.default ? '1' : '0') : String(field.default);
 	(field.options || []).forEach((item) => option.value(item.value, nodeChoiceLabel(item)));
 
 	if (field.when) {

@@ -237,9 +237,21 @@
         const specBox = h('div', {});
         let listControls = [];
 
+        function fieldValue(field) {
+          const value = draft[field.key];
+          if ((value == null || value === '') && field.default !== undefined)
+            return JSON.parse(JSON.stringify(field.default));
+          return value;
+        }
+
+        function effectiveValue(key) {
+          const field = fieldsFor(draft.type).find((candidate) => candidate.key === key);
+          return field ? fieldValue(field) : draft[key];
+        }
+
         function specControl(field) {
           const key = field.key;
-          if (field.control === 'boolean') return ui.toggleRow(FIELD_LABEL[key] || field.label, !!draft[key], (v) => { draft[key] = v; });
+          if (field.control === 'boolean') return ui.toggleRow(FIELD_LABEL[key] || field.label, !!fieldValue(field), (v) => { draft[key] = v; });
           if (field.control === 'string-list') {
             const control = ui.chips(asList(draft[key]), { placeholder: field.placeholder || '', onchange: (v) => { draft[key] = v; } });
             listControls.push(control);
@@ -247,13 +259,14 @@
           }
           if (field.control === 'select' || field.control === 'select-integer') {
             const options = field.options.map((item) => [item.value, item.label]);
-            if (draft[key] == null && !options.some(([value]) => value === '')) options.unshift(['', '缺失（需修复）']);
+            const selected = fieldValue(field);
+            if ((selected == null || selected === '') && !options.some(([value]) => value === '')) options.unshift(['', '缺失（需修复）']);
             return ui.select(
-              options, String(draft[key] ?? ''),
+              options, String(selected ?? ''),
               (v) => { draft[key] = field.control === 'select-integer' && v !== '' ? Number(v) : v; rebuildSpec(); }
             );
           }
-          if (field.control === 'integer') return ui.input({ type: 'number', value: draft[key] ?? '', placeholder: field.placeholder || '', oninput: (e) => { draft[key] = e.target.value === '' ? undefined : Number(e.target.value); } });
+          if (field.control === 'integer') return ui.input({ type: 'number', value: fieldValue(field) ?? '', placeholder: field.placeholder || '', oninput: (e) => { draft[key] = e.target.value === '' ? undefined : Number(e.target.value); } });
           if (field.multiline) return ui.textarea({
             value: draft[key] ?? '', placeholder: field.placeholder || '', sensitive: !!field.sensitive,
             oninput: (e) => { draft[key] = e.target.value; }
@@ -272,7 +285,7 @@
           endpoint.hidden = !requiresRemoteEndpoint(draft.type);
           if (requiresRemoteEndpoint(draft.type)) endpoint.append(ui.field('服务器', server, null, 'server'), ui.field('端口', port, null, 'server_port'));
           for (const field of fieldsFor(draft.type).filter((candidate) => !['enabled', 'name', 'server', 'server_port'].includes(candidate.key))) {
-            if (field.when && !field.when.values.includes(String(draft[field.when.field] ?? ''))) continue;
+            if (field.when && !field.when.values.includes(String(effectiveValue(field.when.field) ?? ''))) continue;
             specBox.append(ui.field(
               FIELD_LABEL[field.key] || field.label,
               specControl(field),

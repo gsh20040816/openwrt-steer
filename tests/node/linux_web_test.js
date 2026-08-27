@@ -622,6 +622,31 @@ function testNodeStringListSubmitAndPrivateKeyRoundTrip() {
   assert.ok(reloadedKey.classList.contains('is-masked'), 'a reloaded private key must return to the masked state');
 }
 
+function testNodeEditorUsesSharedDefaultWithoutMutatingDraft() {
+  const intent = representativeIntent('key');
+  intent.nodes = [{
+    id: 'reality-node', enabled: true, name: 'Reality node', type: 'vless',
+    server: 'proxy.example', server_port: 443,
+    uuid: '00000000-0000-4000-8000-000000000001',
+    flow: 'xtls-rprx-vision', tls_server_name: 'proxy.example',
+    reality_public_key: 'public-key', reality_short_id: '0123456789abcdef'
+  }];
+  const environment = createEnvironment(async () => ({ ok: true }), intent);
+  loadView(environment, 'nodes');
+  openOnlyEditor(environment, 'nodes');
+
+  const transportField = fieldWithLabel(environment.drawerRoot, '传输');
+  const transport = find(transportField, (element) => element.tag === 'select');
+  assert.ok(transport, 'VLESS editor must expose the shared transport picker');
+  assert.strictEqual(transport.value, 'tcp', 'omitted transport must display the shared TCP / Raw default');
+  assert.ok(!text(transportField).includes('缺失（需修复）'),
+    'a field with a shared default must not render the invalid missing choice');
+  assert.strictEqual(fieldWithLabel(environment.drawerRoot, '传输路径'), undefined,
+    'conditional WebSocket fields must remain hidden when the effective transport is TCP / Raw');
+  assert.ok(!Object.hasOwn(intent.nodes[0], 'transport'),
+    'opening an existing node must not materialize the editor fallback into the Draft');
+}
+
 async function testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit() {
   const intent = representativeIntent('key');
   intent.local_proxies.push({ id: 'proxy-last', enabled: true, name: 'Local proxy', protocol: 'socks', listen: '127.0.0.1', listen_port: 1080 });
@@ -1870,6 +1895,7 @@ Promise.resolve()
   .then(testNewRulesAreStoredBeforeDefault)
   .then(testChipsCommitPendingTokensConsistently)
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
+  .then(testNodeEditorUsesSharedDefaultWithoutMutatingDraft)
   .then(testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit)
   .then(testSubscriptionCreationDefaultUsesSharedSpec)
   .then(testSharedCreationDefaultsAutomaticIDsAndReferenceLabels)

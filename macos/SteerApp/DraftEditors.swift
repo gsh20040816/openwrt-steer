@@ -447,15 +447,15 @@ private struct SharedNodeDraftForm: View {
         let label = localizedLabel(field)
         switch field.control {
         case "boolean":
-            Toggle(label, isOn: boolBinding($object, field.key))
+            Toggle(label, isOn: nodeBoolBinding(field))
         case "integer":
-            TextField(label, value: intBinding($object, field.key), format: .number)
+            TextField(label, value: nodeIntBinding(field), format: .number)
         case "select":
-            Picker(label, selection: stringBinding($object, field.key)) {
+            Picker(label, selection: nodeStringBinding(field)) {
                 ForEach(field.options) { option in Text(option.label).tag(option.value) }
             }
         case "select-integer":
-            Picker(label, selection: intBinding($object, field.key)) {
+            Picker(label, selection: nodeIntBinding(field)) {
                 ForEach(field.options) { option in Text(option.label).tag(Int(option.value) ?? 0) }
             }
         case "string-list":
@@ -479,7 +479,11 @@ private struct SharedNodeDraftForm: View {
 
     private func visible(_ field: UIFieldSpec) -> Bool {
         guard let condition = field.when else { return true }
-        let current = draftString(object, condition.field)
+        let current = SteerUISpec.effectiveNodeFieldValue(
+            key: condition.field,
+            nodeType: type,
+            in: object
+        )?.stringValue ?? ""
         return condition.values.contains(current)
     }
 
@@ -507,6 +511,35 @@ private struct SharedNodeDraftForm: View {
             "insecure": "跳过证书验证", "reality_public_key": "REALITY Public key", "reality_short_id": "REALITY Short ID",
         ]
         return labels[field.key] ?? field.label
+    }
+
+    private func nodeStringBinding(_ field: UIFieldSpec) -> Binding<String> {
+        Binding(
+            get: { SteerUISpec.effectiveNodeFieldValue(field, in: object)?.stringValue ?? "" },
+            set: { value in
+                if value.isEmpty {
+                    object.removeValue(forKey: field.key)
+                } else {
+                    object[field.key] = .string(value)
+                }
+            }
+        )
+    }
+
+    private func nodeIntBinding(_ field: UIFieldSpec) -> Binding<Int> {
+        Binding(
+            get: {
+                Int(SteerUISpec.effectiveNodeFieldValue(field, in: object)?.numberValue ?? 0)
+            },
+            set: { object[field.key] = .number(Double($0)) }
+        )
+    }
+
+    private func nodeBoolBinding(_ field: UIFieldSpec) -> Binding<Bool> {
+        Binding(
+            get: { SteerUISpec.effectiveNodeFieldValue(field, in: object)?.boolValue ?? false },
+            set: { object[field.key] = .bool($0) }
+        )
     }
 }
 
