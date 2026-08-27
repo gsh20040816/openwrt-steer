@@ -31,6 +31,46 @@ function testResult(report, kind) {
 	]);
 }
 
+function boundaryModeLabel(mode) {
+	return {
+		dedicated_shim: _('Dedicated DNS shim'),
+		tun_port53_hijack: _('TUN port-53 hijack')
+	}[mode] || mode;
+}
+
+function reportScopeLabel(scope) {
+	return {
+		overview: _('Overview'),
+		node: _('Node'),
+		route: _('Route')
+	}[scope] || scope;
+}
+
+function reportKindLabel(kind) {
+	return {
+		direct: _('Direct'),
+		proxy: _('Proxy'),
+		speedtest: _('Download test'),
+		connect: _('Connection test'),
+		download: _('Download test')
+	}[kind] || kind;
+}
+
+function diagnosticErrorText(error) {
+	return {
+		'probe timed out': _('Probe timed out'),
+		'probe failed': _('Probe failed'),
+		'Unable to read Steer logs.': _('Unable to read Steer logs.')
+	}[String(error)] || error;
+}
+
+function diagnosticDetail(detail) {
+	const value = String(detail || '');
+	if (value == 'the published Active generation contains the expected port-53 capture artifacts')
+		return _('Expected port-53 capture artifacts are present in the active generation.');
+	return detail;
+}
+
 function renderTestCard(kind, title, description, allowed) {
 	const output = E('div', { 'class': 'steer-test-card__output' }, E('span', {}, _('Not tested')));
 	const button = E('button', {
@@ -93,9 +133,9 @@ function renderProbeReport(report, diagnostics, pending) {
 	const stale = reportIsStale(report, diagnostics, pending);
 	const rate = result.downloaded_bytes > 0 && result.download_milliseconds > 0
 		? (result.downloaded_bytes * 8 / result.download_milliseconds / 1000).toFixed(1) + ' Mbps' : '—';
-	const target = report.scope == 'overview' ? _('Overview') : '%s/%s'.format(report.scope, report.object_id || '—');
+	const target = report.scope == 'overview' ? _('Overview') : '%s/%s'.format(reportScopeLabel(report.scope), report.object_id || '—');
 	return E('article', { 'class': 'cbi-section' }, [
-		E('h4', {}, [ target, ' · ', report.kind, ' · ', stale ? _('Stale') : (report.ok ? _('Succeeded') : _('Failed')) ]),
+		E('h4', {}, [ target, ' · ', reportKindLabel(report.kind), ' · ', stale ? _('Stale') : (report.ok ? _('Succeeded') : _('Failed')) ]),
 		E('dl', { 'class': 'steer-status__facts' }, [
 			diagnosticFact(_('Tested at'), report.tested_at), diagnosticFact(_('URL'), result.url),
 			diagnosticFact(_('Attempts'), result.attempts), diagnosticFact(_('Connect'), result.connect_milliseconds == null ? null : result.connect_milliseconds + ' ms'),
@@ -104,7 +144,7 @@ function renderProbeReport(report, diagnostics, pending) {
 			diagnosticFact(_('HTTP'), result.status), diagnosticFact(_('Bytes'), result.downloaded_bytes),
 			diagnosticFact(_('Rate'), rate)
 		]),
-		(report.error || result.error) ? E('p', { 'class': 'alert-message danger' }, report.error || result.error) : ''
+		(report.error || result.error) ? E('p', { 'class': 'alert-message danger' }, diagnosticErrorText(report.error || result.error)) : ''
 	]);
 }
 
@@ -124,11 +164,11 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 			E('h3', {}, _('Active port-53 capture inspection')),
 			E('dl', { 'class': 'steer-status__facts' }, [
 				diagnosticFact(_('Configured'), dnsCapture.configured ? _('Yes') : _('No')),
-				diagnosticFact(_('Mode'), dnsCapture.mode || dnsBoundary.capture_mode),
+				diagnosticFact(_('Mode'), boundaryModeLabel(dnsCapture.mode || dnsBoundary.capture_mode)),
 				diagnosticFact(_('Generation'), dnsCapture.active_generation),
-				diagnosticFact(_('Result'), dnsCapture.detail),
-				diagnosticFact(_('Capture scope'), dnsBoundary.capture_scope),
-				diagnosticFact(_('Exclusions'), dnsBoundary.exclusions.join(' · '))
+				diagnosticFact(_('Result'), diagnosticDetail(dnsCapture.detail)),
+				diagnosticFact(_('Capture scope'), _(dnsBoundary.capture_scope)),
+				diagnosticFact(_('Exclusions'), dnsBoundary.exclusions.map((item) => _(item)).join(' · '))
 			]),
 			E('p', {}, _(dnsBoundary.diagnostic_boundary)),
 			E('p', {}, _(dnsBoundary.encrypted_dns_boundary))
@@ -221,7 +261,7 @@ function renderLifecycleOverview(state) {
 					E('dl', { 'class': 'steer-status__facts' }, [
 						diagnosticFact(_('Saved desired'), saved.enabled ? _('Enabled') : _('Disabled')),
 						diagnosticFact(_('Saved revision'), saved.digest ? saved.digest.slice(0, 12) : '—'),
-						diagnosticFact('pending_apply', state?.pending_apply ? _('Yes') : _('No')),
+						diagnosticFact(_('Pending apply'), state?.pending_apply ? _('Yes') : _('No')),
 						diagnosticFact(_('Objects'), lifecycleCounts(saved.counts)),
 						diagnosticFact(_('Validation'), saved.validation?.ok ? _('Valid') : _('Invalid')),
 						diagnosticFact(_('Warnings'), savedWarnings.length)
@@ -232,8 +272,8 @@ function renderLifecycleOverview(state) {
 					E('dl', { 'class': 'steer-status__facts' }, [
 						diagnosticFact(_('Running'), active.generation ? _('Yes') : _('No')),
 						diagnosticFact(_('Healthy'), active.healthy ? _('Yes') : _('No')),
-						diagnosticFact('Generation', active.generation),
-						diagnosticFact('Intent digest', active.intent_digest ? active.intent_digest.slice(0, 12) : '—'),
+						diagnosticFact(_('Generation'), active.generation),
+						diagnosticFact(_('Intent digest'), active.intent_digest ? active.intent_digest.slice(0, 12) : '—'),
 						diagnosticFact(_('Last Apply'), lastApply?.sequence),
 						diagnosticFact(_('Apply result'), lastResult?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—'))
 					])

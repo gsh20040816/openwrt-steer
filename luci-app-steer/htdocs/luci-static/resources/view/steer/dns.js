@@ -95,9 +95,9 @@ return view.extend({
 					E('div', {}, [ E('dt', {}, _('Bootstrap')), E('dd', {}, '%s %s:%s · %s'.format(
 						String(uci.get('steer', 'bootstrap', 'protocol') || '—').toUpperCase(),
 						uci.get('steer', 'bootstrap', 'server') || '—', uci.get('steer', 'bootstrap', 'server_port') || '—',
-						uci.get('steer', 'bootstrap', 'strategy') || '—')) ]),
-					E('div', {}, [ E('dt', {}, _('Capture scope')), E('dd', {}, boundary.capture_scope) ]),
-					E('div', {}, [ E('dt', {}, _('Exclusions')), E('dd', {}, boundary.exclusions.join(' · ')) ])
+						steer.uiSpecLabel(uiSpec.bootstrap_strategies.find((item) => item.value == uci.get('steer', 'bootstrap', 'strategy'))?.label) || '—')) ]),
+					E('div', {}, [ E('dt', {}, _('Capture scope')), E('dd', {}, _(boundary.capture_scope)) ]),
+					E('div', {}, [ E('dt', {}, _('Exclusions')), E('dd', {}, boundary.exclusions.map((item) => _(item)).join(' · ')) ])
 				]),
 				E('p', {}, _(boundary.bootstrap_boundary)),
 				E('p', {}, _(boundary.encrypted_dns_boundary))

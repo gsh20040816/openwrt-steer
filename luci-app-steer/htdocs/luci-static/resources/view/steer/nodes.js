@@ -107,18 +107,38 @@ function routeLabel(route) {
 	return route?.['.name'] || routeKindLabel(route?.kind);
 }
 
+function systemRouteLabel(route) {
+	if (!route)
+		return _('Route');
+	const defaultName = route.kind == 'direct' ? 'direct' : 'block';
+	return route.name && route.name != defaultName ? route.name : routeKindLabel(route.kind);
+}
+
+function referenceObjectLabel(objectType) {
+	return {
+		node: _('Node'),
+		route: _('Route'),
+		dns_profile: _('DNS profile'),
+		local_proxy: _('Local proxy'),
+		rule: _('Rule'),
+		subscription: _('Subscription')
+	}[objectType] || objectType;
+}
+
 function addSystemRouteSection(map, route) {
 	if (!route)
 		return;
 	const direct = route.kind == 'direct';
-	let section = map.section(form.NamedSection, route['.name'], 'route', routeLabel(route));
+	let section = map.section(form.NamedSection, route['.name'], 'route', systemRouteLabel(route));
 	section.addremove = false;
 	section.anonymous = true;
 	section.nodescriptions = true;
 	let option;
 	if (direct) {
 		option = section.option(form.DummyValue, '_system_status', _('Status'));
-		option.textvalue = function() { return _('Required · always enabled'); };
+		const status = _('Required · always enabled');
+		option.cfgvalue = function() { return status; };
+		option.textvalue = function() { return status; };
 	}
 	else {
 		option = section.option(form.Flag, 'enabled', _('Enabled'));
@@ -128,7 +148,9 @@ function addSystemRouteSection(map, route) {
 	option.rmempty = true;
 	option.optional = true;
 	option = section.option(form.DummyValue, '_system_kind', _('Kind'));
-	option.textvalue = function() { return direct ? _('Direct') : _('Reject'); };
+	const kind = direct ? _('Direct') : _('Reject');
+	option.cfgvalue = function() { return kind; };
+	option.textvalue = function() { return kind; };
 }
 
 function nextRejectRouteID() {
@@ -563,7 +585,7 @@ function renderSubscriptionStatus(result, gate) {
 					'click': function() {
 						if (references.length) {
 							ui.addNotification(_('Subscription node removal failed'), E('ul', {}, references.map((reference) => E('li', {}, [
-								E('span', {}, '%s %s'.format(reference.object_type, reference.name || reference.id)),
+								E('span', {}, '%s %s'.format(referenceObjectLabel(reference.object_type), reference.name || reference.id)),
 								E('button', { 'class': 'btn cbi-button-action', 'click': () => steer.focusIssue({
 									object_type: reference.object_type, object_id: reference.id, option: 'node'
 								}) }, _('Go to reference'))
@@ -1004,7 +1026,8 @@ return view.extend({
 			}
 
 			o = s.option(form.Button, '_route_connect_test', _('Chain connection test'));
-			o.depends({ kind: 'single', enabled: '1' });
+			/* This GridSection already filters to kind=single; no kind widget is rendered. */
+			o.depends('enabled', '1');
 			o.editable = true;
 			o.inputtitle = _('Test');
 			o.inputstyle = 'action';
@@ -1013,7 +1036,7 @@ return view.extend({
 			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, false, ev.currentTarget, probeGate); };
 
 			o = s.option(form.Button, '_route_download_test', _('Chain download test'));
-			o.depends({ kind: 'single', enabled: '1' });
+			o.depends('enabled', '1');
 			o.editable = true;
 			o.inputtitle = _('Test');
 			o.inputstyle = 'action';

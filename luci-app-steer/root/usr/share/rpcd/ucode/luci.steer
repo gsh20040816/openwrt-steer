@@ -120,23 +120,24 @@ function candidate_document(reply) {
 	sort(sectionNames, (left, right) =>
 		(sections[left]?.['.index'] || 0) - (sections[right]?.['.index'] || 0));
 	const lines = [];
-	for (let sectionName in sectionNames) {
-		const section = sections[sectionNames[sectionName]];
+	for (let sectionIndex = 0; sectionIndex < length(sectionNames); sectionIndex++) {
+		const sectionName = sectionNames[sectionIndex];
+		const section = sections[sectionName];
 		const sectionType = section?.['.type'];
-		const sectionID = section?.['.name'] || sectionNames[sectionName];
+		const sectionID = section?.['.name'] || sectionName;
 		if (type(sectionType) != 'string' || type(sectionID) != 'string')
 			return null;
 		push(lines, 'config ' + shellquote(sectionType) + ' ' + shellquote(sectionID));
 
 		const optionNames = keys(section);
 		sort(optionNames);
-		for (let optionIndex in optionNames) {
+		for (let optionIndex = 0; optionIndex < length(optionNames); optionIndex++) {
 			const option = optionNames[optionIndex];
 			if (substr(option, 0, 1) == '.')
 				continue;
 			const value = section[option];
 			if (type(value) == 'array') {
-				for (let itemIndex in value)
+				for (let itemIndex = 0; itemIndex < length(value); itemIndex++)
 					push(lines, '\tlist ' + shellquote(option) + ' ' + shellquote(value[itemIndex]));
 			}
 			else if (value != null) {

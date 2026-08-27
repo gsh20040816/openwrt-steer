@@ -1043,6 +1043,16 @@ async function main() {
 		'Unnamed system routes use stable localized kind labels');
 	assert.ok(systemRoutes.every((section) => section.addremove === false),
 		'System routes cannot be removed');
+	const directSection = systemRoutes.find((section) => section.sectionId == 'direct');
+	assert.equal(directSection.options.find((option) => option.name == '_system_status')?.cfgvalue('direct'),
+		'Required · always enabled',
+		'Direct system route renders its fixed status instead of an empty UCI value');
+	assert.equal(directSection.options.find((option) => option.name == '_system_kind')?.cfgvalue('direct'),
+		'Direct',
+		'Direct system route renders its fixed kind instead of an empty UCI value');
+	assert.equal(systemRoutes.find((section) => section.sectionId == 'block').options.find((option) => option.name == '_system_kind')?.cfgvalue('block'),
+		'Reject',
+		'Reject system route renders its fixed kind instead of an empty UCI value');
 	const rejectSection = systemRoutes.find((section) => section.sectionId == 'block');
 	const rejectEnabled = rejectSection.options.find((option) => option.name == 'enabled');
 	assert.equal(rejectEnabled?.type, 'Flag',
@@ -1454,6 +1464,8 @@ async function main() {
 		const option = routeSection.options.find((candidate) => candidate.name == name);
 		assert.ok(option && option.editable && option.default === undefined,
 			`Route test action ${name} is visible without a persistent value`);
+		assert.deepEqual(option.dependencies, [ [ 'enabled', '1' ] ],
+			`Route test action ${name} depends only on the rendered enabled field`);
 		assert.equal(option.write('route_proxy', '1'), undefined);
 		assert.equal(option.remove('route_proxy'), undefined);
 		assert.equal(environment.uci.get('steer', 'route_proxy', name), undefined,
@@ -1742,7 +1754,7 @@ async function main() {
 	assert.deepEqual(environment.overviewProbeCalls, [ 'proxy' ],
 		'Overview proxy test remains clickable when no healthy running status was returned');
 	const diagnosticText = elementText(environment.rendered);
-	for (const expected of [ 'does not prove a particular outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'Tested at', 'Recent logs', 'Recent Apply', 'Validation', 'Active port-53 capture inspection', 'expected port-53 capture artifacts' ])
+	for (const expected of [ 'does not prove a particular outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'Tested at', 'Recent logs', 'Recent Apply', 'Validation', 'Active port-53 capture inspection', 'Expected port-53 capture artifacts are present' ])
 		assert.ok(diagnosticText.includes(expected), `LuCI Diagnostics must render ${expected}`);
 	assert.ok(!diagnosticText.includes('proves the Direct path') && !diagnosticText.includes('proves the proxy path'));
 
@@ -1900,6 +1912,10 @@ async function main() {
 		rpcSource.includes("args: { id: '', node: '' }"),
 		'Subscription RPC methods declare their input arguments');
 	assert.ok(rpcSource.includes("ubus.defer('uci', 'get'") &&
+		rpcSource.includes('for (let sectionIndex = 0; sectionIndex < length(sectionNames); sectionIndex++)') &&
+		rpcSource.includes('const section = sections[sectionName]') &&
+		rpcSource.includes('for (let optionIndex = 0; optionIndex < length(optionNames); optionIndex++)') &&
+		rpcSource.includes('for (let itemIndex = 0; itemIndex < length(value); itemIndex++)') &&
 		rpcSource.includes('run_candidate(candidate.document, \'validate\')') &&
 		rpcSource.includes('currentCandidate.document != validatedCandidate.document') &&
 		rpcSource.includes("ubus.defer('uci', 'commit'") &&

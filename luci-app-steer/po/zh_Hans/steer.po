@@ -106,7 +106,7 @@ msgid "Create or enable a proxy node before adding a single-node route."
 msgstr "请先创建或启用代理节点，再添加单节点路由。"
 
 msgid "Create Reject route"
-msgstr "创建 Reject 路由"
+msgstr "创建拒绝路由"
 
 msgid "Credentials"
 msgstr "凭据"
@@ -220,7 +220,7 @@ msgid "Listen address"
 msgstr "监听地址"
 
 msgid "Listen address must be an IP literal."
-msgstr "监听地址必须是 IP literal。"
+msgstr "监听地址必须是 IP 字面量。"
 
 msgid "Local Proxies"
 msgstr "本地代理"
@@ -538,10 +538,10 @@ msgid "Run test"
 msgstr "开始测试"
 
 msgid "The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours."
-msgstr "将先通过所选单节点路由拨号。前置路由缺失、禁用、不是单节点或形成环时，Apply 会拒绝配置。"
+msgstr "将先通过所选单节点路由拨号。前置路由缺失、禁用、不是单节点或形成环时，应用会拒绝配置。"
 
 msgid "This older configuration has no Reject route. Create the fixed disabled system route once, then enable it when needed."
-msgstr "此旧配置缺少 Reject 路由。请一次性创建固定且默认禁用的系统路由，并在需要时启用。"
+msgstr "此旧配置缺少拒绝路由。请一次性创建固定且默认禁用的系统路由，并在需要时启用。"
 
 msgid "%d invalid node(s) were skipped; the complete valid batch is listed below."
 msgstr "已跳过 %d 个无效节点；下方列出了完整的有效批次。"
@@ -559,7 +559,7 @@ msgid "Connection stage only. Values come from the shared protocol enumeration."
 msgstr "仅用于连接阶段。选项来自共享协议枚举。"
 
 msgid "DNS profile is still referenced"
-msgstr "DNS Profile 仍被引用"
+msgstr "DNS 配置仍被引用"
 
 msgid "Go to field"
 msgstr "前往字段"
@@ -595,10 +595,10 @@ msgid "Advanced"
 msgstr "高级"
 
 msgid "Canonical Preview"
-msgstr "Canonical 预览"
+msgstr "规范预览"
 
 msgid "Canonical Preview unavailable"
-msgstr "Canonical 预览不可用"
+msgstr "规范预览不可用"
 
 msgid "Committed snapshot"
 msgstr "已提交快照"
@@ -616,7 +616,7 @@ msgid "Pending candidate preview unavailable"
 msgstr "待提交候选配置预览不可用"
 
 msgid "Pending UCI changes exist. No Canonical JSON is shown because a trustworthy preview of the Apply input is unavailable."
-msgstr "存在待提交的 UCI 更改。由于无法可靠预览 Apply 将接收的输入，因此不显示 Canonical JSON。"
+msgstr "存在待提交的 UCI 更改。由于无法可靠预览应用输入，因此不显示规范 JSON。"
 
 msgid "Reveal configured secret"
 msgstr "临时显示已配置的 Secret"
@@ -640,10 +640,10 @@ msgid "Secrets are hidden by default. Reveal is temporary and resets when you le
 msgstr "Secrets 默认隐藏；临时显示状态会在离开此页面后重置。"
 
 msgid "Unable to export the Canonical preview."
-msgstr "无法导出 Canonical 预览。"
+msgstr "无法导出规范预览。"
 
 msgid "Canonical schema"
-msgstr "Canonical schema"
+msgstr "规范架构"
 
 msgid "DNS Profiles"
 msgstr "DNS 配置"
@@ -652,7 +652,7 @@ msgid "Diagnostics"
 msgstr "诊断"
 
 msgid "Last Apply"
-msgstr "最近一次 Apply"
+msgstr "最近一次应用"
 
 msgid "No Steer log entries were returned."
 msgstr "没有 Steer 日志。"
@@ -688,10 +688,10 @@ msgid "Required · always enabled"
 msgstr "系统必需 · 始终启用"
 
 msgid "Single-node routes"
-msgstr "Single 节点路由"
+msgstr "单节点路由"
 
 msgid "Add single-node route"
-msgstr "添加 Single 节点路由"
+msgstr "添加单节点路由"
 
 msgid "Import nodes"
 msgstr "导入节点"
@@ -706,13 +706,13 @@ msgid "Paste one node link per line, or paste a Base64-wrapped subscription docu
 msgstr "每行粘贴一个节点链接，也可以粘贴 Base64 包装的订阅内容。Steer 会在其进入待保存配置前统一解析并校验。"
 
 msgid "%d current / %d stale / %d skipped"
-msgstr "%d 当前 / %d stale / %d 已跳过"
+msgstr "%d 当前 / %d 过期 / %d 已跳过"
 
 msgid "Disabled subscriptions cannot be updated. Enable and save this subscription first."
 msgstr "已停用的订阅不能更新。请先启用并保存该订阅。"
 
 msgid "Apply or discard pending Steer changes before testing the committed configuration."
-msgstr "测试已提交配置前，请先应用或丢弃待处理的 Steer 修改。"
+msgstr "测试已提交配置前，请先应用或放弃待处理的 Steer 修改。"
 
 msgid "Attempts"
 msgstr "尝试次数"
@@ -736,7 +736,7 @@ msgid "No saved probe reports."
 msgstr "尚无已保存的探测报告。"
 
 msgid "Pending Steer changes must be applied or discarded before testing committed Nodes or Routes."
-msgstr "测试已提交的节点或路由前，必须先应用或丢弃待处理的 Steer 修改。"
+msgstr "测试已提交的节点或路由前，必须先应用或放弃待处理的 Steer 修改。"
 
 msgid "Probe is locked"
 msgstr "探测已锁定"
@@ -748,10 +748,10 @@ msgid "Rate"
 msgstr "速率"
 
 msgid "Recent Apply"
-msgstr "最近 Apply"
+msgstr "最近一次应用"
 
 msgid "Recent Overview, Node and Route probe reports"
-msgstr "最近的 Overview、节点与路由探测报告"
+msgstr "最近的概览、节点与路由探测报告"
 
 msgid "Refresh diagnostics"
 msgstr "刷新诊断"
@@ -769,7 +769,7 @@ msgid "Succeeded"
 msgstr "成功"
 
 msgid "Targets are visited under the current Active rules. Success only proves that the URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks."
-msgstr "目标按当前 Active 规则访问。成功仅表示该 URL 当时可达，不证明具体 outbound、DNS resolver，也不证明 DNS 无泄漏。"
+msgstr "目标按当前运行规则访问。成功仅表示该 URL 当时可达，不证明具体出站通道、DNS 解析器，也不证明不存在 DNS 泄漏。"
 
 msgid "The committed configuration is valid."
 msgstr "已提交配置校验通过。"
@@ -778,13 +778,13 @@ msgid "Validation"
 msgstr "校验"
 
 msgid "Visits the configured direct test target under the current Active rules."
-msgstr "按当前 Active 规则访问配置的直连测试目标。"
+msgstr "按当前运行规则访问配置的直连测试目标。"
 
 msgid "Visits the configured download test target under the current Active rules."
-msgstr "按当前 Active 规则访问配置的下载测试目标。"
+msgstr "按当前运行规则访问配置的下载测试目标。"
 
 msgid "Visits the configured proxy test target under the current Active rules."
-msgstr "按当前 Active 规则访问配置的代理测试目标。"
+msgstr "按当前运行规则访问配置的代理测试目标。"
 
 msgid "Last failure: %s · %s"
 msgstr "最近失败：%s · %s"
@@ -799,7 +799,7 @@ msgid "Subscription inventory is locked"
 msgstr "订阅节点库已锁定"
 
 msgid "Stale node removed from Saved inventory. Running configuration was not changed."
-msgstr "stale 节点已从 Saved 节点库移除。运行配置未改变。"
+msgstr "过期节点已从已保存节点库移除。运行配置未改变。"
 
 msgid "The visible subscription form has unsaved input."
 msgstr "当前订阅表单有未保存输入。"
@@ -814,16 +814,16 @@ msgid "Visible edits appeared while the update was running; they were preserved 
 msgstr "更新期间出现了可见编辑；已保留这些修改，页面未重新加载。"
 
 msgid "Active runtime"
-msgstr "Active 运行态"
+msgstr "当前运行状态"
 
 msgid "Apply result"
-msgstr "Apply 结果"
+msgstr "应用结果"
 
 msgid "Discard pending changes"
 msgstr "丢弃待处理修改"
 
 msgid "Draft / Saved / Active"
-msgstr "Draft / Saved / Active"
+msgstr "草稿 / 已保存 / 运行中"
 
 msgid "Healthy"
 msgstr "健康"
@@ -847,10 +847,10 @@ msgid "Pending changes were saved and applied."
 msgstr "待处理修改已保存并应用。"
 
 msgid "Pending desired"
-msgstr "Pending desired"
+msgstr "待处理配置"
 
 msgid "Pending desired values differ from Saved. Active traffic is unchanged until Save & Apply succeeds."
-msgstr "Pending desired 与 Saved 不同。在保存并应用成功前，Active 流量不会改变。"
+msgstr "待处理配置与已保存配置不同。成功保存并应用前，运行流量不会改变。"
 
 msgid "Running"
 msgstr "运行中"
@@ -859,22 +859,22 @@ msgid "Save & Apply pending changes"
 msgstr "保存并应用待处理修改"
 
 msgid "Saved configuration"
-msgstr "Saved 配置"
+msgstr "已保存配置"
 
 msgid "Saved desired"
-msgstr "Saved desired"
+msgstr "已保存配置"
 
 msgid "Saved revision"
-msgstr "Saved revision"
+msgstr "已保存版本"
 
 msgid "Subscription inventory refreshes do not change Route or Rule selection and do not create pending Apply by themselves."
-msgstr "订阅节点库刷新不会改变 Route 或 Rule 选择，也不会自行产生 pending Apply。"
+msgstr "订阅节点库刷新不会改变路由或规则选择，也不会自行产生待应用修改。"
 
 msgid "The last Apply failed. Saved remains committed and Active remains the generation shown above."
-msgstr "最近一次 Apply 失败。Saved 仍已提交，Active 仍是上方显示的 generation。"
+msgstr "最近一次应用失败。已保存配置仍已提交，运行状态仍是上方显示的代次。"
 
 msgid "There are no pending Steer changes. Desired and Saved are aligned."
-msgstr "当前没有待处理的 Steer 修改；Desired 与 Saved 一致。"
+msgstr "当前没有待处理的 Steer 修改；所需配置与已保存配置一致。"
 
 msgid "Valid"
 msgstr "有效"
@@ -883,28 +883,28 @@ msgid "Yes"
 msgstr "是"
 
 msgid "Apply Saved configuration"
-msgstr "Apply Saved 配置"
+msgstr "应用已保存配置"
 
 msgid "Operation failed."
 msgstr "操作失败。"
 
 msgid "Saved configuration was applied."
-msgstr "Saved 配置已应用。"
+msgstr "已保存配置已应用。"
 
 msgid "Active %s"
-msgstr "Active %s"
+msgstr "运行中 %s"
 
 msgid "Draft clean"
-msgstr "Draft clean"
+msgstr "草稿无修改"
 
 msgid "Operation failed"
 msgstr "操作失败"
 
 msgid "Pending Draft"
-msgstr "Pending Draft"
+msgstr "待处理草稿"
 
 msgid "Saved %s"
-msgstr "Saved %s"
+msgstr "已保存 %s"
 
 msgid "stopped"
 msgstr "已停止"
@@ -922,16 +922,16 @@ msgid "3"
 msgstr "3"
 
 msgid "A Node ID is required."
-msgstr "必须提供 Node ID。"
+msgstr "必须提供节点 ID。"
 
 msgid "A Route ID is required."
-msgstr "必须提供 Route ID。"
+msgstr "必须提供路由 ID。"
 
 msgid "A Subscription ID and Node ID are required."
-msgstr "必须同时提供 Subscription ID 和 Node ID。"
+msgstr "必须同时提供订阅 ID 和节点 ID。"
 
 msgid "A Subscription ID is required."
-msgstr "必须提供 Subscription ID。"
+msgstr "必须提供订阅 ID。"
 
 msgid "A private import workspace could not be created."
 msgstr "无法创建私有导入工作区。"
@@ -946,7 +946,7 @@ msgid "Alter ID"
 msgstr "Alter ID"
 
 msgid "An enabled Rule appears after the Default Rule."
-msgstr "Default Rule 之后存在已启用的 Rule。"
+msgstr "默认规则之后存在已启用规则。"
 
 msgid "AnyTLS"
 msgstr "AnyTLS"
@@ -958,10 +958,10 @@ msgid "BitTorrent"
 msgstr "BitTorrent"
 
 msgid "Choose the direct, proxy, or speed-test probe."
-msgstr "请选择 direct、proxy 或 speed-test 探测。"
+msgstr "请选择直连、代理或下载测速探测。"
 
 msgid "Configuration saved; Active unchanged"
-msgstr "配置已保存；Active 未切换"
+msgstr "配置已保存；运行状态未切换"
 
 msgid "Configuration saved; Steer was disabled and its runtime resources were cleaned up."
 msgstr "配置已保存；Steer 已停用并清理运行时资源。"
@@ -979,7 +979,7 @@ msgid "DNS"
 msgstr "DNS"
 
 msgid "DNS cannot evaluate this Rule’s connection-stage conditions, so DNS continues to later Rules."
-msgstr "DNS 无法判断此 Rule 的连接阶段条件，因此 DNS 会继续匹配后续 Rule。"
+msgstr "DNS 无法判断此规则的连接阶段条件，因此会继续匹配后续规则。"
 
 msgid "DTLS"
 msgstr "DTLS"
@@ -1003,19 +1003,19 @@ msgid "DoT"
 msgstr "DoT"
 
 msgid "Enter a positive duration such as 30m, 6h, or 250ms."
-msgstr "请输入正 duration，例如 30m、6h 或 250ms。"
+msgstr "请输入正时长，例如 30m、6h 或 250ms。"
 
 msgid "Enter an absolute HTTP or HTTPS URL."
-msgstr "请输入绝对 HTTP 或 HTTPS URL。"
+msgstr "请输入绝对 HTTP 或 HTTPS 地址。"
 
 msgid "Enter an absolute HTTPS URL without credentials or a fragment."
-msgstr "请输入不含凭据和 fragment 的绝对 HTTPS URL。"
+msgstr "请输入不含凭据和片段的绝对 HTTPS 地址。"
 
 msgid "Exactly one enabled Default Rule is required."
-msgstr "必须恰好存在一个已启用的 Default Rule。"
+msgstr "必须恰好存在一个已启用的默认规则。"
 
 msgid "Exactly one enabled Direct Route is required."
-msgstr "必须恰好存在一个已启用的 Direct Route。"
+msgstr "必须恰好存在一个已启用的直连路由。"
 
 msgid "Executable path"
 msgstr "可执行文件路径"
@@ -1024,16 +1024,16 @@ msgid "Extra arguments"
 msgstr "额外参数"
 
 msgid "Fix the reported problem, then choose Apply Saved configuration."
-msgstr "修复报告的问题后，再选择 Apply Saved 配置。"
+msgstr "修复报告的问题后，再选择应用已保存配置。"
 
 msgid "Generation"
-msgstr "Generation"
+msgstr "运行代次"
 
 msgid "Geo rules"
 msgstr "Geo 规则"
 
 msgid "Geo seed"
-msgstr "Geo seed"
+msgstr "Geo 数据种子"
 
 msgid "HTTP"
 msgstr "HTTP"
@@ -1045,10 +1045,10 @@ msgid "Heartbeat"
 msgstr "心跳"
 
 msgid "Host key"
-msgstr "Host key"
+msgstr "主机密钥"
 
 msgid "Host key algorithms"
-msgstr "Host key 算法"
+msgstr "主机密钥算法"
 
 msgid "Hysteria"
 msgstr "Hysteria"
@@ -1081,7 +1081,7 @@ msgid "NaiveProxy"
 msgstr "NaiveProxy"
 
 msgid "Node import is not permitted"
-msgstr "不允许导入 Node"
+msgstr "不允许导入节点"
 
 msgid "Operation failed (%s)."
 msgstr "操作失败（%s）。"
@@ -1090,10 +1090,10 @@ msgid "PacketAddr"
 msgstr "PacketAddr"
 
 msgid "Paste at least one node share link."
-msgstr "请粘贴至少一个 Node 分享链接。"
+msgstr "请粘贴至少一个节点分享链接。"
 
 msgid "Pending warning: %s"
-msgstr "Pending 警告：%s"
+msgstr "待处理配置警告：%s"
 
 msgid "Plugin"
 msgstr "插件"
@@ -1138,7 +1138,7 @@ msgid "Salamander"
 msgstr "Salamander"
 
 msgid "Saved warning: %s"
-msgstr "Saved 警告：%s"
+msgstr "已保存配置警告：%s"
 
 msgid "Security"
 msgstr "安全性"
@@ -1153,7 +1153,7 @@ msgid "Shadowsocks"
 msgstr "Shadowsocks"
 
 msgid "Steer candidate was not saved"
-msgstr "Steer candidate 未保存"
+msgstr "Steer 候选配置未保存"
 
 msgid "Steer configuration saved and activated."
 msgstr "Steer 配置已保存并激活。"
@@ -1180,10 +1180,10 @@ msgid "Tested at"
 msgstr "测试时间"
 
 msgid "The DNS HTTP path must start with /."
-msgstr "DNS HTTP path 必须以 / 开头。"
+msgstr "DNS HTTP 路径必须以 / 开头。"
 
 msgid "The Route detour chain contains a cycle."
-msgstr "Route detour 链存在环。"
+msgstr "路由前置链存在环。"
 
 msgid "The Steer configuration preview could not be decoded."
 msgstr "无法解码 Steer 配置预览。"
@@ -1201,13 +1201,13 @@ msgid "The Steer lifecycle state could not be read."
 msgstr "无法读取 Steer 生命周期状态。"
 
 msgid "The Steer node parser could not be started."
-msgstr "无法启动 Steer Node 解析器。"
+msgstr "无法启动 Steer 节点解析器。"
 
 msgid "The Steer node parser returned an invalid response."
-msgstr "Steer Node 解析器返回了无效响应。"
+msgstr "Steer 节点解析器返回了无效响应。"
 
 msgid "The configuration was committed to Saved, but validation or activation failed. Traffic continues using the previous Active generation."
-msgstr "配置已提交到 Saved，但校验或激活失败。流量继续使用上一 Active generation。"
+msgstr "配置已提交到已保存状态，但校验或激活失败。流量继续使用上一运行代次。"
 
 msgid "The current platform cannot match the original source MAC address."
 msgstr "当前平台无法匹配原始来源 MAC 地址。"
@@ -1243,43 +1243,43 @@ msgid "The pending lifecycle state could not be read."
 msgstr "无法读取待处理的生命周期状态。"
 
 msgid "The referenced DNS Profile does not exist."
-msgstr "引用的 DNS Profile 不存在。"
+msgstr "引用的 DNS 配置不存在。"
 
 msgid "The referenced DNS Profile is disabled."
-msgstr "引用的 DNS Profile 已停用。"
+msgstr "引用的 DNS 配置已停用。"
 
 msgid "The referenced Local Proxy does not exist."
-msgstr "引用的 Local Proxy 不存在。"
+msgstr "引用的本地代理不存在。"
 
 msgid "The referenced Local Proxy is disabled."
-msgstr "引用的 Local Proxy 已停用。"
+msgstr "引用的本地代理已停用。"
 
 msgid "The referenced Node does not exist."
-msgstr "引用的 Node 不存在。"
+msgstr "引用的节点不存在。"
 
 msgid "The referenced Node is disabled."
-msgstr "引用的 Node 已停用。"
+msgstr "引用的节点已停用。"
 
 msgid "The referenced Route does not exist."
-msgstr "引用的 Route 不存在。"
+msgstr "引用的路由不存在。"
 
 msgid "The referenced Route is disabled."
-msgstr "引用的 Route 已停用。"
+msgstr "引用的路由已停用。"
 
 msgid "The referenced detour Route does not exist."
-msgstr "引用的 detour Route 不存在。"
+msgstr "引用的前置路由不存在。"
 
 msgid "The referenced detour Route is disabled."
-msgstr "引用的 detour Route 已停用。"
+msgstr "引用的前置路由已停用。"
 
 msgid "The subscription no longer advertises this Node; it is retained until explicitly removed."
-msgstr "订阅已不再提供此 Node；在显式移除前会继续保留。"
+msgstr "订阅已不再提供此节点；在显式移除前会继续保留。"
 
 msgid "The validated Steer configuration could not be committed."
 msgstr "无法提交已校验的 Steer 配置。"
 
 msgid "This Rule has only connection-stage conditions, so DNS continues to later Rules."
-msgstr "此 Rule 仅含连接阶段条件，因此 DNS 会继续匹配后续 Rule。"
+msgstr "此规则仅含连接阶段条件，因此 DNS 会继续匹配后续规则。"
 
 msgid "This field is not applicable here."
 msgstr "此字段在当前位置不适用。"
@@ -1423,10 +1423,10 @@ msgid "Configuration saved; activation failed"
 msgstr "配置已保存；激活失败"
 
 msgid "Current Active generation: %s"
-msgstr "当前 Active generation：%s"
+msgstr "当前运行代次：%s"
 
 msgid "The configuration was committed to Saved, but activation failed after Active state changed. Check Diagnostics before relying on traffic stability."
-msgstr "配置已提交到 Saved，但 Active 状态变化后激活失败。确认流量稳定性前请检查 Diagnostics。"
+msgstr "配置已提交到已保存状态，但运行状态变化后激活失败。确认流量稳定性前请检查诊断页面。"
 
 msgid "Internal ID is generated automatically: %s"
 msgstr "内部 ID 已自动生成：%s"
@@ -1444,13 +1444,13 @@ msgid "not selected"
 msgstr "未选择"
 
 msgid "Active port-53 capture inspection"
-msgstr "Active 端口 53 捕获配置检查"
+msgstr "当前运行端口 53 捕获检查"
 
 msgid "Bootstrap"
-msgstr "Bootstrap"
+msgstr "引导"
 
 msgid "Bootstrap and encrypted DNS boundary"
-msgstr "Bootstrap 与加密 DNS 边界"
+msgstr "引导与加密 DNS 边界"
 
 msgid "Build tags"
 msgstr "构建标签"
@@ -1468,7 +1468,7 @@ msgid "Exclusions"
 msgstr "排除范围"
 
 msgid "Geo seed path"
-msgstr "Geo seed 路径"
+msgstr "Geo 数据种子路径"
 
 msgid "Mode"
 msgstr "模式"
@@ -1489,13 +1489,13 @@ msgid "State directory"
 msgstr "状态目录"
 
 msgid "Subscription inventory updated; the current Active configuration was not changed. Nodes still referenced by Routes but no longer advertised by the subscription were preserved as stale. Added %d, current %d, stale %d, skipped %d."
-msgstr "订阅节点库存已更新；当前 Active 配置未改变。仍被 Route 引用、但已不再由订阅提供的节点已保留为 stale。新增 %d，当前 %d，stale %d，跳过 %d。"
+msgstr "订阅节点库已更新；当前运行配置未改变。仍被路由引用、但已不再由订阅提供的节点已保留为过期节点。新增 %d，当前 %d，过期 %d，跳过 %d。"
 
 msgid "Warnings"
 msgstr "警告"
 
 msgid "Router and LAN TCP/UDP destination port 53 is redirected by nftables to the dedicated DNS inbound."
-msgstr "路由器与 LAN 的 TCP/UDP 目标端口 53 由 nftables 重定向到专用 DNS inbound。"
+msgstr "路由器与局域网 TCP/UDP 的目标端口 53 会由 nftables 重定向到专用 DNS 入站。"
 
 msgid "TUN routing excludes non-global destinations"
 msgstr "TUN 路由排除非全球目的地址"
@@ -1504,10 +1504,46 @@ msgid "marked Steer DNS and TUN traffic is excluded from recapture"
 msgstr "带标记的 Steer DNS 与 TUN 流量不会被再次捕获"
 
 msgid "Bootstrap resolves infrastructure hostnames such as a DNS upstream hostname. Direct UDP/TCP bootstrap can use plaintext port 53, but it does not carry the original user query name."
-msgstr "Bootstrap 解析 DNS 上游主机名等基础设施主机名。Direct UDP/TCP Bootstrap 可以使用明文 53 端口，但不会携带原始用户查询域名。"
+msgstr "引导过程会解析 DNS 上游主机名等基础设施主机名。直连 UDP/TCP 引导可以使用明文 53 端口，但不会携带原始用户查询域名。"
 
 msgid "Application-owned DoH, DoT and DoQ is ordinary business traffic. Port-53 capture alone neither identifies nor redirects it; control requires that traffic to enter the captured path and a separately verified block or redirect policy."
 msgstr "应用自带的 DoH、DoT 与 DoQ 属于普通业务流量。仅靠端口 53 捕获既不能识别也不能重定向它；要进行控制，流量必须进入捕获路径，并另有经过验证的阻断或重定向策略。"
 
 msgid "The diagnostic verifies port-53 artifacts in the published Active generation; it is not packet observation and does not prove encrypted-DNS blocking or zero leakage."
-msgstr "该诊断只验证已发布 Active generation 中的端口 53 配置产物；它不是抓包观测，也不证明加密 DNS 已被阻断或零泄漏。"
+msgstr "该诊断只验证已发布运行代次中的端口 53 配置产物；它不是抓包观测，也不证明加密 DNS 已被阻断或零泄漏。"
+
+msgid "Pending apply"
+msgstr "待应用"
+
+msgid "Intent digest"
+msgstr "配置摘要"
+
+msgid "Dedicated DNS shim"
+msgstr "专用 DNS 辅助层"
+
+msgid "TUN port-53 hijack"
+msgstr "TUN 端口 53 劫持"
+
+msgid "Probe timed out"
+msgstr "探测超时"
+
+msgid "Probe failed"
+msgstr "探测失败"
+
+msgid "Unable to read Steer logs."
+msgstr "无法读取 Steer 日志。"
+
+msgid "Expected port-53 capture artifacts are present in the active generation."
+msgstr "当前运行代次中已存在预期的端口 53 捕获配置产物。"
+
+msgid "Proxy"
+msgstr "代理"
+
+msgid "Rule"
+msgstr "规则"
+
+msgid "Local proxy"
+msgstr "本地代理"
+
+msgid "Subscription"
+msgstr "订阅"

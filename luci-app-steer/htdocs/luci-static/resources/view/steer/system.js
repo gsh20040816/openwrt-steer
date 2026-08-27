@@ -9,6 +9,13 @@ function fact(label, value) {
 	return E('div', {}, [ E('dt', {}, label), E('dd', {}, value == null || value === '' ? '—' : String(value)) ]);
 }
 
+function boundaryModeLabel(mode) {
+	return {
+		dedicated_shim: _('Dedicated DNS shim'),
+		tun_port53_hijack: _('TUN port-53 hijack')
+	}[mode] || mode;
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([ steer.runtime(), steer.status() ]);
@@ -38,9 +45,9 @@ return view.extend({
 			E('section', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('DNS capture boundary')),
 				E('dl', { 'class': 'steer-status__facts' }, [
-					fact(_('Mode'), boundary.capture_mode),
-					fact(_('Capture scope'), boundary.capture_scope),
-					fact(_('Exclusions'), boundary.exclusions.join(' · '))
+					fact(_('Mode'), boundaryModeLabel(boundary.capture_mode)),
+					fact(_('Capture scope'), _(boundary.capture_scope)),
+					fact(_('Exclusions'), boundary.exclusions.map((item) => _(item)).join(' · '))
 				]),
 				E('p', {}, _(boundary.encrypted_dns_boundary))
 			]),

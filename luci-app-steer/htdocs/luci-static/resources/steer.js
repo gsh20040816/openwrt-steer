@@ -85,6 +85,26 @@ const validationMessages = {
 	CANDIDATE_CHANGED: _('The pending Steer configuration changed during validation. Review it and retry.')
 };
 
+const issueObjectLabels = {
+	steer: _('Steer'),
+	bootstrap: _('Bootstrap DNS'),
+	node: _('Node'),
+	route: _('Route'),
+	dns_profile: _('DNS profile'),
+	local_proxy: _('Local proxy'),
+	rule: _('Rule'),
+	subscription: _('Subscription')
+};
+
+const issueOptionLabels = {
+	insecure: _('Certificate verification'),
+	pinned_stale: _('Subscription status'),
+	dns_profile: _('DNS profile'),
+	route: _('Route'),
+	inbound: _('Inbound'),
+	node: _('Node')
+};
+
 const rpcErrorMessages = {
 	PENDING_STATE_UNAVAILABLE: _('The pending Steer configuration cannot be inspected.'),
 	PENDING_CHANGES: _('Apply or discard pending Steer changes before operating on the committed configuration.'),
@@ -164,11 +184,11 @@ function validateInput(formatName, value) {
 }
 
 function issueText(issue) {
-	let target = issue.object_type || _('Configuration');
+	let target = issueObjectLabels[issue?.object_type] || _('Configuration');
 	if (issue.object_id)
 		target += ' “%s”'.format(issue.object_id);
 	if (issue.option)
-		target += ' / %s'.format(issue.option);
+		target += ' / %s'.format(issueOptionLabels[issue.option] || issue.option);
 	return '[%s] %s: %s'.format(issue.code || 'VALIDATION', target, validationMessage(issue));
 }
 

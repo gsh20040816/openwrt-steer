@@ -97,6 +97,26 @@ bad_placeholders = sorted(
     != re.findall(r"%(?:\d+\$)?[a-zA-Z%]", translations.get(key, ""))
 )
 
+required_localized = {
+    "Draft / Saved / Active": "草稿 / 已保存 / 运行中",
+    "Pending desired": "待处理配置",
+    "Saved desired": "已保存配置",
+    "Saved revision": "已保存版本",
+    "Active runtime": "当前运行状态",
+    "Apply result": "应用结果",
+    "Generation": "运行代次",
+    "Canonical Preview": "规范预览",
+    "Single-node routes": "单节点路由",
+    "Add single-node route": "添加单节点路由",
+    "Pending warning: %s": "待处理配置警告：%s",
+    "Saved warning: %s": "已保存配置警告：%s",
+    "Recent Overview, Node and Route probe reports": "最近的概览、节点与路由探测报告",
+}
+unlocalized_required = sorted(
+    key for key, expected in required_localized.items()
+    if translations.get(key) != expected
+)
+
 if missing:
     fail("missing translations:\n" + "\n".join(missing))
 if untranslated:
@@ -105,5 +125,7 @@ if obsolete:
     fail("obsolete translations:\n" + "\n".join(obsolete))
 if bad_placeholders:
     fail("placeholder mismatch:\n" + "\n".join(bad_placeholders))
+if unlocalized_required:
+    fail("key user-facing labels are not localized:\n" + "\n".join(unlocalized_required))
 
 print(f"LuCI Simplified Chinese coverage: {len(source_ids)}/{len(source_ids)}")

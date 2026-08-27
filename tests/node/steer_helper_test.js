@@ -420,7 +420,8 @@ async function main() {
 	const validationText = textContent(runtime.notifications.at(-1).content);
 	for (const issue of [ ...runtime.candidateValidation.errors, ...runtime.candidateValidation.warnings ]) {
 		assert.ok(validationText.includes(issue.code) || validationText.includes(issue.message));
-		assert.ok(validationText.includes(issue.object_id) && validationText.includes(issue.option));
+		const optionLabel = { node: 'Node', route: 'Route', dns_profile: 'DNS profile' }[issue.option] || issue.option;
+		assert.ok(validationText.includes(issue.object_id) && validationText.includes(optionLabel));
 	}
 	assert.ok(validationText.includes('Go to field'),
 		'Every located write issue offers direct object/field navigation');
