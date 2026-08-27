@@ -353,6 +353,7 @@ function createEnvironment(sections) {
 		configureNamedSection: (section, defaults, beforeSectionId) => {
 			section.anonymous = false;
 			section.autoIDs = true;
+			section.sectiontitle = (sectionId) => uci.get('steer', sectionId, 'name') || 'Unnamed';
 			section.handleAdd = function() {};
 			section.addDefaults = defaults || {};
 			section.addBeforeSectionId = beforeSectionId;
@@ -864,11 +865,30 @@ function assertAutomaticIdsAndOptionalNames(environment, message) {
 	assert.ok(addable.every((section) => section.anonymous === false && section.autoIDs && typeof section.handleAdd == 'function'),
 		message + ': addable entities keep named UCI sections but generate IDs automatically');
 	assert.ok(addable.every((section) => section.options.some((option) =>
-		option.name == 'name' && option.rmempty === true && option.optional === true)),
-		message + ': every Canonical optional name must remain optional in LuCI');
+		option.name == 'name' && option.rmempty === true && option.optional === true && option.modalonly === true)),
+		message + ': every Canonical optional name remains modal-only and cannot duplicate the native list title');
 }
 
 async function main() {
+	const stylesheet = fs.readFileSync(path.join(root,
+		'luci-app-steer/htdocs/luci-static/resources/steer/steer.css'), 'utf8');
+	assert.ok(stylesheet.includes('@media (min-width: 1153px)') &&
+		stylesheet.includes('.cbi-section-table-row[data-title]::before') &&
+		stylesheet.includes('.cbi-section-table-titles.named::before') &&
+		stylesheet.includes('display: none;') && stylesheet.includes('content: none;'),
+		'desktop GridSection duplicate title pseudo-elements are removed from layout at the Argon breakpoint');
+	assert.ok(!/cbi-section-table[^}]*::before\s*\{[^}]*visibility\s*:\s*hidden/s.test(stylesheet),
+		'GridSection title pseudo-elements must not reserve space through visibility:hidden');
+	assert.ok(!/margin(?:-[a-z]+)?\s*:\s*-/i.test(stylesheet),
+		'Steer custom layout does not offset LuCI containers with negative margins');
+	assert.ok(stylesheet.includes('--steer-space-page:') && stylesheet.includes('--steer-space-card:') &&
+		stylesheet.includes('--steer-space-compact:') && stylesheet.includes('--steer-space-cell:'),
+		'custom panels, cards, compact controls and table facts share the desktop spacing scale');
+	assert.ok(/\.steer-section-heading h3,\s*\.steer-section-heading p\s*\{[^}]*margin:\s*0;[^}]*padding:\s*0;/s.test(stylesheet),
+		'import heading and explanatory copy reset Argon padding to one shared content boundary');
+	assert.ok(stylesheet.includes('--steer-monospace: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;') &&
+		stylesheet.includes('.steer-machine-input'),
+		'machine-readable import input uses the shared monospace stack');
 	assert.equal(formInputFixtures.schema_version, 1);
 	assert.equal(creationPolicyFixtures.schema_version, 1);
 	assert.equal(uiSpec.id_policy.auto_generate, true);
@@ -1450,8 +1470,8 @@ async function main() {
 	assert.ok(detourPicker.values.some((value) => value[0] == 'route_proxy' && value[1] == 'route_proxy') &&
 		detourPicker.values.some((value) => value[0] == 'route_jp' && value[1] == 'route_jp'),
 		'Unnamed Single detours remain distinguishable by stable route ID');
-	assert.equal(routeSection.sectiontitle('route_proxy'), 'route_proxy',
-		'Unnamed Single route summaries use the stable route ID');
+	assert.equal(routeSection.sectiontitle('route_proxy'), 'Unnamed',
+		'Unnamed Single route summaries do not expose the internal UCI section ID');
 	assert.equal(detourPicker.values.some((value) => value[0] == 'block'), false,
 		'Reject is never offered as a detour');
 	await detourPicker.submit('route_proxy', '');
@@ -1838,6 +1858,10 @@ async function main() {
 	importButton.attributes.click({ preventDefault: () => {} });
 	const importModal = element('div', {}, environment.modal.content);
 	const importInput = findElements(importModal, (node) => node.tag == 'textarea')[0];
+	assert.ok(String(importInput.attributes.class).split(/\s+/).includes('steer-machine-input') &&
+		importInput.attributes.autocomplete == 'off' && importInput.attributes.autocapitalize == 'off' &&
+		importInput.attributes.autocorrect == 'off' && importInput.attributes.spellcheck == 'false',
+		'Node import uses the semantic machine-input class and disables browser text correction');
 	importInput.value = 'two private share links';
 	const parseImport = findElements(importModal,
 		(node) => node.tag == 'button' && elementText(node) == 'Parse and preview')[0];
@@ -1890,6 +1914,12 @@ async function main() {
 		'Nodes page exposes inline row and batch speed-test actions');
 	const steerSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/steer.js'), 'utf8');
+	assert.ok(steerSource.includes('section.sectiontitle = function(sectionId)') &&
+		steerSource.includes("return uci.get('steer', sectionId, 'name') || _('Unnamed');"),
+		'all named GridSections share one user-name title policy with a safe unnamed fallback');
+	assert.ok(!nodesSource.includes("|| sectionId") &&
+		!nodesSource.includes("|| uci.get('steer', sectionId, 'url')"),
+		'ordinary Node, Route and Subscription rows never expose IDs or URLs as fallback names');
 	assert.ok(steerSource.includes("params: [ 'node', 'download' ]") &&
 		steerSource.includes("params: [ 'route', 'download' ]") &&
 		steerSource.includes("params: [ 'kind' ]") &&

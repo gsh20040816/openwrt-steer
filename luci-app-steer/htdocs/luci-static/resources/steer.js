@@ -387,6 +387,9 @@ return baseclass.extend({
 		const resolvedDefaults = Object.assign(uciCreationDefaults(collection), defaults || {});
 		section.anonymous = false;
 		section.autoIDs = true;
+		section.sectiontitle = function(sectionId) {
+			return uci.get('steer', sectionId, 'name') || _('Unnamed');
+		};
 		const renderSectionAdd = section.renderSectionAdd;
 		section.renderSectionAdd = function(extraClass) {
 			const row = renderSectionAdd.call(this, extraClass);

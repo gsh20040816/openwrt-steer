@@ -59,7 +59,6 @@ return view.extend({
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add DNS profile');
-		s.sectiontitle = function(sectionId) { return uci.get('steer', sectionId, 'name') || sectionId; };
 		s.tab('general', _('Upstream'));
 		s.tab('tls', _('TLS'));
 
