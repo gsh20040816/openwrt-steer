@@ -56,7 +56,7 @@ for attempt in 1 2 3 4 5; do
 	sleep 1
 done
 ubus -v list luci.steer > "$TEST_DIR/rpc-methods.txt"
-for method in commit_candidate geodata_catalog node_speedtest overview_probe probe_results route_speedtest status subscriptions validate; do
+for method in commit_candidate geodata_catalog node_import node_speedtest overview_probe probe_results route_speedtest status subscriptions validate; do
 	grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"
 done
 for removed in plan rollback; do
@@ -69,6 +69,36 @@ done
 ubus call luci.steer geodata_catalog > "$TEST_DIR/geodata-catalog.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/geodata-catalog.json" -e '@.geosite.ok')" = 'true' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/geodata-catalog.json" -e '@.geoip.ok')" = 'true' ]
+
+# The public LuCI RPC must launch the shared parser on the target ucode, which
+# only accepts a string command for fs.popen(). Documents remain RPC data and
+# are written to the parser's stdin instead of being interpolated into shell.
+. /usr/share/libubox/jshn.sh
+node_import_rpc() {
+	json_init
+	json_add_string document "$1"
+	ubus call luci.steer node_import "$(json_dump)"
+}
+single_node='vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy#fixture'
+node_import_rpc "$single_node" > "$TEST_DIR/node-import-single.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-single.json" -e '@.nodes[0].type')" = 'vless' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-single.json" -e '@.skipped')" = '0' ]
+
+multi_node="$single_node
+not-a-node-link
+ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#fixture"
+node_import_rpc "$multi_node" > "$TEST_DIR/node-import-multi.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-multi.json" -e '@.nodes[0].type')" = 'vless' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-multi.json" -e '@.nodes[1].type')" = 'shadowsocks' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-multi.json" -e '@.skipped')" = '1' ]
+
+base64_node='dm1lc3M6Ly9leUoySWpvaU1pSXNJbkJ6SWpvaVptbDRkSFZ5WlNJc0ltRmtaQ0k2SW5adFpYTnpMbVY0WVcxd2JHVXVZMjl0SWl3aWNHOXlkQ0k2SWpRME15SXNJbWxrSWpvaU1EQXdNREF3TURBdE1EQXdNQzAwTURBd0xUZ3dNREF0TURBd01EQXdNREF3TURBeElpd2lZV2xrSWpvaU1DSXNJbk5qZVNJNkltRjFkRzhpTENKdVpYUWlPaUozY3lJc0luUnNjeUk2SW5Sc2N5SXNJbk51YVNJNkltVmtaMlV1WlhoaGJYQnNaUzVqYjIwaUxDSm9iM04wSWpvaVpXUm5aUzVsZUdGdGNHeGxMbU52YlNJc0luQmhkR2dpT2lJdmQzTWlMQ0owZVhCbElqb2libTl1WlNKOQ=='
+node_import_rpc "$base64_node" > "$TEST_DIR/node-import-base64.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-base64.json" -e '@.nodes[0].type')" = 'vmess' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-base64.json" -e '@.skipped')" = '0' ]
+
+node_import_rpc 'not-a-node-link' > "$TEST_DIR/node-import-invalid.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-invalid.json" -e '@.error_code')" = 'IMPORT_PARSE_FAILED' ]
 
 # Representative and detour fixtures remain valid through the public semantic
 # validator. Native compilation is exercised by normal Apply below and by the

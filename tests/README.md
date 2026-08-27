@@ -58,7 +58,7 @@ swift test --disable-sandbox
 
 `tests/integration/run-openwrt-vm.sh` 只能运行在一次性 OpenWrt 25.12.5 x86/64 VM，并要求匹配版本的 sing-box、完整 SRS seed 和待测控制器已准备。脚本会改写 `/etc/config/steer`、`/run/steer`、nftables、策略路由和 procd，不能用于生产路由器。
 
-它覆盖公共 RPC 集、Geo catalog、代表配置校验、正常 Apply、LuCI UCI commit 触发、health/status、DNS shim 与 1.14 原生 MAC 规则、fw4 reload、服务 restart/reload、非法字段 fail-fast、禁用和重新启用。编译器的详细结构由 Go 测试覆盖，不为测试重新公开 compile/plan/prepare 命令。
+它覆盖公共 RPC 集、Geo catalog、通过真实 ucode RPC 的单条/多行/Base64 节点导入、代表配置校验、正常 Apply、LuCI UCI commit 触发、health/status、DNS shim 与 1.14 原生 MAC 规则、fw4 reload、服务 restart/reload、非法字段 fail-fast、禁用和重新启用。编译器的详细结构由 Go 测试覆盖，不为测试重新公开 compile/plan/prepare 命令。
 
 ## Linux systemd 容器
 

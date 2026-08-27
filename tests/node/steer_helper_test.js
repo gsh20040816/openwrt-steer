@@ -223,6 +223,8 @@ async function main() {
 	runtime.permissions.write = true;
 	assert.equal(helper.rpcErrorText({ error_code: 'MISSING_NODE_ID', error: 'raw backend detail' }), 'A Node ID is required.',
 		'RPC failures are localized by stable code before raw detail');
+	assert.equal(helper.rpcErrorText({ error_code: 'IMPORT_PROGRAM_MISSING' }), 'The Steer node parser is not installed.');
+	assert.equal(helper.rpcErrorText({ error_code: 'IMPORT_PROGRAM_NOT_EXECUTABLE' }), 'The Steer node parser is not executable.');
 	const currentView = { handleSave: () => { runtime.sequence.push('capture-form'); return Promise.resolve(); } };
 	helper.loadStyle(currentView);
 	await new Promise((resolve) => setImmediate(resolve));

@@ -472,9 +472,6 @@ function loadUcodeRPC(runtime) {
 	let source = fs.readFileSync(path.join(root,
 		'luci-app-steer/root/usr/share/rpcd/ucode/luci.steer'), 'utf8');
 	source = source.replace(/^#![^\n]*\n/, '').replace(/^import \{[^\n]+\} from 'fs';\n/m, '');
-	/* ucode permits `arguments` as a named parameter while strict JavaScript reserves it. */
-	source = source.replace('function command_json_input(arguments, input)', 'function command_json_input(commandArguments, input)')
-		.replace("...arguments, '--output'", "...commandArguments, '--output'");
 	const ubus = {
 		defer(object, method, args, callback) {
 			const call = { object, method, args };
@@ -489,10 +486,46 @@ function loadUcodeRPC(runtime) {
 			}
 		}
 	};
-	const popen = (command) => {
+	runtime.files ||= {};
+	runtime.importInputs ||= [];
+	runtime.accessCalls ||= [];
+	let lastFSError = null;
+	const access = (file, mode) => {
+		runtime.accessCalls.push({ file, mode: mode || '' });
+		if (runtime.programMissing) {
+			lastFSError = 'No such file or directory';
+			return null;
+		}
+		if (mode == 'x' && runtime.programNotExecutable) {
+			lastFSError = 'Permission denied';
+			return null;
+		}
+		lastFSError = null;
+		return true;
+	};
+	const fs_error = () => lastFSError;
+	const popen = (command, mode) => {
 		runtime.commands.push(command);
 		if (typeof(command) != 'string')
 			throw new Error(`unexpected process ${JSON.stringify(command)}`);
+		if (command.includes(' _parse-nodes --output ')) {
+			assert.equal(mode, 'w');
+			if (runtime.processStartFailure) {
+				lastFSError = runtime.processStartFailure;
+				return null;
+			}
+			const match = command.match(/ --output '([^']+)'$/);
+			assert.ok(match, `node parser output remains a shell-quoted private path: ${command}`);
+			return {
+				write: (input) => runtime.importInputs.push(input),
+				close: () => {
+					const status = runtime.importStatus || 0;
+					if (status == 0)
+						runtime.files[match[1]] = JSON.stringify(runtime.importResult || { nodes: [], skipped: 0 });
+					return status;
+				}
+			};
+		}
 		const result = command == '/usr/sbin/steer apply'
 			? (runtime.applyResult || { ok: true })
 			: command.includes(' validate --config ')
@@ -503,15 +536,22 @@ function loadUcodeRPC(runtime) {
 		return { read: () => JSON.stringify(result), close: () => 0 };
 	};
 	const open = (file, mode) => {
-		if (mode != 'w') throw new Error(`unexpected open mode ${mode}`);
-		return { write: (document) => runtime.documents.push(document), close: () => {} };
+		if (mode == 'r') {
+			if (!(file in runtime.files)) return null;
+			return { read: () => runtime.files[file], close: () => {} };
+		}
+		if (mode == 'w')
+			return { write: (document) => runtime.documents.push(document), close: () => {} };
+		throw new Error(`unexpected open mode ${mode}`);
 	};
 	const globals = {
+		access,
+		fs_error,
 		mkdtemp: () => `/tmp/test-candidate-${runtime.documents.length}`,
 		open,
 		popen,
 		rmdir: () => {},
-		unlink: () => {},
+		unlink: (file) => { delete runtime.files[file]; },
 		require: (name) => {
 			if (name != 'ubus') throw new Error(`unexpected module ${name}`);
 			return { connect: () => ubus };
@@ -703,6 +743,46 @@ function testSubscriptionRPCRejectsPendingSession() {
 	const applied = callUcodeMethod(methods.apply_saved, {});
 	assert.equal(applied.ok, true);
 	assert.equal(runtime.commands[1], '/usr/sbin/steer apply');
+}
+
+function testNodeImportUcodeUsesTargetCompatibleStringPopen() {
+	const runtime = {
+		values: {}, changes: [], validation: { ok: true, errors: [], warnings: [] }, intent: {},
+		ubusCalls: [], commands: [], documents: [], commitCalls: 0,
+		importResult: { nodes: [ { type: 'vless', server: 'example.com', server_port: 443 } ], skipped: 0 }
+	};
+	const methods = loadUcodeRPC(runtime);
+	const document = 'vless://fixture kept out of the shell command';
+	const imported = callUcodeMethod(methods.node_import, { document });
+	assert.equal(imported.nodes[0].type, 'vless');
+	assert.deepEqual(runtime.importInputs, [ document ], 'the private document is written only to parser stdin');
+	assert.equal(runtime.commands[0],
+		"/usr/sbin/steer _parse-nodes --output '/tmp/test-candidate-0/result.json'",
+		'target ucode receives one fixed string command with a shell-quoted private output path');
+	assert.ok(!runtime.commands[0].includes(document), 'node credentials and links never enter the shell command');
+	assert.deepEqual(runtime.accessCalls.slice(0, 2), [
+		{ file: '/usr/sbin/steer', mode: '' }, { file: '/usr/sbin/steer', mode: 'x' }
+	]);
+
+	runtime.importStatus = 1;
+	assert.equal(callUcodeMethod(methods.node_import, { document }).error_code, 'IMPORT_PARSE_FAILED');
+	runtime.importStatus = 0;
+	runtime.programMissing = true;
+	assert.equal(callUcodeMethod(methods.node_import, { document }).error_code, 'IMPORT_PROGRAM_MISSING');
+	runtime.programMissing = false;
+	runtime.programNotExecutable = true;
+	assert.equal(callUcodeMethod(methods.node_import, { document }).error_code, 'IMPORT_PROGRAM_NOT_EXECUTABLE');
+	runtime.programNotExecutable = false;
+	runtime.processStartFailure = 'Invalid argument';
+	const startFailure = callUcodeMethod(methods.node_import, { document });
+	assert.equal(startFailure.error_code, 'IMPORT_START_FAILED');
+	assert.equal(startFailure.error, 'Invalid argument', 'fs.error supplies bounded startup context');
+	runtime.processStartFailure = '';
+	runtime.importStatus = 127;
+	assert.equal(callUcodeMethod(methods.node_import, { document }).error_code, 'IMPORT_PROGRAM_MISSING',
+		'a parser disappearing after access preflight remains distinguishable from parse failure');
+	runtime.importStatus = 126;
+	assert.equal(callUcodeMethod(methods.node_import, { document }).error_code, 'IMPORT_PROGRAM_NOT_EXECUTABLE');
 }
 
 function allOptions(environment) {
@@ -910,6 +990,7 @@ async function main() {
 	testCommittedUcodePreviewAndObservedCandidateGuard();
 	testOverviewStateSeparatesPendingSavedAndActiveFacts();
 	testSubscriptionRPCRejectsPendingSession();
+	testNodeImportUcodeUsesTargetCompatibleStringPopen();
 	const freshSections = parseUCIConfig(fs.readFileSync(path.join(root, 'steer/files/etc/config/steer'), 'utf8'));
 	assert.deepEqual(freshSections.route.map((route) => [ route['.name'], route.enabled, route.kind ]), [
 		[ 'direct', undefined, 'direct' ],

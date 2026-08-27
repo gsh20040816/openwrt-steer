@@ -68,6 +68,53 @@ func TestRuntimeReportsStructuredSingBoxVersionAndBuildTags(t *testing.T) {
 	}
 }
 
+func TestParseNodesWritesPrivateExclusiveResult(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "result.json")
+	document := "vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy\n"
+	runWithDocument := func() error {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.WriteString(document); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		original := os.Stdin
+		os.Stdin = reader
+		defer func() {
+			os.Stdin = original
+			reader.Close()
+		}()
+		return runParseNodes([]string{"--output", outputPath})
+	}
+	if err := runWithDocument(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("node import result permissions = %04o, want 0600", info.Mode().Perm())
+	}
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Nodes []model.Node `json:"nodes"`
+	}
+	if err := json.Unmarshal(content, &result); err != nil || len(result.Nodes) != 1 || result.Nodes[0].Type != "vless" {
+		t.Fatalf("unexpected private node import result: %v %#v\n%s", err, result, content)
+	}
+	if err := runWithDocument(); err == nil || !strings.Contains(err.Error(), "create private node import result") {
+		t.Fatalf("existing result was not protected by exclusive creation: %v", err)
+	}
+}
+
 func captureStdout(t *testing.T, run func() error) []byte {
 	t.Helper()
 	reader, writer, err := os.Pipe()
