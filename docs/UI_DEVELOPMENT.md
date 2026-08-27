@@ -53,6 +53,36 @@ Canonical Intent / Validate / Compiler
 - 三端自行决定字段如何分 tab/section、列表密度、弹窗、拖拽和平台帮助文本。
 - CSS、SF Symbols、LuCI theme 和平台 shell 不做源码统一。
 
+## 用户可见信息硬限制
+
+普通前端是配置和运维界面，不是后端结构、诊断 DTO、日志归档或内部状态的转储器。一个字段已经脱敏、能够通过公开接口返回，只能说明它可以安全传输，不能说明它适合直接展示给用户。所有新增或修改的用户可见内容都必须先证明它能帮助用户完成当前页面的判断或操作；不能证明的内容不得进入普通界面。
+
+以下内容默认禁止出现在总览、基础设置、对象列表、对象编辑器和普通状态栏：
+
+1. 原始 JSON、数组、结构化 RPC/HTTP 响应、逐项诊断 DTO、完整错误链或未经归纳的日志行；
+2. Canonical/UCI 内部 ID、digest、generation 路径、临时核心名称、outbound tag、进程参数、命令行、socket、unit/label 等实现标识；
+3. RFC3339 纳秒时间、原始 URL path/query、空值占位字段、对用户没有行动意义的计数或后端阶段名；
+4. 不设上限的历史记录、重复 Warning、每个实体一条的同质状态卡片，以及为了“信息完整”而默认展开的技术详情；
+5. 用长篇帮助文字解释内部流程、数据结构或失败链路。界面文案只说明当前状态、影响、用户下一步以及必要的产品边界；
+6. 凭据、私钥、Token、订阅正文和其他 sensitive 字段。脱敏占位符也不得被当作展示这些字段存在形式的理由。
+
+用户可见事实必须转换为稳定的产品语义：优先显示用户命名、协议/endpoint 等可识别摘要、成功/失败、影响范围、发生时间和下一步操作。时间使用本地化或相对时间；不存在的字段直接省略；机器输入使用等宽字体，普通说明使用平台系统字体。自定义容器必须提供稳定的内部边距，文字不得贴住页面、卡片、状态栏或弹窗边缘。不得用 `visibility: hidden`、透明文字或离屏定位隐藏重复内容却继续保留其布局空间；应删除重复来源或让唯一来源承担真实布局与可访问名称。
+
+最近 UI 开发形成以下强制收敛规则：
+
+- Warning 必须先按候选配置或 Active 配置的实际可达运行图过滤，完全未被使用的节点、路由、DNS Profile 等实体不产生运行 Warning；普通界面按稳定类型聚合并显示数量，不逐条铺开同类问题。Error 仍保持严格校验，不得借此隐藏。
+- probe 后端可以保留完成测试所需的结构化事实，但普通界面不展示连续历史报告。每个 overview/node/route 测试入口只持久显示对应 kind 的最近时间、结果和一个核心指标；配置身份变化后只标记“已过期”。
+- 全局状态区域只显示运行状态、工作副本/Saved/Active 的必要差异和可执行操作，不显示 digest、generation、candidate 路径或内部 apply 阶段。状态必须与操作位于同一清晰容器，不能退化成贴边的小字遥测行。
+- 相同事实只保留一个主呈现位置。总览给摘要和跳转，实体页承载实体结果，系统页承载安装与运行事实，高级页承载明确请求的高级数据；不得在多个页面复制完整明细。
+
+有限例外必须按页面职责解释，不能扩张成通用兜底：
+
+- 系统页可以展示排错、安装、Repair 或卸载所必需的版本、组件、配置目录、状态目录、socket 路径、服务标识和 Active generation 摘要。这些事实必须分组、命名、脱敏且可复制，不得直接倾倒后端对象或日志。
+- 高级页可以在用户主动进入后展示 Canonical JSON 编辑/预览和必要的稳定内部标识；敏感字段仍默认隐藏，原始错误链、命令行和无限日志不因“高级”而自动允许。
+- 日志只能作为明确的二级排错入口按需加载，必须脱敏、限量并保留来源；日志不得默认展开，也不得替代面向用户的错误摘要和恢复操作。
+
+Code review 和契约测试必须拒绝以下实现：把后端对象直接传给通用 fact/card renderer、对 reports/warnings/logs 无界 `map` 到 DOM、在普通页面新增内部 ID/digest/path、用 CSS 截断掩盖冗长内容、或只删除文案但继续保留没有用户目标的空容器。至少应使用大订阅 Warning、重复 probe 报告、长错误链、空字段和含敏感值 fixture 验证普通 DOM 只包含有界安全摘要；系统页和高级页的例外单独测试，不得反向放宽普通页面。
+
 ## 统一信息架构
 
 三端必须保持相同的页面职责和默认顺序。Linux 与 macOS 可以显示分组标题；LuCI 必须把分组层折叠为 Steer 下的一层页面菜单，避免主题导航、产品分组和表单 tab 叠成三层。用户不能因为换平台而重新学习功能位于哪里。
@@ -78,7 +108,7 @@ Canonical Intent / Validate / Compiler
 - 总览只展示 Draft/Saved/Active、last Apply、对象规模、warnings 摘要和少量快捷操作，不承载长期配置表单。
 - 基础设置只编辑 Main、探测目标、DNS cache 和 Bootstrap。
 - 节点与路由必须是独立页面；订阅状态和更新不能塞入节点页。
-- 诊断统一容纳 overview/node/route 的完整 sanitized probe 报告、Validate、Active port-53 配置检查、最近 Apply 和相关日志，并提供 Refresh；测试失败和日志只能明确落到这里。
+- 诊断统一容纳 overview 测试操作及最新安全摘要、Validate、Active port-53 配置检查、最近 Apply 和按需加载的受限日志，并提供 Refresh；不得展示 overview/node/route 连续历史报告。Node/Route 最近测速结果回到对应实体操作旁。
 - 系统统一展示版本、schema、generation、last Apply、Geo seed、sing-box build tags、DNS capture boundary、平台路径和平台特有组件/安装能力。
 - 高级页在 JSON 平台提供 Canonical 编辑，在 OpenWrt 提供 Canonical 只读预览；它不能成为结构化 UI 缺字段的常规兜底。
 - 平台特有能力放在最接近的共享页面内，不得创建只在单一平台存在的顶层导航层级。
@@ -115,7 +145,7 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 - 节点必须按“手动节点 / 订阅”分组；订阅节点只读，不得显示可用但无效的编辑、删除或状态开关。
 - 节点行和 Single Route 行必须同时提供连接测试与下载测速；批量测试只针对当前可见分组中已启用的节点。
 - 单行测试、批量测试、订阅更新和 stale 清理不得禁用整张表或阻断滚动；只禁用当前正在执行的操作。disabled 对象不得提供后端必拒绝的动作；LuCI 存在 pending UCI 时不得用 committed Node/Route 执行测试。
-- 三个概览测试读取 Saved URL，并直接使用设备当前网络环境；不得因 Steer 未启用或没有 Active generation 而禁用。普通列表只显示“失败”与“详细原因请查看诊断日志”。Diagnostics 展示 tested_at、scope/object、URL、TCP/TLS/TTFB/HTTP/bytes/rate 中实际存在的安全字段；临时核心名称、outbound ID、命令行和完整后端错误链不得进入报告 UI。
+- 三个概览测试读取 Saved URL，并直接使用设备当前网络环境；不得因 Steer 未启用或没有 Active generation 而禁用。Overview、Node 和 Route 的测试入口分别持久显示本入口最近一次测试的本地化时间、成功/失败和一个核心指标；配置身份变化后标为“已过期”。Diagnostics 不展示历史报告列表；临时核心名称、outbound ID、命令行、原始 URL、digest/generation 和完整后端错误链不得进入普通测试结果 UI。
 - Direct 是系统必需且始终启用的固定路由；Reject 是固定类型但可启停。二者均不得显示删除、拖拽排序或类型转换操作，新建路由只能是 Single。Reject 只能编译为 sing-box route/DNS `reject` action，不得生成已废弃的 `type=block` outbound。
 - 删除订阅时必须先检查其节点是否被 Route 引用；无引用时订阅与其生成节点必须一起从工作副本移除。
 - 订阅 Update 的非阻断提示必须同时展示 added/current/stale/skipped，并明确“库存已更新、当前 Active 配置未改变、被 Route 引用的消失节点保留为 stale”；cleanup 只能移除无引用 stale 节点，不得级联改写 Route。
@@ -154,17 +184,17 @@ Linux Advanced JSON 与结构化页面必须共享同一个 Draft。textarea 输
 
 Linux store 为每次 Draft mutation 分配递增 epoch。Save 必须发送不可变快照；响应只允许清理与请求 epoch 相同的 Draft，期间新增修改继续保持 dirty。Save、Apply Saved 与 reload 互斥，重复点击或乱序响应不得覆盖较新的 Intent/revision。订阅 update/clean 同样记录开始 epoch；若请求期间 Draft 变化，只刷新 inventory 提示，不自动 reload，也不得让离页后的旧 render 覆盖当前路由。
 
-Save/Apply 写结果必须携带完整 `validation.errors/warnings`（包括 `code/object_type/object_id/option/message`）。三端结果面板绑定当前 Draft epoch；Draft 改变立即丢弃旧“通过/失败”。问题动作必须打开对应对象并定位字段，错误消息不得回显凭据值。
+Save/Apply 写结果必须携带完整 `validation.errors/warnings`（包括 `code/object_type/object_id/option/message`），但传输合同不等于展示合同。三端结果面板绑定当前 Draft epoch；Draft 改变立即丢弃旧“通过/失败”。Error 动作必须打开对应对象并定位字段；Warning 先按实际可达运行图过滤，再按稳定类型聚合为用户摘要。普通 DOM 不得渲染内部 object ID、原始 message 数组或凭据值。
 
 Linux 页面可见时低频刷新服务器 Saved revision 与 Active status。外部 revision 与 Draft 基线不同时只能设置冲突事实：dirty Draft 不得被替换，clean Draft 由用户显式一键 reload。显式 Refresh、周期刷新和 Save 后 overview 刷新必须走同一比较语义。
 
-最近 Apply 是独立的操作记录。其 candidate、时间、成功/失败和错误摘要必须持久显示，但 candidate 不得作为 Active generation 的兜底来源。
+最近 Apply 是独立的操作记录。后端保留 candidate 身份、时间、成功/失败和错误摘要；普通 UI 只持久显示本地化时间、结果和可操作的安全摘要，candidate 路径或内部 generation 只允许按系统页职责展示。candidate 不得作为 Active generation 的兜底来源。
 
 macOS Load 必须同时返回 Saved revision，Save/Apply 必须携带 `expected_revision`。revision conflict 不得修改 Saved、Active 或本地 Draft；UI 必须提供 Reload Saved、保留本地 Draft 和显式覆盖。订阅手动更新完成时只能在 Draft 未发生变化的情况下自动 reload，否则保留 Draft 并进入同一冲突选择；订阅库存变更始终不自动 Apply。
 
-macOS 每个 App 生命周期只初始化一次 Draft。所有页面与菜单栏共用 Save、Apply Saved、Save and Apply；Apply Saved 只部署磁盘 Saved，不得夹带 dirty Draft。Reload、安装/Repair 和退出等会替换或结束 Draft 的动作必须走同一个 Save / Discard / Cancel guard，dirty 时 Enable 必须禁用或显式确认全部副作用。安装完成默认保留编辑中的 Draft，Apply 失败时 Active 只显示后端实际 generation。
+macOS 每个 App 生命周期只初始化一次 Draft。所有页面与菜单栏共用 Save、Apply Saved、Save and Apply；Apply Saved 只部署磁盘 Saved，不得夹带 dirty Draft。窗口 toolbar 在所有页面提供全局 Enable；切换时把合法的当前 Draft 连同新开关状态一起 Save and Apply，不能因 dirty 而静默忽略用户修改。Reload、安装/Repair 和退出等会替换或结束 Draft 的动作必须走同一个 Save / Discard / Cancel guard。安装完成默认保留编辑中的 Draft，Apply 失败时必须分别显示 Saved 开关与后端实际 Active 状态。
 
-LuCI Overview 必须从当前 rpcd session 的 candidate、committed UCI 与 `/run/steer/current` 分别构造 Pending desired、Saved 与 Active。pending disable 不能隐藏仍运行的 Active generation；失败 Apply 在无 pending UCI 时必须提供 Apply Saved 重试。`pending_apply` 比较编译运行投影，不能由全文 Intent digest 推导，因此未引用的订阅节点库存变化只显示 inventory warning。
+LuCI 必须从当前 rpcd session 的 candidate、committed UCI 与 `/run/steer/current` 分别构造 Pending desired、Saved 与 Active。每个 Steer 页面共用包含全局 Enable 的状态区域；切换时将当前合法 pending UCI 连同新开关状态 Save and Apply，基础设置页不再维护重复的服务总开关。pending disable 不能隐藏仍运行的 Active generation；失败 Apply 在无 pending UCI 时必须提供 Apply Saved 重试。`pending_apply` 比较编译运行投影，不能由全文 Intent digest 推导，因此未引用的订阅节点库存变化不制造 pending Apply，也不产生运行 Warning。
 
 ## 生成与测试门
 

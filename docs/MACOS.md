@@ -28,14 +28,14 @@ Darwin utun + auto_route
 
 `macos/SteerApp` 是 macOS 的正式配置与运维前端，不是代理运行时，也不维护第二份配置语义。它直接面向系统安装的 `steer-macos` helper：
 
-- 总览：Draft/Saved/Active、当前 generation、last Apply、配置规模、warnings 和少量快捷操作；
+- 总览：Draft/Saved/Active、last Apply、配置规模、按实际可达运行图过滤并聚合的 warnings 和少量快捷操作；普通摘要不显示内部 generation/digest；
 - 基础设置：用原生字段编辑 Main、探测 URL、DNS 缓存和 Bootstrap DNS；
 - 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
 - Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；
-- 诊断：显示共享校验、最近 Apply、完整 sanitized overview/node/route 报告、运行日志和 LaunchDaemon 后端状态；
+- 诊断：显示共享校验、最近 Apply、overview 测试操作及最新安全摘要、DNS 接管检查，以及按需加载的受限运行日志；Node/Route 最近测速结果显示在对应实体操作旁，不展示连续历史报告；
 - 系统：逐项显示 helper、sing-box 版本/build tags、generation、last Apply、Geo seed version/rule count、三个 plist/LaunchDaemon、DNS capture boundary、配置与 control socket 的安装事实；缺失或版本不一致时可用固定 embedded payload Repair，并提供受控卸载。
 
-所有页面的 toolbar 和菜单栏固定提供 Save、Apply Saved 与 Save and Apply，文案直接反映是否写入 Saved。Apply Saved 从磁盘读取当前 Saved 后再执行 revision-guarded Apply，即使本地 Draft dirty 也不会夹带或覆盖它；Apply 失败时 candidate 不会冒充 Active。全局 Enable 只出现在总览和菜单栏，并且仅在 Draft clean 时可用；开关变化后立即保存并 Apply，失败时保留后端报告的真实 Active 状态。
+所有页面的 toolbar 和菜单栏固定提供 Save、Apply Saved、Save and Apply 与全局 Enable，文案直接反映是否写入 Saved。Apply Saved 从磁盘读取当前 Saved 后再执行 revision-guarded Apply，即使本地 Draft dirty 也不会夹带或覆盖它；Apply 失败时 candidate 不会冒充 Active。切换 Enable 时把当前合法 Draft 连同新开关状态一起 Save and Apply，不因 dirty 而忽略其他修改；失败时分别显示 Saved 开关与后端真实 Active 状态。
 
 读取系统配置、Status、Validate、探测和 Geo catalog 不弹出管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。概览探测通过同一个受限 Unix socket 交给 root daemon：请求只含固定的 kind/对象 ID/download 字段，不接受 URL、路径或命令；daemon 从 Saved 配置选择目标并直接使用 Mac 当前网络环境访问，因此没有 Active generation 时仍可测试。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save、Apply、探测和订阅更新/清理通过常驻 `com.steer.steer.control` root LaunchDaemon 完成，不再重复请求密码。
 

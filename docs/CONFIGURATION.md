@@ -161,7 +161,7 @@ steer status
 
 `validate` 只做严格解码和共享语义校验。`apply` 还会执行能力检查、Geo 准备、sing-box/nftables 原生检查、切换与本地健康检查。`status` 只包含 Active generation/Intent/Runtime digest、`healthy` 和可选 `last_apply`；Draft、Saved、配置合法性和组件明细不会混入 Active 状态对象。
 
-概览测试读取 Saved 配置中的三个 URL，并直接使用设备当前网络环境；Steer 未启用或没有 Active generation 时仍可运行。三端保存的概览报告包含 `saved_digest`、可选的 `active_generation`/`active_digest` 和 `tested_at`，Saved 或测试时网络环境变化后旧报告显示为过期：
+概览测试读取 Saved 配置中的三个 URL，并直接使用设备当前网络环境；Steer 未启用或没有 Active generation 时仍可运行。三端按测试种类持久化最近一次结果，并在 Saved 或测试时网络环境变化后标记为过期。`saved_digest`、`active_generation`、`active_digest` 等身份只用于后端判断，不进入普通测试结果 UI：
 
 ```sh
 steer probe --kind direct
@@ -178,7 +178,7 @@ steer probe --kind speedtest --route <route-id>
 steer probe --kind speedtest --route <route-id> --download
 ```
 
-连接测试记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试记录字节、耗时和速率。报告保存在平台 state 的 `logs/tests/{overview,nodes,routes}`，公开 UI 只读取去除 credentials、URL path/query values 与进程诊断的安全版本。概览请求从 Saved 配置读取 URL，直接使用设备当前网络环境访问，不要求 Steer 已启用；成功只证明 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。节点/路由测试只验证隔离临时链路，不证明当前规则选择了该链路。
+连接测试内部记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试内部记录字节、耗时和速率。平台 state 只需按 overview/node/route 与测试 kind 保留最近结果。普通 UI 不展示原始报告或历史列表，只在测试入口显示最近的本地化时间、成功/失败和延迟或速率等一个核心指标；完整阶段数据仅供受控排错使用，并继续去除 credentials、URL path/query values 与进程诊断。概览请求从 Saved 配置读取 URL，直接使用设备当前网络环境访问，不要求 Steer 已启用；成功只证明 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。节点/路由测试只验证隔离临时链路，不证明当前规则选择了该链路。
 
 ## 版本与升级
 
