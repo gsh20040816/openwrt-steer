@@ -118,6 +118,8 @@ const rpcErrorMessages = {
 	CONTROL_OUTPUT_INVALID: _('The Steer control program returned an invalid response.'),
 	CONTROL_EXIT_FAILED: _('The Steer control program failed.'),
 	IMPORT_TEMP_FAILED: _('A private import workspace could not be created.'),
+	IMPORT_PROGRAM_MISSING: _('The Steer node parser is not installed.'),
+	IMPORT_PROGRAM_NOT_EXECUTABLE: _('The Steer node parser is not executable.'),
 	IMPORT_START_FAILED: _('The Steer node parser could not be started.'),
 	IMPORT_PARSE_FAILED: _('The node share-link document could not be parsed.'),
 	IMPORT_OUTPUT_INVALID: _('The Steer node parser returned an invalid response.'),

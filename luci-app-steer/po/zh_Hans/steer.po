@@ -990,6 +990,12 @@ msgstr "无法读取 Steer 生命周期状态。"
 msgid "The Steer node parser could not be started."
 msgstr "无法启动 Steer 节点解析器。"
 
+msgid "The Steer node parser is not executable."
+msgstr "Steer 节点解析器不可执行。"
+
+msgid "The Steer node parser is not installed."
+msgstr "尚未安装 Steer 节点解析器。"
+
 msgid "The Steer node parser returned an invalid response."
 msgstr "Steer 节点解析器返回了无效响应。"
 
