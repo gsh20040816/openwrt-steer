@@ -155,7 +155,10 @@ final class UISafetyContractTests: XCTestCase {
             Set(["draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"])
         )
         XCTAssertTrue(SteerUISpec.contract.pageResponsibilities["diagnostics"]?.facts.contains("dns_capture") == true)
-        XCTAssertTrue(SteerUISpec.contract.pageResponsibilities["system"]?.facts.contains("build_tags") == true)
+        XCTAssertEqual(
+            Set(SteerUISpec.contract.pageResponsibilities["system"]?.facts ?? []),
+            Set(["versions", "last_apply", "geo", "paths", "platform_components", "access"])
+        )
 
         let boundary = try XCTUnwrap(SteerUISpec.contract.dnsBoundaries["macos"])
         XCTAssertEqual(boundary.captureMode, "tun_port53_hijack")
