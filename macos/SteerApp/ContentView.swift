@@ -257,6 +257,13 @@ struct OverviewView: View {
             } header: {
                 Label("配置规模", systemImage: "chart.bar.xaxis")
             }
+            if let validation = model.validation, !validation.warningGroups.isEmpty {
+                Section {
+                    warningGroups(validation.warningGroups)
+                } header: {
+                    Label("警告摘要", systemImage: "exclamationmark.triangle")
+                }
+            }
             Section {
                 configurationContent
             } header: {
@@ -352,6 +359,43 @@ struct OverviewView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func warningGroups(_ groups: [ValidationWarningGroup]) -> some View {
+        ForEach(groups) { group in
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(warningGroupLabel(group))
+                        .font(.headline)
+                    Text("\(group.count) 个正在使用的\(warningGroupScope(group))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                if let destination = warningGroupDestination(group) {
+                    Button("查看") { model.selectedPage = destination }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func warningGroupLabel(_ group: ValidationWarningGroup) -> String {
+        if group.code == "INSECURE_TLS", group.objectType == "dns_profile" { return "DNS 证书校验已关闭" }
+        if group.code == "INSECURE_TLS" { return "TLS 证书校验已关闭" }
+        if group.code == "SUBSCRIPTION_NODE_STALE" { return "订阅已不再提供此节点" }
+        if group.code == "DNS_REJECT_PROJECTION_SKIPPED" { return "DNS 拒绝条件无法在解析前完整执行" }
+        if group.code == "DNS_PROJECTION_EMPTY" { return "DNS 将继续匹配后续规则" }
+        return group.summary
+    }
+
+    private func warningGroupScope(_ group: ValidationWarningGroup) -> String {
+        ["node": "节点", "route": "路由", "dns_profile": "DNS Profile", "local_proxy": "本地入口", "rule": "规则"][group.objectType] ?? "对象"
+    }
+
+    private func warningGroupDestination(_ group: ValidationWarningGroup) -> AppPage? {
+        ["nodes": AppPage.nodes, "routes": .routes, "dns": .dns, "proxies": .proxies,
+         "rules": .rules, "subscriptions": .subscriptions, "general": .general][group.destination ?? ""]
     }
 
     private func pipelineStep(value: Int, title: String, subtitle: String, symbol: String) -> some View {

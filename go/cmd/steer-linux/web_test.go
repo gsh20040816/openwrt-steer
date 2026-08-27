@@ -299,6 +299,7 @@ func TestWebConfigReturnsStructuredWarningsAfterSuccessfulSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate := webTestIntent()
+	candidate.Main.Enabled = true
 	candidate.Rules = append([]model.Rule{{
 		ID: "connection_only", Enabled: true, DNSProfile: "public", Route: "direct", Protocol: []string{"tls"},
 	}}, candidate.Rules...)

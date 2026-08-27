@@ -108,8 +108,12 @@ required_localized = {
     "Canonical Preview": "规范预览",
     "Single-node routes": "单节点路由",
     "Add single-node route": "添加单节点路由",
-    "Working copy warning: %s": "工作副本警告：%s",
-    "Saved configuration warning: %s": "已保存配置警告：%s",
+    "Working copy warning summary": "工作副本警告摘要",
+    "Saved configuration warning summary": "已保存配置警告摘要",
+    "TLS certificate verification is disabled": "TLS 证书校验已关闭",
+    "DNS certificate verification is disabled": "DNS 证书校验已关闭",
+    "DNS continues matching later rules": "DNS 将继续匹配后续规则",
+    "View affected items": "查看受影响项",
 }
 unlocalized_required = sorted(
     key for key, expected in required_localized.items()

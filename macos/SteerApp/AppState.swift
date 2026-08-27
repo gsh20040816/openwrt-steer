@@ -118,10 +118,47 @@ struct ValidationIssue: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+struct ValidationWarningGroup: Codable, Identifiable, Sendable, Equatable {
+    var id: String { "\(code):\(objectType):\(option)" }
+    let code: String
+    let objectType: String
+    let option: String
+    let count: Int
+    let summary: String
+    let destination: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case objectType = "object_type"
+        case option, count, summary, destination
+    }
+}
+
 struct ValidationResult: Codable, Sendable, Equatable {
     let ok: Bool
     let errors: [ValidationIssue]
     let warnings: [ValidationIssue]
+    let warningGroups: [ValidationWarningGroup]
+
+    init(ok: Bool, errors: [ValidationIssue], warnings: [ValidationIssue], warningGroups: [ValidationWarningGroup] = []) {
+        self.ok = ok
+        self.errors = errors
+        self.warnings = warnings
+        self.warningGroups = warningGroups
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decode(Bool.self, forKey: .ok)
+        errors = try container.decodeIfPresent([ValidationIssue].self, forKey: .errors) ?? []
+        warnings = try container.decodeIfPresent([ValidationIssue].self, forKey: .warnings) ?? []
+        warningGroups = try container.decodeIfPresent([ValidationWarningGroup].self, forKey: .warningGroups) ?? []
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok, errors, warnings
+        case warningGroups = "warning_groups"
+    }
 }
 
 struct RuntimeVersions {

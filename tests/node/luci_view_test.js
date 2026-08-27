@@ -1742,6 +1742,30 @@ async function main() {
 	assert.equal(findElements(environment.rendered,
 		(node) => node.tag == 'button' && node.children?.[0] == 'Run test').length, 0,
 		'Overview does not duplicate the probes owned by Diagnostics');
+	const groupedWarnings = Array.from({ length: 120 }, (_, index) => ({
+		code: 'INSECURE_TLS', object_type: 'node', object_id: `private-node-${index}`,
+		option: 'insecure', message: `raw secret warning ${index}`
+	}));
+	const warningValidation = {
+		ok: true, errors: [], warnings: groupedWarnings,
+		warning_groups: [{ code: 'INSECURE_TLS', object_type: 'node', option: 'insecure', count: 120,
+			summary: 'TLS certificate verification is disabled', destination: 'nodes' }]
+	};
+	const warningLifecycle = {
+		...environment.lifecycleState,
+		pending: true,
+		desired: { ...environment.lifecycleState.desired, validation: warningValidation },
+		saved: { ...environment.lifecycleState.saved, validation: warningValidation }
+	};
+	const warningEnvironment = await renderOverview({}, 'overview', warningLifecycle);
+	const warningText = elementText(warningEnvironment.rendered);
+	assert.ok(warningText.includes('TLS certificate verification is disabled') && warningText.includes('120 affected in-use node(s)'),
+		'LuCI Overview renders the bounded backend warning group');
+	assert.ok(!warningText.includes('private-node-') && !warningText.includes('raw secret warning'),
+		'LuCI Overview hides Warning object IDs and raw messages');
+	assert.equal(findElements(warningEnvironment.rendered,
+		(node) => String(node.attributes?.class || '').split(/\s+/).includes('steer-warning-group')).length, 1,
+		'a large Warning set renders one LuCI summary row');
 	for (const fixture of stateLifecycleFixtures.cases) {
 		const lifecycle = {
 			ok: true,

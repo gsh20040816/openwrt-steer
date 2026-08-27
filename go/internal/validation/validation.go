@@ -73,6 +73,7 @@ func Validate(value model.Intent, options Options) model.Validation {
 		})
 	}
 	result.OK = len(result.Errors) == 0
+	result.WarningGroups = model.GroupWarnings(result.Warnings)
 	return result
 }
 

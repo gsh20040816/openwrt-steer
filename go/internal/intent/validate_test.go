@@ -456,6 +456,119 @@ func TestPinnedStaleSubscriptionNodeWarns(t *testing.T) {
 	}
 }
 
+func TestRuntimeWarningsOnlyCoverReachableEntities(t *testing.T) {
+	t.Run("unused insecure node is filtered", func(t *testing.T) {
+		value := validIntent()
+		value.Nodes = append(value.Nodes, Node{
+			ID: "unused", Enabled: true, Type: "vless", Server: "unused.example", ServerPort: 443,
+			NodeCredentials: NodeCredentials{UUID: "00000000-0000-4000-8000-000000000002"},
+			NodeTLS:         NodeTLS{Insecure: true},
+		})
+		validation := Validate(value)
+		if warningForObject(validation, "INSECURE_TLS", "unused") {
+			t.Fatalf("unused node warning entered the runtime result: %#v", validation.Warnings)
+		}
+	})
+
+	t.Run("rule route and detour keep insecure nodes", func(t *testing.T) {
+		value := validIntent()
+		value.Nodes[0].Insecure = true
+		value.Nodes = append(value.Nodes, Node{
+			ID: "front_node", Enabled: true, Type: "vless", Server: "front.example", ServerPort: 443,
+			NodeCredentials: NodeCredentials{UUID: "00000000-0000-4000-8000-000000000002"},
+			NodeTLS:         NodeTLS{Insecure: true},
+		})
+		value.Routes = append(value.Routes, Route{ID: "front", Enabled: true, Kind: "single", Node: "front_node"})
+		value.Routes[1].Detour = "front"
+		validation := Validate(value)
+		for _, id := range []string{"proxy", "front_node"} {
+			if !warningForObject(validation, "INSECURE_TLS", id) {
+				t.Fatalf("reachable node %q lost its warning: %#v", id, validation.Warnings)
+			}
+		}
+		if len(validation.WarningGroups) != 1 || validation.WarningGroups[0].Count != 2 || validation.WarningGroups[0].Destination != "nodes" {
+			t.Fatalf("reachable node warnings were not safely grouped: %#v", validation.WarningGroups)
+		}
+	})
+
+	t.Run("unused insecure DNS profile is filtered", func(t *testing.T) {
+		value := validIntent()
+		value.DNSProfiles = append(value.DNSProfiles, DNSProfile{
+			ID: "unused_dns", Enabled: true, Protocol: "https", Server: "dns.example", ServerPort: 443,
+			TLSServerName: "dns.example", Path: "/dns-query", Insecure: true,
+		})
+		validation := Validate(value)
+		if warningForObject(validation, "INSECURE_TLS", "unused_dns") {
+			t.Fatalf("unused DNS warning entered the runtime result: %#v", validation.Warnings)
+		}
+		value.Rules[0].DNSProfile = "unused_dns"
+		validation = Validate(value)
+		if !warningForObject(validation, "INSECURE_TLS", "unused_dns") {
+			t.Fatalf("reachable DNS warning was filtered: %#v", validation.Warnings)
+		}
+	})
+
+	t.Run("disabled Steer has no entity runtime warnings", func(t *testing.T) {
+		value := validIntent()
+		value.Main.Enabled = false
+		value.Nodes[0].Insecure = true
+		value.DNSProfiles[0].Insecure = true
+		validation := Validate(value)
+		if len(validation.Warnings) != 0 || len(validation.WarningGroups) != 0 {
+			t.Fatalf("disabled Steer exposed runtime warnings: %#v", validation)
+		}
+	})
+
+	t.Run("strict errors are unchanged for unreachable entities", func(t *testing.T) {
+		value := validIntent()
+		value.Nodes = append(value.Nodes, Node{ID: "unused", Enabled: true, Type: "vless", Server: "bad host", ServerPort: 0})
+		validation := Validate(value)
+		if validation.OK || !hasIssue(validation, "INVALID_SERVER") || !hasIssue(validation, "INVALID_PORT") || !hasIssue(validation, "REQUIRED") {
+			t.Fatalf("unreachable entity errors were weakened: %#v", validation.Errors)
+		}
+	})
+}
+
+func TestWarningGroupsAreStableBoundedAndCountEntities(t *testing.T) {
+	warnings := []Issue{
+		{Code: "INSECURE_TLS", ObjectType: "node", ObjectID: "b", Option: "insecure", Message: "raw-b"},
+		{Code: "INSECURE_TLS", ObjectType: "node", ObjectID: "a", Option: "insecure", Message: "raw-a"},
+		{Code: "INSECURE_TLS", ObjectType: "node", ObjectID: "a", Option: "insecure", Message: "duplicate"},
+		{Code: "INSECURE_TLS", ObjectType: "dns_profile", ObjectID: "dns", Option: "insecure", Message: "raw-dns"},
+	}
+	groups := GroupWarnings(warnings)
+	if len(groups) != 2 {
+		t.Fatalf("warning groups are unbounded: %#v", groups)
+	}
+	if groups[0].ObjectType != "dns_profile" || groups[1].ObjectType != "node" || groups[1].Count != 2 {
+		t.Fatalf("warning groups are unstable or count duplicate issues: %#v", groups)
+	}
+	encoded, err := json.Marshal(groups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"raw-a", "raw-b", "raw-dns", "duplicate", `"object_id"`} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("warning group leaked raw detail %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestEveryCurrentWarningCodeHasAProductSummary(t *testing.T) {
+	for _, warning := range []Issue{
+		{Code: "INSECURE_TLS", ObjectType: "node", Option: "insecure"},
+		{Code: "INSECURE_TLS", ObjectType: "dns_profile", Option: "insecure"},
+		{Code: "SUBSCRIPTION_NODE_STALE", ObjectType: "node", Option: "pinned_stale"},
+		{Code: "DNS_REJECT_PROJECTION_SKIPPED", ObjectType: "rule", Option: "route"},
+		{Code: "DNS_PROJECTION_EMPTY", ObjectType: "rule", Option: "dns_profile"},
+	} {
+		groups := GroupWarnings([]Issue{warning})
+		if len(groups) != 1 || groups[0].Summary == "Configuration warning" || groups[0].Destination == "" {
+			t.Fatalf("warning %s/%s lacks a product summary: %#v", warning.Code, warning.ObjectType, groups)
+		}
+	}
+}
+
 func TestValidateWarnsWhenDNSRejectProjectionWouldWiden(t *testing.T) {
 	intent := validIntent()
 	conditionalBlock := Rule{
@@ -509,6 +622,15 @@ func hasIssueForOption(validation Validation, code, option string) bool {
 func hasWarning(validation Validation, code string) bool {
 	for _, issue := range validation.Warnings {
 		if issue.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func warningForObject(validation Validation, code, objectID string) bool {
+	for _, issue := range validation.Warnings {
+		if issue.Code == code && issue.ObjectID == objectID {
 			return true
 		}
 	}

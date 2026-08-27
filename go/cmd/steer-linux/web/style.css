@@ -497,6 +497,15 @@ body {
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin: 10px 0; }
 .fact dt { font-size: 9.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
 .fact dd { margin: 2px 0 0; font: 11.5px var(--mono); }
+.warning-groups { display: grid; gap: 7px; margin: 10px 0; }
+.warning-group {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 11px; border: 1px solid var(--warn-line); border-left: 3px solid var(--warn);
+  border-radius: 6px; background: var(--warn-bg);
+}
+.warning-group__copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.warning-group__copy strong { font-size: 12px; }
+.warning-group__copy span { color: var(--dim); font-size: 11px; }
 .apply-record {
   padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--ok);
   border-radius: 6px; background: var(--panel-2);

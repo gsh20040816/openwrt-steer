@@ -186,6 +186,36 @@ final class UISafetyContractTests: XCTestCase {
         for secret in document.forbiddenMessageValues { XCTAssertFalse(rendered.contains(secret)) }
     }
 
+    func testValidationWarningGroupsDecodeBoundedOverviewContract() throws {
+        let payload = Data(#"""
+        {
+          "ok": true,
+          "errors": [],
+          "warnings": [
+            {"code":"INSECURE_TLS","object_type":"node","object_id":"private-node","option":"insecure","message":"raw warning"}
+          ],
+          "warning_groups": [
+            {"code":"INSECURE_TLS","object_type":"node","option":"insecure","count":120,"summary":"TLS certificate verification is disabled","destination":"nodes"}
+          ]
+        }
+        """#.utf8)
+        let validation = try JSONDecoder().decode(ValidationResult.self, from: payload)
+        XCTAssertEqual(validation.warningGroups.count, 1)
+        XCTAssertEqual(validation.warningGroups.first?.count, 120)
+        XCTAssertEqual(validation.warningGroups.first?.destination, "nodes")
+
+        let legacy = try JSONDecoder().decode(ValidationResult.self, from: Data(#"{"ok":true,"errors":[],"warnings":[]}"#.utf8))
+        XCTAssertTrue(legacy.warningGroups.isEmpty, "an older helper remains a safe empty summary")
+
+        let content = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/ContentView.swift"))
+        let overview = try XCTUnwrap(content.range(of: "struct OverviewView: View")).lowerBound
+        let configuration = try XCTUnwrap(content.range(of: "struct ConfigurationView: View")).lowerBound
+        let overviewSource = String(content[overview..<configuration])
+        XCTAssertTrue(overviewSource.contains("validation.warningGroups"))
+        XCTAssertFalse(overviewSource.contains("validation.warnings)"), "Overview must not enumerate raw Warning issues")
+        XCTAssertFalse(overviewSource.contains("objectID"), "Overview must not render Warning object IDs")
+    }
+
     func testSharedHighFrequencyFormFormatsAreAvailableToEveryFrontend() throws {
         let document = try decode(FormInputDocument.self, "ui/form-input-fixtures.json")
         XCTAssertEqual(document.schemaVersion, 1)
