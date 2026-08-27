@@ -129,6 +129,7 @@
 .steer-test-card__result small { color: var(--steer-muted); overflow-wrap: anywhere; }
 .steer-test-card__result.is-success strong { color: var(--steer-dns); }
 .steer-test-card__result.is-error strong { color: #b42318; }
+.steer-test-card__result.is-stale strong { color: #8a5a00; }
 
 .steer-intent {
 	display: grid;
@@ -382,6 +383,23 @@
 	gap: .5rem;
 	margin: 0 0 1rem;
 }
+
+.steer-probe-action {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: .35rem;
+	min-width: 10rem;
+}
+
+.steer-probe-latest {
+	color: var(--steer-muted);
+	font: .72rem/1.35 var(--steer-monospace);
+	overflow-wrap: anywhere;
+}
+
+.steer-probe-latest.is-stale { color: #8a5a00; }
+.steer-probe-latest.is-error { color: #b42318; }
 
 @media (max-width: 700px) {
 	.steer-status { grid-template-columns: 1fr; }

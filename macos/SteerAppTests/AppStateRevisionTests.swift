@@ -53,10 +53,10 @@ final actor RevisionBackend: BackendClient {
     func versions() async throws -> RuntimeVersions { RuntimeVersions() }
     func parseNodes(document: String) async throws -> NodeImportResult { NodeImportResult(nodes: [], skipped: 0) }
 
-    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
-        ProbeReport(
-            ok: true, scope: "overview", objectID: nil, kind: kind, results: [], error: nil,
-            activeGeneration: "active", activeDigest: "active", testedAt: "2026-08-26T01:02:03Z"
+    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeLatestResult {
+        ProbeLatestResult(
+            scope: "overview", objectID: nil, kind: kind, testedAt: "2026-08-26T01:02:03Z",
+            ok: true, stale: false, summary: "21 ms", errorSummary: ""
         )
     }
 

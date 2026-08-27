@@ -46,37 +46,19 @@
 
   const asList = (value) => (value == null ? [] : (Array.isArray(value) ? value : [value]));
 
-  const fmtDuration = (ms) => (ms == null ? '—' : (ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : Math.round(ms) + ' ms'));
   const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '—');
   const fmtRevision = (value) => {
     const revision = String(value || '').replace(/^"|"$/g, '');
     return revision.length > 22 ? `${revision.slice(0, 15)}…` : (revision || '—');
   };
 
-  /* 测试报告 → { ok, label, detail }（人话化） */
-  function fmtReport(report, download) {
-    const results = report?.results || [];
-    const okResults = results.filter((r) => r.ok === true);
-    if (!okResults.length) {
-      return {
-        ok: false, label: '失败',
-        detail: '详细原因请查看诊断日志'
-      };
-    }
-    if (download) {
-      const measured = okResults
-        .filter((r) => r.downloaded_bytes > 0 && r.download_milliseconds > 0)
-        .map((r) => ({ r, mbps: r.downloaded_bytes * 8 / r.download_milliseconds / 1000 }))
-        .sort((a, b) => b.mbps - a.mbps);
-      if (!measured.length) return { ok: false, label: '失败', detail: '没有下载测量结果' };
-      const { r, mbps } = measured[0];
-      return { ok: true, label: `${mbps.toFixed(1)} Mbps`, detail: `${(r.downloaded_bytes / 1e6).toFixed(1)} MB in ${fmtDuration(r.download_milliseconds)} · HTTP ${r.status} · ${r.attempts} attempt(s)` };
-    }
-    const r = okResults[0];
-    const latency = r.first_byte_milliseconds ?? r.tls_milliseconds ?? r.connect_milliseconds ?? 0;
+  function fmtLatestProbe(result) {
+    if (!result) return { text: '尚未测试', ok: null, stale: false };
+    const metric = result.ok ? result.summary : result.error_summary;
     return {
-      ok: true, label: fmtDuration(latency),
-      detail: `Connect ${fmtDuration(r.connect_milliseconds)} · TLS ${fmtDuration(r.tls_milliseconds)} · HTTP ${r.status} · ${r.attempts} attempt(s)`
+      text: `上次 ${fmtTime(result.tested_at)} · ${result.stale ? '已过期 · ' : ''}${result.ok ? '成功' : '失败'}${metric ? ` · ${metric}` : ''}`,
+      ok: result.ok,
+      stale: result.stale === true
     };
   }
 
@@ -87,5 +69,8 @@
   };
   const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 
-  Object.assign(S, { esc, h, icon, asList, fmtDuration, fmtTime, fmtRevision, fmtReport, sleep, debounce, uid });
+  Object.assign(S, {
+    esc, h, icon, asList, fmtTime, fmtRevision,
+    fmtLatestProbe, sleep, debounce, uid
+  });
 })();

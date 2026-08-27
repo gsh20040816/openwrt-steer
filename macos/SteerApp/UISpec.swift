@@ -208,6 +208,18 @@ struct UISubscriptionInventoryContract: Decodable {
     }
 }
 
+struct UIProbeResultsContract: Decodable {
+    let keyFields: [String]
+    let resultFields: [String]
+    let frontendRole: String
+
+    enum CodingKeys: String, CodingKey {
+        case keyFields = "key_fields"
+        case resultFields = "result_fields"
+        case frontendRole = "frontend_role"
+    }
+}
+
 struct UIContract: Decodable {
     let schemaVersion: Int
     let canonicalSchema: Int
@@ -236,6 +248,7 @@ struct UIContract: Decodable {
     let pageResponsibilities: [String: UIPageResponsibility]
     let dnsBoundaries: [String: UIDNSBoundary]
     let subscriptionInventory: UISubscriptionInventoryContract
+    let probeResults: UIProbeResultsContract
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -265,6 +278,7 @@ struct UIContract: Decodable {
         case pageResponsibilities = "page_responsibilities"
         case dnsBoundaries = "dns_boundaries"
         case subscriptionInventory = "subscription_inventory"
+        case probeResults = "probe_results"
     }
 }
 

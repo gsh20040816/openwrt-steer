@@ -139,7 +139,7 @@ func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t 
 	contract := ContractValue()
 	expectedPages := map[string][]string{
 		"overview":    {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
-		"diagnostics": {"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+		"diagnostics": {"validation", "probes", "latest_results", "dns_capture", "last_apply", "logs"},
 		"system":      {"versions", "last_apply", "geo", "paths", "platform_components", "access"},
 	}
 	for page, facts := range expectedPages {
@@ -157,6 +157,11 @@ func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t 
 	if contract.SubscriptionInventory.ChangesActiveGeneration ||
 		contract.SubscriptionInventory.StaleReferencedNodes != "preserved" || contract.SubscriptionInventory.Notice == "" {
 		t.Fatalf("subscription inventory semantics drifted: %#v", contract.SubscriptionInventory)
+	}
+	if !reflect.DeepEqual(contract.ProbeResults.KeyFields, []string{"scope", "object_id", "kind"}) ||
+		!reflect.DeepEqual(contract.ProbeResults.ResultFields, []string{"scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"}) ||
+		contract.ProbeResults.FrontendRole == "" {
+		t.Fatalf("latest probe result semantics drifted: %#v", contract.ProbeResults)
 	}
 }
 

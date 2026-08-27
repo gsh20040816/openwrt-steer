@@ -140,6 +140,8 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
   };
   const document = {
     body,
+    createElement: (tag) => new Element(tag),
+    createTextNode: (value) => String(value),
     querySelector: (selector) => body.querySelector(selector),
     querySelectorAll: (selector) => body.querySelectorAll(selector),
     addEventListener: (name, listener) => addListener(documentListeners, name, listener),
@@ -163,18 +165,19 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
     h,
     icon: () => new Element('span'),
     asList: (value) => value || [],
-    fmtDuration: () => '—',
     fmtTime: (value) => String(value),
     fmtRevision: (value) => value,
-    fmtReport: () => ({ ok: true, label: 'ok', detail: '' }),
     uid: (prefix) => `${prefix}-test`,
     api: {
       async geodata() { return { names: [], readable: false, count: 0 }; },
-      async speedtestNode() { return { results: [] }; },
+      async speedtestNode() { return { scope: 'nodes', object_id: 'node', kind: 'connect', tested_at: '2026-08-26T01:00:00Z', ok: true, stale: false, summary: '21 ms', error_summary: '' }; },
+      async probeResults() { return options.probeResults || probeDiagnosticsFixtures.probe_results; },
       ...(options.api || {})
     },
     store: {
       intent,
+      diagnostics: options.diagnostics || { warnings: [] },
+      probeResults: options.probeResults || { latest_results: [], warnings: [] },
       overview: options.overview || {},
       runtime: options.runtime || {},
       revision: 'revision-1',
@@ -182,6 +185,17 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
       pendingApply: options.pendingApply === true,
       save,
       applySaved: options.applySaved || (async () => ({ ok: true })),
+      installProbeResult(result) {
+        const key = (value) => `${value.scope}:${value.object_id || ''}:${value.kind}`;
+        this.probeResults = {
+          ...this.probeResults,
+          latest_results: [result, ...(this.probeResults.latest_results || []).filter((candidate) => key(candidate) !== key(result))]
+        };
+      },
+      async refreshProbeResults() {
+        this.probeResults = await S.api.probeResults();
+        return this.probeResults;
+      },
       touch() { touchCount++; this.dirty = true; }
     }
   };
@@ -190,6 +204,8 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
     addEventListener: (name, listener) => addListener(windowListeners, name, listener),
     removeEventListener: (name, listener) => removeListener(windowListeners, name, listener)
   };
+  const libSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/lib.js'), 'utf8');
+  new Function('window', 'document', 'Node', libSource)(window, document, Element);
   const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/ui.js'), 'utf8');
   new Function('window', 'document', 'setTimeout', 'requestAnimationFrame', source)(window, document, () => 0, (callback) => callback());
   return {
@@ -794,7 +810,8 @@ async function testActualGenerationAndPersistentApplyFixture() {
       validate: async () => ({ ok: true, errors: [], warnings: [] }),
       probe: async () => ({}),
       logs: async () => ({ output: '' }),
-      diagnostics: async () => probeDiagnosticsFixtures.diagnostics
+      diagnostics: async () => probeDiagnosticsFixtures.diagnostics,
+      probeResults: async () => probeDiagnosticsFixtures.probe_results
     }
   });
   environment.S.ui.renderStatusStrip();
@@ -866,14 +883,19 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   const disabledRoute = probeDiagnosticsFixtures.objects.routes.find((item) => item.id === 'route_disabled');
   intent.nodes.push({ ...disabledNode, name: 'Disabled node', type: 'socks', server: 'disabled.example', server_port: 1080 });
   intent.routes.push({ ...disabledRoute, name: 'Disabled route', node: 'node_disabled' });
+  const persistedDiagnostics = JSON.parse(JSON.stringify(probeDiagnosticsFixtures.diagnostics));
+  const persistedProbeResults = JSON.parse(JSON.stringify(probeDiagnosticsFixtures.probe_results));
+  persistedProbeResults.latest_results[1].object_id = 'node';
+  persistedProbeResults.latest_results[2].object_id = 'proxy';
   let nodeCalls = 0, routeCalls = 0;
-  const environment = createEnvironment(async () => ({ ok: true }), intent, { api: {
+  const environment = createEnvironment(async () => ({ ok: true }), intent, { diagnostics: persistedDiagnostics, probeResults: persistedProbeResults, api: {
     validate: async () => ({ ok: true, errors: [], warnings: [] }),
     logs: async () => ({ output: 'steer-web probe log' }),
-    diagnostics: async () => probeDiagnosticsFixtures.diagnostics,
-    probe: async () => probeDiagnosticsFixtures.diagnostics.reports[0],
-    speedtestNode: async () => { nodeCalls++; return probeDiagnosticsFixtures.diagnostics.reports[1]; },
-    speedtestRoute: async () => { routeCalls++; return probeDiagnosticsFixtures.diagnostics.reports[2]; }
+    diagnostics: async () => persistedDiagnostics,
+    probeResults: async () => persistedProbeResults,
+    probe: async () => persistedProbeResults.latest_results[0],
+    speedtestNode: async () => { nodeCalls++; return persistedProbeResults.latest_results[1]; },
+    speedtestRoute: async () => { routeCalls++; return persistedProbeResults.latest_results[2]; }
   } });
   environment.S.store.refreshOverview = async () => ({ ok: true });
 
@@ -890,8 +912,11 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   const diagnosticsRoot = new Element('main');
   await environment.S.views.diagnostics.render(diagnosticsRoot);
   const renderedDiagnostics = text(diagnosticsRoot);
-  for (const expected of ['成功仅表示该地址在测试时可达', '总览', '节点', '路由', '测试时间', 'steer-web probe log', '最近应用结果', '系统 DNS 接管检查', '系统 DNS 接管已配置']) {
+  for (const expected of ['成功仅表示该地址在测试时可达', '上次', '21 ms', 'steer-web probe log', '最近应用结果', '系统 DNS 接管检查', '系统 DNS 接管已配置']) {
     assert.match(renderedDiagnostics, new RegExp(expected), `Linux Diagnostics must render ${expected}`);
+  }
+  for (const forbidden of ['probe.example', '尝试次数', 'Connect 7', 'TLS 9', '最近连通性报告']) {
+    assert.doesNotMatch(renderedDiagnostics, new RegExp(forbidden), `Linux Diagnostics must hide ${forbidden}`);
   }
   assert.doesNotMatch(renderedDiagnostics, /验证 Direct 路径|验证当前代理路径/);
   assert.strictEqual(findAll(diagnosticsRoot, (element) => element.tag === 'button' && text(element) === '运行测试').length, 3,
@@ -920,6 +945,21 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   assert.ok(disabledNodeTests.every((button) => Object.hasOwn(button.attributes, 'disabled') && button.attributes.title.includes('已停用')));
   await disabledNodeTests[0].listeners.click();
   assert.strictEqual(nodeCalls, 0, 'disabled Linux Node test must not reach the backend');
+  const enabledNodeRow = findAll(nodesRoot, (element) => element.tag === 'tr' && text(element).includes('Node'))
+    .find((row) => !text(row).includes('Disabled node'));
+  assert.match(text(enabledNodeRow), /上次.*成功.*16\.0 Mbps/,
+    'Linux Node restores the persisted latest download result beside its action');
+  for (const forbidden of probeDiagnosticsFixtures.ordinary_ui.forbidden_fragments)
+    assert.ok(!text(enabledNodeRow).includes(forbidden), `Linux Node latest result hides ${forbidden}`);
+
+  loadView(environment, 'routes');
+  const latestRoutesRoot = new Element('main');
+  environment.S.views.routes.render(latestRoutesRoot);
+  const enabledRouteRow = findAll(latestRoutesRoot, (element) => element.tag === 'tr' && text(element).includes('Proxy'))[0];
+  assert.match(text(enabledRouteRow), /上次.*已过期.*失败.*连接超时/,
+    'Linux Route restores and expires the persisted latest connection result beside its action');
+  for (const forbidden of probeDiagnosticsFixtures.ordinary_ui.forbidden_fragments)
+    assert.ok(!text(enabledRouteRow).includes(forbidden), `Linux Route latest result hides ${forbidden}`);
 
   loadView(environment, 'routes');
   const routesRoot = new Element('main');
@@ -1093,6 +1133,8 @@ function createDraftBackend() {
     async config() { state.configCalls++; return { intent: clone(state.intent), revision: state.revision }; },
     async overview() { return { pending_apply: true, status: { healthy: false } }; },
     async runtime() { return {}; },
+    async diagnostics() { return probeDiagnosticsFixtures.diagnostics; },
+    async probeResults() { return probeDiagnosticsFixtures.probe_results; },
     async geodata() { return { readable: true, names: [], count: 0 }; },
     async validate() { return { ok: true, errors: [], warnings: [] }; },
     async putConfig(intent, _revision, apply) {
@@ -1102,8 +1144,8 @@ function createDraftBackend() {
       return { saved: true, applied: !!apply, revision: state.revision, request_ok: true };
     },
     async applySaved() { state.applyCalls++; return { ok: true }; },
-    async speedtestNode() { state.nodeTests++; return { results: [] }; },
-    async speedtestRoute() { state.routeTests++; return { results: [] }; },
+    async speedtestNode() { state.nodeTests++; return { scope: 'nodes', object_id: 'node', kind: 'connect', tested_at: '2026-08-26T01:00:00Z', ok: true, stale: false, summary: '21 ms', error_summary: '' }; },
+    async speedtestRoute() { state.routeTests++; return { scope: 'routes', object_id: 'proxy', kind: 'connect', tested_at: '2026-08-26T01:00:00Z', ok: true, stale: false, summary: '21 ms', error_summary: '' }; },
     async subscriptions() {
       return { subscriptions: [{
         id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h',

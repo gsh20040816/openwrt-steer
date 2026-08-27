@@ -42,6 +42,7 @@ func TestControlServiceApplyUsesOnlyStructuredHooks(t *testing.T) {
 	applied := false
 	service := &controlService{
 		configPath: "/fixed/config.json",
+		options:    macosplatform.BackendOptions{StateDirectory: t.TempDir()},
 		adminGID:   80,
 		revision: func(string) (string, error) {
 			return controlRevision(document), nil
@@ -91,6 +92,7 @@ func TestControlServiceProbeForwardsOnlyStructuredSelection(t *testing.T) {
 	called := false
 	service := &controlService{
 		configPath: "/fixed/config.json",
+		options:    macosplatform.BackendOptions{StateDirectory: t.TempDir()},
 		probe: func(_ context.Context, configPath string, options macosplatform.BackendOptions, selection probeSelection) (probeResponse, error) {
 			called = true
 			if configPath != "/fixed/config.json" || options.RunDirectory != "" {
@@ -100,7 +102,7 @@ func TestControlServiceProbeForwardsOnlyStructuredSelection(t *testing.T) {
 				t.Fatalf("probe received unexpected selection: %#v", selection)
 			}
 			return probeResponse{
-				TestReport: macosplatform.TestReport{Scope: "nodes", ObjectID: "node-a", Kind: "download", OK: false},
+				TestReport: macosplatform.TestReport{Scope: "nodes", ObjectID: "node-a", Kind: "download", OK: false, TestedAt: time.Now()},
 			}, nil
 		},
 	}
@@ -114,7 +116,7 @@ func TestControlServiceProbeForwardsOnlyStructuredSelection(t *testing.T) {
 	if !called || !response.OK || len(response.Payload) == 0 {
 		t.Fatalf("structured probe was not returned: called=%v response=%+v", called, response)
 	}
-	var report probeResponse
+	var report probe.LatestProbeResult
 	if err := decodeStrictJSON(response.Payload, &report); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +125,7 @@ func TestControlServiceProbeForwardsOnlyStructuredSelection(t *testing.T) {
 	}
 }
 
-func TestControlServiceDiagnosticsReturnsSanitizedPersistedReports(t *testing.T) {
+func TestControlServiceExposesSafeLatestProbeResultsSeparatelyFromDiagnostics(t *testing.T) {
 	document, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -146,13 +148,23 @@ func TestControlServiceDiagnosticsReturnsSanitizedPersistedReports(t *testing.T)
 		t.Fatalf("diagnostics request failed: %+v", response)
 	}
 	var diagnostics probe.Diagnostics
-	if err := decodeStrictJSON(response.Payload, &diagnostics); err != nil || len(diagnostics.Reports) != 1 || diagnostics.SavedDigest == "" {
+	if err := decodeStrictJSON(response.Payload, &diagnostics); err != nil {
 		t.Fatalf("diagnostics payload drifted: %v %#v", err, diagnostics)
 	}
-	encoded := string(response.Payload)
+	latestResponse := service.handle(controlRequest{SchemaVersion: controlSchemaVersion, Operation: "probe-results"})
+	var latest probe.LatestProbeResults
+	if !latestResponse.OK || decodeStrictJSON(latestResponse.Payload, &latest) != nil || len(latest.Results) != 1 || latest.Results[0].ErrorSummary != "请查看诊断日志" {
+		t.Fatalf("latest probe results payload drifted: %+v %#v", latestResponse, latest)
+	}
+	encoded := string(response.Payload) + string(latestResponse.Payload)
 	for _, secret := range []string{"user:token", "secret", "private_key", "temporary sing-box"} {
 		if strings.Contains(encoded, secret) {
 			t.Fatalf("diagnostics payload leaked %q: %s", secret, encoded)
+		}
+	}
+	for _, forbidden := range []string{"\"reports\"", "saved_digest", "active_digest", "\"results\":"} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("ordinary probe contract exposed %q: %s", forbidden, encoded)
 		}
 	}
 }
@@ -160,10 +172,11 @@ func TestControlServiceDiagnosticsReturnsSanitizedPersistedReports(t *testing.T)
 func TestControlServiceOverviewProbeRunsWithoutActiveGeneration(t *testing.T) {
 	called := false
 	service := &controlService{
+		options: macosplatform.BackendOptions{StateDirectory: t.TempDir()},
 		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
 			called = true
 			return probeResponse{TestReport: macosplatform.TestReport{
-				Scope: "overview", Kind: "proxy", OK: true, SavedDigest: "saved-a",
+				Scope: "overview", Kind: "proxy", OK: true, SavedDigest: "saved-a", TestedAt: time.Now(),
 			}}, nil
 		},
 	}
@@ -177,8 +190,33 @@ func TestControlServiceOverviewProbeRunsWithoutActiveGeneration(t *testing.T) {
 	}
 }
 
+func TestControlServiceProbeFailureReturnsPersistedLatestDTO(t *testing.T) {
+	document, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	if err := os.WriteFile(configPath, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := &controlService{
+		configPath: configPath,
+		options:    macosplatform.BackendOptions{StateDirectory: filepath.Join(root, "state")},
+		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
+			return probeResponse{}, errors.New("dial tcp: connection refused; password=secret")
+		},
+	}
+	response := service.handle(controlRequest{SchemaVersion: controlSchemaVersion, Operation: "probe", Kind: "proxy"})
+	var result probe.LatestProbeResult
+	if !response.OK || decodeStrictJSON(response.Payload, &result) != nil || result.OK || result.Stale || result.ErrorSummary != "连接被拒绝" {
+		t.Fatalf("probe failure did not immediately return the backend DTO: %+v %#v", response, result)
+	}
+}
+
 func TestControlServiceOverviewProbeDoesNotRequireStableActiveIdentity(t *testing.T) {
 	service := &controlService{
+		options: macosplatform.BackendOptions{StateDirectory: t.TempDir()},
 		status: func(macosplatform.BackendOptions) macosplatform.Status {
 			return macosplatform.Status{
 				SchemaVersion: macosplatform.RuntimeSchemaVersion,
@@ -187,7 +225,7 @@ func TestControlServiceOverviewProbeDoesNotRequireStableActiveIdentity(t *testin
 		},
 		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
 			return probeResponse{
-				TestReport: macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true, SavedDigest: "saved-a"},
+				TestReport: macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true, SavedDigest: "saved-a", TestedAt: time.Now()},
 			}, nil
 		},
 	}
@@ -528,7 +566,7 @@ func TestRunProbeReturnsFlatActiveDTO(t *testing.T) {
 			serverDone <- errors.New("unexpected structured probe request")
 			return
 		}
-		payload := json.RawMessage(`{"scope":"overview","kind":"proxy","ok":true,"tested_at":"2026-08-26T01:02:03Z","results":[],"active_generation":"generation-a","active_digest":"digest-a"}`)
+		payload := json.RawMessage(`{"scope":"overview","kind":"proxy","ok":true,"stale":false,"tested_at":"2026-08-26T01:02:03Z","summary":"21 ms","error_summary":""}`)
 		serverDone <- json.NewEncoder(connection).Encode(controlResponse{
 			SchemaVersion: controlSchemaVersion,
 			OK:            true,
@@ -542,7 +580,7 @@ func TestRunProbeReturnsFlatActiveDTO(t *testing.T) {
 	if err := <-serverDone; err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`"active_generation": "generation-a"`, `"active_digest": "digest-a"`, `"tested_at": "2026-08-26T01:02:03Z"`} {
+	for _, expected := range []string{`"summary": "21 ms"`, `"stale": false`, `"tested_at": "2026-08-26T01:02:03Z"`} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("flat probe output is missing %s:\n%s", expected, output.String())
 		}

@@ -98,14 +98,19 @@ if [item.get("name") for item in state_lifecycle_fixtures.get("cases", [])] != [
     "fresh", "pending-disable", "failed-apply", "active"
 ]:
     raise SystemExit("check-ui-contract: state lifecycle fixture drift")
-if probe_diagnostics_fixtures.get("schema_version") != 1:
+if probe_diagnostics_fixtures.get("schema_version") != 2:
     raise SystemExit("check-ui-contract: invalid probe diagnostics fixture schema")
 dns_capture_fixture = probe_diagnostics_fixtures.get("diagnostics", {}).get("dns_capture", {})
 if not dns_capture_fixture.get("configured") or dns_capture_fixture.get("mode") != "dedicated_shim":
     raise SystemExit("check-ui-contract: probe diagnostics DNS capture fixture drift")
-probe_reports = probe_diagnostics_fixtures.get("diagnostics", {}).get("reports", [])
-if [report.get("scope") for report in probe_reports] != ["overview", "nodes", "routes"]:
+latest_probe_results = probe_diagnostics_fixtures.get("probe_results", {}).get("latest_results", [])
+if [result.get("scope") for result in latest_probe_results] != ["overview", "nodes", "routes"]:
     raise SystemExit("check-ui-contract: probe diagnostics fixture scope drift")
+required_latest_fields = {"scope", "kind", "tested_at", "ok", "stale", "summary", "error_summary"}
+if any(not required_latest_fields.issubset(result) for result in latest_probe_results):
+    raise SystemExit("check-ui-contract: latest probe result fixture field drift")
+if "reports" in probe_diagnostics_fixtures.get("diagnostics", {}):
+    raise SystemExit("check-ui-contract: ordinary diagnostics fixture retained raw reports")
 for collection in ("nodes", "routes", "subscriptions"):
     enabled_values = [item.get("enabled") for item in probe_diagnostics_fixtures.get("objects", {}).get(collection, [])]
     if enabled_values != [True, False]:
@@ -138,7 +143,7 @@ if actual_navigation != expected_navigation:
 
 expected_page_facts = {
     "overview": {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
-    "diagnostics": {"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+    "diagnostics": {"validation", "probes", "latest_results", "dns_capture", "last_apply", "logs"},
     "system": {"versions", "last_apply", "geo", "paths", "platform_components", "access"},
 }
 page_responsibilities = contract.get("page_responsibilities", {})
@@ -159,6 +164,11 @@ for platform, boundary in dns_boundaries.items():
 subscription_inventory = contract.get("subscription_inventory", {})
 if subscription_inventory.get("changes_active_generation") is not False or subscription_inventory.get("stale_referenced_nodes") != "preserved":
     raise SystemExit("check-ui-contract: subscription inventory lifecycle drifted")
+probe_results_contract = contract.get("probe_results", {})
+if probe_results_contract.get("key_fields") != ["scope", "object_id", "kind"] or probe_results_contract.get("result_fields") != [
+    "scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"
+]:
+    raise SystemExit("check-ui-contract: latest probe result contract drifted")
 
 luci_menu = json.loads(
     (ROOT / "luci-app-steer/root/usr/share/luci/menu.d/luci-app-steer.json").read_text()
@@ -221,6 +231,7 @@ linux_nodes = (ROOT / "go/cmd/steer-linux/web/js/views/nodes.js").read_text()
 linux_routes = (ROOT / "go/cmd/steer-linux/web/js/views/routes.js").read_text()
 linux_subscriptions = (ROOT / "go/cmd/steer-linux/web/js/views/subscriptions.js").read_text()
 linux_diagnostics = (ROOT / "go/cmd/steer-linux/web/js/views/diagnostics.js").read_text()
+linux_lib = (ROOT / "go/cmd/steer-linux/web/js/lib.js").read_text()
 linux_overview = (ROOT / "go/cmd/steer-linux/web/js/views/overview.js").read_text()
 linux_system = (ROOT / "go/cmd/steer-linux/web/js/views/system.js").read_text()
 linux_dns = (ROOT / "go/cmd/steer-linux/web/js/views/dns.js").read_text()
@@ -240,6 +251,10 @@ mac_configuration = (ROOT / "macos/SteerApp/ConfigurationFormView.swift").read_t
 mac_ui_spec = (ROOT / "macos/SteerApp/UISpec.swift").read_text()
 openwrt_cli = (ROOT / "go/cmd/steer-openwrt/main.go").read_text()
 mac_control = (ROOT / "go/cmd/steer-macos/control.go").read_text()
+shared_probe_archive = (ROOT / "go/internal/probe/archive.go").read_text()
+linux_diagnostics_backend = (ROOT / "go/internal/platform/linux/diagnostics.go").read_text()
+openwrt_diagnostics_backend = (ROOT / "go/internal/platform/openwrt/diagnostics.go").read_text()
+mac_diagnostics_backend = (ROOT / "go/internal/platform/macos/diagnostics.go").read_text()
 
 require(linux_ui, "S.uiSpec.navigation", "Linux navigation")
 require(linux_nodes, "S.uiSpec.node_fields", "Linux node form")
@@ -263,7 +278,7 @@ for content, owner in (
         raise SystemExit(f"check-ui-contract: {owner} still renders the internal DNS boundary copy")
 for content, owner, fragments in (
     (linux_overview, "Linux Overview", ("lastApply", "intent.nodes.length", "validation.warnings")),
-    (linux_diagnostics, "Linux Diagnostics", ("diagnostics.reports", "S.api.logs", "diagnostics.dns_capture")),
+    (linux_diagnostics, "Linux Diagnostics", ("probeResults.latest_results", "S.api.logs", "diagnostics.dns_capture")),
     (linux_system, "Linux System", ("runtime.sing_box", "status.last_apply", "/run/steer")),
     (luci_overview, "LuCI Overview/Diagnostics", ("renderLifecycleOverview", "diagnostics?.logs", "diagnostics?.dns_capture")),
     (luci_system, "LuCI System", ("singBox.version", "status.last_apply", "/run/steer")),
@@ -398,12 +413,26 @@ require(mac_content, "成功仅表示该地址在测试时可达", "macOS accura
 require(linux_diagnostics, "当前网络环境", "Linux disabled overview probes")
 require(luci_overview, "current network environment", "LuCI disabled overview probes")
 require(mac_content, "当前网络环境", "macOS disabled overview probes")
-require(linux_diagnostics, "report.saved_digest", "Linux Saved overview probe identity")
-require(luci_overview, "report.saved_digest", "LuCI Saved overview probe identity")
-require(mac_state, "report.savedDigest", "macOS Saved overview probe identity")
-require(linux_diagnostics, "diagnostics.reports", "Linux persisted probe reports")
-require(luci_overview, "diagnostics.reports", "LuCI persisted probe reports")
-require(mac_content, "diagnosticProbeReports", "macOS persisted probe reports")
+require(shared_probe_archive, "type LatestProbeResult struct", "shared latest probe result DTO")
+require(shared_probe_archive, "ReadLatestProbeResults", "shared latest probe result reader")
+require(shared_probe_archive, "reportIsStale", "backend stale policy")
+require(shared_probe_archive, "coreMetric", "backend probe metric policy")
+require(shared_probe_archive, "safeErrorSummary", "backend safe probe error policy")
+require(linux_diagnostics_backend, "ReadLatestProbeResults", "Linux latest-result capability")
+require(openwrt_diagnostics_backend, "ReadLatestProbeResults", "OpenWrt latest-result capability")
+require(mac_diagnostics_backend, "ReadLatestProbeResults", "macOS latest-result capability")
+require(linux_diagnostics, "probeResults.latest_results", "Linux persisted latest probe results")
+require(luci_overview, "probeResults?.latest_results", "LuCI persisted latest probe results")
+require(mac_state, "latestProbePresentation", "macOS persisted latest probe results")
+ordinary_probe_sources = (
+    (linux_lib + linux_nodes + linux_routes + linux_diagnostics, "Linux ordinary UI"),
+    (luci_nodes + luci_overview, "LuCI ordinary UI"),
+    (mac_state + mac_content, "macOS ordinary UI"),
+)
+for source, owner in ordinary_probe_sources:
+    for forbidden in ("diagnostics.reports", "saved_digest", "active_digest", "first_byte_milliseconds", "downloaded_bytes"):
+        if forbidden in source:
+            raise SystemExit(f"check-ui-contract: {owner} still derives latest probe results from {forbidden}")
 require(luci_nodes, "probeOperationGate", "LuCI pending probe gate")
 require(mac_content, "!item.enabled", "macOS disabled probe action")
 if "服务运行后才能测试" in mac_content or ".disabled(running || !model.hasActiveGeneration)" in mac_content:
@@ -445,8 +474,8 @@ require(mac_content, "probeButton(item: item, scope: \"nodes\", download: true)"
 require(linux_routes, "draft.kind = 'single'", "Linux fixed system routes")
 require(luci_nodes, "addSystemRouteSection", "LuCI fixed system routes")
 require(mac_content, "isSystemRoute(item)", "macOS fixed system routes")
-require(mac_state, 'return "失败"', "macOS sanitized probe summary")
-require(linux_lib, "详细原因请查看诊断日志", "Linux sanitized probe summary")
+require(mac_state, "result.errorSummary", "macOS backend probe failure summary")
+require(linux_lib, "result.error_summary", "Linux backend probe failure summary")
 require(luci_nodes, "See diagnostic logs for details.", "LuCI sanitized probe summary")
 if "report?.error || results.map" in linux_lib or "report?.error || results.map" in luci_nodes:
     raise SystemExit("check-ui-contract: a node list still exposes raw probe backend errors")

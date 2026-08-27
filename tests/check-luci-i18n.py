@@ -110,7 +110,6 @@ required_localized = {
     "Add single-node route": "添加单节点路由",
     "Working copy warning: %s": "工作副本警告：%s",
     "Saved configuration warning: %s": "已保存配置警告：%s",
-    "Recent connectivity reports": "最近连通性报告",
 }
 unlocalized_required = sorted(
     key for key, expected in required_localized.items()

@@ -1,8 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "capability": {
     "overview": "Overview probes use the Saved URL and the device's current network environment, even while Steer is disabled. Success only proves that the configured URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.",
     "temporary": "Node and Route probes validate an isolated temporary chain and do not prove which path the current Active rules selected."
+  },
+  "ordinary_ui": {
+    "latest_per_scope_object_kind": 1,
+    "required_facts": ["tested_at", "ok", "core_metric", "stale"],
+    "forbidden_fragments": ["probe.example", "REDACTED", "attempts", "generation-a", "saved-a", "active-a"]
   },
   "objects": {
     "nodes": [
@@ -19,67 +24,45 @@
     ]
   },
   "diagnostics": {
-    "saved_digest": "saved-a",
-    "active_generation": "generation-a",
-    "active_digest": "active-a",
     "dns_capture": {
       "mode": "dedicated_shim",
       "active_generation": "generation-a",
       "configured": true,
       "detail": "the published Active generation contains the expected port-53 capture artifacts"
     },
+    "warnings": []
+  },
+  "probe_results": {
     "warnings": [],
-    "reports": [
+    "latest_results": [
       {
         "scope": "overview",
         "kind": "proxy",
         "ok": true,
+        "stale": false,
         "tested_at": "2026-08-26T04:00:00Z",
-        "saved_digest": "saved-a",
-        "active_generation": "generation-a",
-        "active_digest": "active-a",
-        "results": [
-          {
-            "url": "https://probe.example/REDACTED",
-            "ok": true,
-            "attempts": 1,
-            "status": 204,
-            "connect_milliseconds": 7,
-            "tls_milliseconds": 9,
-            "first_byte_milliseconds": 21
-          }
-        ]
+        "summary": "21 ms",
+        "error_summary": ""
       },
       {
         "scope": "nodes",
         "object_id": "node_enabled",
         "kind": "download",
         "ok": true,
+        "stale": false,
         "tested_at": "2026-08-26T03:00:00Z",
-        "saved_digest": "saved-a",
-        "results": [
-          {
-            "url": "https://probe.example/REDACTED",
-            "ok": true,
-            "attempts": 1,
-            "status": 200,
-            "connect_milliseconds": 8,
-            "tls_milliseconds": 10,
-            "first_byte_milliseconds": 24,
-            "downloaded_bytes": 1000000,
-            "download_milliseconds": 500
-          }
-        ]
+        "summary": "16.0 Mbps",
+        "error_summary": ""
       },
       {
         "scope": "routes",
         "object_id": "route_enabled",
         "kind": "connect",
         "ok": false,
-        "error": "probe timed out",
+        "stale": true,
         "tested_at": "2026-08-26T02:00:00Z",
-        "saved_digest": "saved-old",
-        "results": []
+        "summary": "",
+        "error_summary": "连接超时"
       }
     ]
   }

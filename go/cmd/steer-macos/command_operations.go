@@ -52,6 +52,29 @@ func runDiagnostics(args []string, stdoutWriter interface{ Write([]byte) (int, e
 	return writeJSON(stdoutWriter, diagnostics)
 }
 
+func runProbeResults(args []string, stdoutWriter interface{ Write([]byte) (int, error) }) error {
+	flags := flag.NewFlagSet("_probe-results", flag.ContinueOnError)
+	socketPath := flags.String("socket", defaultControlSocket, "root control service socket")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("_probe-results accepts flags only")
+	}
+	response, err := sendControlRequest(*socketPath, controlRequest{SchemaVersion: controlSchemaVersion, Operation: "probe-results"})
+	if err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	var results probe.LatestProbeResults
+	if err := decodeStrictJSON(response.Payload, &results); err != nil {
+		return fmt.Errorf("decode latest probe results response: %w", err)
+	}
+	return writeJSON(stdoutWriter, results)
+}
+
 func runProbe(args []string, stdoutWriter interface{ Write([]byte) (int, error) }) error {
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	socketPath := flags.String("socket", defaultControlSocket, "root control service socket")
@@ -82,14 +105,14 @@ func runProbe(args []string, stdoutWriter interface{ Write([]byte) (int, error) 
 		}
 		return errors.New(response.Error)
 	}
-	var report probeResponse
-	if err := decodeStrictJSON(response.Payload, &report); err != nil {
-		return fmt.Errorf("decode probe response: %w", err)
+	var result probe.LatestProbeResult
+	if err := decodeStrictJSON(response.Payload, &result); err != nil {
+		return fmt.Errorf("decode latest probe result response: %w", err)
 	}
-	if err := writeJSON(stdoutWriter, report); err != nil {
+	if err := writeJSON(stdoutWriter, result); err != nil {
 		return err
 	}
-	if !report.OK {
+	if !result.OK {
 		return errors.New("HTTPS probe failed")
 	}
 	return nil

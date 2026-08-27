@@ -247,7 +247,7 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = fmt.Sprintf("unsupported control request schema %d", request.SchemaVersion)
 		return response
 	}
-	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" && request.Operation != "probe" && request.Operation != "diagnostics" {
+	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" && request.Operation != "probe" && request.Operation != "diagnostics" && request.Operation != "probe-results" {
 		response.Error = "unsupported control operation"
 		return response
 	}
@@ -276,6 +276,21 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.OK = true
 		return response
 	}
+	if request.Operation == "probe-results" {
+		if request.Document != "" || request.ExpectedRevision != "" || request.ID != "" || request.Kind != "" || request.NodeID != "" || request.RouteID != "" || request.Download {
+			response.Error = "probe-results accepts no operation arguments"
+			return response
+		}
+		results := macosplatform.ReadLatestProbeResults(service.configPath, service.options)
+		payload, err := json.Marshal(results)
+		if err != nil {
+			response.Error = "encode latest probe results: " + err.Error()
+			return response
+		}
+		response.Payload = payload
+		response.OK = true
+		return response
+	}
 	if request.Operation == "probe" {
 		if request.Document != "" || request.ExpectedRevision != "" || request.ID != "" {
 			response.Error = "probe accepts only kind, node_id, route_id and download"
@@ -290,19 +305,31 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		selection := probeSelection{
 			Kind: request.Kind, NodeID: request.NodeID, RouteID: request.RouteID, Download: request.Download,
 		}
-		report, err := run(ctx, service.configPath, service.options, selection)
-		if err != nil {
-			failure := probe.FailureReport(probeScope(selection), probeObjectID(selection), probeReportKind(selection), err)
-			_ = macosplatform.SaveTestReport(service.options, failure)
-			response.Error = err.Error()
+		report, probeErr := run(ctx, service.configPath, service.options, selection)
+		if probeErr != nil {
+			_ = macosplatform.SaveTestFailure(
+				service.configPath, service.options,
+				probeScope(selection), probeObjectID(selection), probeReportKind(selection), probeErr,
+			)
+		} else {
+			_ = macosplatform.SaveTestReport(service.options, report.TestReport)
+		}
+		results := macosplatform.ReadLatestProbeResults(service.configPath, service.options)
+		latest, ok := probe.FindLatestProbeResult(results, probeScope(selection), probeObjectID(selection), probeReportKind(selection))
+		if !ok {
+			if probeErr != nil {
+				response.Error = probeErr.Error()
+			} else {
+				response.Error = "latest probe result was not persisted"
+			}
 			return response
 		}
-		_ = macosplatform.SaveTestReport(service.options, report.TestReport)
-		response.Payload, err = json.Marshal(report)
-		if err != nil {
-			response.Error = "encode probe report: " + err.Error()
+		payload, marshalErr := json.Marshal(latest)
+		if marshalErr != nil {
+			response.Error = "encode latest probe result: " + marshalErr.Error()
 			return response
 		}
+		response.Payload = payload
 		response.OK = true
 		return response
 	}

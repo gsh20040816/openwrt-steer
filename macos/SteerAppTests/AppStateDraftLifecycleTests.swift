@@ -53,6 +53,8 @@ private actor DraftLifecycleBackend: BackendClient {
     private var nextSaveGate: DraftOperationGate?
     private var nextApplyGate: DraftOperationGate?
     private var nextInstallGate: DraftOperationGate?
+    private var persistedDiagnostics = ProbeDiagnostics.empty
+    private var persistedProbeResults = ProbeLatestResults.empty
 
     init(document: String, revision: String = "revision-1", installed: Bool = true, hasInstalledArtifacts: Bool? = nil) {
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
@@ -125,6 +127,7 @@ private actor DraftLifecycleBackend: BackendClient {
         saveCount += 1
         let revision = "revision-saved-\(saveCount)"
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
+        markPersistedProbeResultsStale()
         return SaveOutcome(revision: revision, validation: ValidationResult(ok: true, errors: [], warnings: []))
     }
 
@@ -152,6 +155,7 @@ private actor DraftLifecycleBackend: BackendClient {
         }
         runtimeStatus.generationID = "active-\(applyCount)"
         runtimeStatus.intentDigest = "active-\(applyCount)"
+        markPersistedProbeResultsStale()
         return ApplyOutcome(
             status: runtimeStatus,
             saved: true,
@@ -163,27 +167,22 @@ private actor DraftLifecycleBackend: BackendClient {
     }
 
     func status() async throws -> RuntimeStatus { runtimeStatus }
+    func diagnostics() async throws -> ProbeDiagnostics { persistedDiagnostics }
+    func probeResults() async throws -> ProbeLatestResults { persistedProbeResults }
     func logs() async throws -> String { "" }
     func versions() async throws -> RuntimeVersions { RuntimeVersions() }
     func parseNodes(document: String) async throws -> NodeImportResult { NodeImportResult(nodes: [], skipped: 0) }
-    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
+    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeLatestResult {
         probeCount += 1
-        return ProbeReport(
-            ok: true,
+        let result = ProbeLatestResult(
             scope: nodeID == nil && routeID == nil ? "overview" : (nodeID == nil ? "routes" : "nodes"),
             objectID: nodeID ?? routeID,
             kind: kind,
-            results: [ProbeResult(
-                ok: true, status: 204, firstByteMilliseconds: 12,
-                connectMilliseconds: 4, tlsMilliseconds: 6,
-                downloadedBytes: nil, downloadMilliseconds: nil, error: nil
-            )],
-            error: nil,
-            activeGeneration: nodeID == nil && routeID == nil ? runtimeStatus.generationID : nil,
-            activeDigest: nodeID == nil && routeID == nil ? runtimeStatus.intentDigest : nil,
-            savedDigest: nodeID == nil && routeID == nil ? "saved-current" : nil,
-            testedAt: "2026-08-26T01:02:03Z"
+            testedAt: "2026-08-26T01:02:03Z",
+            ok: true, stale: false, summary: "12 ms", errorSummary: ""
         )
+        persistedProbeResults = ProbeLatestResults(latestResults: [result], warnings: [])
+        return result
     }
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] { [] }
     func updateSubscription(id: String) async throws {}
@@ -204,6 +203,20 @@ private actor DraftLifecycleBackend: BackendClient {
     func pauseUpcomingSave(with gate: DraftOperationGate) { nextSaveGate = gate }
     func pauseUpcomingApply(with gate: DraftOperationGate) { nextApplyGate = gate }
     func pauseUpcomingInstall(with gate: DraftOperationGate) { nextInstallGate = gate }
+    func seedDiagnostics(_ diagnostics: ProbeDiagnostics) { persistedDiagnostics = diagnostics }
+    func seedProbeResults(_ results: ProbeLatestResults) { persistedProbeResults = results }
+
+    private func markPersistedProbeResultsStale() {
+        persistedProbeResults = ProbeLatestResults(
+            latestResults: persistedProbeResults.latestResults.map { result in
+                ProbeLatestResult(
+                    scope: result.scope, objectID: result.objectID, kind: result.kind, testedAt: result.testedAt,
+                    ok: result.ok, stale: true, summary: result.summary, errorSummary: result.errorSummary
+                )
+            },
+            warnings: persistedProbeResults.warnings
+        )
+    }
 }
 
 @MainActor
@@ -219,6 +232,33 @@ final class AppStateDraftLifecycleTests: XCTestCase {
     private let newerDocument = """
     {"main":{"schema_version":1,"enabled":false,"log_level":"error"},"nodes":[],"routes":[],"dns_profiles":[],"rules":[],"subscriptions":[],"local_proxies":[]}
     """
+
+    func testPersistedNodeAndRouteLatestResultsRecoverWithoutRawReportDetails() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let node = ProbeLatestResult(
+            scope: "nodes", objectID: "node-a", kind: "download", testedAt: "2026-08-26T03:00:00.123456789Z",
+            ok: true, stale: false, summary: "16.0 Mbps", errorSummary: ""
+        )
+        let route = ProbeLatestResult(
+            scope: "routes", objectID: "route-a", kind: "connect", testedAt: "2026-08-26T02:00:00Z",
+            ok: false, stale: true, summary: "", errorSummary: "连接超时"
+        )
+        await backend.seedProbeResults(ProbeLatestResults(latestResults: [node, route], warnings: []))
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy && model.hasInitializedDraft }
+
+        let nodeLatest = try XCTUnwrap(model.latestProbePresentation(scope: "nodes", objectID: "node-a", download: true))
+        XCTAssertTrue(nodeLatest.text.contains("上次") && nodeLatest.text.contains("成功") && nodeLatest.text.contains("16.0 Mbps"))
+        XCTAssertFalse(nodeLatest.stale)
+        let routeLatest = try XCTUnwrap(model.latestProbePresentation(scope: "routes", objectID: "route-a", download: false))
+        XCTAssertTrue(routeLatest.text.contains("已过期") && routeLatest.text.contains("失败") && routeLatest.text.contains("连接超时"))
+        XCTAssertTrue(routeLatest.stale)
+        for forbidden in ["probe.example", "REDACTED", "attempts", "node-a", "route-a", "saved-a", "saved-old"] {
+            XCTAssertFalse(nodeLatest.text.contains(forbidden))
+            XCTAssertFalse(routeLatest.text.contains(forbidden))
+        }
+    }
 
     func testRefreshStatusAlsoRefreshesSystemComponentFacts() async throws {
         let backend = DraftLifecycleBackend(document: savedDocument)
@@ -605,7 +645,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
             !model.overviewProbeInProgress("proxy") && model.overviewProbeDetail("proxy") != nil
         }
         XCTAssertEqual(model.overviewProbeSummary("proxy"), "12 ms")
-        XCTAssertEqual(model.overviewProbeDetail("proxy"), "测试时间 2026-08-26T01:02:03Z")
+        XCTAssertTrue(model.overviewProbeDetail("proxy")?.hasPrefix("上次 ") == true)
         XCTAssertFalse(model.overviewProbeIsStale("proxy"))
 
         model.rawJSON = editedDocument
@@ -636,7 +676,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
 
         model.runtime = RuntimeStatus()
         XCTAssertFalse(model.hasActiveGeneration)
-        XCTAssertTrue(model.overviewProbeIsStale("proxy"))
+        XCTAssertTrue(model.overviewProbeIsStale("proxy"), "frontend runtime mutations cannot override the backend stale fact")
         XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("已过期") == true)
     }
 

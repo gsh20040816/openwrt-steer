@@ -113,6 +113,12 @@ type SubscriptionInventoryContract struct {
 	Notice                  string `json:"notice"`
 }
 
+type ProbeResultsContract struct {
+	KeyFields    []string `json:"key_fields"`
+	ResultFields []string `json:"result_fields"`
+	FrontendRole string   `json:"frontend_role"`
+}
+
 type Contract struct {
 	SchemaVersion                     int                               `json:"schema_version"`
 	CanonicalSchema                   int                               `json:"canonical_schema"`
@@ -141,6 +147,7 @@ type Contract struct {
 	PageResponsibilities              map[string]PageResponsibility     `json:"page_responsibilities"`
 	DNSBoundaries                     map[string]DNSBoundary            `json:"dns_boundaries"`
 	SubscriptionInventory             SubscriptionInventoryContract     `json:"subscription_inventory"`
+	ProbeResults                      ProbeResultsContract              `json:"probe_results"`
 }
 
 func choices(values ...string) []Choice {
@@ -271,8 +278,8 @@ func ContractValue() Contract {
 				Facts:   []string{"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
 			},
 			"diagnostics": {
-				Summary: "Validation, probes, recent reports, port-53 capture inspection and logs",
-				Facts:   []string{"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+				Summary: "Validation, probes with latest safe results, port-53 capture inspection and logs",
+				Facts:   []string{"validation", "probes", "latest_results", "dns_capture", "last_apply", "logs"},
 			},
 			"system": {
 				Summary: "Versions, Geo data, platform components, paths and access actions",
@@ -300,6 +307,11 @@ func ContractValue() Contract {
 			ChangesActiveGeneration: false,
 			StaleReferencedNodes:    "preserved",
 			Notice:                  "Subscription inventory updated; current Active configuration was not changed. Nodes still referenced by Routes are preserved as stale.",
+		},
+		ProbeResults: ProbeResultsContract{
+			KeyFields:    []string{"scope", "object_id", "kind"},
+			ResultFields: []string{"scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"},
+			FrontendRole: "Localize tested_at and render native style only; stale, metric and error summaries are backend facts",
 		},
 	}
 

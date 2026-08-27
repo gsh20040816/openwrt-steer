@@ -8,55 +8,6 @@
 'require steer as steer';
 'require steer.ui-spec as uiSpec';
 
-function testResult(report, kind) {
-	const result = report?.results?.[0];
-	if (!report?.ok || !result?.ok) {
-		return E('div', { 'class': 'steer-test-card__result is-error' }, [
-			E('strong', {}, _('Failed')),
-			E('small', {}, _('See diagnostic logs for details.'))
-		]);
-	}
-	if (kind == 'speedtest') {
-		const mbps = result.downloaded_bytes > 0 && result.download_milliseconds > 0 ?
-			result.downloaded_bytes * 8 / result.download_milliseconds / 1000 : 0;
-		return E('div', { 'class': 'steer-test-card__result is-success' }, [
-			E('strong', {}, _('%s Mbps').format(mbps.toFixed(1))),
-			E('small', {}, _('%s bytes in %s ms · HTTP %s').format(result.downloaded_bytes, result.download_milliseconds, result.status))
-		]);
-	}
-	return E('div', { 'class': 'steer-test-card__result is-success' }, [
-		E('strong', {}, _('%s ms').format(result.first_byte_milliseconds)),
-		E('small', {}, _('Connect %s ms · TLS %s ms · HTTP %s · %s attempt(s)').format(
-			result.connect_milliseconds || 0, result.tls_milliseconds || 0, result.status, result.attempts))
-	]);
-}
-
-function reportScopeLabel(scope) {
-	return {
-		overview: _('Overview'),
-		node: _('Node'), nodes: _('Node'),
-		route: _('Route'), routes: _('Route')
-	}[scope] || scope;
-}
-
-function reportKindLabel(kind) {
-	return {
-		direct: _('Direct'),
-		proxy: _('Proxy'),
-		speedtest: _('Download test'),
-		connect: _('Connection test'),
-		download: _('Download test')
-	}[kind] || kind;
-}
-
-function diagnosticErrorText(error) {
-	return {
-		'probe timed out': _('Probe timed out'),
-		'probe failed': _('Probe failed'),
-		'Unable to read Steer logs.': _('Unable to read Steer logs.')
-	}[String(error)] || error;
-}
-
 function diagnosticDetail(detail) {
 	const value = String(detail || '');
 	if (value == 'the published Active generation contains the expected port-53 capture artifacts')
@@ -64,8 +15,32 @@ function diagnosticDetail(detail) {
 	return detail;
 }
 
-function renderTestCard(kind, title, description, allowed) {
-	const output = E('div', { 'class': 'steer-test-card__output' }, E('span', {}, _('Not tested')));
+function overviewProbePresentation(result) {
+	if (!result) return { text: _('Not tested'), ok: null, stale: false };
+	const tested = new Date(result.tested_at);
+	const testedAt = Number.isNaN(tested.getTime()) ? '—' : tested.toLocaleString();
+	return {
+		text: [ _('Tested at'), testedAt, result.stale ? _('Outdated') : '',
+			result.ok ? _('Succeeded') : _('Failed'), result.ok ? result.summary : result.error_summary ].filter(Boolean).join(' · '),
+		ok: result.ok,
+		stale: result.stale === true
+	};
+}
+
+function renderOverviewProbe(output, result) {
+	const latest = overviewProbePresentation(result);
+	output.replaceChildren(E('div', {
+		'class': 'steer-test-card__result' + (latest.stale ? ' is-stale' : (latest.ok === false ? ' is-error' : (latest.ok ? ' is-success' : '')))
+	}, E('strong', {}, latest.text)));
+}
+
+function findOverviewResult(probeResults, kind) {
+	return (probeResults?.latest_results || []).find((result) => result.scope == 'overview' && result.kind == kind);
+}
+
+function renderTestCard(kind, title, description, allowed, probeResults) {
+	const output = E('div', { 'class': 'steer-test-card__output' });
+	renderOverviewProbe(output, findOverviewResult(probeResults, kind));
 	const button = E('button', {
 		'class': 'btn cbi-button-action',
 		'disabled': allowed ? null : true,
@@ -79,13 +54,16 @@ function renderTestCard(kind, title, description, allowed) {
 			const current = ev.currentTarget;
 			current.disabled = true;
 			output.replaceChildren(E('span', { 'class': 'spinning' }, _('Testing…')));
-			return steer.overviewProbe(kind).then((report) => {
-				output.replaceChildren(testResult(report, kind));
+			return steer.overviewProbe(kind).then((result) => {
+				renderOverviewProbe(output, result);
 				current.disabled = false;
-				return report;
+				return result;
 			}).catch((error) => {
-				output.replaceChildren(testResult({ ok: false, error: String(error) }, kind));
-				current.disabled = false;
+				return steer.probeResults().then((refreshed) => {
+					renderOverviewProbe(output, findOverviewResult(refreshed, kind));
+				}).catch(() => output.replaceChildren(E('div', { 'class': 'steer-test-card__result is-error' },
+					E('strong', {}, '%s · %s'.format(_('Failed'), _('See diagnostic logs for details.'))))))
+					.finally(() => { current.disabled = false; });
 			});
 		}
 	}, _('Run test'));
@@ -96,11 +74,11 @@ function renderTestCard(kind, title, description, allowed) {
 	]);
 }
 
-function renderOverviewTests(allowed) {
+function renderOverviewTests(allowed, probeResults) {
 	return E('div', { 'class': 'steer-test-grid' }, [
-		renderTestCard('direct', _('Direct target'), _('Tests the direct target in the current network environment.'), allowed),
-		renderTestCard('proxy', _('Proxy target'), _('Tests the proxy target in the current network environment.'), allowed),
-		renderTestCard('speedtest', _('Download target'), _('Tests download speed in the current network environment.'), allowed)
+		renderTestCard('direct', _('Direct target'), _('Tests the direct target in the current network environment.'), allowed, probeResults),
+		renderTestCard('proxy', _('Proxy target'), _('Tests the proxy target in the current network environment.'), allowed, probeResults),
+		renderTestCard('speedtest', _('Download target'), _('Tests download speed in the current network environment.'), allowed, probeResults)
 	]);
 }
 
@@ -114,36 +92,7 @@ function hasPendingSteerChanges(changes) {
 	return changes?.steer != null && Object.keys(changes.steer).length > 0;
 }
 
-function reportIsStale(report, diagnostics, pending) {
-	if (report.scope == 'overview')
-		return !report.saved_digest || report.saved_digest != diagnostics.saved_digest ||
-			(report.active_generation || '') != (diagnostics.active_generation || '') ||
-			(report.active_digest || '') != (diagnostics.active_digest || '');
-	return pending || !report.saved_digest || report.saved_digest != diagnostics.saved_digest;
-}
-
-function renderProbeReport(report, diagnostics, pending) {
-	const result = report?.results?.[0] || {};
-	const stale = reportIsStale(report, diagnostics, pending);
-	const rate = result.downloaded_bytes > 0 && result.download_milliseconds > 0
-		? (result.downloaded_bytes * 8 / result.download_milliseconds / 1000).toFixed(1) + ' Mbps' : '—';
-	const target = report.scope == 'overview' ? _('Overview') : reportScopeLabel(report.scope);
-	return E('article', { 'class': 'cbi-section' }, [
-		E('h4', {}, [ target, ' · ', reportKindLabel(report.kind), ' · ', stale ? _('Outdated') : (report.ok ? _('Succeeded') : _('Failed')) ]),
-		E('dl', { 'class': 'steer-status__facts' }, [
-			diagnosticFact(_('Tested at'), report.tested_at), diagnosticFact(_('URL'), result.url),
-			diagnosticFact(_('Attempts'), result.attempts), diagnosticFact(_('Connect'), result.connect_milliseconds == null ? null : result.connect_milliseconds + ' ms'),
-			diagnosticFact(_('TLS'), result.tls_milliseconds == null ? null : result.tls_milliseconds + ' ms'),
-			diagnosticFact(_('TTFB'), result.first_byte_milliseconds == null ? null : result.first_byte_milliseconds + ' ms'),
-			diagnosticFact(_('HTTP'), result.status), diagnosticFact(_('Bytes'), result.downloaded_bytes),
-			diagnosticFact(_('Rate'), rate)
-		]),
-		(report.error || result.error) ? E('p', { 'class': 'alert-message danger' }, diagnosticErrorText(report.error || result.error)) : ''
-	]);
-}
-
-function renderDiagnostics(status, validation, diagnostics, changes, permissions) {
-	const pending = hasPendingSteerChanges(changes);
+function renderDiagnostics(status, validation, diagnostics, probeResults, changes, permissions) {
 	const lastApply = status?.last_apply;
 	const result = lastApply?.result;
 	const dnsCapture = diagnostics?.dns_capture || {};
@@ -151,7 +100,7 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Connectivity targets')),
 			E('p', {}, _('The tests use the current network environment and remain available while Steer is disabled. Success only means the target was reachable at that time.')),
-			renderOverviewTests(permissions?.overview_probe === true)
+			renderOverviewTests(permissions?.overview_probe === true, probeResults)
 		]),
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('System DNS capture check')),
@@ -160,11 +109,8 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 				diagnosticFact(_('Result'), diagnosticDetail(dnsCapture.detail))
 			])
 		]),
-		E('section', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Recent connectivity reports')),
-			...(diagnostics?.warnings || []).map((warning) => E('p', { 'class': 'alert-message warning' }, warning)),
-			...((diagnostics?.reports || []).length ? diagnostics.reports.map((report) => renderProbeReport(report, diagnostics, pending)) : [ E('p', {}, _('No saved probe reports.')) ])
-		]),
+		...(diagnostics?.warnings || []).slice(0, 3).map((warning) => E('p', { 'class': 'alert-message warning' }, warning)),
+		...(probeResults?.warnings || []).slice(0, 3).map((warning) => E('p', { 'class': 'alert-message warning' }, warning)),
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Validation')),
 			...((validation?.errors || []).map((issue) => E('p', { 'class': 'alert-message danger' }, steer.issueText(issue)))),
@@ -273,7 +219,7 @@ function renderLifecycleOverview(state) {
 return view.extend({
 	load: function() {
 		return Promise.all([
-			uci.load('steer'), steer.overviewState(), steer.validate(), steer.diagnostics(), uci.changes(),
+			uci.load('steer'), steer.overviewState(), steer.validate(), steer.diagnostics(), steer.probeResults(), uci.changes(),
 			steer.permissions([ 'overview_probe' ])
 		]);
 	},
@@ -288,7 +234,7 @@ return view.extend({
 		if (page == 'overview' || page == 'steer')
 			return renderLifecycleOverview(lifecycle);
 		if (page == 'diagnostics')
-			return renderDiagnostics(status, validation, data[3] || {}, data[4], data[5] || {});
+			return renderDiagnostics(status, validation, data[3] || {}, data[4] || { latest_results: [] }, data[5], data[6] || {});
 
 		m = new form.Map('steer', _('Steer'));
 		s = m.section(form.NamedSection, 'main', 'steer', _('General'));

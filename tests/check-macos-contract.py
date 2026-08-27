@@ -55,7 +55,7 @@ def main() -> None:
     assert 'PLATFORM_UNSUPPORTED_GEO_TOOLCHAIN' not in macos_validate
     assert 'case "apply"' in macos_cli
     assert 'case "parse-nodes"' in macos_cli
-    assert 'case "probe"' in macos_cli
+    assert 'case "probe"' in macos_cli and 'case "_probe-results"' in macos_cli
     assert 'case "geo-catalog"' in macos_cli
     assert 'case "subscription"' in macos_cli
     assert 'case "verify-geodata"' in macos_cli
@@ -152,7 +152,9 @@ def main() -> None:
     assert 'runAllNodeProbes(download: Bool, nodeIDs: [String])' in state
     assert 'probeInProgress(scope:' in state and 'download: true' in content
     assert 'activeProbeKeys' in state and 'perform(message: "正在运行探测…")' not in state
-    assert 'guard let result = results.first(where: { $0.ok }) else {' in state and 'return "失败"' in state
+    assert 'struct ProbeLatestResult' in state and 'result.errorSummary' in state
+    for forbidden_probe_rule in ('diagnostics.reports', 'firstByteMilliseconds', 'downloadedBytes', 'savedDigest'):
+        assert forbidden_probe_rule not in state
     assert 'isSystemRoute(item)' in content and 'isDefaultRule(item)' in content
     assert 'private struct DefaultRuleCard: View' in content and 'private var defaultRule: DraftItem?' in content
     assert 'Label("始终启用 · 固定在最后", systemImage: "lock.fill")' in content

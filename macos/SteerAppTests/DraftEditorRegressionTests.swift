@@ -34,10 +34,10 @@ private actor DraftEditorBackend: BackendClient {
     func logs() async throws -> String { "" }
     func versions() async throws -> RuntimeVersions { RuntimeVersions() }
     func parseNodes(document: String) async throws -> NodeImportResult { importResult }
-    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
-        ProbeReport(
-            ok: true, scope: "overview", objectID: nil, kind: kind, results: [], error: nil,
-            activeGeneration: nil, activeDigest: nil, testedAt: "2026-08-26T00:00:00Z"
+    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeLatestResult {
+        ProbeLatestResult(
+            scope: "overview", objectID: nil, kind: kind, testedAt: "2026-08-26T00:00:00Z",
+            ok: true, stale: false, summary: "21 ms", errorSummary: ""
         )
     }
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] { [] }

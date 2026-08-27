@@ -16,6 +16,8 @@
   let applying = false;
   let overview = null;
   let runtime = null;
+  let diagnostics = { warnings: [] };
+  let probeResults = { latest_results: [], warnings: [] };
   let externalRevision = '';
   let lastRefreshedAt = '';
 
@@ -28,6 +30,23 @@
     return value;
   };
   const serializeIntent = () => JSON.stringify(intent, null, 2);
+  const normalizeDiagnostics = (value) => ({
+    ...(value && typeof value === 'object' ? value : {}),
+    warnings: Array.isArray(value?.warnings) ? value.warnings : []
+  });
+  const normalizeProbeResults = (value) => ({
+    latest_results: Array.isArray(value?.latest_results) ? value.latest_results : [],
+    warnings: Array.isArray(value?.warnings) ? value.warnings : []
+  });
+  const probeResultKey = (result) => result?.scope === 'overview'
+    ? `overview:${result.kind}`
+    : `${result?.scope || ''}:${result?.object_id || ''}:${result?.kind || ''}`;
+  const fetchDiagnostics = () => typeof S.api.diagnostics === 'function'
+    ? S.api.diagnostics()
+    : Promise.resolve(diagnostics);
+  const fetchProbeResults = () => typeof S.api.probeResults === 'function'
+    ? S.api.probeResults()
+    : Promise.resolve(probeResults);
   const installIntent = (value) => {
     intent = normalizeIntent(value);
     draftText = serializeIntent();
@@ -62,6 +81,8 @@
     get pendingApply() { return overview?.pending_apply === true; },
     get overview() { return overview; },
     get runtime() { return runtime; },
+    get diagnostics() { return diagnostics; },
+    get probeResults() { return probeResults; },
     get externalRevision() { return externalRevision; },
     get hasExternalChange() { return externalRevision !== '' && externalRevision !== revision; },
     get lastRefreshedAt() { return lastRefreshedAt; },
@@ -71,11 +92,17 @@
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
 
     async init() {
-      const [config, ov, runtimeInfo] = await Promise.all([S.api.config(), S.api.overview(), S.api.runtime()]);
+      const [config, ov, runtimeInfo, probeDiagnostics, persistedProbeResults] = await Promise.all([
+        S.api.config(), S.api.overview(), S.api.runtime(),
+        fetchDiagnostics().catch(() => ({ warnings: ['诊断状态暂时不可用'] })),
+        fetchProbeResults().catch(() => ({ latest_results: [], warnings: ['最近测试结果暂时不可用'] }))
+      ]);
       installIntent(config.intent);
       revision = config.revision;
       overview = ov;
       runtime = runtimeInfo;
+      diagnostics = normalizeDiagnostics(probeDiagnostics);
+      probeResults = normalizeProbeResults(persistedProbeResults);
       externalRevision = ov.saved_revision && ov.saved_revision !== revision ? ov.saved_revision : '';
       lastRefreshedAt = new Date().toISOString();
       emit();
@@ -115,10 +142,15 @@
     async refreshServerState() {
       if (saving || reloading || applying) return { ok: false, busy: true };
       const expectedState = stateEpoch;
-      const [refreshedOverview, refreshedRuntime] = await Promise.all([S.api.overview(), S.api.runtime()]);
+      const [refreshedOverview, refreshedRuntime, refreshedDiagnostics, refreshedProbeResults] = await Promise.all([
+        S.api.overview(), S.api.runtime(), fetchDiagnostics().catch(() => diagnostics),
+        fetchProbeResults().catch(() => probeResults)
+      ]);
       if (expectedState !== stateEpoch) return { ok: false, superseded: true };
       overview = refreshedOverview;
       runtime = refreshedRuntime;
+      diagnostics = normalizeDiagnostics(refreshedDiagnostics);
+      probeResults = normalizeProbeResults(refreshedProbeResults);
       externalRevision = refreshedOverview.saved_revision && refreshedOverview.saved_revision !== revision ? refreshedOverview.saved_revision : '';
       lastRefreshedAt = new Date().toISOString();
       emit();
@@ -166,6 +198,9 @@
           const refreshedOverview = await S.api.overview();
           if (expectedState === stateEpoch) {
             overview = refreshedOverview;
+            const [nextDiagnostics, nextProbeResults] = await Promise.allSettled([fetchDiagnostics(), fetchProbeResults()]);
+            if (nextDiagnostics.status === 'fulfilled') diagnostics = normalizeDiagnostics(nextDiagnostics.value);
+            if (nextProbeResults.status === 'fulfilled') probeResults = normalizeProbeResults(nextProbeResults.value);
             emit();
           }
         } catch (error) {
@@ -191,6 +226,7 @@
         } catch (error) {
           overviewError = error;
         }
+        try { await store.refreshProbeResults(); } catch (_) { /* keep latest safe cache */ }
         return { ...result, overviewError };
       } finally {
         applying = false;
@@ -206,13 +242,18 @@
       reloading = true;
       emit();
       try {
-        const [config, ov] = await Promise.all([S.api.config(), S.api.overview()]);
+        const [config, ov, probeDiagnostics, persistedProbeResults] = await Promise.all([
+          S.api.config(), S.api.overview(), fetchDiagnostics().catch(() => diagnostics),
+          fetchProbeResults().catch(() => probeResults)
+        ]);
         if (operation !== stateEpoch) return { ok: false, superseded: true };
         if (mutationEpoch !== startedMutation) return { ok: false, staleDraft: true };
         installIntent(config.intent);
         revision = config.revision;
         externalRevision = '';
         overview = ov;
+        diagnostics = normalizeDiagnostics(probeDiagnostics);
+        probeResults = normalizeProbeResults(persistedProbeResults);
         lastRefreshedAt = new Date().toISOString();
         dirty = false;
         emit();
@@ -223,6 +264,28 @@
           emit();
         }
       }
+    },
+
+    async refreshDiagnostics() {
+      diagnostics = normalizeDiagnostics(await fetchDiagnostics());
+      emit();
+      return diagnostics;
+    },
+
+    async refreshProbeResults() {
+      probeResults = normalizeProbeResults(await fetchProbeResults());
+      emit();
+      return probeResults;
+    },
+
+    installProbeResult(result) {
+      if (!result || !result.scope || !result.kind) return;
+      const key = probeResultKey(result);
+      probeResults = normalizeProbeResults({
+        ...probeResults,
+        latest_results: [result, ...probeResults.latest_results.filter((candidate) => probeResultKey(candidate) !== key)]
+      });
+      emit();
     }
   };
 

@@ -193,133 +193,78 @@ enum DraftGuardDecision: Sendable, Equatable {
     case cancel
 }
 
-struct ProbeResult: Decodable, Sendable {
-    let ok: Bool
-    let status: Int?
-    let firstByteMilliseconds: Int?
-    let connectMilliseconds: Int?
-    let tlsMilliseconds: Int?
-    let downloadedBytes: Int?
-    let downloadMilliseconds: Int?
-    let error: String?
-    let url: String?
-    let attempts: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case ok, status, error, url, attempts
-        case firstByteMilliseconds = "first_byte_milliseconds"
-        case connectMilliseconds = "connect_milliseconds"
-        case tlsMilliseconds = "tls_milliseconds"
-        case downloadedBytes = "downloaded_bytes"
-        case downloadMilliseconds = "download_milliseconds"
-    }
-
-    init(
-        ok: Bool, status: Int?, firstByteMilliseconds: Int?, connectMilliseconds: Int?,
-        tlsMilliseconds: Int?, downloadedBytes: Int?, downloadMilliseconds: Int?,
-        error: String?, url: String? = nil, attempts: Int? = nil
-    ) {
-        self.ok = ok
-        self.status = status
-        self.firstByteMilliseconds = firstByteMilliseconds
-        self.connectMilliseconds = connectMilliseconds
-        self.tlsMilliseconds = tlsMilliseconds
-        self.downloadedBytes = downloadedBytes
-        self.downloadMilliseconds = downloadMilliseconds
-        self.error = error
-        self.url = url
-        self.attempts = attempts
-    }
-}
-
-struct ProbeReport: Decodable, Sendable, Identifiable {
-    let ok: Bool
+struct ProbeLatestResult: Decodable, Sendable, Identifiable {
     let scope: String
     let objectID: String?
     let kind: String
-    let results: [ProbeResult]
-    let error: String?
-    let activeGeneration: String?
-    let activeDigest: String?
-    let savedDigest: String?
     let testedAt: String
+    let ok: Bool
+    let stale: Bool
+    let summary: String
+    let errorSummary: String
 
-    var id: String { "\(scope):\(objectID ?? "overview"):\(kind):\(testedAt)" }
+    var id: String { scope == "overview" ? "overview:\(kind)" : "\(scope):\(objectID ?? ""):\(kind)" }
 
     enum CodingKeys: String, CodingKey {
-        case ok, scope, kind, results, error
+        case scope, kind, ok, stale, summary
         case objectID = "object_id"
-        case activeGeneration = "active_generation"
-        case activeDigest = "active_digest"
-        case savedDigest = "saved_digest"
         case testedAt = "tested_at"
+        case errorSummary = "error_summary"
     }
 
     init(
-        ok: Bool, scope: String, objectID: String?, kind: String,
-        results: [ProbeResult], error: String?, activeGeneration: String?,
-        activeDigest: String?, savedDigest: String? = nil, testedAt: String
+        scope: String, objectID: String?, kind: String, testedAt: String,
+        ok: Bool, stale: Bool, summary: String, errorSummary: String
     ) {
-        self.ok = ok
         self.scope = scope
         self.objectID = objectID
         self.kind = kind
-        self.results = results
-        self.error = error
-        self.activeGeneration = activeGeneration
-        self.activeDigest = activeDigest
-        self.savedDigest = savedDigest
         self.testedAt = testedAt
+        self.ok = ok
+        self.stale = stale
+        self.summary = summary
+        self.errorSummary = errorSummary
     }
 
-    var summary: String {
-        guard let result = results.first(where: { $0.ok }) else {
-            return "失败"
-        }
-        if let bytes = result.downloadedBytes, let milliseconds = result.downloadMilliseconds, milliseconds > 0 {
-            return String(format: "%.1f Mbps", Double(bytes) * 8 / Double(milliseconds) / 1000)
-        }
-        if let milliseconds = result.firstByteMilliseconds ?? result.tlsMilliseconds ?? result.connectMilliseconds {
-            return "\(milliseconds) ms"
-        }
-        return result.status.map { "HTTP \($0)" } ?? "成功"
+    var localizedTestedAt: String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = formatter.date(from: testedAt) ?? ISO8601DateFormatter().date(from: testedAt)
+        guard let date else { return "时间未知" }
+        return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
     }
 
-    func isStale(relativeTo runtime: RuntimeStatus, savedDigest currentSavedDigest: String) -> Bool {
-        guard scope == "overview" else { return false }
-        guard let savedDigest, !savedDigest.isEmpty,
-              !currentSavedDigest.isEmpty,
-              savedDigest == currentSavedDigest else { return true }
-        let reportGeneration = activeGeneration ?? ""
-        let reportDigest = activeDigest ?? ""
-        if reportGeneration.isEmpty && reportDigest.isEmpty {
-            return runtime.healthy || !runtime.generationID.isEmpty || !runtime.intentDigest.isEmpty
-        }
-        guard !reportGeneration.isEmpty, !reportDigest.isEmpty else { return true }
-        return runtime.generationID != reportGeneration
-            || runtime.intentDigest != reportDigest
-    }
+}
+
+struct ProbeLatestPresentation: Identifiable, Sendable {
+    let id: String
+    let text: String
+    let ok: Bool
+    let stale: Bool
 }
 
 struct ProbeDiagnostics: Decodable, Sendable {
-    let reports: [ProbeReport]
-    let savedDigest: String?
-    let activeGeneration: String?
-    let activeDigest: String?
     let dnsCapture: DNSCaptureDiagnostic?
     let warnings: [String]
 
     enum CodingKeys: String, CodingKey {
-        case reports, warnings
-        case savedDigest = "saved_digest"
-        case activeGeneration = "active_generation"
-        case activeDigest = "active_digest"
+        case warnings
         case dnsCapture = "dns_capture"
     }
 
-    static let empty = ProbeDiagnostics(
-        reports: [], savedDigest: nil, activeGeneration: nil, activeDigest: nil, dnsCapture: nil, warnings: []
-    )
+    static let empty = ProbeDiagnostics(dnsCapture: nil, warnings: [])
+}
+
+struct ProbeLatestResults: Decodable, Sendable {
+    let latestResults: [ProbeLatestResult]
+    let warnings: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case latestResults = "latest_results"
+        case warnings
+    }
+
+    static let empty = ProbeLatestResults(latestResults: [], warnings: [])
 }
 
 struct DNSCaptureDiagnostic: Decodable, Sendable {
@@ -703,8 +648,9 @@ protocol BackendClient: Sendable {
     func logs() async throws -> String
     func versions() async throws -> RuntimeVersions
     func parseNodes(document: String) async throws -> NodeImportResult
-    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport
+    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeLatestResult
     func diagnostics() async throws -> ProbeDiagnostics
+    func probeResults() async throws -> ProbeLatestResults
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus]
     func updateSubscription(id: String) async throws
     func cleanSubscription(id: String, nodeID: String) async throws
@@ -713,6 +659,7 @@ protocol BackendClient: Sendable {
 
 extension BackendClient {
     func diagnostics() async throws -> ProbeDiagnostics { .empty }
+    func probeResults() async throws -> ProbeLatestResults { .empty }
 }
 
 struct HelperBackendClient: BackendClient {
@@ -995,7 +942,7 @@ struct HelperBackendClient: BackendClient {
         }
     }
 
-    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeReport {
+    func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeLatestResult {
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
         try requireExecutable(helper)
         var arguments = ["probe", "--kind", kind]
@@ -1003,7 +950,7 @@ struct HelperBackendClient: BackendClient {
         if let routeID { arguments += ["--route", routeID] }
         if download { arguments.append("--download") }
         let result = try await Self.execute(helper, arguments)
-        guard let report = try? JSONDecoder().decode(ProbeReport.self, from: result.stdout) else {
+        guard let report = try? JSONDecoder().decode(ProbeLatestResult.self, from: result.stdout) else {
             throw result.status == 0 ? BackendClientError.invalidResponse : result.error
         }
         return report
@@ -1017,6 +964,16 @@ struct HelperBackendClient: BackendClient {
             throw result.status == 0 ? BackendClientError.invalidResponse : result.error
         }
         return diagnostics
+    }
+
+    func probeResults() async throws -> ProbeLatestResults {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let result = try await Self.execute(helper, ["_probe-results"])
+        guard let results = try? JSONDecoder().decode(ProbeLatestResults.self, from: result.stdout) else {
+            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        }
+        return results
     }
 
     func subscriptionStatuses() async throws -> [SubscriptionRuntimeStatus] {
@@ -1288,10 +1245,7 @@ final class AppModel: ObservableObject {
     @Published var systemComponentsHaveArtifacts = false
     @Published var systemComponentFacts: [SystemComponentFact] = []
     @Published var subscriptionRuntime: [SubscriptionRuntimeStatus] = []
-    @Published var probeSummaries: [String: String] = [:]
-    @Published private(set) var overviewProbeReports: [String: ProbeReport] = [:]
-    @Published private(set) var probeReports: [String: ProbeReport] = [:]
-    @Published private(set) var diagnosticsSavedDigest = ""
+    @Published private(set) var latestProbeResults: [String: ProbeLatestResult] = [:]
     @Published private(set) var diagnosticsWarnings: [String] = []
     @Published private(set) var diagnosticsDNSCapture: DNSCaptureDiagnostic?
     @Published var geositeNames: [String] = []
@@ -1310,7 +1264,6 @@ final class AppModel: ObservableObject {
     private var cachedDraftValue: JSONValue?
     private var cachedDraftError: String?
     private(set) var draftDecodeCount = 0
-    private var probeReportDraftSequences: [String: UInt64] = [:]
     private var initialStateLoadInProgress = false
     private var terminationReply: ((Bool) -> Void)?
 
@@ -1462,6 +1415,9 @@ final class AppModel: ObservableObject {
                 if let diagnostics = try? await self.backend.diagnostics() {
                     self.installDiagnostics(diagnostics)
                 }
+                if let probeResults = try? await self.backend.probeResults() {
+                    self.installProbeResults(probeResults)
+                }
                 self.versions = try await self.backend.versions()
                 self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
                 self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
@@ -1532,9 +1488,11 @@ final class AppModel: ObservableObject {
         perform(message: "正在刷新诊断数据…") {
             async let runtime = self.backend.status()
             async let diagnostics = self.backend.diagnostics()
+            async let probeResults = self.backend.probeResults()
             async let logs = self.backend.logs()
             self.runtime = try await runtime
             self.installDiagnostics(try await diagnostics)
+            self.installProbeResults(try await probeResults)
             self.diagnosticsLog = try await logs
             self.message = "诊断数据已刷新"
         }
@@ -1675,6 +1633,7 @@ final class AppModel: ObservableObject {
             }
 
             self.runtime = outcome.status
+            await self.refreshProbeResultsIfAvailable()
             self.updateComponentStatus(await self.backend.componentStatus())
             guard outcome.saved else {
                 throw BackendClientError.processFailed(
@@ -1739,6 +1698,7 @@ final class AppModel: ObservableObject {
             do {
                 let outcome = try await backend.apply(document: updatedDocument, expectedRevision: expectedRevision)
                 runtime = outcome.status
+                await refreshProbeResultsIfAvailable()
                 updateComponentStatus(await backend.componentStatus())
                 guard outcome.saved else {
                     throw BackendClientError.processFailed(
@@ -2139,34 +2099,24 @@ final class AppModel: ObservableObject {
         Task {
             defer { activeProbeKeys.remove(key) }
             do {
-                let report = try await backend.probe(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
-                probeSummaries[key] = report.summary
-                probeReports[key] = report
-                probeReportDraftSequences[key] = draftMutationSequence
+                let result = try await backend.probe(kind: kind, nodeID: nodeID, routeID: routeID, download: download)
+                latestProbeResults[key] = result
                 if isOverview {
-                    overviewProbeReports[key] = report
-                    if let savedDigest = report.savedDigest, !savedDigest.isEmpty {
-                        diagnosticsSavedDigest = savedDigest
-                    }
-                    message = report.ok
-                        ? "连通性测试完成：\(report.summary)"
-                        : "连通性测试失败；详细原因请查看诊断日志"
+                    message = result.ok
+                        ? "连通性测试完成：\(result.summary)"
+                        : "连通性测试失败：\(result.errorSummary)"
                 } else {
-                    message = report.ok
-                        ? "测试完成：\(report.summary)"
-                        : (download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志")
+                    message = result.ok
+                        ? "测试完成：\(result.summary)"
+                        : "\(download ? "下载测速" : "连接测试")失败：\(result.errorSummary)"
                 }
             } catch {
-                probeSummaries[key] = "失败"
-                if let diagnostics = try? await backend.diagnostics() {
-                    installDiagnostics(diagnostics)
+                if let results = try? await backend.probeResults() {
+                    installProbeResults(results)
                 }
-                if isOverview {
-                    overviewProbeReports.removeValue(forKey: key)
-                    message = "连通性测试失败；请检查已保存的测试地址和当前网络，详细原因可查看诊断日志"
-                } else {
-                    message = download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志"
-                }
+                message = isOverview
+                    ? "连通性测试失败；请检查已保存的测试地址和当前网络，详细原因可查看诊断日志"
+                    : (download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志")
             }
         }
     }
@@ -2185,13 +2135,13 @@ final class AppModel: ObservableObject {
                 let key = probeKey(kind: "speedtest", nodeID: nodeID, routeID: nil, download: download)
                 guard activeProbeKeys.insert(key).inserted else { continue }
                 do {
-                    let report = try await backend.probe(kind: "speedtest", nodeID: nodeID, routeID: nil, download: download)
-                    probeSummaries[key] = report.summary
-                    probeReports[key] = report
-                    probeReportDraftSequences[key] = draftMutationSequence
-                    if report.ok { succeeded += 1 }
+                    let result = try await backend.probe(kind: "speedtest", nodeID: nodeID, routeID: nil, download: download)
+                    latestProbeResults[key] = result
+                    if result.ok { succeeded += 1 }
                 } catch {
-                    probeSummaries[key] = "失败"
+                    if let results = try? await backend.probeResults() {
+                        installProbeResults(results)
+                    }
                 }
                 activeProbeKeys.remove(key)
             }
@@ -2209,57 +2159,43 @@ final class AppModel: ObservableObject {
 
     func overviewProbeSummary(_ kind: String) -> String {
         let key = "overview:\(kind)"
-        guard let report = overviewProbeReports[key] else {
-            return probeSummaries[key] ?? "未测试"
-        }
-        return report.summary + (report.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) ? " · 已过期" : "")
+        guard let result = latestProbeResults[key] else { return "未测试" }
+        let summary = result.ok ? result.summary : result.errorSummary
+        return summary + (result.stale ? " · 已过期" : "")
     }
 
     func overviewProbeDetail(_ kind: String) -> String? {
-        guard let report = overviewProbeReports["overview:\(kind)"] else { return nil }
-        let stale = report.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) ? " · 已过期" : ""
-        return "测试时间 \(report.testedAt)\(stale)"
+        guard let result = latestProbeResults["overview:\(kind)"] else { return nil }
+        return "上次 \(result.localizedTestedAt)\(result.stale ? " · 已过期" : "")"
     }
 
     func overviewProbeIsStale(_ kind: String) -> Bool {
-        overviewProbeReports["overview:\(kind)"]?.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) == true
+        latestProbeResults["overview:\(kind)"]?.stale == true
     }
 
-    var diagnosticProbeReports: [ProbeReport] {
-        probeReports.values.sorted { $0.testedAt > $1.testedAt }
-    }
-
-    func probeReportIsStale(_ report: ProbeReport) -> Bool {
-        if report.scope == "overview" {
-            return report.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest)
-        }
-        let key = reportKey(report)
-        if isDirty || probeReportDraftSequences[key] != draftMutationSequence {
-            return true
-        }
-        guard let savedDigest = report.savedDigest, !savedDigest.isEmpty,
-              !diagnosticsSavedDigest.isEmpty else { return true }
-        return savedDigest != diagnosticsSavedDigest
+    func latestProbePresentation(scope: String, objectID: String, download: Bool) -> ProbeLatestPresentation? {
+        let kind = download ? "download" : "connect"
+        let key = "\(scope):\(objectID):\(kind)"
+        guard let result = latestProbeResults[key] else { return nil }
+        let outcome = result.ok ? "成功" : "失败"
+        let metric = result.ok ? result.summary : result.errorSummary
+        let label = download ? "下载" : "连接"
+        return ProbeLatestPresentation(
+            id: kind,
+            text: "\(label) · 上次 \(result.localizedTestedAt) · \(result.stale ? "已过期 · " : "")\(outcome) · \(metric)",
+            ok: result.ok,
+            stale: result.stale
+        )
     }
 
     private func installDiagnostics(_ diagnostics: ProbeDiagnostics) {
-        diagnosticsSavedDigest = diagnostics.savedDigest ?? ""
         diagnosticsWarnings = diagnostics.warnings
         diagnosticsDNSCapture = diagnostics.dnsCapture
-        for report in diagnostics.reports {
-            let key = reportKey(report)
-            probeReports[key] = report
-            probeSummaries[key] = report.summary
-            probeReportDraftSequences[key] = draftMutationSequence
-            if report.scope == "overview" {
-                overviewProbeReports[key] = report
-            }
-        }
     }
 
-    private func reportKey(_ report: ProbeReport) -> String {
-        if report.scope == "overview" { return "overview:\(report.kind)" }
-        return "\(report.scope):\(report.objectID ?? "unknown"):\(report.kind)"
+    private func installProbeResults(_ results: ProbeLatestResults) {
+        diagnosticsWarnings = Array(Set(diagnosticsWarnings + results.warnings)).sorted()
+        latestProbeResults = Dictionary(uniqueKeysWithValues: results.latestResults.map { ($0.id, $0) })
     }
 
     private func probeKey(kind: String, nodeID: String?, routeID: String?, download: Bool) -> String {
@@ -2625,7 +2561,6 @@ final class AppModel: ObservableObject {
         isDirty = false
         validation = nil
         validationFocus = nil
-        diagnosticsSavedDigest = ""
     }
 
     private func updateComponentStatus(_ components: SystemComponentsStatus) {
@@ -2649,7 +2584,6 @@ final class AppModel: ObservableObject {
     ) -> Bool {
         let draftStayedAtSavedVersion = draftMatches(document: document, sequence: draftSequence)
         savedRevision = revision
-        diagnosticsSavedDigest = ""
         revisionConflict = nil
         isDirty = !draftStayedAtSavedVersion
         return draftStayedAtSavedVersion
@@ -2667,6 +2601,7 @@ final class AppModel: ObservableObject {
             document: document,
             draftSequence: draftSequence
         )
+        await refreshProbeResultsIfAvailable()
         if draftStayedAtSavedVersion { validation = outcome.validation }
         message = draftStayedAtSavedVersion
             ? "配置已保存；运行配置未改变"
@@ -2682,6 +2617,7 @@ final class AppModel: ObservableObject {
     ) async throws -> Bool {
         let outcome = try await backend.apply(document: document, expectedRevision: expectedRevision)
         runtime = outcome.status
+        await refreshProbeResultsIfAvailable()
         updateComponentStatus(await backend.componentStatus())
         guard outcome.saved else {
             throw BackendClientError.processFailed(
@@ -2706,6 +2642,12 @@ final class AppModel: ObservableObject {
                 : "操作开始时的工作副本已应用；期间产生的新修改仍未保存"
         }
         return draftStayedAtSavedVersion
+    }
+
+    private func refreshProbeResultsIfAvailable() async {
+        if let results = try? await backend.probeResults() {
+            installProbeResults(results)
+        }
     }
 
     @discardableResult

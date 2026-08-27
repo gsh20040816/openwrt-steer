@@ -3,71 +3,39 @@
 'use strict';
 (function () {
   const S = window.S;
-  const { h, fmtDuration, fmtReport, fmtTime } = S;
+  const { h, fmtLatestProbe } = S;
   const ui = S.ui;
 
   const overviewBoundary = '使用设备当前网络环境访问已保存的测试地址；即使 Steer 未启用也可以测试。成功仅表示该地址在测试时可达。';
 
   function fact(label, value) { return h('div', { class: 'fact' }, h('dt', {}, label), h('dd', {}, value)); }
 
-  function reportIsStale(report, diagnostics) {
-    if (report.scope === 'overview') {
-      return !report.saved_digest || report.saved_digest !== diagnostics.saved_digest ||
-        (report.active_generation || '') !== (diagnostics.active_generation || '') ||
-        (report.active_digest || '') !== (diagnostics.active_digest || '');
-    }
-    return S.store.dirty || !report.saved_digest || report.saved_digest !== diagnostics.saved_digest;
-  }
-
-  function reportView(report, diagnostics) {
-    const stale = reportIsStale(report, diagnostics);
-    const result = report.results?.[0] || {};
-    const rate = result.downloaded_bytes > 0 && result.download_milliseconds > 0
-      ? (result.downloaded_bytes * 8 / result.download_milliseconds / 1000).toFixed(1) + ' Mbps'
-      : '—';
-    const scopeLabel = { overview: '总览', node: '节点', nodes: '节点', route: '路由', routes: '路由' }[report.scope] || '测试对象';
-    const target = report.scope === 'overview' ? scopeLabel : scopeLabel;
-    const kind = { direct: '直连测试', proxy: '代理测试', speedtest: '下载测试', connect: '连接测试', download: '下载测试' }[report.kind] || '连通性测试';
-    return h('article', { class: 'card card--compact' }, [
-      h('div', { class: 'card__head' }, [
-        h('div', {}, h('strong', {}, target), h('span', { class: 'muted' }, ` · ${kind}`)),
-        h('span', { class: `badge ${stale ? 'badge--warn' : (report.ok ? 'badge--ok' : 'badge--err')}` }, stale ? '已过期' : (report.ok ? '成功' : '失败'))
-      ]),
-      h('div', { class: 'facts' }, [
-        fact('测试时间', report.tested_at ? fmtTime(report.tested_at) : '—'),
-        fact('URL', result.url || '—'),
-        fact('尝试', String(result.attempts ?? '—')),
-        fact('连接', fmtDuration(result.connect_milliseconds)),
-        fact('TLS', fmtDuration(result.tls_milliseconds)),
-        fact('TTFB', fmtDuration(result.first_byte_milliseconds)),
-        fact('HTTP', String(result.status ?? '—')),
-        fact('下载', result.downloaded_bytes ? `${result.downloaded_bytes} 字节 / ${fmtDuration(result.download_milliseconds)}` : '—'),
-        fact('速率', rate)
-      ]),
-      report.error || result.error ? h('p', { class: 'alert alert--err' }, report.error || result.error) : null
-    ]);
-  }
-
-  function probeCard(kind, title, description) {
-    const out = h('div', { class: 'test-slot' }, h('span', { class: 'muted' }, '未测试'));
+  function probeCard(kind, title, description, probeResults) {
+    const resultForKind = () => (probeResults.latest_results || [])
+      .find((result) => result.scope === 'overview' && result.kind === kind);
+    const out = h('div', { class: 'test-slot' });
+    const showLatest = (result = resultForKind()) => {
+      const latest = fmtLatestProbe(result);
+      out.replaceChildren(h('div', {
+        class: `test-result ${latest.stale ? 'is-stale' : (latest.ok === false ? 'is-err' : (latest.ok ? 'is-ok' : ''))}`
+      }, h('strong', {}, latest.text)));
+    };
+    showLatest();
     const run = h('button', { class: 'btn', onclick: async () => {
       run.disabled = true;
       out.replaceChildren(h('span', { class: 'muted spinning' }, '测试中…'));
       try {
-        const report = await S.api.probe(kind);
-        const summary = fmtReport(report, kind === 'speedtest');
-        const result = report.results?.[0] || {};
-        out.replaceChildren(
-          h('div', { class: `test-result ${summary.ok ? 'is-ok' : 'is-err'}` }, h('strong', {}, summary.label), h('small', {}, summary.detail)),
-          h('div', { class: 'facts u-mt-10' }, [
-            fact('测试时间', report.tested_at ? fmtTime(report.tested_at) : '—'),
-            fact('URL', result.url || '—'), fact('连接', fmtDuration(result.connect_milliseconds)),
-            fact('TLS', fmtDuration(result.tls_milliseconds)), fact('TTFB', fmtDuration(result.first_byte_milliseconds)),
-            fact('HTTP', String(result.status ?? '—')), fact('尝试次数', String(result.attempts ?? '—'))
-          ])
-        );
+        const result = await S.api.probe(kind);
+        S.store.installProbeResult?.(result);
+        showLatest(result);
       } catch (error) {
-        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, '测试未成功，详情请查看下方报告')));
+        try {
+          const refreshed = await S.store.refreshProbeResults();
+          probeResults.latest_results = refreshed.latest_results;
+          showLatest();
+        } catch (_) {
+          out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '本次请求失败 · 请查看诊断日志')));
+        }
       }
       run.disabled = false;
     } }, '运行测试');
@@ -78,10 +46,13 @@
     name: 'diagnostics',
     async render(root) {
       const isCurrent = ui.beginRender(root);
-      let logs = { output: '' }, diagnostics = { reports: [], warnings: [] }, validation = { errors: [], warnings: [] };
-      [logs, diagnostics, validation] = await Promise.all([
+      let logs = { output: '' }, diagnostics = { warnings: [] }, probeResults = { latest_results: [], warnings: [] }, validation = { errors: [], warnings: [] };
+      [logs, diagnostics, probeResults, validation] = await Promise.all([
         S.api.logs().catch((error) => ({ output: `日志刷新失败：${error.message}` })),
-        S.api.diagnostics().catch((error) => ({ reports: [], warnings: [`报告刷新失败：${error.message}`] })),
+        (typeof S.store.refreshDiagnostics === 'function' ? S.store.refreshDiagnostics() : S.api.diagnostics())
+          .catch((error) => ({ warnings: [`诊断状态刷新失败：${error.message}`] })),
+        (typeof S.store.refreshProbeResults === 'function' ? S.store.refreshProbeResults() : S.api.probeResults())
+          .catch((error) => ({ latest_results: [], warnings: [`最近结果刷新失败：${error.message}`] })),
         S.api.validate(S.store.intent).catch((error) => ({ errors: [{ code: 'VALIDATION_UNAVAILABLE', message: error.message }], warnings: [] }))
       ]);
       const status = S.store.overview?.status || {};
@@ -94,9 +65,9 @@
       root.append(
         ui.viewHead('诊断', overviewBoundary, [refresh]),
         h('div', { class: 'grid-3' }, [
-          probeCard('direct', '直连目标', '在当前网络环境中测试直连地址'),
-          probeCard('proxy', '代理目标', '在当前网络环境中测试代理地址'),
-          probeCard('speedtest', '下载目标', '在当前网络环境中测试下载速度')
+          probeCard('direct', '直连目标', '在当前网络环境中测试直连地址', probeResults),
+          probeCard('proxy', '代理目标', '在当前网络环境中测试代理地址', probeResults),
+          probeCard('speedtest', '下载目标', '在当前网络环境中测试下载速度', probeResults)
         ]),
         h('section', { class: 'card card--edge edge--dns' }, [
           h('div', { class: 'card__head' }, [
@@ -109,11 +80,8 @@
               : (dnsCapture.detail || '尚未检查'))
           ])
         ]),
-        h('section', { class: 'card' }, [
-          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '测试报告'), h('div', { class: 'card__title' }, '最近连通性报告'))),
-          ...(diagnostics.warnings || []).map((warning) => h('p', { class: 'alert' }, warning)),
-          (diagnostics.reports || []).length ? h('div', { class: 'stack' }, diagnostics.reports.map((report) => reportView(report, diagnostics))) : h('p', { class: 'muted' }, '尚无已保存测试报告')
-        ]),
+        ...(diagnostics.warnings || []).slice(0, 3).map((warning) => h('p', { class: 'alert' }, warning)),
+        ...(probeResults.warnings || []).slice(0, 3).map((warning) => h('p', { class: 'alert' }, warning)),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '配置校验'), h('div', { class: 'card__title' }, '当前工作副本'))),
           (validation.errors || []).length || (validation.warnings || []).length

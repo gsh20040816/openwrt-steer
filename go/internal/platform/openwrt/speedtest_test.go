@@ -82,7 +82,7 @@ config route 'disabled_route'
 	}
 }
 
-func TestReadDiagnosticsReturnsSavedIdentityAndArchivedReports(t *testing.T) {
+func TestReadLatestProbeResultsReturnsBackendDTO(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "steer")
 	stateDirectory := filepath.Join(root, "state")
@@ -94,9 +94,9 @@ func TestReadDiagnosticsReturnsSavedIdentityAndArchivedReports(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	diagnostics := ReadDiagnostics(configPath, filepath.Join(root, "run"), stateDirectory)
-	if diagnostics.SavedDigest == "" || len(diagnostics.Reports) != 1 || diagnostics.Reports[0].Kind != "direct" {
-		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	results := ReadLatestProbeResults(configPath, filepath.Join(root, "run"), stateDirectory)
+	if len(results.Results) != 1 || results.Results[0].Kind != "direct" || !results.Results[0].Stale {
+		t.Fatalf("unexpected latest probe results: %#v", results)
 	}
 }
 

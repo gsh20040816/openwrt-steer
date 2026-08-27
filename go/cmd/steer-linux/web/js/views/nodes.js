@@ -3,7 +3,7 @@
 'use strict';
 (function () {
   const S = window.S;
-  const { h, fmtReport, asList } = S;
+  const { h, fmtLatestProbe, asList } = S;
   const ui = S.ui;
 
   const MANUAL = '_manual';
@@ -15,7 +15,25 @@
       if (button.classList.contains('spinning')) return;
       button.disabled = !button._eligible || S.store.dirty;
       button.title = !button._eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : button._label);
+      syncLatest(button);
     }));
+  }
+
+  function latestResult(nodeId, download) {
+    const kind = download ? 'download' : 'connect';
+    return (S.store.probeResults?.latest_results || []).find((result) =>
+      result.scope === 'nodes' && result.object_id === nodeId && result.kind === kind);
+  }
+
+  function syncLatest(button, result = latestResult(button._nodeId, button._download)) {
+    if (!button._latest) return;
+    const latest = fmtLatestProbe(result);
+    button._latest.className = `probe-latest ${latest.stale ? 'is-stale' : (latest.ok === false ? 'is-err' : '')}`;
+    button._latest.replaceChildren(latest.text);
+  }
+
+  function probeAction(button) {
+    return h('div', { class: 'probe-action' }, button, button._latest);
   }
 
   const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.node_types.map((item) => [item.value, item.label]));
@@ -85,23 +103,29 @@
       btn.classList.add('spinning');
       btn.textContent = '测试中…';
       try {
-        const report = await S.api.speedtestNode(nodeId, download);
-        const r = fmtReport(report, download);
+        const result = await S.api.speedtestNode(nodeId, download);
+        S.store.installProbeResult?.(result);
         btn.classList.remove('spinning');
-        btn.textContent = r.label;
-        btn.title = r.detail;
-        btn.classList.toggle('is-ok', r.ok);
-        btn.classList.toggle('is-err', !r.ok);
+        btn.textContent = result.ok ? (result.summary || '成功') : '失败';
+        btn.title = result.ok ? '成功' : (result.error_summary || '详细原因请查看诊断日志');
+        btn.classList.toggle('is-ok', result.ok);
+        btn.classList.toggle('is-err', !result.ok);
+        syncLatest(btn, result);
       } catch (e) {
         btn.classList.remove('spinning');
         btn.textContent = '失败';
         btn.title = '详细原因请查看诊断日志';
         btn.classList.add('is-err');
+        try { await S.store.refreshProbeResults(); syncLatest(btn); } catch (_) { /* keep explicit request failure */ }
       }
       syncTestButtons();
     }, disabled: !eligible || S.store.dirty, title: !eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : label) }, label);
     btn._eligible = eligible;
     btn._label = label;
+    btn._nodeId = nodeId;
+    btn._download = download;
+    btn._latest = h('small', { class: 'probe-latest' });
+    syncLatest(btn);
     return btn;
   }
 
@@ -135,14 +159,18 @@
           btn.classList.add('spinning');
           btn.textContent = '…';
           try {
-            const report = await S.api.speedtestNode(id, download);
-            const r = fmtReport(report, download);
-            btn.textContent = r.label;
-            btn.title = r.detail;
-            btn.classList.toggle('is-ok', r.ok);
-            btn.classList.toggle('is-err', !r.ok);
-            if (r.ok) succeeded++;
-          } catch (e) { btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err'); }
+            const result = await S.api.speedtestNode(id, download);
+            S.store.installProbeResult?.(result);
+            btn.textContent = result.ok ? (result.summary || '成功') : '失败';
+            btn.title = result.ok ? '成功' : (result.error_summary || '详细原因请查看诊断日志');
+            btn.classList.toggle('is-ok', result.ok);
+            btn.classList.toggle('is-err', !result.ok);
+            if (result.ok) succeeded++;
+            syncLatest(btn, result);
+          } catch (e) {
+            btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err');
+            try { await S.store.refreshProbeResults(); syncLatest(btn); } catch (_) { /* keep explicit request failure */ }
+          }
           btn.classList.remove('spinning');
         }
         button.textContent = `${title} · ${cursor}/${ids.length}`;
@@ -388,7 +416,7 @@
             h('td', {}, h('div', {}, h('div', {}, h('strong', {}, node.name || node.id)), node.pinned_stale ? h('span', { class: 'badge badge--stale' }, '已失效') : null)),
             h('td', {}, h('span', { class: `badge protocol-badge protocol--${node.type}` }, PROTOCOL_LABEL[node.type] || node.type)),
             h('td', { class: 'mono' }, nodeEndpoint(node)),
-            h('td', {}, h('div', { class: 'row-actions' }, conn, down)),
+            h('td', {}, h('div', { class: 'row-actions row-actions--probe' }, probeAction(conn), probeAction(down))),
             h('td', {}, h('div', { class: 'row-actions' }, edit, del))
           ]);
         }))

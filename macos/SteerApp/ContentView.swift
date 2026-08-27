@@ -773,10 +773,10 @@ struct DraftCollectionView: View {
                             .lineLimit(descriptor.key == "rules" ? 3 : 1)
                             .foregroundStyle(.secondary)
                             .help(runtimeDetail(item))
-                        if let result = probeSummary(item) {
-                            Text(result)
+                        ForEach(probePresentations(item)) { result in
+                            Text(result.text)
                                 .font(.caption.monospaced())
-                                .foregroundStyle(result.hasPrefix("失败") ? .red : .green)
+                                .foregroundStyle(result.stale ? Color.orange : (result.ok ? Color.green : Color.red))
                         }
                     }
                 }
@@ -1050,12 +1050,11 @@ struct DraftCollectionView: View {
         return !isPinned(items[position + 1])
     }
 
-    private func probeSummary(_ item: DraftItem) -> String? {
-        guard descriptor.key == "nodes" || descriptor.key == "routes" else { return nil }
-        let prefix = "\(descriptor.key):\(item.identifier):"
-        let connect = model.probeSummaries[prefix + "connect"]
-        let download = model.probeSummaries[prefix + "download"]
-        return [connect.map { "连接 \($0)" }, download.map { "下载 \($0)" }].compactMap { $0 }.joined(separator: " · ").nilIfEmpty
+    private func probePresentations(_ item: DraftItem) -> [ProbeLatestPresentation] {
+        guard descriptor.key == "nodes" || descriptor.key == "routes" else { return [] }
+        return [false, true].compactMap { download in
+            model.latestProbePresentation(scope: descriptor.key, objectID: item.identifier, download: download)
+        }
     }
 
     @ViewBuilder
@@ -1091,10 +1090,6 @@ struct DraftCollectionView: View {
     }
 }
 
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
-}
-
 struct DiagnosticsView: View {
     @ObservedObject var model: AppModel
 
@@ -1113,17 +1108,12 @@ struct DiagnosticsView: View {
                 overviewProbeResult("代理 URL", kind: "proxy")
                 overviewProbeResult("下载 URL", kind: "speedtest")
             }
-            Section("最近测试报告") {
-                if model.diagnosticProbeReports.isEmpty {
-                    Label("尚无已保存报告", systemImage: "doc.text.magnifyingglass")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(model.diagnosticProbeReports) { report in
-                    probeReport(report)
-                }
-                ForEach(model.diagnosticsWarnings, id: \.self) { warning in
+            if !model.diagnosticsWarnings.isEmpty {
+                Section("诊断数据") {
+                    ForEach(Array(model.diagnosticsWarnings.prefix(3)), id: \.self) { warning in
                     Label(warning, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
+                    }
                 }
             }
             Section("配置校验") {
@@ -1237,50 +1227,6 @@ struct DiagnosticsView: View {
         }
     }
 
-    @ViewBuilder
-    private func probeReport(_ report: ProbeReport) -> some View {
-        let stale = model.probeReportIsStale(report)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(reportScopeLabel(report.scope))
-                    .fontWeight(.medium)
-                Text(reportKindLabel(report.kind)).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Label(stale ? "已过期" : (report.ok ? "成功" : "失败"),
-                      systemImage: stale ? "clock.badge.exclamationmark" : (report.ok ? "checkmark.circle.fill" : "xmark.circle.fill"))
-                    .font(.caption)
-                    .foregroundStyle(stale ? .orange : (report.ok ? .green : .red))
-            }
-            LabeledContent("测试时间", value: report.testedAt)
-            if let result = report.results.first {
-                if let url = result.url, !url.isEmpty { LabeledContent("URL", value: url) }
-                if let attempts = result.attempts { LabeledContent("尝试次数", value: String(attempts)) }
-                HStack(spacing: 14) {
-                    measurement("Connect", result.connectMilliseconds, "ms")
-                    measurement("TLS", result.tlsMilliseconds, "ms")
-                    measurement("TTFB", result.firstByteMilliseconds, "ms")
-                    measurement("HTTP", result.status, "")
-                }
-                if let bytes = result.downloadedBytes, bytes > 0 {
-                    let milliseconds = result.downloadMilliseconds ?? 0
-                    let rate = milliseconds > 0 ? String(format: "%.1f Mbps", Double(bytes) * 8 / Double(milliseconds) / 1000) : "—"
-                    Text("\(bytes) 字节 · \(milliseconds) ms · \(rate)")
-                        .font(.caption.monospaced())
-                }
-                if let error = result.error, !error.isEmpty { Text(error).foregroundStyle(.red) }
-            }
-            if let error = report.error, !error.isEmpty { Text(error).foregroundStyle(.red) }
-        }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private func measurement(_ label: String, _ value: Int?, _ suffix: String) -> some View {
-        if let value {
-            Text("\(label) \(value)\(suffix)").font(.caption.monospaced())
-        }
-    }
-
     private func issueRow(_ issue: ValidationIssue, isError: Bool) -> some View {
         return Button {
             model.focusValidationIssue(issue)
@@ -1297,15 +1243,6 @@ struct DiagnosticsView: View {
         }
         .buttonStyle(.plain)
         .disabled(issue.destinationPage == nil)
-    }
-
-    private func reportScopeLabel(_ scope: String) -> String {
-        switch scope {
-        case "overview": return "总览"
-        case "node", "nodes": return "节点"
-        case "route", "routes": return "路由"
-        default: return "测试对象"
-        }
     }
 
     private func validationIssueMessage(_ issue: ValidationIssue) -> String {
@@ -1329,15 +1266,6 @@ struct DiagnosticsView: View {
         }
     }
 
-    private func reportKindLabel(_ kind: String) -> String {
-        switch kind {
-        case "direct": return "直连测试"
-        case "proxy": return "代理测试"
-        case "speedtest", "download": return "下载测试"
-        case "connect": return "连接测试"
-        default: return "连通性测试"
-        }
-    }
 }
 
 struct SystemView: View {
@@ -1551,7 +1479,7 @@ private extension AppPage {
         case .rules: return "从上到下严格匹配，Default 必须位于最后"
         case .subscriptions: return "管理订阅源、节点更新与失效节点清理"
         case .proxies: return "本机 SOCKS、HTTP 与 Mixed 入口"
-        case .diagnostics: return "连通性报告、配置校验、应用结果与系统日志"
+        case .diagnostics: return "连通性测试、最新结果、配置校验、应用结果与系统日志"
         case .settings: return "系统组件、版本与存储路径"
         }
     }

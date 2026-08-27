@@ -724,59 +724,73 @@ function setSpeedtestButton(button, state, label, detail) {
 	button.title = detail || '';
 }
 
-function speedtestResult(report, download) {
-	const results = report?.results || [];
-	const successful = results.filter((result) => result.ok === true);
-	if (!successful.length)
-		return { ok: false, label: _('Failed'), detail: _('See diagnostic logs for details.') };
-
-	if (download) {
-		const measured = successful.filter((result) => result.downloaded_bytes > 0 && result.download_milliseconds > 0)
-			.map((result) => ({ result, mbps: result.downloaded_bytes * 8 / result.download_milliseconds / 1000 }))
-			.sort((left, right) => right.mbps - left.mbps);
-		if (!measured.length)
-			return { ok: false, label: _('Failed'), detail: _('No download measurement was returned.') };
-		return {
-			ok: true,
-			label: _('%s Mbps').format(measured[0].mbps.toFixed(1)),
-			detail: measured.map((item) => '%s: %s Mbps · %s'.format(
-				item.result.url,
-				item.mbps.toFixed(1),
-				_('%s bytes in %s ms · HTTP %s').format(item.result.downloaded_bytes, item.result.download_milliseconds, item.result.status)
-			)).join('\n')
-		};
-	}
-
-	const measured = successful.map((result) => ({
-		result,
-		milliseconds: result.first_byte_milliseconds ?? result.tls_milliseconds ?? result.connect_milliseconds ?? 0
-	})).sort((left, right) => left.milliseconds - right.milliseconds);
-	if (!measured.length)
-		return { ok: false, label: _('Failed'), detail: _('No connection latency was returned.') };
+function latestProbePresentation(result) {
+	if (!result)
+		return { text: _('Not tested'), ok: null, stale: false };
+	const tested = new Date(result.tested_at);
+	const testedAt = Number.isNaN(tested.getTime()) ? '—' : tested.toLocaleString();
 	return {
-		ok: true,
-		label: _('%d ms').format(measured[0].milliseconds),
-		detail: measured.map((item) => '%s: %s'.format(item.result.url,
-			_('Connect %s ms · TLS %s ms · HTTP %s · %s attempt(s)').format(
-				item.result.connect_milliseconds || 0,
-				item.result.tls_milliseconds || 0,
-				item.result.status,
-				item.result.attempts
-			))).join('\n')
+		text: [ _('Tested at'), testedAt, result.stale ? _('Outdated') : '',
+			result.ok ? _('Succeeded') : _('Failed'), result.ok ? result.summary : result.error_summary ]
+			.filter(Boolean).join(' · '),
+		ok: result.ok,
+		stale: result.stale === true
 	};
+}
+
+function findLatestProbe(probeResults, scope, objectId, kind) {
+	return (probeResults?.latest_results || []).find((result) =>
+		result.scope == scope && result.object_id == objectId && result.kind == kind);
+}
+
+function renderLatestProbe(output, result) {
+	if (!output) return;
+	const latest = latestProbePresentation(result);
+	output.className = 'steer-probe-latest' + (latest.stale ? ' is-stale' : (latest.ok === false ? ' is-error' : ''));
+	output.replaceChildren(latest.text);
+}
+
+function decorateProbeOption(option, scope, kind, probeResults) {
+	const renderWidget = option.renderWidget;
+	option.renderWidget = function(sectionId, optionIndex, cfgvalue) {
+		const widget = typeof(renderWidget) == 'function'
+			? renderWidget.call(this, sectionId, optionIndex, cfgvalue)
+			: E('button', { 'class': 'cbi-button cbi-button-action' }, this.inputtitle || _('Test'));
+		const button = widget?.matches?.('button') ? widget : widget?.querySelector?.('button');
+		const output = E('small', { 'class': 'steer-probe-latest' });
+		const result = findLatestProbe(probeResults, scope, sectionId, kind);
+		renderLatestProbe(output, result);
+		if (button) {
+			button._steerProbeOutput = output;
+			button._steerProbeScope = scope;
+			button._steerProbeObjectID = sectionId;
+			button._steerProbeKind = kind;
+		}
+		return E('div', { 'class': 'steer-probe-action' }, [ widget, output ]);
+	};
+}
+
+function refreshLatestProbe(button) {
+	return steer.probeResults().then((results) => {
+		const latest = findLatestProbe(
+			results, button?._steerProbeScope, button?._steerProbeObjectID, button?._steerProbeKind);
+		renderLatestProbe(button?._steerProbeOutput, latest);
+		return latest;
+	});
 }
 
 function runSpeedtest(sectionId, download, button, gate, refreshAfter = true) {
 	return gate.allow().then((allowed) => {
 	if (!allowed) return false;
 	setSpeedtestButton(button, 'testing', _('Testing…'));
-	return steer.speedtest(sectionId, download).then((report) => {
-		const result = speedtestResult(report, download);
-		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.label, result.detail);
+	return steer.speedtest(sectionId, download).then((result) => {
+		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.ok ? (result.summary || _('Succeeded')) : _('Failed'),
+			result.ok ? _('Succeeded') : (result.error_summary || _('See diagnostic logs for details.')));
+		renderLatestProbe(button?._steerProbeOutput, result);
 		return result.ok;
 	}).catch((error) => {
 		setSpeedtestButton(button, 'error', _('Failed'), _('See diagnostic logs for details.'));
-		return false;
+		return refreshLatestProbe(button).then((latest) => latest?.ok === true).catch(() => false);
 	});
 	}).then((result) => refreshAfter ? gate.refresh().then(() => result) : result);
 }
@@ -785,13 +799,14 @@ function runRouteSpeedtest(sectionId, download, button, gate) {
 	return gate.allow().then((allowed) => {
 	if (!allowed) return false;
 	setSpeedtestButton(button, 'testing', _('Testing…'));
-	return steer.routeSpeedtest(sectionId, download).then((report) => {
-		const result = speedtestResult(report, download);
-		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.label, result.detail);
+	return steer.routeSpeedtest(sectionId, download).then((result) => {
+		setSpeedtestButton(button, result.ok ? 'success' : 'error', result.ok ? (result.summary || _('Succeeded')) : _('Failed'),
+			result.ok ? _('Succeeded') : (result.error_summary || _('See diagnostic logs for details.')));
+		renderLatestProbe(button?._steerProbeOutput, result);
 		return result.ok;
 	}).catch((error) => {
 		setSpeedtestButton(button, 'error', _('Failed'), _('See diagnostic logs for details.'));
-		return false;
+		return refreshLatestProbe(button).then((latest) => latest?.ok === true).catch(() => false);
 	});
 	}).then((result) => gate.refresh().then(() => result));
 }
@@ -922,7 +937,7 @@ function showImportDialog() {
 return view.extend({
 	load: function() {
 		return Promise.all([
-			uci.load('steer'), steer.subscriptions(), uci.changes(),
+			uci.load('steer'), steer.subscriptions(), uci.changes(), steer.probeResults(),
 			steer.permissions([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import' ], true)
 		]);
 	},
@@ -941,7 +956,8 @@ return view.extend({
 			.map((node) => node['.name']);
 		const summaryOnly = activeNodeGroup != manualNodeGroup;
 		const page = (window.location.pathname || '').split('/').pop();
-		const permissions = data?.[3] || {};
+		const probeResults = data?.[3] || { latest_results: [] };
+		const permissions = data?.[4] || {};
 		steer.loadStyle();
 
 		m = new form.Map('steer', page == 'routes' ? _('Routes') : (page == 'subscriptions' ? _('Node subscriptions') : _('Proxy nodes')));
@@ -1031,6 +1047,7 @@ return view.extend({
 			o.write = function() {};
 			o.remove = function() {};
 			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, false, ev.currentTarget, probeGate); };
+			decorateProbeOption(o, 'routes', 'connect', probeResults);
 
 			o = s.option(form.Button, '_route_download_test', _('Chain download test'));
 			o.depends('enabled', '1');
@@ -1040,6 +1057,7 @@ return view.extend({
 			o.write = function() {};
 			o.remove = function() {};
 			o.onclick = function(ev, sectionId) { return runRouteSpeedtest(sectionId, true, ev.currentTarget, probeGate); };
+			decorateProbeOption(o, 'routes', 'download', probeResults);
 			const routeSection = s;
 			return m.render().then((formNode) => steer.focusSection(routeSection, 'route').then(() => {
 				probeGate.bindForm(formNode);
@@ -1071,6 +1089,7 @@ return view.extend({
 		o.write = function() {};
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, false, ev.currentTarget, probeGate); };
+		decorateProbeOption(o, 'nodes', 'connect', probeResults);
 
 		o = s.option(form.Button, '_download_speedtest', _('Download test'));
 		o.depends('enabled', '1');
@@ -1080,6 +1099,7 @@ return view.extend({
 		o.write = function() {};
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget, probeGate); };
+		decorateProbeOption(o, 'nodes', 'download', probeResults);
 
 		o = s.option(form.Value, 'name', _('Name'));
 		o.rmempty = true;
