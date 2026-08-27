@@ -45,6 +45,7 @@ private actor DraftLifecycleBackend: BackendClient {
     private var uninstallCount = 0
     private var removedUserData = false
     private var probeCount = 0
+    private var componentStatusCount = 0
     private var failNextApply = false
     private var nextSaveValidationFailure: ValidationResult?
     private var loadFailuresRemaining = 0
@@ -65,7 +66,8 @@ private actor DraftLifecycleBackend: BackendClient {
     }
 
     func componentStatus() async -> SystemComponentsStatus {
-        SystemComponentsStatus(
+        componentStatusCount += 1
+        return SystemComponentsStatus(
             installed: installed,
             embeddedInstallerAvailable: true,
             updateAvailable: false,
@@ -188,8 +190,8 @@ private actor DraftLifecycleBackend: BackendClient {
     func cleanSubscription(id: String, nodeID: String) async throws {}
     func geoCatalog(kind: String) async throws -> [String] { [] }
 
-    func counts() -> (loads: Int, saves: Int, applies: Int, installs: Int, uninstalls: Int, probes: Int) {
-        (loadCount, saveCount, applyCount, installCount, uninstallCount, probeCount)
+    func counts() -> (loads: Int, saves: Int, applies: Int, installs: Int, uninstalls: Int, probes: Int, components: Int) {
+        (loadCount, saveCount, applyCount, installCount, uninstallCount, probeCount, componentStatusCount)
     }
 
     func didRemoveUserData() -> Bool { removedUserData }
@@ -217,6 +219,20 @@ final class AppStateDraftLifecycleTests: XCTestCase {
     private let newerDocument = """
     {"main":{"schema_version":1,"enabled":false,"log_level":"error"},"nodes":[],"routes":[],"dns_profiles":[],"rules":[],"subscriptions":[],"local_proxies":[]}
     """
+
+    func testRefreshStatusAlsoRefreshesSystemComponentFacts() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy && model.hasInitializedDraft }
+        let before = await backend.counts().components
+
+        model.refreshStatus()
+        try await waitUntil { !model.isBusy }
+
+        let after = await backend.counts().components
+        XCTAssertEqual(after, before + 1)
+    }
 
     func testInitialLoadRunsOnceAndWindowReopenPreservesDirtyDraft() async throws {
         let backend = DraftLifecycleBackend(document: savedDocument)

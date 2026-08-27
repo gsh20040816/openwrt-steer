@@ -154,6 +154,27 @@ final class AppModelRulePolicyTests: XCTestCase {
         )
     }
 
+    func testStableIdentifierToggleResolvesTheCurrentRuleAfterReordering() {
+        let model = makeModel()
+        let second: [String: JSONValue] = [
+            "id": .string("second"),
+            "enabled": .bool(true),
+            "default": .bool(false),
+            "dns_profile": .string("dns"),
+            "route": .string("direct"),
+            "domain_match": .array([.string("domain:second.example")]),
+        ]
+        XCTAssertTrue(model.appendDraftItem(to: "rules", object: second))
+        model.moveDraftItem(in: "rules", at: 0, offset: 1)
+
+        model.setDraftItemEnabled(in: "rules", identifiedBy: "ordinary", enabled: false)
+
+        XCTAssertEqual(model.draftItemEnabled(in: "rules", identifiedBy: "ordinary"), false)
+        XCTAssertEqual(model.draftItemEnabled(in: "rules", identifiedBy: "second"), true)
+        model.setDraftItemEnabled(in: "rules", identifiedBy: "default", enabled: false)
+        XCTAssertEqual(model.draftItemEnabled(in: "rules", identifiedBy: "default"), true)
+    }
+
     private func makeModel() -> AppModel {
         let model = AppModel()
         model.rawJSON = #"""

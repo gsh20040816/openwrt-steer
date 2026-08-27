@@ -39,6 +39,8 @@ Darwin utun + auto_route
 
 读取系统配置、Status、Validate、探测和 Geo catalog 不弹出管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。概览探测通过同一个受限 Unix socket 交给 root daemon：请求只含固定的 kind/对象 ID/download 字段，不接受 URL、路径或命令；daemon 从 Saved 配置选择目标并直接使用 Mac 当前网络环境访问，因此没有 Active generation 时仍可测试。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save、Apply、探测和订阅更新/清理通过常驻 `com.steer.steer.control` root LaunchDaemon 完成，不再重复请求密码。
 
+系统页将安装事实与运行激活事实分开显示。helper、sing-box、三个 plist、Canonical 配置、Geo seed、control/subscription LaunchDaemon 和 control socket 决定安装是否完整；`com.steer.steer` runtime LaunchDaemon 是否已加载只表示当前运行激活状态。Saved `main.enabled=false` 时 runtime LaunchDaemon 按设计未加载，系统组件仍为“已安装”，配置仍必须正常载入，也不得因此提示 Repair。
+
 control daemon 只接受 schema 固定、大小受限的 `save`、`apply`、`probe`、只读 `diagnostics`、`subscription-update` 和 `subscription-clean` JSON 请求，不提供 shell、URL、路径或可执行文件参数。概览探测不切换运行态、不启动临时核心，也不依赖 LaunchDaemon/TUN 健康状态。socket 目录为 root-owned、不可由普通管理员替换；socket 本身为 `root:admin 0660`，服务端还使用 Darwin `LOCAL_PEERCRED` 再次校验 root/admin 调用者。候选配置仍经过共享严格解码与 canonical validation，写入使用 `root:admin 0640` 原子替换。GUI 不直接写 generation，不直接启动 sing-box，也不复制 Go 校验或编译逻辑。
 
 GUI 每次 Load 同时保存配置内容的 SHA-256 revision；Save 与 Apply 必须携带该 `expected_revision`。control 在与订阅调度器共用的跨进程 operation lock 内先比较当前 Saved revision，再写入或切换运行态。不匹配时返回稳定的 `REVISION_CONFLICT`，Saved、Active 和本地 Draft 都不变。GUI 明确提供 Reload Saved、保留本地 Draft 和显式覆盖三种选择；显式覆盖仍使用冲突响应中的最新 revision 做第二次原子比较，不绕过并发保护。

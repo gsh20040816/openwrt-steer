@@ -456,6 +456,23 @@ struct SystemComponentFact: Identifiable, Sendable, Equatable {
     let path: String
     let state: State
     let detail: String
+    let requiredForInstallation: Bool
+
+    init(
+        id: String,
+        label: String,
+        path: String,
+        state: State,
+        detail: String,
+        requiredForInstallation: Bool = true
+    ) {
+        self.id = id
+        self.label = label
+        self.path = path
+        self.state = state
+        self.detail = detail
+        self.requiredForInstallation = requiredForInstallation
+    }
 
     var ready: Bool { state == .ready }
 }
@@ -491,14 +508,15 @@ struct SystemComponentsStatus: Sendable {
         hasInstalledArtifacts: Bool
     ) {
         self.facts = facts
-        self.installed = !facts.isEmpty && facts.allSatisfy(\.ready)
+        let installationFacts = facts.filter(\.requiredForInstallation)
+        self.installed = !installationFacts.isEmpty && installationFacts.allSatisfy(\.ready)
         self.embeddedInstallerAvailable = embeddedInstallerAvailable
         self.embeddedUninstallerAvailable = embeddedUninstallerAvailable
         self.updateAvailable = facts.contains { $0.state == .outdated }
         self.hasInstalledArtifacts = hasInstalledArtifacts
     }
 
-    var issues: [SystemComponentFact] { facts.filter { !$0.ready } }
+    var issues: [SystemComponentFact] { facts.filter { $0.requiredForInstallation && !$0.ready } }
 }
 
 private struct ControlResponse: Decodable {
@@ -717,6 +735,7 @@ struct HelperBackendClient: BackendClient {
 
     func componentStatus() async -> SystemComponentsStatus {
         let fileManager = FileManager.default
+        let savedEnabled = Self.savedConfigurationEnabled()
         let embeddedHelper = Self.embeddedInstallerResource("steer-macos")
         let installerAvailable = embeddedInstallerURL.map {
             fileManager.isExecutableFile(atPath: $0.path)
@@ -757,7 +776,13 @@ struct HelperBackendClient: BackendClient {
             embedded: Bundle.main.resourceURL?.appendingPathComponent("geodata-seed/manifest.json")
         )
 
-        facts.append(await Self.serviceFact(id: "runtime_service", label: "Runtime LaunchDaemon", launchdLabel: "com.steer.steer"))
+        facts.append(await Self.serviceFact(
+            id: "runtime_service",
+            label: "Runtime LaunchDaemon",
+            launchdLabel: "com.steer.steer",
+            requiredForInstallation: false,
+            inactiveDetail: savedEnabled == false ? "按停用配置未加载" : "未加载"
+        ))
         facts.append(await Self.serviceFact(id: "control_service", label: "Control LaunchDaemon", launchdLabel: "com.steer.steer.control"))
         facts.append(await Self.serviceFact(id: "subscription_service", label: "Subscription LaunchDaemon", launchdLabel: "com.steer.steer.subscription"))
         facts.append(Self.socketFact())
@@ -1076,7 +1101,12 @@ struct HelperBackendClient: BackendClient {
         guard let index = facts.firstIndex(where: { $0.id == id }) else { return }
         let current = facts[index]
         facts[index] = SystemComponentFact(
-            id: current.id, label: current.label, path: current.path, state: state, detail: detail
+            id: current.id,
+            label: current.label,
+            path: current.path,
+            state: state,
+            detail: detail,
+            requiredForInstallation: current.requiredForInstallation
         )
     }
 
@@ -1112,15 +1142,35 @@ struct HelperBackendClient: BackendClient {
         }
     }
 
-    private static func serviceFact(id: String, label: String, launchdLabel: String) async -> SystemComponentFact {
+    private static func serviceFact(
+        id: String,
+        label: String,
+        launchdLabel: String,
+        requiredForInstallation: Bool = true,
+        inactiveDetail: String = "未加载"
+    ) async -> SystemComponentFact {
         let result = try? await execute(URL(fileURLWithPath: "/bin/launchctl"), ["print", "system/\(launchdLabel)"])
         return SystemComponentFact(
             id: id,
             label: label,
             path: "system/\(launchdLabel)",
             state: result?.status == 0 ? .ready : .inactive,
-            detail: result?.status == 0 ? "已加载" : "未加载"
+            detail: result?.status == 0 ? "已加载" : inactiveDetail,
+            requiredForInstallation: requiredForInstallation
         )
+    }
+
+    private struct SavedConfigurationState: Decodable {
+        struct Main: Decodable { let enabled: Bool? }
+        let main: Main?
+    }
+
+    private static func savedConfigurationEnabled() -> Bool? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: configurationPath)),
+              let configuration = try? JSONDecoder().decode(SavedConfigurationState.self, from: data) else {
+            return nil
+        }
+        return configuration.main?.enabled
     }
 
     private static func socketFact() -> SystemComponentFact {
@@ -1461,7 +1511,10 @@ final class AppModel: ObservableObject {
 
     func refreshStatus() {
         perform(message: "正在读取运行状态…") {
-            self.runtime = try await self.backend.status()
+            async let runtime = self.backend.status()
+            let components = await self.backend.componentStatus()
+            self.updateComponentStatus(components)
+            self.runtime = try await runtime
             self.message = self.runtime.healthy
                 ? "Steer 运行正常"
                 : (self.runtime.generationID.isEmpty ? "Steer 当前未运行" : "Steer 运行异常")
@@ -1622,6 +1675,7 @@ final class AppModel: ObservableObject {
             }
 
             self.runtime = outcome.status
+            self.updateComponentStatus(await self.backend.componentStatus())
             guard outcome.saved else {
                 throw BackendClientError.processFailed(
                     outcome.error.isEmpty ? "已保存配置未应用" : outcome.error
@@ -1685,6 +1739,7 @@ final class AppModel: ObservableObject {
             do {
                 let outcome = try await backend.apply(document: updatedDocument, expectedRevision: expectedRevision)
                 runtime = outcome.status
+                updateComponentStatus(await backend.componentStatus())
                 guard outcome.saved else {
                     throw BackendClientError.processFailed(
                         outcome.error.isEmpty ? "启用状态未保存" : outcome.error
@@ -2436,6 +2491,29 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func draftItemEnabled(in key: String, identifiedBy identifier: String) -> Bool? {
+        guard let root = parseDraft()?.objectValue,
+              case let .array(values)? = root[key],
+              let object = values.compactMap(\.objectValue).first(where: {
+                  $0["id"]?.stringValue == identifier
+              }) else { return nil }
+        return object["enabled"]?.boolValue ?? true
+    }
+
+    func setDraftItemEnabled(in key: String, identifiedBy identifier: String, enabled: Bool) {
+        mutateCollection(key) { values in
+            guard let index = values.firstIndex(where: {
+                $0.objectValue?["id"]?.stringValue == identifier
+            }), var object = values[index].objectValue else { return }
+            if key == "rules", RuleDraftPolicy.isDefault(object) {
+                object["enabled"] = .bool(true)
+            } else {
+                object["enabled"] = .bool(enabled)
+            }
+            values[index] = .object(object)
+        }
+    }
+
     func moveDraftItem(in key: String, at index: Int, offset: Int) {
         mutateCollection(key) { values in
             let destination = index + offset
@@ -2604,6 +2682,7 @@ final class AppModel: ObservableObject {
     ) async throws -> Bool {
         let outcome = try await backend.apply(document: document, expectedRevision: expectedRevision)
         runtime = outcome.status
+        updateComponentStatus(await backend.componentStatus())
         guard outcome.saved else {
             throw BackendClientError.processFailed(
                 outcome.error.isEmpty ? "配置未保存，运行配置未改变" : outcome.error
