@@ -6,11 +6,22 @@
 	--steer-match: #7c3aed;
 	--steer-muted: #64748b;
 	--steer-line: color-mix(in srgb, currentColor 16%, transparent);
+	--steer-space-page: 1.25rem;
+	--steer-space-card: 1rem;
+	--steer-space-compact: .6rem;
+	--steer-space-cell: .75rem;
+	--steer-monospace: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* Keep Argon's flex item for column sizing, but hide its duplicate title text. */
-[data-page^="admin-services-steer-"] .cbi-section-table-row[data-title]::before {
-	visibility: hidden;
+/* Argon adds a duplicate named-row flex item at desktop widths. The native
+ * GridSection title cell remains the sole visible and accessible name column.
+ * At <=1152px Argon turns that pseudo-element into the card heading, so keep it. */
+@media (min-width: 1153px) {
+	[data-page^="admin-services-steer-"] .cbi-section-table-row[data-title]::before,
+	[data-page^="admin-services-steer-"] .cbi-section-table-titles.named::before {
+		display: none;
+		content: none;
+	}
 }
 
 .steer-status {
@@ -19,7 +30,7 @@
 	gap: 1.5rem;
 	align-items: center;
 	margin: 0 0 1.5rem;
-	padding: 1.1rem 1.25rem;
+	padding: var(--steer-space-card) var(--steer-space-page);
 	border: 1px solid var(--steer-line);
 	border-left: .35rem solid var(--steer-route);
 	border-radius: .35rem;
@@ -80,15 +91,16 @@
 
 .steer-status__facts {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
 	gap: 1rem;
 	margin: 0;
 }
 
 .steer-status dd {
 	margin: .2rem 0 0;
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-family: var(--steer-monospace);
 	font-size: .9rem;
+	overflow-wrap: break-word;
 }
 
 .steer-test-grid {
@@ -102,7 +114,7 @@
 	display: grid;
 	grid-template-rows: 1fr auto auto;
 	gap: .75rem;
-	padding: 1rem;
+	padding: var(--steer-space-card);
 	border: 1px solid var(--steer-line);
 	border-top: .22rem solid var(--steer-route);
 	border-radius: .35rem;
@@ -113,7 +125,7 @@
 .steer-test-card p { margin-top: .25rem; color: var(--steer-muted); font-size: .85rem; }
 .steer-test-card .btn { justify-self: start; }
 .steer-test-card__result { display: flex; flex-direction: column; gap: .2rem; }
-.steer-test-card__result strong { font: 700 1rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.steer-test-card__result strong { font: 700 1rem var(--steer-monospace); }
 .steer-test-card__result small { color: var(--steer-muted); overflow-wrap: anywhere; }
 .steer-test-card__result.is-success strong { color: var(--steer-dns); }
 .steer-test-card__result.is-error strong { color: #b42318; }
@@ -127,7 +139,7 @@
 }
 
 .steer-intent__step {
-	padding: .85rem 1rem;
+	padding: var(--steer-space-card);
 	border: 1px solid var(--steer-line);
 	border-radius: .35rem;
 }
@@ -148,7 +160,7 @@
 	gap: 1rem;
 	align-items: start;
 	margin: 0 0 1rem;
-	padding: 1rem 1.1rem;
+	padding: var(--steer-space-card) var(--steer-space-page);
 	border: 1px solid var(--steer-line);
 	border-left: .35rem solid var(--steer-dns);
 	background: color-mix(in srgb, var(--steer-dns) 5%, transparent);
@@ -182,12 +194,12 @@
 
 .steer-system-rule__facts dd {
 	margin: .2rem 0 0;
-	font: 600 .82rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font: 600 .82rem var(--steer-monospace);
 }
 
 .steer-conflict-alert {
 	margin: 0 0 1rem;
-	padding: .9rem 1.1rem;
+	padding: var(--steer-space-card) var(--steer-space-page);
 	border: 1px solid color-mix(in srgb, #b42318 35%, transparent);
 	border-left: .35rem solid #b42318;
 	background: color-mix(in srgb, #b42318 6%, transparent);
@@ -198,7 +210,7 @@
 
 .steer-exposure-warning {
 	display: block;
-	padding: .55rem .7rem;
+	padding: var(--steer-space-compact) var(--steer-space-cell);
 	border-left: .25rem solid #b7791f;
 	background: color-mix(in srgb, #b7791f 9%, transparent);
 	color: #8a5a00;
@@ -213,7 +225,7 @@
 	width: 100%;
 	min-height: 10rem;
 	box-sizing: border-box;
-	font: .86rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font: .86rem/1.55 var(--steer-monospace);
 	white-space: pre;
 	resize: vertical;
 }
@@ -235,7 +247,7 @@
 	border-radius: 0;
 	background: transparent;
 	color: inherit;
-	font: .84rem/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font: .84rem/1.35 var(--steer-monospace);
 	text-align: left;
 	cursor: pointer;
 }
@@ -264,9 +276,51 @@
 	padding-bottom: .2rem;
 }
 
+.steer-section-heading {
+	display: flex;
+	gap: var(--steer-space-card);
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--steer-space-card) var(--steer-space-page);
+}
+
+.steer-section-heading h3,
+.steer-section-heading p {
+	margin: 0;
+	padding: 0;
+}
+
+.steer-section-heading p {
+	margin-top: .35rem;
+	color: var(--steer-muted);
+}
+
+[data-page^="admin-services-steer-"] .cbi-section > .steer-status__facts {
+	box-sizing: border-box;
+	padding: 0 var(--steer-space-page) var(--steer-space-card);
+}
+
+.steer-lifecycle > p,
+.steer-lifecycle > .steer-test-grid,
+.steer-lifecycle > .steer-lifecycle-action,
+.steer-reject-recovery > p,
+.steer-reject-recovery > button {
+	margin-right: var(--steer-space-page);
+	margin-left: var(--steer-space-page);
+}
+
+.steer-machine-input {
+	box-sizing: border-box;
+	width: 100%;
+	font-family: var(--steer-monospace);
+	line-height: 1.55;
+	white-space: pre;
+	resize: vertical;
+}
+
 .steer-subscription-status {
 	margin: 0 0 1rem;
-	padding: .8rem 1rem;
+	padding: var(--steer-space-card) var(--steer-space-page);
 	border: 1px solid var(--steer-line);
 	border-radius: .35rem;
 }
@@ -282,13 +336,13 @@
 
 .steer-subscription-status .tr > .td,
 .steer-subscription-status .tr > .th {
-	padding: .45rem .6rem;
+	padding: var(--steer-space-compact) var(--steer-space-cell);
 }
 
 .steer-canonical-preview {
 	max-height: 34rem;
 	overflow: auto;
-	padding: 1rem;
+	padding: var(--steer-space-card);
 	border: 1px solid var(--border-color-medium, #bbb);
 	border-radius: 4px;
 	background: var(--background-color-low, #f7f7f7);
@@ -301,7 +355,7 @@
 	flex: 0 0 auto;
 	gap: .55rem;
 	align-items: center;
-	padding: .5rem .7rem;
+	padding: var(--steer-space-compact) var(--steer-space-cell);
 	border: 1px solid var(--steer-line);
 	border-radius: .35rem;
 	color: inherit;
@@ -326,7 +380,7 @@
 .steer-speedtest-batch {
 	display: flex;
 	gap: .5rem;
-	margin: -.35rem 0 1rem;
+	margin: 0 0 1rem;
 }
 
 @media (max-width: 700px) {

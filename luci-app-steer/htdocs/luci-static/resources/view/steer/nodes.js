@@ -844,9 +844,11 @@ function renderBatchSpeedtests(sectionIds, gate) {
 
 function showImportDialog() {
 	const input = E('textarea', {
-		'class': 'cbi-input-textarea',
+		'class': 'cbi-input-textarea steer-machine-input',
 		'rows': 5,
 		'autocomplete': 'off',
+		'autocapitalize': 'off',
+		'autocorrect': 'off',
 		'spellcheck': 'false',
 			'placeholder': 'vless://…  vmess://…  ss://…  hysteria2://…  tuic://…  trojan://…'
 	});
@@ -949,9 +951,6 @@ return view.extend({
 			s.addremove = true;
 			s.nodescriptions = true;
 			s.addbtntitle = _('Add subscription');
-			s.sectiontitle = function(sectionId) {
-				return uci.get('steer', sectionId, 'name') || uci.get('steer', sectionId, 'url') || _('Unnamed');
-			};
 			o = s.option(form.Flag, 'enabled', _('Enabled')); o.default = '1'; o.editable = true;
 			o = s.option(form.Value, 'name', _('Name')); o.rmempty = true; o.optional = true; o.modalonly = true;
 			o = s.option(form.Value, 'url', _('Subscription URL')); o.rmempty = false; o.editable = true;
@@ -983,10 +982,6 @@ return view.extend({
 			s.filter = function(sectionId) {
 				return uci.get('steer', sectionId, 'kind') == 'single';
 			};
-			s.sectiontitle = function(sectionId) {
-				return uci.get('steer', sectionId, 'name') || sectionId;
-			};
-
 			o = s.option(form.Flag, 'enabled', _('Enabled'));
 			o.default = '1';
 			o.editable = true;
@@ -1061,9 +1056,6 @@ return view.extend({
 		s.addbtntitle = _('Add proxy node');
 		s.filter = function(sectionId) {
 			return nodeGroupID(uci.get('steer', sectionId)) == activeNodeGroup;
-		};
-		s.sectiontitle = function(sectionId) {
-			return uci.get('steer', sectionId, 'name') || _('Unnamed');
 		};
 		o = s.option(form.Flag, 'enabled', _('Enabled'));
 		o.default = '1';

@@ -111,9 +111,6 @@ return view.extend({
 		s.addremove = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add local proxy');
-		s.sectiontitle = function(sectionId) {
-			return uci.get('steer', sectionId, 'name') || _('Unnamed');
-		};
 
 		o = s.option(form.Flag, 'enabled', _('Enabled'));
 		o.default = '1';

@@ -286,9 +286,6 @@ return view.extend({
 		s.sortable = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add steering rule');
-		s.sectiontitle = function(sectionId) {
-			return uci.get('steer', sectionId, 'name') || _('Unnamed');
-		};
 		s.filter = function(sectionId) {
 			return uci.get('steer', sectionId, 'default') != '1';
 		};
