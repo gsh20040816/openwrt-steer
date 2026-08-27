@@ -51,10 +51,14 @@ function nextSectionID(collection) {
 
 function disambiguateReferences(references) {
 	const counts = {};
+	const ordinals = {};
 	references.forEach((reference) => { counts[reference.label] = (counts[reference.label] || 0) + 1; });
 	return references.map((reference) => Object.assign({}, reference, {
 		label: counts[reference.label] > 1
-			? '%s%s · #%s'.format(reference.label, reference.detail ? ' · ' + reference.detail : '', String(reference.id).slice(-6))
+			? '%s%s · %s'.format(
+				reference.label,
+				reference.detail ? ' · ' + reference.detail : '',
+				_('Duplicate %d').format(ordinals[reference.label] = (ordinals[reference.label] || 0) + 1))
 			: reference.label
 	}));
 }
@@ -101,7 +105,7 @@ const issueOptionLabels = {
 	pinned_stale: _('Subscription status'),
 	dns_profile: _('DNS profile'),
 	route: _('Route'),
-	inbound: _('Inbound'),
+	inbound: _('Local proxy entry'),
 	node: _('Node')
 };
 
@@ -262,8 +266,8 @@ function waitForApply(sequence, attempts) {
 
 function notifyCandidateRejected(commit) {
 	const result = { ok: false, saved: false, committed: false, validation: commit?.validation, error: commit?.error, error_code: commit?.error_code };
-	ui.addNotification(_('Steer candidate was not saved'), E('div', {}, [
-		E('p', {}, _('The pending configuration failed validation or could not be committed. Saved and Active were not changed.')),
+	ui.addNotification(_('Configuration was not saved'), E('div', {}, [
+		E('p', {}, _('Correct the reported problem and try again. The saved and running configurations were not changed.')),
 		resultMessage(result)
 	]), 'danger');
 	return result;
@@ -276,11 +280,10 @@ function finishCommittedApply(owner, result, status, validation, previousGenerat
 		const currentGeneration = status?.generation || '';
 		const unchanged = currentGeneration == (previousGeneration || '');
 		const failed = { ...result, saved: true, committed: true, active_unchanged: unchanged };
-		ui.addNotification(unchanged ? _('Configuration saved; Active unchanged') : _('Configuration saved; activation failed'), E('div', {}, [
+		ui.addNotification(_('Configuration saved; application failed'), E('div', {}, [
 			E('p', {}, unchanged
-				? _('The configuration was committed to Saved, but validation or activation failed. Traffic continues using the previous Active generation.')
-				: _('The configuration was committed to Saved, but activation failed after Active state changed. Check Diagnostics before relying on traffic stability.')),
-			currentGeneration ? E('p', {}, _('Current Active generation: %s').format(currentGeneration)) : '',
+				? _('The service continues using the previous running configuration.')
+				: _('The running configuration may have changed. Check Diagnostics before relying on traffic stability.')),
 			resultMessage(failed),
 			E('p', {}, _('Fix the reported problem, then choose Apply Saved configuration.'))
 		]), 'danger');
@@ -336,11 +339,10 @@ return baseclass.extend({
 				actions.push(applySaved);
 			}
 			const bar = E('section', { id: 'steer-lifecycle-global', 'class': 'cbi-section' }, [
-				E('strong', {}, _('Draft / Saved / Active')),
-				E('span', {}, ' · ' + (state.pending ? _('Pending Draft') : _('Draft clean'))),
-				E('span', {}, ' · ' + _('Saved %s').format(state.saved?.digest ? state.saved.digest.slice(0, 12) : '—')),
-				E('span', {}, ' · ' + _('Active %s').format(active.generation || _('stopped'))),
-				state.pending_apply ? E('span', { 'class': 'label warning' }, ' pending_apply') : '',
+				E('strong', {}, _('Configuration status')),
+				E('span', {}, ' · ' + (state.pending ? _('Unsaved changes') : _('All changes saved'))),
+				E('span', {}, ' · ' + (active.generation ? (active.healthy ? _('Service running normally') : _('Service running abnormally')) : _('Service stopped'))),
+				state.pending_apply ? E('span', { 'class': 'label warning' }, ' ' + _('Pending apply')) : '',
 				...actions
 			]);
 			host.prepend(bar);
@@ -401,7 +403,6 @@ return baseclass.extend({
 			input.type = 'hidden';
 			input.hidden = true;
 			button.disabled = this.map?.readonly === true ? true : null;
-			row.appendChild(E('span', { 'class': 'cbi-value-description' }, _('Internal ID is generated automatically: %s').format(input.value)));
 			return row;
 		};
 		section.handleAdd = function(ev, sectionId) {
@@ -501,7 +502,7 @@ return baseclass.extend({
 					.then((changes) => ui.changes.renderChangeIndicator(changes))
 					.then(() => {
 						window.dispatchEvent?.(new Event('steer-uci-state-changed'));
-						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
+						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Preparing and applying the configuration.')) ]);
 						return waitForApply(previousSequence, 240);
 					})
 					.then(({ result, status }) => finishCommittedApply(this, result, status, validation, previousGeneration));
@@ -525,7 +526,7 @@ return baseclass.extend({
 					.then((changes) => ui.changes.renderChangeIndicator(changes))
 					.then(() => {
 						window.dispatchEvent?.(new Event('steer-uci-state-changed'));
-						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Compiling and verifying the candidate configuration.')) ]);
+						ui.showModal(_('Applying Steer'), [ E('p', { 'class': 'spinning' }, _('Preparing and applying the configuration.')) ]);
 						return waitForApply(previousSequence, 240);
 					})
 					.then(({ result, status }) => finishCommittedApply(this, result, status, validation, previousGeneration));
@@ -563,7 +564,7 @@ return baseclass.extend({
 			stateClass = 'is-running';
 		}
 		else {
-			headline = _('Traffic steering is not healthy');
+			headline = _('Traffic steering is running abnormally');
 			panelClass = ' steer-status--error';
 		}
 		return E('div', { 'id': 'steer-runtime-status' }, E('div', { 'class': 'steer-status' + panelClass }, [

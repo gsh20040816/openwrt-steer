@@ -502,7 +502,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertEqual(counts.applies, 0)
         XCTAssertEqual(model.rawJSON, editedDocument)
         XCTAssertTrue(model.isDirty)
-        XCTAssertTrue(model.message.contains("不会静默部署"))
+        XCTAssertTrue(model.message.contains("请先保存或丢弃当前工作副本"))
     }
 
     func testSaveApplySavedAndSaveAndApplyRemainSeparateActions() async throws {
@@ -526,7 +526,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         counts = await backend.counts()
         XCTAssertEqual(counts.applies, 1)
         XCTAssertEqual(model.runtime.generationID, "active-original")
-        XCTAssertTrue(model.message.contains("Apply 失败"))
+        XCTAssertTrue(model.message.contains("应用失败"))
 
         model.saveAndApplyDraft()
         try await waitUntil { !model.isBusy }
@@ -588,9 +588,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
             !model.overviewProbeInProgress("proxy") && model.overviewProbeDetail("proxy") != nil
         }
         XCTAssertEqual(model.overviewProbeSummary("proxy"), "12 ms")
-        XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("Active generation active-original") == true)
-        XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("digest active-original") == true)
-        XCTAssertTrue(model.overviewProbeDetail("proxy")?.contains("tested_at 2026-08-26T01:02:03Z") == true)
+        XCTAssertEqual(model.overviewProbeDetail("proxy"), "测试时间 2026-08-26T01:02:03Z")
         XCTAssertFalse(model.overviewProbeIsStale("proxy"))
 
         model.rawJSON = editedDocument

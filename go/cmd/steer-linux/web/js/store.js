@@ -128,7 +128,7 @@
     /* 保存（可选 Apply）。修订冲突以 { ok:false, conflict } 返回，由 UI 弹冲突对话框。 */
     async save(apply, force = false) {
       if (draftError) {
-        const error = new Error(`当前 JSON Draft 无效：${draftError}`);
+        const error = new Error(`当前 JSON 配置格式有误：${draftError}`);
         error.code = 'INVALID_DRAFT';
         throw error;
       }

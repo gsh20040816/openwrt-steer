@@ -48,7 +48,7 @@ final class SubscriptionStatusTests: XCTestCase {
         XCTAssertEqual(failed.stateLabel, "最近失败")
         XCTAssertEqual(failed.lastSuccess, "2026-08-26T02:00:00Z")
         XCTAssertEqual(failed.lastFailure?.summary, "subscription server returned HTTP 503")
-        XCTAssertEqual(failed.inventorySummary, "added 0 · current 1 · stale 2 · skipped 1")
+        XCTAssertEqual(failed.inventorySummary, "新增 0 · 当前 1 · 已失效 2 · 已跳过 1")
         XCTAssertEqual(failed.stale[0].referencedBy.first?.id, "proxy")
         XCTAssertTrue(failed.stale[1].referencedBy.isEmpty)
     }

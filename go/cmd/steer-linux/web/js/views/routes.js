@@ -33,7 +33,7 @@
     }
     const parts = [];
     hops.forEach((hop, i) => { parts.push(hop); if (i < hops.length - 1) parts.push(h('span', { class: 'arrow' }, '←')); });
-    return h('span', { class: 'chain', title: '前置代理先拨号' }, parts, hops.length > 1 ? h('span', { class: 'muted' }, '出口') : null);
+    return h('span', { class: 'chain', title: '先连接前置代理' }, parts, hops.length > 1 ? h('span', { class: 'muted' }, '出口') : null);
   }
 
   function wouldCycle(routeId, detourId, routes) {
@@ -97,7 +97,7 @@
   function openRouteEditor(route, focusOption) {
     const isNew = !S.store.intent.routes.includes(route);
     const opened = ui.drawer({
-      eyebrow: `路由 · ${route.id}`, title: route.name || '未命名', submitLabel: '保存到工作副本',
+      eyebrow: isNew ? '新建路由' : '编辑路由', title: route.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const intent = S.store.intent;
         const draft = JSON.parse(JSON.stringify(route));
@@ -111,10 +111,10 @@
         const warn = h('div', {});
         const check = () => {
           if (draft.detour && wouldCycle(draft.id, draft.detour, intent.routes)) {
-            warn.replaceChildren(h('div', { class: 'alert alert--err' }, '会形成 detour 环（ROUTE_DETOUR_CYCLE）。Apply 会拒绝该配置。'));
+            warn.replaceChildren(h('div', { class: 'alert alert--err' }, '前置代理链存在循环引用，请重新选择前置节点。'));
           } else if (draft.detour) {
             const d = intent.routes.find((r) => r.id === draft.detour);
-            if (d && !d.enabled) warn.replaceChildren(h('div', { class: 'alert' }, '前置路由已禁用；Apply 会拒绝。'));
+            if (d && !d.enabled) warn.replaceChildren(h('div', { class: 'alert' }, '所选前置路由已停用，请启用或更换。'));
             else if (d && d.kind !== 'single') warn.replaceChildren(h('div', { class: 'alert' }, '前置必须是单节点路由。'));
             else warn.replaceChildren();
           } else {
@@ -128,10 +128,10 @@
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '路由'), [
             ui.field('名称', name, null, 'name'),
             ui.field('启用', enabled, null, 'enabled'),
-            ui.field('类型', h('span', { class: 'badge' }, 'Single 节点'), '系统 Direct / Reject 路由不能从此处创建或转换'),
+            ui.field('类型', h('span', { class: 'badge' }, '单节点'), '系统直连与拒绝路由不能从此处创建或转换'),
             h('div', { class: 'field--row' }, [
-              ui.field('节点', nodeSel, 'single 路由的出站节点', 'node'),
-              ui.field('前置代理（detour）', detourSel, '前置路由先拨号；留空直连', 'detour')
+              ui.field('节点', nodeSel, '用于连接网络的出口节点', 'node'),
+              ui.field('前置代理', detourSel, '先连接所选前置路由；留空表示直接连接', 'detour')
             ]),
             warn
           ])
@@ -142,7 +142,7 @@
             draft.kind = 'single';
             draft.node = nodeSel.value || undefined;
             draft.detour = detourSel.value || undefined;
-            if (draft.detour && wouldCycle(draft.id, draft.detour, intent.routes)) { ui.toast('detour 链成环，不能保存', 'err'); return false; }
+            if (draft.detour && wouldCycle(draft.id, draft.detour, intent.routes)) { ui.toast('前置链存在循环引用，不能保存', 'err'); return false; }
             Object.assign(route, draft);
             return route;
           }
@@ -174,7 +174,7 @@
         h('thead', {}, h('tr', {}, ['状态', '路由', '链路（出口 ← 前置）', '测试', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, singles.map((route) => h('tr', { class: route.enabled === false ? 'is-disabled' : null }, [
           h('td', {}, ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); view.render(root); })),
-          h('td', {}, h('div', {}, h('strong', {}, route.name || route.id), h('div', { class: 'mono' }, route.id))),
+          h('td', {}, h('strong', {}, route.name || route.id)),
           h('td', {}, chain(intent, route)),
           h('td', {}, h('div', { class: 'row-actions' }, routeTestButton('链测试', false, route.id, route.enabled !== false), routeTestButton('下载', true, route.id, route.enabled !== false))),
           h('td', {}, h('div', { class: 'row-actions' }, [
@@ -197,24 +197,24 @@
       }
 
       root.append(
-        ui.viewHead('路由', 'Direct / Reject 是固定语义；single 路由支持任意深度的前置链，但不得成环', [
+        ui.viewHead('路由', '管理网络出站路由与前置代理链路', [
           h('button', {
             class: 'btn btn--primary',
             disabled: intent.nodes.length === 0,
-            title: intent.nodes.length === 0 ? '请先添加节点' : '添加 Single 路由',
+            title: intent.nodes.length === 0 ? '请先添加节点' : '添加单节点路由',
             onclick: () => openRouteEditor(ui.creationDraft('routes', {
               node: intent.nodes.find((node) => node.enabled !== false)?.id || ''
             }))
-          }, '添加 Single 路由')
+          }, '添加单节点路由')
         ]),
         h('div', { class: 'grid-2' }, [
           kindCard('direct', 'Direct 直连', '匹配流量直接出网。启用配置必须恰好存在一个 Direct 路由。', direct),
-          kindCard('block', 'Reject 拒绝', '匹配流量使用 sing-box reject action 拒绝，不生成已废弃的 block outbound。', block)
+          kindCard('block', 'Reject 拒绝', '匹配的流量将被直接拒绝连接。', block)
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '单节点路由'), h('div', { class: 'card__title' }, '节点链'))),
-          h('p', { class: 'muted' }, '应用流量 → 出口节点 → 前置节点 → 网络。同一节点可在不同路由中拥有不同前置链。'),
-          singles.length ? h('div', { class: 'clipped' }, h('div', { class: 'table-wrap' }, table)) : h('div', { class: 'empty' }, '还没有 single 路由')
+          h('p', { class: 'muted' }, '流量通过出口节点连接，支持指定前置代理节点先行建立连接。同一节点可在不同路由中配置不同前置链。'),
+          singles.length ? h('div', { class: 'clipped' }, h('div', { class: 'table-wrap' }, table)) : h('div', { class: 'empty' }, '还没有单节点路由')
         ])
       );
 

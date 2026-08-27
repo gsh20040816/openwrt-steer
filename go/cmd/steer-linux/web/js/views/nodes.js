@@ -202,7 +202,7 @@
     const { close } = ui.dialog({
       title: '导入节点',
       body: h('div', {}, [
-        h('p', { class: 'muted' }, '每行一个节点分享链接，也支持 Base64 包装的订阅内容。Steer 后端解析并校验后，才会进入工作副本。'),
+        h('p', { class: 'muted' }, '每行粘贴一个节点分享链接，也支持 Base64 订阅内容；解析后可预览并添加到工作副本。'),
         textarea, preview,
         h('div', { class: 'dialog-inline-actions u-mt-10' }, [
           h('button', { class: 'btn', onclick: () => close() }, '取消'),
@@ -216,7 +216,7 @@
   function openNodeEditor(node, focusOption) {
     const isNew = !S.store.intent.nodes.includes(node);
     const opened = ui.drawer({
-      eyebrow: `节点 · ${node.id}`, title: node.name || '未命名', submitLabel: '保存到工作副本',
+      eyebrow: isNew ? '新建节点' : '编辑节点', title: node.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(node));
         const name = ui.input({ value: draft.name || '', placeholder: '节点名称' });
@@ -286,7 +286,7 @@
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '基本信息'), [
             ui.field('名称', name, null, 'name'), ui.field('启用', enabled, null, 'enabled'),
-            ui.field('协议', typeSel, '协议字段来自共享 UI 规格', 'type'),
+            ui.field('协议', typeSel, null, 'type'),
             endpoint
           ]),
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '协议参数'), specBox)
@@ -372,7 +372,7 @@
               enabled.title = editable ? '启用或停用节点' : '订阅节点状态由订阅管理';
               return enabled;
             })()),
-            h('td', {}, h('div', {}, h('div', {}, h('strong', {}, node.name || node.id)), h('div', { class: 'mono' }, node.id), node.pinned_stale ? h('span', { class: 'badge badge--stale' }, 'stale') : null)),
+            h('td', {}, h('div', {}, h('div', {}, h('strong', {}, node.name || node.id)), node.pinned_stale ? h('span', { class: 'badge badge--stale' }, '已失效') : null)),
             h('td', {}, h('span', { class: `badge protocol-badge protocol--${node.type}` }, PROTOCOL_LABEL[node.type] || node.type)),
             h('td', { class: 'mono' }, nodeEndpoint(node)),
             h('td', {}, h('div', { class: 'row-actions' }, conn, down)),
@@ -388,7 +388,7 @@
 		isCurrent.onDispose(unsubscribe);
 	  }
       root.append(
-        ui.viewHead('节点', editable ? '手动维护的节点；订阅节点只读，由订阅更新生成' : '订阅生成数据 · 只读 · 修改请在订阅源或手动节点中完成', [
+        ui.viewHead('节点', editable ? '手动添加与维护的节点列表' : '订阅节点列表（只读）', [
           h('button', { class: 'btn', onclick: openImport }, '导入节点'),
           editable ? h('button', { class: 'btn btn--primary', onclick: () => openNodeEditor(ui.creationDraft('nodes')) }, '添加节点') : null
         ]),

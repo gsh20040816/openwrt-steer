@@ -41,18 +41,18 @@
       });
 
       root.append(
-        ui.viewHead('基础设置', 'Main、手动探测、共享 DNS cache 与 Bootstrap DNS'),
+        ui.viewHead('基础设置', '核心运行参数、连通性探测、DNS 缓存与 Bootstrap DNS'),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '运行'), h('div', { class: 'card__title' }, '核心设置'))),
           ui.field('日志级别', logLevel),
-          h('p', { class: 'muted' }, '启用状态使用页面顶部开关；切换会立即保存并 Apply。')
+          h('p', { class: 'muted' }, '使用页面顶部开关启用或停用；切换后会立即保存并应用。')
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '连通性'), h('div', { class: 'card__title' }, '探测目标'))),
           ui.field('直连探测 URL', textField(main, 'probe_direct', 'https://www.example.com/')),
           ui.field('代理探测 URL', textField(main, 'probe_proxy', 'https://www.example.com/')),
           ui.field('代理测速 URL', textField(main, 'speedtest_proxy', 'https://speed.example.com/file')),
-          h('p', { class: 'muted' }, '必须是无凭据、无 fragment 的 HTTPS URL。')
+          h('p', { class: 'muted' }, '必须填写 HTTPS 地址，且不能包含账号密码或 # 片段。')
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'DNS cache'), h('div', { class: 'card__title' }, '共享缓存'))),
@@ -64,7 +64,7 @@
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Bootstrap'), h('div', { class: 'card__title' }, '启动解析器'))),
           ui.field('协议', bootstrapProtocol),
           h('div', { class: 'field--row' }, [
-            ui.field('服务器 IP', textField(bootstrap, 'server', '1.1.1.1'), '必须是 IP literal，避免解析环路'),
+            ui.field('服务器 IP', textField(bootstrap, 'server', '1.1.1.1'), '必须填写 IP 地址，避免解析环路'),
             ui.field('端口', numberField(bootstrap, 'server_port', '53'))
           ]),
           ui.field('地址策略', strategy)

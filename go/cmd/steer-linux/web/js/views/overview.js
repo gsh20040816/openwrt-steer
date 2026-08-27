@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* 总览：Draft / Saved / Active、规模、warnings 与少量快捷操作。 */
+/* 总览：工作副本、已保存配置、运行状态与少量快捷操作。 */
 'use strict';
 (function () {
   const S = window.S;
@@ -29,50 +29,47 @@
       const externalChange = S.store.hasExternalChange === true;
 
       const externalNotice = externalChange ? h('section', { class: 'card card--edge edge--err' }, [
-        h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Revision'), h('div', { class: 'card__title' }, '服务器 Saved 配置已变化'))),
+        h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '配置冲突'), h('div', { class: 'card__title' }, '服务器配置已变化'))),
         h('p', {}, S.store.dirty
-          ? '当前 Draft 已保留且不会自动覆盖。请先保存、放弃或在顶部显式处理外部变更冲突。'
-          : '当前 Draft 仍是旧 Saved 基线。点击顶部“重载最新 Saved”即可安全更新对象列表。')
+          ? '当前工作副本已保留且不会自动覆盖。请先保存、放弃或在顶部处理配置冲突。'
+          : '点击顶部“重新载入”即可更新为服务器上的最新配置。')
       ]) : null;
 
       const pipeline = h('section', { class: 'card hero' }, [
         h('div', { class: 'card__head' }, [
           h('div', {}, h('span', { class: 'eyebrow' }, '执行模型'), h('div', { class: 'card__title' }, '流量如何被转向')),
-          h('span', { class: 'badge badge--match' }, 'first-match · 严格有序')
+          h('span', { class: 'badge badge--match' }, '首条匹配 · 严格有序')
         ]),
         h('div', { class: 'pipeline' }, [
           step('match', intent.rules.length, '匹配规则', '首条命中即停'),
           arrow(),
-          step('dns', intent.dns_profiles.length, 'DNS Profile', '每个 (规则, Profile) 独立路径'),
+          step('dns', intent.dns_profiles.length, 'DNS Profile', '独立解析路径'),
           arrow(),
-          step('route', intent.routes.length, '路由', 'Direct / Reject / 节点链'),
+          step('route', intent.routes.length, '路由', '直连 / 拒绝 / 节点链'),
           arrow(),
-          step('net', null, '网络出口', '前置代理先拨号')
+          step('net', null, '网络出口', '前置节点链路')
         ])
       ]);
 
       const summary = h('section', { class: 'card' }, [
         h('div', { class: 'card__head' }, [
-          h('div', {}, h('span', { class: 'eyebrow' }, '状态模型'), h('div', { class: 'card__title' }, 'Draft / Saved / Active')),
+          h('div', {}, h('span', { class: 'eyebrow' }, '配置状态'), h('div', { class: 'card__title' }, '工作副本、已保存配置与运行状态')),
           validation.ok ? h('span', { class: 'badge badge--ok' }, '合法') : h('span', { class: 'badge badge--err' }, `${validation.errors.length} 错误`)
         ]),
         h('div', { class: 'facts' }, [
-          fact('Draft', S.store.dirty ? '有未保存修改' : '与当前 Saved 基线一致'),
-          fact('Draft desired', intent.main?.enabled ? '启用' : '禁用'),
-          fact('Draft 对象', `节点 ${intent.nodes.length} · 路由 ${intent.routes.length} · DNS ${intent.dns_profiles.length} · 本地入口 ${intent.local_proxies.length} · 规则 ${intent.rules.length} · 订阅 ${intent.subscriptions.length}`),
-          fact('Draft warnings', `${validation.warnings?.length || 0} warnings · ${validation.errors?.length || 0} errors`),
-          fact('Saved revision', S.fmtRevision(S.store.revision)),
-          fact('Saved desired', ov.saved_enabled ? '启用' : '禁用'),
-          fact('pending_apply', ov.pending_apply ? '是' : '否'),
-          fact('Active generation', status.generation || '—'),
-          fact('Active digest', status.intent_digest ? status.intent_digest.slice(0, 12) : '—'),
-          fact('Active health', healthy ? 'healthy' : (status.generation ? 'unhealthy' : 'stopped')),
-          fact('上次 Apply', lastApply ? `${ui.applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')
+          fact('工作副本', S.store.dirty ? '有未保存修改' : '已保存'),
+          fact('配置开关', intent.main?.enabled ? '启用' : '禁用'),
+          fact('配置规模', `节点 ${intent.nodes.length} · 路由 ${intent.routes.length} · DNS ${intent.dns_profiles.length} · 本地入口 ${intent.local_proxies.length} · 规则 ${intent.rules.length} · 订阅 ${intent.subscriptions.length}`),
+          fact('配置校验', `${validation.warnings?.length || 0} 项警告 · ${validation.errors?.length || 0} 项错误`),
+          fact('已保存开关', ov.saved_enabled ? '启用' : '禁用'),
+          fact('待应用更改', ov.pending_apply ? '有' : '无'),
+          fact('运行状态', healthy ? '正常运行' : (status.generation ? '运行异常' : '已停止')),
+          fact('上次应用', lastApply ? `${ui.applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')
         ]),
         h('div', { class: 'u-mt-10' }, ui.applyRecord(status)),
         h('p', { class: 'muted' }, validation.errors.length || validation.warnings.length
-          ? '这里只显示问题数量；完整 Validation、Probe、报告与日志统一位于“诊断”。'
-          : '当前 Draft 校验通过。完整测试与日志统一位于“诊断”。')
+          ? '可在“诊断”页面查看详细问题、连通性报告与系统日志。'
+          : '当前工作副本校验通过。可在“诊断”页面查看连通性报告与系统日志。')
       ]);
 
       function fact(label, value) {
@@ -81,9 +78,9 @@
 
       if (!isCurrent()) return;
       root.append(...[
-        ui.viewHead('总览', 'Draft / Saved / Active 摘要与少量恢复操作', [
+        ui.viewHead('总览', '工作副本与运行状态概览', [
           h('button', { class: 'btn', onclick: () => S.router?.('diagnostics') }, '打开诊断'),
-          h('button', { class: 'btn', onclick: () => S.router?.('system') }, '系统事实')
+          h('button', { class: 'btn', onclick: () => S.router?.('system') }, '系统信息')
         ]),
         externalNotice, pipeline, summary
       ].filter(Boolean));

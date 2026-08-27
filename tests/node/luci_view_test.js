@@ -1168,8 +1168,8 @@ async function main() {
 
 	environment = await renderDns({ dns_profile: [] });
 	assertAutomaticIdsAndOptionalNames(environment, 'DNS profiles');
-	for (const expected of [ 'Bootstrap and encrypted DNS boundary', 'infrastructure hostnames', 'Port-53 capture alone' ])
-		assert.ok(elementText(environment.rendered).includes(expected), `LuCI DNS must render ${expected}`);
+	for (const removed of [ 'Bootstrap and encrypted DNS boundary', 'infrastructure hostnames', 'Port-53 capture alone' ])
+		assert.ok(!elementText(environment.rendered).includes(removed), `LuCI DNS must not render ${removed}`);
 	let dnsProtocol = allOptions(environment).find((option) => option.name == 'protocol');
 	assert.deepEqual(dnsProtocol.values.map((value) => value[0]), [ 'udp', 'tcp', 'tls', 'https', 'quic', 'h3' ],
 		'DNS profiles expose exactly the six M1 transports');
@@ -1317,7 +1317,7 @@ async function main() {
 	localListen.formValues.entry = '0.0.0.0';
 	localUsername.formValues.entry = '';
 	localPassword.formValues.entry = '';
-	assert.ok(String(localListen.validate('entry', '0.0.0.0')).includes('exposed'),
+	assert.ok(String(localListen.validate('entry', '0.0.0.0')).includes('reachable from other devices'),
 		'LuCI must explain the risk when blocking an exposed unauthenticated listener');
 	const groupedFixture = {
 		node: [
@@ -1576,7 +1576,7 @@ async function main() {
 		stale: [ { id: 'jdub_stale', name: 'Stale', referenced_by: [] } ]
 	} ] }, 'subscriptions');
 	const removeStale = findElements(environment.rendered,
-		(node) => node.tag == 'button' && node.children?.[0] == 'Remove jdub_stale')[0];
+		(node) => node.tag == 'button' && node.children?.[0] == 'Remove Stale')[0];
 	assert.ok(removeStale, 'Subscription status exposes cleanup only for stale nodes');
 	environment.cleanSubscriptionResult = { ok: false, error: 'NODE_STILL_REFERENCED' };
 	await removeStale.attributes.click();
@@ -1604,7 +1604,7 @@ async function main() {
 		}))
 	}, '', { subscriptions: sharedStatuses }, 'subscriptions');
 	const sharedText = elementText(environment.rendered);
-	for (const expected of [ 'Not fetched', 'subscription server returned HTTP 503', '1 current / 2 stale / 1 skipped' ])
+	for (const expected of [ 'Not fetched', 'subscription server returned HTTP 503', '1 current / 2 unavailable / 1 skipped' ])
 		assert.ok(sharedText.includes(expected), `LuCI must render shared subscription status ${expected}`);
 	const sharedUpdateButtons = findElements(environment.rendered,
 		(node) => node.tag == 'button' && node.children?.[0] == 'Update now');
@@ -1664,8 +1664,8 @@ async function main() {
 	assert.ok(environment.notifications.some((notification) => elementText(notification.body).includes('were preserved')));
 	assert.ok(environment.notifications.some((notification) => {
 		const message = elementText(notification.body);
-		return message.includes('current Active configuration was not changed') && message.includes('preserved as stale') && message.includes('Added 2');
-	}), 'LuCI subscription Update must report inventory counters, unchanged Active and referenced stale retention');
+		return message.includes('running configuration was not changed') && message.includes('nodes still used by Routes were kept') && message.includes('Added 2');
+	}), 'LuCI subscription Update must report inventory counters, unchanged runtime and retained referenced nodes');
 	environment = await renderOverview({ subscription: [] }, 'general');
 	const probeOptions = [ 'probe_direct', 'probe_proxy', 'speedtest_proxy' ].map((name) =>
 		allOptions(environment).find((option) => option.name == name));
@@ -1686,8 +1686,9 @@ async function main() {
 		'The Steer root resolves to Overview instead of accidentally rendering General');
 	assert.equal(environment.statusRenderCalls, 0,
 		'The Steer root uses the lifecycle panel instead of the legacy mixed status headline');
-	for (const expected of [ 'Draft / Saved / Active', 'Pending desired', 'Saved configuration', 'Active runtime', 'generation-a' ])
+	for (const expected of [ 'Configuration status', 'Working copy', 'Saved configuration', 'Running configuration' ])
 		assert.ok(elementText(environment.rendered).includes(expected), `Overview lifecycle panel must render ${expected}`);
+	assert.ok(!elementText(environment.rendered).includes('generation-a'), 'Overview lifecycle panel hides the internal generation identifier');
 	assert.equal(findElements(environment.rendered,
 		(node) => node.tag == 'button' && node.children?.[0] == 'Run test').length, 0,
 		'Overview does not duplicate the probes owned by Diagnostics');
@@ -1707,16 +1708,16 @@ async function main() {
 		};
 		const lifecycleEnvironment = await renderOverview({}, 'overview', lifecycle);
 		const lifecycleText = elementText(lifecycleEnvironment.rendered);
-		for (const expected of [ 'Pending desired', 'Saved configuration', 'Active runtime' ])
+		for (const expected of [ 'Working copy', 'Saved configuration', 'Running configuration' ])
 			assert.ok(lifecycleText.includes(expected), `${fixture.name} must render ${expected}`);
 		if (fixture.name == 'pending-disable') {
-			assert.ok(lifecycleText.includes('generation-old') && /Healthy\s+Yes/.test(lifecycleText),
-				'pending disable must keep the still-running Active generation visible');
+			assert.ok(!lifecycleText.includes('generation-old') && /Status\s+Normal/.test(lifecycleText),
+				'pending disable keeps the service state visible without exposing the generation identifier');
 			assert.ok(lifecycleText.includes('Save & Apply pending changes') && lifecycleText.includes('Discard pending changes'));
 		}
 		if (fixture.name == 'failed-apply') {
-			assert.ok(lifecycleText.includes('The last Apply failed') && lifecycleText.includes('generation-old'),
-				'failed Apply keeps Saved and the old Active identity separate');
+			assert.ok(lifecycleText.includes('The last application failed') && !lifecycleText.includes('generation-old'),
+				'failed application keeps the recovery state visible without exposing runtime identity');
 			assert.ok(lifecycleText.includes('Apply Saved configuration'),
 				'clean failed Apply exposes an Apply Saved retry without manufacturing pending UCI');
 		}
@@ -1754,8 +1755,9 @@ async function main() {
 	assert.deepEqual(environment.overviewProbeCalls, [ 'proxy' ],
 		'Overview proxy test remains clickable when no healthy running status was returned');
 	const diagnosticText = elementText(environment.rendered);
-	for (const expected of [ 'does not prove a particular outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'Tested at', 'Recent logs', 'Recent Apply', 'Validation', 'Active port-53 capture inspection', 'Expected port-53 capture artifacts are present' ])
+	for (const expected of [ 'Success only means the target was reachable', 'Overview', 'Node', 'Route', 'Tested at', 'Recent logs', 'Recent application result', 'Validation', 'System DNS capture check', 'System DNS capture is configured' ])
 		assert.ok(diagnosticText.includes(expected), `LuCI Diagnostics must render ${expected}`);
+	assert.ok(!diagnosticText.includes('nodes/node_enabled') && !diagnosticText.includes('routes/route_enabled'));
 	assert.ok(!diagnosticText.includes('proves the Direct path') && !diagnosticText.includes('proves the proxy path'));
 
 	const systemEnvironment = await renderSystem({
@@ -1767,9 +1769,10 @@ async function main() {
 		last_apply: { sequence: '12', result: { ok: false, generation: 'generation-failed' } }
 	});
 	const systemText = elementText(systemEnvironment.rendered);
-	for (const expected of [ 'generation-current', 'with_quic / with_utls', '20260827', '42', 'DNS capture boundary', '/etc/config/steer' ])
+	for (const expected of [ 'v1', '1.14.0', '20260827', '42', '/etc/config/steer' ])
 		assert.ok(systemText.includes(expected), `LuCI System must render ${expected}`);
-	assert.ok(!systemText.includes('generation-failed'), 'LuCI System must not treat the failed Apply candidate as Active');
+	for (const removed of [ 'generation-current', 'generation-failed', 'with_quic / with_utls', 'DNS capture boundary' ])
+		assert.ok(!systemText.includes(removed), `LuCI System must hide ${removed}`);
 
 	const deniedDiagnostics = await renderOverview({}, 'diagnostics', undefined, { overview_probe: false });
 	const deniedOverviewButtons = findElements(deniedDiagnostics.rendered,
@@ -1807,7 +1810,7 @@ async function main() {
 		stale: [ { id: 'stale', referenced_by: [] } ]
 	} ] }, 'subscriptions', [], { subscription_update: false, subscription_clean: false });
 	const deniedInventoryButtons = findElements(deniedSubscriptions.rendered,
-		(node) => node.tag == 'button' && [ 'Update now', 'Remove stale' ].includes(node.children?.[0]));
+		(node) => node.tag == 'button' && [ 'Update now', 'Remove Unavailable node' ].includes(node.children?.[0]));
 	assert.equal(deniedInventoryButtons.length, 2);
 	assert.ok(deniedInventoryButtons.every((button) => button.disabled === true));
 	for (const button of deniedInventoryButtons) await button.attributes.click();
@@ -1861,7 +1864,7 @@ async function main() {
 		'Share URL import persists an explicit stable node ID');
 	assert.ok(nodeSource.includes("_('Import nodes')") &&
 		nodeSource.includes("_('Import into pending configuration')") &&
-		nodeSource.includes('Steer parses and validates it') &&
+		nodeSource.includes('preview the parsed nodes before adding them') &&
 		!nodeSource.includes('Parse a standard proxy share URL in this browser'),
 		'Node import copy describes the shared backend parser and pending configuration truthfully');
 	const overviewSource = fs.readFileSync(path.join(root,
@@ -1872,7 +1875,7 @@ async function main() {
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
 		nodesSource.includes("_('Update now')") &&
-			nodesSource.includes("_('Subscription inventory updated; the current Active configuration was not changed. Nodes still referenced by Routes but no longer advertised by the subscription were preserved as stale. Added %d, current %d, stale %d, skipped %d.')") &&
+			nodesSource.includes("_('Subscription nodes updated. The running configuration was not changed, and nodes still used by Routes were kept. Added %d, current %d, unavailable %d, skipped %d.')") &&
 		nodesSource.includes('subscriptionOperationGate') &&
 		nodesSource.includes("_('Connection test')") &&
 		nodesSource.includes("_('Download test')") &&

@@ -441,15 +441,15 @@ async function testApplyFailureNotificationsTakePrecedenceOverStaleDraft() {
 
   let environment = createEnvironment(async () => failed);
   await environment.S.ui.onSave(true);
-  assert.match(text(environment.toasts), /快照已保存但 Apply 失败：activate failed；期间新修改仍未保存/,
+  assert.match(text(environment.toasts), /配置已保存但应用失败：activate failed；期间新修改仍未保存/,
     'ordinary Save and Apply must report Apply failure before the stale Draft warning');
-  assert.doesNotMatch(text(environment.toasts), /已保存并 Apply/);
+  assert.doesNotMatch(text(environment.toasts), /已保存并应用/);
 
   environment = createEnvironment(async () => failed);
   await environment.S.ui.onToggleEnabled(false);
-  assert.match(text(environment.toasts), /已保存为禁用，但 Apply 失败：activate failed；期间新修改仍未保存/,
+  assert.match(text(environment.toasts), /已保存为禁用，但应用失败：activate failed；期间新修改仍未保存/,
     'Enable or Disable must not describe a failed Apply as successful when the Draft is also stale');
-  assert.doesNotMatch(text(environment.toasts), /已保存并 Apply 禁用/);
+  assert.doesNotMatch(text(environment.toasts), /已保存并应用禁用/);
 
   let calls = 0;
   environment = createEnvironment(async () => {
@@ -460,9 +460,9 @@ async function testApplyFailureNotificationsTakePrecedenceOverStaleDraft() {
   await environment.S.ui.onSave(true);
   lastButtonWithText(environment.body, '覆盖保存（保留本地修改）').listeners.click();
   await flushUI();
-  assert.match(text(environment.toasts), /快照已覆盖保存但 Apply 失败：activate failed；期间新修改仍未保存/,
+  assert.match(text(environment.toasts), /已覆盖保存，但应用失败：activate failed；期间新修改仍未保存/,
     'force overwrite must report Apply failure before the stale Draft warning');
-  assert.doesNotMatch(text(environment.toasts), /已覆盖保存并 Apply/);
+  assert.doesNotMatch(text(environment.toasts), /已覆盖保存并应用/);
 }
 
 async function testNewRulesAreStoredBeforeDefault() {
@@ -628,7 +628,7 @@ async function testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit() {
   const environment = createEnvironment(async () => ({ ok: true }), intent);
   loadView(environment, 'rules');
   await openOnlyEditor(environment, 'rules');
-  const inbound = fieldWithLabel(environment.drawerRoot, 'inbound（本地代理端点）');
+  const inbound = fieldWithLabel(environment.drawerRoot, '本地代理入口');
   assert.equal(find(inbound, (element) => classSet(element).has('chips__input')), null,
     'inbound no longer accepts arbitrary internal IDs');
   const proxyChoice = buttonWithText(inbound, 'Local proxy');
@@ -670,12 +670,12 @@ function testSharedCreationDefaultsAutomaticIDsAndReferenceLabels() {
   );
   assert.strictEqual(options.find(([id]) => id === 'node-unique')[1], 'Unique',
     'an unambiguous selector label stays concise');
-  assert.match(options.find(([id]) => id === 'node-a1b2c3')[1], /Same · a\.example:1080 · #a1b2c3/,
-    'duplicate names include endpoint and short stable ID');
+  assert.match(options.find(([id]) => id === 'node-a1b2c3')[1], /Same · a\.example:1080 · 同名项 1/,
+    'duplicate names include endpoint and a natural ordinal');
   for (const [collection, expected] of [
-    ['routes', /Same · Node node-a · #a1b2c3/],
-    ['dns_profiles', /Same · 1\.1\.1\.1:53 · #a1b2c3/],
-    ['local_proxies', /Same · 127\.0\.0\.1:1090 · #a1b2c3/]
+    ['routes', /Same · 节点 未选择 · 同名项 1/],
+    ['dns_profiles', /Same · 1\.1\.1\.1:53 · 同名项 1/],
+    ['local_proxies', /Same · 127\.0\.0\.1:1090 · 同名项 1/]
   ]) {
     const label = environment.S.ui.referenceOptions(
       collection, creationPolicyFixtures.ambiguous_references[collection]
@@ -774,19 +774,19 @@ async function testActualGenerationAndPersistentApplyFixture() {
   });
   environment.S.ui.renderStatusStrip();
   const stripText = text(environment.strip);
-  assert.match(stripText, /candidate\.active-old/, 'strip must show the actual current generation');
-  assert.doesNotMatch(stripText, /candidate\.failed-new/, 'last Apply candidate must not be inferred as active');
-  assert.match(stripText, /已保存，待 Apply/);
+  assert.doesNotMatch(stripText, /candidate\.active-old|candidate\.failed-new/, 'strip must hide internal generation identifiers');
+  assert.match(stripText, /运行状态正常运行/);
+  assert.match(stripText, /待应用/);
 
-  const applyButton = find(environment.strip, (element) => element.tag === 'button' && text(element) === 'Apply 已保存配置');
+  const applyButton = find(environment.strip, (element) => element.tag === 'button' && text(element) === '应用已保存配置');
   assert.ok(applyButton, 'global strip must expose Apply Saved on every view');
   assert.ok(!Object.hasOwn(applyButton.attributes, 'disabled'), 'clean pending state must keep Apply Saved enabled');
   await applyButton.listeners.click();
   assert.strictEqual(applyCalls, 1);
 
   const recordText = text(environment.S.ui.applyRecord(overview.status));
-  assert.match(recordText, /candidate\.failed-new 未激活/);
-  assert.match(recordText, /candidate\.active-old/);
+  assert.match(recordText, /新配置未启用，当前运行配置保持不变/);
+  assert.doesNotMatch(recordText, /candidate\.failed-new|candidate\.active-old/);
   assert.match(recordText, /systemd refused start/);
   assert.match(recordText, /2026/, 'persistent Apply record must include its timestamp');
 
@@ -794,14 +794,14 @@ async function testActualGenerationAndPersistentApplyFixture() {
   new Function('window', overviewSource)({ S: environment.S });
   const overviewRoot = new Element('main');
   await environment.S.views.overview.render(overviewRoot);
-  assert.match(text(overviewRoot), /candidate\.active-old/);
-  assert.match(text(overviewRoot), /candidate\.failed-new 未激活/);
+  assert.match(text(overviewRoot), /运行状态正常运行/);
+  assert.doesNotMatch(text(overviewRoot), /candidate\.active-old|candidate\.failed-new/);
 
   const diagnosticsSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/diagnostics.js'), 'utf8');
   new Function('window', diagnosticsSource)({ S: environment.S });
   const diagnosticsRoot = new Element('main');
   await environment.S.views.diagnostics.render(diagnosticsRoot);
-  assert.match(text(diagnosticsRoot), /最近 Apply 结果/);
+  assert.match(text(diagnosticsRoot), /最近应用结果/);
   assert.match(text(diagnosticsRoot), /systemd refused start/);
 
   const disabled = createEnvironment(async () => ({ ok: true, res: {} }), runtimeTestIntent(false), {
@@ -855,7 +855,7 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   const diagnosticsRoot = new Element('main');
   await environment.S.views.diagnostics.render(diagnosticsRoot);
   const renderedDiagnostics = text(diagnosticsRoot);
-  for (const expected of ['不证明具体 outbound', 'Overview', 'nodes/node_enabled', 'routes/route_enabled', 'tested_at', 'steer-web probe log', '最近 Apply 结果', 'Active port-53 配置检查', 'expected port-53 capture artifacts']) {
+  for (const expected of ['成功仅表示该地址在测试时可达', '总览', '节点', '路由', '测试时间', 'steer-web probe log', '最近应用结果', '系统 DNS 接管检查', '系统 DNS 接管已配置']) {
     assert.match(renderedDiagnostics, new RegExp(expected), `Linux Diagnostics must render ${expected}`);
   }
   assert.doesNotMatch(renderedDiagnostics, /验证 Direct 路径|验证当前代理路径/);
@@ -867,13 +867,13 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   await environment.S.views.overview.render(overviewRoot);
   assert.strictEqual(findAll(overviewRoot, (element) => element.tag === 'button' && text(element) === '运行测试').length, 0,
     'Overview must not duplicate Diagnostics probes');
-  assert.match(text(overviewRoot), /Draft \/ Saved \/ Active/);
+  assert.match(text(overviewRoot), /工作副本、已保存配置与运行状态/);
 
   loadView(environment, 'dns');
   const dnsRoot = new Element('main');
   environment.S.views.dns.render(dnsRoot);
-  for (const expected of ['Bootstrap 与应用自带加密 DNS', 'infrastructure hostnames', 'Port-53 capture alone']) {
-    assert.match(text(dnsRoot), new RegExp(expected), `Linux DNS must render ${expected}`);
+  for (const removed of ['Bootstrap 与应用自带加密 DNS', 'infrastructure hostnames', 'Port-53 capture alone']) {
+    assert.doesNotMatch(text(dnsRoot), new RegExp(removed), `Linux DNS must not render ${removed}`);
   }
 
   loadView(environment, 'nodes');
@@ -928,7 +928,7 @@ async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
   assert.equal(environment.S.store.dirty, true);
   environment.S.ui.renderStatusStrip();
   assert.match(text(environment.strip), /服务器配置已变化/);
-  assert.match(text(environment.strip), /外部变更冲突/);
+  assert.match(text(environment.strip), /处理配置冲突/);
 
   const reloaded = await environment.S.store.reload();
   assert.equal(reloaded.ok, true);
@@ -952,7 +952,7 @@ async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
   let renderedCurrent = 0;
   environment.S.renderCurrent = () => { renderedCurrent++; };
   environment.S.ui.renderStatusStrip();
-  const reloadLatest = find(environment.strip, (element) => element.tag === 'button' && text(element) === '重载最新 Saved');
+  const reloadLatest = find(environment.strip, (element) => element.tag === 'button' && text(element) === '重新载入');
   assert.ok(reloadLatest, 'clean external revision exposes one-click reload');
   reloadLatest.listeners.click();
   await flushUI();
@@ -978,16 +978,15 @@ async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
     rendered.S.store.dirty = fixture.draft.dirty;
     rendered.S.ui.renderStatusStrip();
     const strip = text(rendered.strip);
-    assert.match(strip, /Draft desired/);
-    assert.match(strip, /Saved desired/);
+    assert.match(strip, /配置开关/);
     assert.match(strip, /运行状态/);
     if (fixture.name === 'pending-disable') {
-      assert.match(strip, /Draft desired禁用/);
-      assert.match(strip, /Saved desired启用/);
-      assert.match(strip, /healthy/,
-        'pending disable must not hide the still-running Active generation');
+      assert.match(strip, /配置开关禁用/);
+      assert.match(strip, /已保存开关启用/);
+      assert.match(strip, /正常运行/,
+        'pending disable must keep the service state visible');
     }
-    if (fixture.name === 'failed-apply') assert.match(strip, /已保存，待 Apply/);
+    if (fixture.name === 'failed-apply') assert.match(strip, /待应用/);
   }
 
   const appSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/app.js'), 'utf8');
@@ -1015,7 +1014,8 @@ async function testSharedUISafetyContracts() {
       `Linux reference guard drifted for ${fixture.target_collection}/${fixture.target_id}`);
   }
   assert.equal(environment.S.ui.guardCollectionDeletion('nodes', 'node_used', 'Used node'), false);
-  assert.match(text(environment.body), /Used route \/ node/);
+  assert.match(text(environment.body), /Used route/);
+  assert.doesNotMatch(text(environment.body), /Used route \/ node/);
   assert.equal(environment.S.ui.guardCollectionDeletion('nodes', 'node_free', 'Free node'), true);
 
   const summaryEnvironment = createEnvironment(async () => ({ ok: true }), draftLifecycleIntent());
@@ -1029,7 +1029,11 @@ async function testSharedUISafetyContracts() {
   const renderedIssues = environment.S.ui.issueList([...validation.errors, ...validation.warnings], () => {});
   const issueText = text(renderedIssues);
   for (const issue of [...validation.errors, ...validation.warnings]) {
-    assert.ok(issueText.includes(issue.code) && issueText.includes(issue.object_id) && issueText.includes(issue.option));
+    assert.ok(!issueText.includes(issue.code) && !issueText.includes(issue.object_id),
+      'validation UI must hide internal codes and object IDs');
+  }
+  for (const expected of ['必填字段尚未填写', '所选节点不存在', '所选路由不存在', '更新间隔必须是大于零的时长']) {
+    assert.ok(issueText.includes(expected));
   }
   for (const secret of validationIssueFixtures.forbidden_message_values) assert.ok(!issueText.includes(secret));
 
@@ -1040,7 +1044,7 @@ async function testSharedUISafetyContracts() {
   }, draftLifecycleIntent());
   await failedWrite.S.ui.onSave(true);
   const writePanel = text(failedWrite.body);
-  assert.ok(writePanel.includes('DANGLING_ROUTE') && writePanel.includes('DNS_PROJECTION_EMPTY'),
+  assert.ok(writePanel.includes('所选路由不存在') && writePanel.includes('不影响 DNS 上游选择'),
     'Save/Apply failure must immediately render structured errors and warnings');
 }
 
@@ -1105,7 +1109,7 @@ async function testJSONDraftStoreLifecycle() {
   assert.strictEqual(result.ok, false);
   assert.strictEqual(environment.S.store.draftText, invalidText, 'invalid JSON text must be retained verbatim');
   assert.strictEqual(environment.S.store.intent, lastValidIntent, 'invalid JSON must not replace the last parseable Draft object');
-  await assert.rejects(() => environment.S.store.save(false), /JSON Draft 无效/);
+  await assert.rejects(() => environment.S.store.save(false), /JSON 配置格式有误/);
   assert.strictEqual(backend.puts.length, 0, 'invalid JSON must not reach the Save API');
 
   backend.intent.main.log_level = 'error';
@@ -1316,7 +1320,7 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   editor.listeners.input({ target: editor });
   assert.strictEqual(environment.S.store.dirty, true);
   assert.strictEqual(environment.S.store.draftValid, false);
-  assert.match(text(environment.strip), /JSON Draft 无效/);
+  assert.match(text(environment.strip), /配置格式有误/);
   assert.ok(buttonWithText(environment.strip, '保存').disabled, 'global Save must be blocked for invalid JSON');
   assert.ok(buttonWithText(environment.view, '保存').disabled, 'Advanced Save must share the same invalid-Draft guard');
 
@@ -1351,7 +1355,7 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   assert.strictEqual(environment.S.store.intent.main.log_level, 'error');
   assert.strictEqual(environment.S.store.pendingApply, true, 'Discard must not alter pending Apply semantics');
   assert.strictEqual(buttonWithText(environment.strip, '放弃修改'), null, 'Discard must disappear after the Draft becomes clean');
-  assert.match(text(environment.strip), /revision-2/, 'Discard must synchronize the status strip revision');
+  assert.doesNotMatch(text(environment.strip), /revision-2/, 'status strip must hide the internal revision identifier');
   editor = find(environment.view, (element) => element.tag === 'textarea' && classSet(element).has('editor-tall'));
   assert.match(editor.value, /"log_level": "error"/, 'Discard must rerender the current Advanced page from Saved');
 
@@ -1360,7 +1364,7 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   backend.api.applySaved = async () => { applyRequests++; await applyGate.promise; return { ok: true }; };
   const applying = environment.S.store.applySaved();
   await Promise.resolve();
-  const busyApplyButton = buttonWithText(environment.strip, 'Apply 已保存配置');
+  const busyApplyButton = buttonWithText(environment.strip, '应用已保存配置');
   assert.ok(busyApplyButton.disabled, 'Apply Saved button must disable during any control operation');
   await busyApplyButton.listeners.click();
   assert.strictEqual(applyRequests, 1, 'busy guard must prevent a concurrent Apply Saved request');
@@ -1405,7 +1409,7 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   parsed.main.log_level = 'error';
   editor.value = JSON.stringify(parsed, null, 2);
   editor.listeners.input({ target: editor });
-  await buttonWithText(environment.view, '保存并 Apply').listeners.click();
+  await buttonWithText(environment.view, '保存并应用').listeners.click();
   assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'error', 'Advanced page Save and Apply must use the shared JSON Draft');
   assert.strictEqual(backend.puts.at(-1).apply, true);
 
@@ -1413,7 +1417,7 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   parsed.main.log_level = 'debug';
   editor.value = JSON.stringify(parsed, null, 2);
   editor.listeners.input({ target: editor });
-  await buttonWithText(environment.strip, '保存并 Apply').listeners.click();
+  await buttonWithText(environment.strip, '保存并应用').listeners.click();
   assert.strictEqual(backend.puts.at(-1).intent.main.log_level, 'debug', 'global Save and Apply must use the same Advanced JSON Draft');
   assert.strictEqual(backend.puts.at(-1).apply, true);
 
@@ -1445,7 +1449,7 @@ async function testAdvancedRouterDiscardAndGuardedActions() {
   assert.strictEqual(environment.S.store.dirty, true, 'edit during Discard reload must remain dirty');
   assert.strictEqual(environment.S.store.intent.main.log_level, 'info');
   assert.notStrictEqual(discardOverlay.removed, true, 'stale Discard response must not close as if the Draft was discarded');
-  assert.match(text(environment.toasts), /reload 期间 Draft 又发生变化/);
+  assert.match(text(environment.toasts), /重新载入期间工作副本又发生变化/);
 }
 
 async function testSubscriptionAsyncWorkPreservesNewDraftAndRoute() {
@@ -1478,7 +1482,7 @@ async function testSubscriptionAsyncWorkPreservesNewDraftAndRoute() {
   assert.strictEqual(backend.configCalls, configCallsBeforeUpdate, 'changed Draft must prevent unconditional subscription reload');
   assert.strictEqual(application.location.hash, '#/general');
   assert.match(text(environment.view), /基础设置/, 'stale subscription render must not overwrite the newer route');
-  assert.match(text(environment.toasts), /Draft 已变化/, 'inventory update must explain why Draft was preserved');
+  assert.match(text(environment.toasts), /工作副本已变化/, 'inventory update must explain why the working copy was preserved');
 
   await environment.S.store.reload();
   environment.S.renderCurrent();
@@ -1491,7 +1495,7 @@ async function testSubscriptionAsyncWorkPreservesNewDraftAndRoute() {
     await cleanGate.promise;
     return { snapshot: {} };
   };
-  buttonWithText(environment.view, '清理 stale ×1').listeners.click();
+  buttonWithText(environment.view, '清理失效节点 ×1').listeners.click();
   const configCallsBeforeClean = backend.configCalls;
   const cleaning = lastButtonWithText(environment.body, '移除').listeners.click();
   await Promise.resolve();
@@ -1560,7 +1564,7 @@ async function testSubscriptionAsyncWorkReloadsLatestAfterDiscard() {
     backend.revision = '"revision-clean-latest"';
     return { snapshot: {} };
   };
-  buttonWithText(environment.view, '清理 stale ×1').listeners.click();
+  buttonWithText(environment.view, '清理失效节点 ×1').listeners.click();
   const configCallsBeforeClean = backend.configCalls;
   const cleaning = lastButtonWithText(environment.body, '移除').listeners.click();
   await Promise.resolve();
@@ -1685,8 +1689,8 @@ function testLocalProxyBlocksExposedUnauthenticatedDraftAndCreatesCredentials() 
   listen.listeners.input({ target: listen });
   buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
   assert.strictEqual(intent.local_proxies.length, 0, 'hostname listeners must not enter the Draft even with authentication');
-  assert.ok(text(environment.body.querySelector('#toasts')).includes('hostname'),
-    'a rejected hostname must explain the IP literal requirement');
+  assert.ok(text(environment.body.querySelector('#toasts')).includes('不能填写域名'),
+    'a rejected hostname must explain that an IP address is required');
 
   listen.value = '127.0.0.1';
   newPassword.value = '';
@@ -1701,12 +1705,12 @@ function testLocalProxyBlocksExposedUnauthenticatedDraftAndCreatesCredentials() 
   listen.value = '0.0.0.0';
   listen.listeners.input({ target: listen });
   const warning = find(environment.drawerRoot, (element) => classSet(element).has('local-proxy-exposure'));
-  assert.ok(warning && warning.hidden === false && text(warning).includes('暴露范围'),
+  assert.ok(warning && warning.hidden === false && text(warning).includes('扩大访问范围'),
     'non-loopback input must show a prominent exposure warning');
 
   buttonWithText(environment.drawerRoot, '保存到工作副本').listeners.click();
   assert.strictEqual(intent.local_proxies.length, 0, 'an exposed endpoint without authentication must not enter the Draft');
-  assert.ok(text(environment.body.querySelector('#toasts')).includes('暴露风险'),
+  assert.ok(text(environment.body.querySelector('#toasts')).includes('可能允许其他设备连接'),
     'blocked exposed listeners must explain the risk');
 
   action.value = 'replace';
@@ -1753,11 +1757,11 @@ async function testLinuxWebRuntimeFactsResponsiveLogoutAndNodeEndpoints() {
   for (const fixture of [
     {
       listen: '127.0.0.1:9080',
-      expected: ['实际监听 127.0.0.1:9080', 'ssh -L 9080:127.0.0.1:9080 host', 'http://127.0.0.1:9080']
+      expected: ['控制台仅允许本机访问', 'ssh -L 9080:127.0.0.1:9080 host', 'http://127.0.0.1:9080']
     },
     {
       listen: '[::1]:9443',
-      expected: ['实际监听 [::1]:9443', 'ssh -L 9443:[::1]:9443 host', 'http://127.0.0.1:9443']
+      expected: ['控制台仅允许本机访问', 'ssh -L 9443:[::1]:9443 host', 'http://127.0.0.1:9443']
     }
   ]) {
     const environment = createEnvironment(async () => ({ ok: true }), draftLifecycleIntent(), {
@@ -1826,7 +1830,7 @@ async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
     assert.match(rendered, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       `Linux subscription UI must render shared state ${expected}`);
   }
-  assert.match(rendered, /3 \(1 current\)/, 'failed-after-success keeps the last successful inventory');
+  assert.match(rendered, /3（当前 1）/, 'failed-after-success keeps the last successful inventory');
   assert.match(rendered, /1 \/ 2/, 'skipped and stale counts remain persistent');
 
   const updateButtons = findAll(environment.view, (element) => element.tag === 'button' && text(element) === '立即更新');
@@ -1841,10 +1845,10 @@ async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
   await updateButtons[successIndex].listeners.click();
   assert.strictEqual(updates, 1);
   const updateToast = text(environment.toasts);
-  assert.match(updateToast, /added 2 · current 2 · stale 0 · skipped 0/,
+  assert.match(updateToast, /新增 2 · 当前 2 · 已失效 0 · 已跳过 0/,
     'update toast uses the same status contract and all inventory counters');
   assert.match(updateToast, /当前运行配置未改变/);
-  assert.match(updateToast, /Route 引用.*保留为 stale/);
+  assert.match(updateToast, /仍被路由使用的节点已自动保留/);
 }
 
 Promise.resolve()

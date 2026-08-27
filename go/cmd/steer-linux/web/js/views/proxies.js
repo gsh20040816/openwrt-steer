@@ -14,7 +14,7 @@
   function openEditor(proxy, focusOption) {
     const isNew = !S.store.intent.local_proxies.includes(proxy);
     const opened = ui.drawer({
-      eyebrow: `本地代理 · ${proxy.id}`, title: proxy.name || '未命名', submitLabel: '保存到工作副本',
+      eyebrow: isNew ? '新建本地代理' : '编辑本地代理', title: proxy.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(proxy));
         const hasSavedPassword = typeof draft.password === 'string' && draft.password !== '';
@@ -35,7 +35,7 @@
           ['remove', '不设置认证'], ['replace', '设置用户名和密码']
         ], authAction, (value) => { authAction = value; updateAuthControls(); });
         const exposure = h('div', { class: 'alert local-proxy-exposure', role: 'alert' }, [
-          h('strong', {}, '非 loopback 监听会扩大暴露范围'),
+          h('strong', {}, '该监听地址会扩大访问范围'),
           h('div', {}, '该地址可能允许局域网或公网客户端连接；必须同时设置用户名和密码。')
         ]);
 
@@ -76,7 +76,7 @@
             if (!S.uiSpec.local_proxy_protocols.some((item) => item.value === draft.protocol)) { ui.toast('请选择代理协议', 'err'); return false; }
             const listenAddress = listen.value.trim();
             const listenClass = ui.classifyLocalProxyListen(listenAddress);
-            if (listenClass === 'invalid') { ui.toast('监听地址必须是 IP literal，不能使用 hostname', 'err'); return false; }
+            if (listenClass === 'invalid') { ui.toast('监听地址必须是有效的 IP 地址，不能填写域名', 'err'); return false; }
             const p = Number(port.value);
             if (!port.value || p < 1 || p > 65535) { ui.toast('端口必须是 1–65535', 'err'); return false; }
 
@@ -94,7 +94,7 @@
               return false;
             }
             if (listenClass === 'non_loopback' && nextUsername === '') {
-              ui.toast('非 loopback 监听存在暴露风险，必须设置用户名和密码', 'err');
+              ui.toast('该监听地址可能允许其他设备连接，必须设置用户名和密码', 'err');
               return false;
             }
 
@@ -136,7 +136,7 @@
         h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '监听', '规则引用', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, intent.local_proxies.map((p) => h('tr', { class: p.enabled === false ? 'is-disabled' : null }, [
           h('td', {}, ui.toggle(p.enabled, (v) => { p.enabled = v; S.store.touch(); })),
-          h('td', {}, h('div', {}, h('strong', {}, p.name || p.id), h('div', { class: 'mono' }, p.id))),
+          h('td', {}, h('strong', {}, p.name || p.id)),
           h('td', {}, h('span', { class: 'badge badge--match' }, PROTOCOL_LABEL[p.protocol] || p.protocol)),
           h('td', { class: 'mono' }, `${p.listen}:${p.listen_port}`),
           h('td', { class: 'mono num' }, String(refCount(intent, p.id))),
@@ -154,7 +154,7 @@
       ]);
 
       root.append(
-        ui.viewHead('本地代理', '规则可用 inbound 把匹配限制到指定端点；无法与源 MAC 组合（平台级限制）', [
+        ui.viewHead('本地代理', '设置本机 SOCKS5、HTTP 与 Mixed 代理入口', [
           h('button', { class: 'btn btn--primary', onclick: () => openEditor(ui.creationDraft('local_proxies')) }, '添加端点')
         ]),
         intent.local_proxies.length

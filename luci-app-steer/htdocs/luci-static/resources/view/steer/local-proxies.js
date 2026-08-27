@@ -82,11 +82,11 @@ function classifyLocalProxyListen(value) {
 function validateLocalProxyForm(listen, username, password) {
 	const classification = classifyLocalProxyListen(listen);
 	if (classification == 'invalid')
-		return _('Listen address must be an IP literal.');
+		return _('Listen address must be an IP address, not a hostname.');
 	if ((username == '') != (password == ''))
 		return _('Username and password must either both be set or both be empty.');
 	if (classification == 'non_loopback' && username == '')
-		return _('Non-loopback listeners are exposed beyond this device and require username/password authentication.');
+		return _('Addresses reachable from other devices require username and password authentication.');
 	return true;
 }
 
@@ -135,7 +135,7 @@ return view.extend({
 		o.rmempty = false;
 		o.editable = true;
 		o.description = E('strong', { 'class': 'steer-exposure-warning' },
-			_('Exposure warning: non-loopback listeners may be reachable from LAN or public networks and require authentication.'));
+			_('Exposure warning: this address may be reachable from LAN or public networks and requires authentication.'));
 
 		o = s.option(form.Value, 'listen_port', _('Port'));
 		o.datatype = 'port';

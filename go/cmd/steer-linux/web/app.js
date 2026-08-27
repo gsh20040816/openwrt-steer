@@ -21,7 +21,7 @@
 
   function canOpen(name) {
     if (name === 'advanced' || S.store.draftValid !== false) return true;
-    S.ui.toast(`当前 JSON Draft 无效，不能打开结构化页面：${S.store.draftError}`, 'err');
+    S.ui.toast(`当前 JSON 配置格式有误，不能打开此页面：${S.store.draftError}`, 'err');
     return false;
   }
 

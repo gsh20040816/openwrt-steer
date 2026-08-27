@@ -169,20 +169,20 @@ enum DraftGuardAction: Sendable, Equatable {
 
     var title: String {
         switch self {
-        case .reload: return "重新载入前处理 Draft"
-        case .installSystemComponents: return "安装或修复前处理 Draft"
-        case .terminate: return "退出前处理 Draft"
+        case .reload: return "重新载入前处理未保存修改"
+        case .installSystemComponents: return "安装或修复前处理未保存修改"
+        case .terminate: return "退出前处理未保存修改"
         }
     }
 
     var explanation: String {
         switch self {
         case .reload:
-            return "保存会先保存当前 Draft 再重新载入；丢弃会从 Saved 配置替换当前 Draft。"
+            return "选择保存会先保存当前工作副本再重新载入；选择丢弃会载入已保存配置。"
         case .installSystemComponents:
-            return "保存会保留当前 Draft 并在继续前写入 Saved；丢弃会在安装完成后重新载入 Saved 配置。"
+            return "选择保存会在继续前保存当前工作副本；选择丢弃会在安装完成后重新载入已保存配置。"
         case .terminate:
-            return "保存会在成功写入 Saved 后退出；丢弃会直接退出。取消不会修改 Draft、Saved 或 Active。"
+            return "选择保存会在保存成功后退出；选择丢弃会直接退出。取消不会改变任何配置。"
         }
     }
 }
@@ -407,7 +407,7 @@ struct SubscriptionRuntimeStatus: Decodable, Identifiable, Sendable {
     }
 
     var inventorySummary: String {
-        "added \(added) · current \(current) · stale \(stale.count) · skipped \(skipped)"
+        "新增 \(added) · 当前 \(current) · 已失效 \(stale.count) · 已跳过 \(skipped)"
     }
 
     private var lastFailureIsLatest: Bool {
@@ -656,11 +656,11 @@ enum BackendClientError: LocalizedError {
         case .helperUnavailable:
             return "未安装 Steer 系统组件；请在“系统”页完成首次安装。"
         case .invalidResponse:
-            return "steer-macos 返回了无法识别的响应。"
+            return "Steer 服务返回了无法识别的信息。"
         case .validationFailed:
-            return "配置校验失败，未保存也未 Apply。"
+            return "配置校验失败，未保存也未应用。"
         case .revisionConflict:
-            return "Saved 配置已在其他操作中更新；请先处理 revision 冲突。"
+            return "服务器配置已在其他操作中更新；请先处理配置冲突。"
         case let .processFailed(message):
             return message
         }
@@ -1011,7 +1011,7 @@ struct HelperBackendClient: BackendClient {
         try requireExecutable(helper)
         let result = try await Self.execute(helper, ["control", "--operation", "subscription-clean", "--id", id, "--node", nodeID])
         let response = try Self.decodeControlResponse(result)
-        guard response.ok else { throw BackendClientError.processFailed(response.error ?? "stale 节点清理失败。") }
+        guard response.ok else { throw BackendClientError.processFailed(response.error ?? "失效节点清理失败。") }
     }
 
     func geoCatalog(kind: String) async throws -> [String] {
@@ -1301,7 +1301,7 @@ final class AppModel: ObservableObject {
     }
 
     var draftGuardTitle: String {
-        pendingDraftAction?.title ?? "处理未保存的 Draft"
+        pendingDraftAction?.title ?? "处理未保存修改"
     }
 
     var draftGuardExplanation: String {
@@ -1354,7 +1354,7 @@ final class AppModel: ObservableObject {
         isDirty = true
         validation = nil
         validationFocus = nil
-        message = "有未保存的 Draft 修改"
+        message = "工作副本有未保存修改"
     }
 
     func updateRawDraft(_ document: String) {
@@ -1368,7 +1368,7 @@ final class AppModel: ObservableObject {
               !isBusy, pendingDraftAction == nil else { return }
         initialStateLoadInProgress = true
         isBusy = true
-        message = "正在连接 Steer 后端…"
+        message = "正在连接 Steer 服务…"
         let documentBeforeLoad = rawJSON
         let sequenceBeforeLoad = draftMutationSequence
         let draftWasDirtyBeforeLoad = isDirty
@@ -1409,12 +1409,14 @@ final class AppModel: ObservableObject {
                 self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
                 self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
                 if preservedConcurrentDraft {
-                    self.message = "已连接后端；载入期间产生的本地 Draft 已保留，尚未保存"
+                    self.message = "已连接服务；载入期间产生的本地修改已保留，尚未保存"
                 } else {
-                    self.message = self.runtime.healthy ? "Steer 运行正常" : "已连接后端，Steer 当前未运行"
+                    self.message = self.runtime.healthy
+                        ? "Steer 运行正常"
+                        : (self.runtime.generationID.isEmpty ? "已连接服务，Steer 当前未运行" : "Steer 运行异常")
                 }
             } catch {
-                self.message = "连接 Steer 后端失败：\(error.localizedDescription)"
+                self.message = "连接 Steer 服务失败：\(error.localizedDescription)"
             }
         }
     }
@@ -1442,7 +1444,7 @@ final class AppModel: ObservableObject {
             if removeUserData {
                 self.savedRevision = ""
                 self.isDirty = true
-                self.message = "系统组件和用户数据已删除；当前内存 Draft 未写入磁盘"
+                self.message = "系统组件和用户数据已删除；当前工作副本未保存"
             } else {
                 self.message = "系统组件已卸载；已保留 /Library/Application Support/Steer/config、state 与 /Library/Logs/Steer"
             }
@@ -1452,7 +1454,9 @@ final class AppModel: ObservableObject {
     func refreshStatus() {
         perform(message: "正在读取运行状态…") {
             self.runtime = try await self.backend.status()
-            self.message = self.runtime.healthy ? "Steer 运行正常" : "Steer 当前未运行"
+            self.message = self.runtime.healthy
+                ? "Steer 运行正常"
+                : (self.runtime.generationID.isEmpty ? "Steer 当前未运行" : "Steer 运行异常")
         }
     }
 
@@ -1522,7 +1526,7 @@ final class AppModel: ObservableObject {
         perform(message: "正在校验…") {
             let result = try await self.backend.validate(document: document)
             guard self.draftMatches(document: document, sequence: sequence) else {
-                self.message = "校验完成，但 Draft 已变化；旧结果已丢弃"
+                self.message = "校验完成，但工作副本已变化；旧结果已丢弃"
                 return
             }
             self.validation = result
@@ -1585,7 +1589,7 @@ final class AppModel: ObservableObject {
         let draftWasDirty = isDirty
         let draftDocumentBeforeApply = rawJSON
         let draftSequenceBeforeApply = draftMutationSequence
-        perform(message: "正在应用 Saved 配置…") {
+        perform(message: "正在应用已保存配置…") {
             let snapshot = try await self.backend.loadConfiguration()
             let outcome: ApplyOutcome
             do {
@@ -1595,7 +1599,7 @@ final class AppModel: ObservableObject {
                 )
             } catch let error as BackendClientError {
                 if case .revisionConflict = error {
-                    self.message = "Saved 配置在 Apply 前再次变化；未切换 Active，请重试 Apply Saved"
+                    self.message = "服务器配置在应用前再次变化；运行配置未改变，请重试"
                     return
                 }
                 if case let .validationFailed(result) = error {
@@ -1603,7 +1607,7 @@ final class AppModel: ObservableObject {
                        self.draftMatches(document: snapshot.document, sequence: draftSequenceBeforeApply) {
                         self.validation = result
                     }
-                    self.message = "Saved 配置校验失败：\(result.errors.count) 个错误，Active 未切换"
+                    self.message = "已保存配置校验失败：\(result.errors.count) 个错误，运行配置未改变"
                     return
                 }
                 throw error
@@ -1612,7 +1616,7 @@ final class AppModel: ObservableObject {
             self.runtime = outcome.status
             guard outcome.saved else {
                 throw BackendClientError.processFailed(
-                    outcome.error.isEmpty ? "Saved 配置未应用" : outcome.error
+                    outcome.error.isEmpty ? "已保存配置未应用" : outcome.error
                 )
             }
             if !draftWasDirty,
@@ -1628,10 +1632,10 @@ final class AppModel: ObservableObject {
             }
             if outcome.applied {
                 self.message = self.runtime.healthy
-                    ? "Saved 配置已应用，Steer 运行正常"
-                    : "Saved 配置已应用，Steer 已停用"
+                    ? "已保存配置已应用，Steer 运行正常"
+                    : "已保存配置已应用，Steer 已停用"
             } else {
-                self.message = "Saved 配置 Apply 失败：\(outcome.error.isEmpty ? "Active 未切换" : outcome.error)"
+                self.message = "已保存配置应用失败：\(outcome.error.isEmpty ? "运行配置未改变" : outcome.error)"
             }
         }
     }
@@ -1639,11 +1643,11 @@ final class AppModel: ObservableObject {
     func setEnabledAndApply(_ enabled: Bool) {
         guard !isBusy, pendingDraftAction == nil, enabled != draftEnabled else { return }
         guard !isDirty else {
-            message = "请先保存或丢弃当前 Draft；启用状态不会静默部署未完成修改"
+            message = "请先保存或丢弃当前工作副本中的修改"
             return
         }
         guard savedRevision.isEmpty == false else {
-            message = "尚未加载 Saved 配置，无法切换运行状态"
+            message = "尚未加载已保存配置，无法切换运行状态"
             return
         }
         guard var root = parseDraft()?.objectValue else {
@@ -1690,11 +1694,11 @@ final class AppModel: ObservableObject {
                 if outcome.applied {
                     message = draftStayedAtAppliedCandidate
                         ? (enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源")
-                        : "启用状态已应用；操作期间产生的新 Draft 修改仍未保存"
+                        : "启用状态已应用；操作期间产生的新修改仍未保存"
                 } else {
                     message = draftStayedAtAppliedCandidate
-                        ? "启用状态已保存，但 Apply 失败：\(outcome.error)"
-                        : "启用状态已保存但 Apply 失败；操作期间产生的新 Draft 修改仍未保存"
+                        ? "启用状态已保存，但应用失败：\(outcome.error)"
+                        : "启用状态已保存但应用失败；操作期间产生的新修改仍未保存"
                 }
             } catch {
                 if recordRevisionConflict(error, operation: .apply) {
@@ -1707,7 +1711,7 @@ final class AppModel: ObservableObject {
                     message = "切换 Steer 状态失败：\(error.localizedDescription)"
                 } else {
                     isDirty = true
-                    message = "切换 Steer 状态失败；操作期间产生的新 Draft 修改已保留"
+                    message = "切换 Steer 状态失败；操作期间产生的新修改已保留"
                 }
             }
         }
@@ -1754,7 +1758,7 @@ final class AppModel: ObservableObject {
 
         switch decision {
         case .cancel:
-            message = "已取消；Draft、Saved 与 Active 均未改变"
+            message = "已取消，配置未发生变化"
             finishTerminationIfNeeded(action: action, allow: false)
         case .discard:
             switch action {
@@ -1791,26 +1795,26 @@ final class AppModel: ObservableObject {
             return
         }
         pendingDraftAction = action
-        message = "当前 Draft 有未保存修改；请选择保存、丢弃或取消"
+        message = "当前工作副本有未保存修改；请选择保存、丢弃或取消"
     }
 
     private func reloadDraftNow(discardedLocalChanges: Bool) {
         let documentBeforeReload = rawJSON
         let sequenceBeforeReload = draftMutationSequence
-        perform(message: "正在读取 Saved 配置…") {
+        perform(message: "正在读取已保存配置…") {
             let snapshot = try await self.backend.loadConfiguration()
             guard self.draftMatches(
                 document: documentBeforeReload,
                 sequence: sequenceBeforeReload
             ) else {
                 self.isDirty = true
-                self.message = "Reload 期间产生的新 Draft 修改已保留；Saved 未替换当前工作副本"
+                self.message = "重新载入期间产生的新修改已保留；当前工作副本未被替换"
                 return
             }
             self.replaceDraft(with: snapshot)
             self.message = discardedLocalChanges
-                ? "已丢弃本地修改并重新载入 Saved 配置"
-                : "已读取 Saved 配置"
+                ? "已丢弃本地修改并重新载入已保存配置"
+                : "已读取已保存配置"
         }
     }
 
@@ -1826,7 +1830,7 @@ final class AppModel: ObservableObject {
                     draftSequence: draftSequence
                 )
                 guard draftStayedAtSavedVersion else {
-                    self.message = "操作开始时的 Draft 已保存；期间产生的新修改已保留，未执行 Reload"
+                    self.message = "操作开始时的工作副本已保存；期间产生的新修改已保留，未继续重新载入"
                     return
                 }
             } catch {
@@ -1837,11 +1841,11 @@ final class AppModel: ObservableObject {
             let snapshot = try await self.backend.loadConfiguration()
             guard self.draftMatches(document: document, sequence: draftSequence) else {
                 self.isDirty = true
-                self.message = "Draft 已保存；Reload 期间产生的新修改已保留"
+                self.message = "工作副本已保存；重新载入期间产生的新修改已保留"
                 return
             }
             self.replaceDraft(with: snapshot)
-            self.message = "Draft 已保存并重新载入"
+            self.message = "工作副本已保存并重新载入"
         }
     }
 
@@ -1852,7 +1856,7 @@ final class AppModel: ObservableObject {
         let draftSequence = draftMutationSequence
         let repairing = systemComponentsNeedRepair || systemComponentsUpdateAvailable
         perform(message: repairing
-                ? "正在 Repair Steer 系统组件；macOS 将请求一次管理员授权…"
+                ? "正在修复 Steer 系统组件；macOS 将请求一次管理员授权…"
                 : "正在安装 Steer 系统组件；macOS 将请求一次管理员授权…") {
             if decision == .save, wasInstalled {
                 do {
@@ -1862,7 +1866,7 @@ final class AppModel: ObservableObject {
                         draftSequence: draftSequence
                     )
                     guard draftStayedAtSavedVersion else {
-                        self.message = "操作开始时的 Draft 已保存；期间产生的新修改已保留，未继续安装"
+                        self.message = "操作开始时的工作副本已保存；期间产生的新修改已保留，未继续安装"
                         return
                     }
                 } catch {
@@ -1911,18 +1915,18 @@ final class AppModel: ObservableObject {
             self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
             self.geoipNames = try await self.backend.geoCatalog(kind: "geoip")
             if self.isDirty {
-                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；操作期间产生的新 Draft 修改已保留，尚未保存"
+                self.message = "系统组件\(repairing ? "修复" : "安装")完成；操作期间产生的新修改已保留，尚未保存"
                 return
             }
             switch decision {
             case .save:
-                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；当前 Draft 已保存并保留，运行态未自动 Apply"
+                self.message = "系统组件\(repairing ? "修复" : "安装")完成；当前工作副本已保存，运行配置未改变"
             case .discard:
-                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；本地修改已丢弃并重新载入 Saved 配置"
+                self.message = "系统组件\(repairing ? "修复" : "安装")完成；本地修改已丢弃并重新载入已保存配置"
             case .cancel:
                 break
             case nil:
-                self.message = "系统组件\(repairing ? " Repair" : "安装")完成；已载入 Saved 配置"
+                self.message = "系统组件\(repairing ? "修复" : "安装")完成；已载入已保存配置"
             }
         }
     }
@@ -1936,7 +1940,7 @@ final class AppModel: ObservableObject {
         let expectedRevision = savedRevision
         let draftSequence = draftMutationSequence
         isBusy = true
-        message = "正在保存 Draft；保存成功后退出…"
+        message = "正在保存工作副本；保存成功后退出…"
         Task {
             var allowTermination = false
             defer {
@@ -1950,7 +1954,7 @@ final class AppModel: ObservableObject {
                     draftSequence: draftSequence
                 )
                 if !allowTermination {
-                    self.message = "退出前的 Draft 快照已保存；操作期间产生的新修改已保留，退出已取消"
+                    self.message = "退出前的工作副本已保存；操作期间产生的新修改已保留，退出已取消"
                 }
             } catch {
                 if self.recordValidationFailure(error, document: document, sequence: draftSequence) {
@@ -1974,11 +1978,11 @@ final class AppModel: ObservableObject {
         guard let revisionConflict else { return "" }
         switch revisionConflict.operation {
         case .subscriptionInventory:
-            return "订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。更新期间本地 Draft 也发生了修改；Reload Saved 会丢弃本地修改，显式覆盖只保存本地 Draft。"
+            return "订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留。更新期间本地工作副本也发生了修改；重新载入会丢弃本地修改，覆盖保存会保留本地修改。"
         case .apply:
-            return "Saved 配置已在加载后发生变化。Reload Saved 会丢弃本地修改；显式覆盖会保存并 Apply 当前本地 Draft。"
+            return "服务器配置已在加载后发生变化。重新载入会丢弃本地修改；覆盖保存会保存并应用当前本地工作副本。"
         case .save:
-            return "Saved 配置已在加载后发生变化。Reload Saved 会丢弃本地修改；显式覆盖只保存当前本地 Draft。"
+            return "服务器配置已在加载后发生变化。重新载入会丢弃本地修改；覆盖保存只保存当前本地工作副本。"
         }
     }
 
@@ -1986,26 +1990,26 @@ final class AppModel: ObservableObject {
         guard revisionConflict != nil else { return }
         revisionConflict = nil
         isDirty = true
-        message = "已保留本地 Draft；再次保存时仍会校验 Saved revision"
+        message = "已保留本地工作副本；再次保存时仍会检查服务器配置是否变化"
     }
 
     func reloadSavedAfterRevisionConflict() {
         let documentBeforeReload = rawJSON
         let sequenceBeforeReload = draftMutationSequence
         revisionConflict = nil
-        perform(message: "正在重新载入 Saved 配置…") {
+        perform(message: "正在重新载入服务器配置…") {
             let snapshot = try await self.backend.loadConfiguration()
             guard self.draftMatches(
                 document: documentBeforeReload,
                 sequence: sequenceBeforeReload
             ) else {
                 self.isDirty = true
-                self.message = "Reload Saved 期间产生的新 Draft 修改已保留"
+                self.message = "重新载入期间产生的新修改已保留"
                 return
             }
             self.replaceDraft(with: snapshot)
             self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
-            self.message = "已重新载入 Saved 配置；本地 Draft 修改已丢弃"
+            self.message = "已重新载入服务器配置；本地修改已丢弃"
         }
     }
 
@@ -2016,7 +2020,7 @@ final class AppModel: ObservableObject {
         revisionConflict = nil
         switch conflict.operation {
         case .apply:
-            perform(message: "正在显式覆盖 Saved 并 Apply…") {
+            perform(message: "正在覆盖保存并应用…") {
                 do {
                     try await self.applyCurrentDraft(
                         document: document,
@@ -2030,7 +2034,7 @@ final class AppModel: ObservableObject {
                 }
             }
         case .save, .subscriptionInventory:
-            perform(message: "正在显式覆盖 Saved 配置…") {
+            perform(message: "正在覆盖服务器配置…") {
                 do {
                     let draftStayedAtSavedVersion = try await self.saveCurrentDraft(
                         document: document,
@@ -2038,7 +2042,7 @@ final class AppModel: ObservableObject {
                         draftSequence: draftSequence
                     )
                     if conflict.operation == .subscriptionInventory, draftStayedAtSavedVersion {
-                        self.message = "已显式覆盖 Saved 配置；订阅操作未自动 Apply"
+                        self.message = "已覆盖服务器配置；当前运行配置未改变"
                     }
                 } catch {
                     if self.recordValidationFailure(error, document: document, sequence: draftSequence) { return }
@@ -2052,7 +2056,7 @@ final class AppModel: ObservableObject {
     func runProbe(kind: String, nodeID: String? = nil, routeID: String? = nil, download: Bool = false) {
         guard pendingDraftAction == nil else { return }
         if (nodeID != nil || routeID != nil), isDirty {
-            message = "请先保存或丢弃 Draft，再测试 Saved 节点或路由"
+            message = "请先保存或丢弃工作副本中的修改，再测试节点或路由"
             return
         }
         if let nodeID, draftItems(for: "nodes").first(where: { $0.identifier == nodeID })?.enabled == false {
@@ -2067,7 +2071,7 @@ final class AppModel: ObservableObject {
         let isOverview = nodeID == nil && routeID == nil
         guard activeProbeKeys.insert(key).inserted else { return }
         message = isOverview
-            ? "正在按 Active 规则访问探测目标…"
+            ? "正在使用当前运行配置访问测试目标…"
             : (download ? "正在运行下载测速…" : "正在运行连接测试…")
         Task {
             defer { activeProbeKeys.remove(key) }
@@ -2079,8 +2083,8 @@ final class AppModel: ObservableObject {
                 if isOverview {
                     overviewProbeReports[key] = report
                     message = report.ok
-                        ? "按 Active 规则访问完成：\(report.summary)"
-                        : "按 Active 规则访问失败；详细原因请查看诊断日志"
+                        ? "连通性测试完成：\(report.summary)"
+                        : "连通性测试失败；详细原因请查看诊断日志"
                 } else {
                     message = report.ok
                         ? "测试完成：\(report.summary)"
@@ -2093,7 +2097,7 @@ final class AppModel: ObservableObject {
                 }
                 if isOverview {
                     overviewProbeReports.removeValue(forKey: key)
-                    message = "按 Active 规则访问失败；没有可用的 Active generation 或详细原因请查看诊断日志"
+                    message = "连通性测试失败；请确认服务正在运行，详细原因可查看诊断日志"
                 } else {
                     message = download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志"
                 }
@@ -2146,11 +2150,9 @@ final class AppModel: ObservableObject {
     }
 
     func overviewProbeDetail(_ kind: String) -> String? {
-        guard let report = overviewProbeReports["overview:\(kind)"],
-              let generation = report.activeGeneration,
-              let digest = report.activeDigest else { return nil }
+        guard let report = overviewProbeReports["overview:\(kind)"] else { return nil }
         let stale = report.isStale(relativeTo: runtime) ? " · 已过期" : ""
-        return "Active generation \(generation) · digest \(digest) · tested_at \(report.testedAt)\(stale)"
+        return "测试时间 \(report.testedAt)\(stale)"
     }
 
     func overviewProbeIsStale(_ kind: String) -> Bool {
@@ -2220,7 +2222,7 @@ final class AppModel: ObservableObject {
                 let updateSummary = subscriptionStatus(id)?.inventorySummary ?? "节点库存已更新"
                 if !startingWasDirty && draftMutationSequence == startingDraftSequence {
                     replaceDraft(with: snapshot)
-                    message = "订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。\(updateSummary)"
+                    message = "订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留。\(updateSummary)"
                 } else {
                     presentSubscriptionInventoryConflict(snapshot)
                 }
@@ -2240,7 +2242,7 @@ final class AppModel: ObservableObject {
         guard activeSubscriptionOperationIDs.insert(operationID).inserted else { return }
         let startingWasDirty = isDirty
         let startingDraftSequence = draftMutationSequence
-        message = "正在清理 stale 节点…"
+        message = "正在清理已失效节点…"
         Task {
             defer { activeSubscriptionOperationIDs.remove(operationID) }
             do {
@@ -2249,7 +2251,7 @@ final class AppModel: ObservableObject {
                 subscriptionRuntime = try await backend.subscriptionStatuses()
                 if !startingWasDirty && draftMutationSequence == startingDraftSequence {
                     replaceDraft(with: snapshot)
-                    message = "已清理 stale 节点 \(nodeID)；运行态未自动 Apply"
+                    message = "已清理失效节点；当前运行配置未改变"
                 } else {
                     presentSubscriptionInventoryConflict(snapshot)
                 }
@@ -2257,7 +2259,7 @@ final class AppModel: ObservableObject {
                 if let refreshed = try? await backend.subscriptionStatuses() {
                     subscriptionRuntime = refreshed
                 }
-                message = "stale 节点清理失败：\(error.localizedDescription)"
+                message = "失效节点清理失败：\(error.localizedDescription)"
             }
         }
     }
@@ -2304,33 +2306,35 @@ final class AppModel: ObservableObject {
 
     func draftReferenceLabel(_ item: DraftItem, in collection: String) -> String {
         let items = draftItems(for: collection)
-        guard items.filter({ $0.title == item.title }).count > 1 else { return item.title }
+        let sameTitle = items.filter { $0.title == item.title }
+        guard sameTitle.count > 1 else { return item.title }
         var qualifiers: [String] = []
         if !item.detail.isEmpty { qualifiers.append(item.detail) }
         if collection == "nodes", let source = item.sourceSubscription {
-            qualifiers.append("订阅 \(source)")
+            qualifiers.append("订阅 \(referencedTitle(key: "subscriptions", identifier: source))")
         }
-        qualifiers.append("#\(String(item.identifier.suffix(6)))")
+        let ordinal = (sameTitle.firstIndex(where: { $0.id == item.id }) ?? 0) + 1
+        qualifiers.append("同名项 \(ordinal)")
         return ([item.title] + qualifiers).joined(separator: " · ")
     }
 
     func nodeReferenceProblem(_ identifier: String) -> String? {
-        guard !identifier.isEmpty else { return "未选择 Node" }
+        guard !identifier.isEmpty else { return "未选择节点" }
         guard let node = draftItems(for: "nodes").first(where: { $0.identifier == identifier }) else {
-            return "Node 不存在"
+            return "节点不存在"
         }
-        return node.enabled ? nil : "Node 已停用"
+        return node.enabled ? nil : "节点已停用"
     }
 
     func routeDetourProblem(routeID: String, detourID: String) -> String? {
         guard !detourID.isEmpty else { return nil }
         guard let detour = draftItems(for: "routes").first(where: { $0.identifier == detourID }) else {
-            return "detour Route 不存在"
+            return "前置路由不存在"
         }
-        guard detour.kind == "single" else { return "detour 必须是 Single Route" }
-        guard detour.enabled else { return "detour Route 已停用" }
-        if let problem = routeChainProblem(startingAt: detourID) { return "detour 链无效：\(problem)" }
-        return routeDetourWouldCycle(routeID: routeID, detourID: detourID) ? "detour 会形成 Route 环" : nil
+        guard detour.kind == "single" else { return "前置路由必须是单节点路由" }
+        guard detour.enabled else { return "前置路由已停用" }
+        if let problem = routeChainProblem(startingAt: detourID) { return "前置链无效：\(problem)" }
+        return routeDetourWouldCycle(routeID: routeID, detourID: detourID) ? "前置链存在循环引用" : nil
     }
 
     func routeDetourCandidates(editingRouteID: String) -> [DraftItem] {
@@ -2362,7 +2366,7 @@ final class AppModel: ObservableObject {
 
     private func routeChainProblem(startingAt identifier: String) -> String? {
         guard let root = parseDraft()?.objectValue,
-              case let .array(routeValues)? = root["routes"] else { return "Route 不存在" }
+              case let .array(routeValues)? = root["routes"] else { return "路由不存在" }
         var routes: [String: [String: JSONValue]] = [:]
         for value in routeValues {
             guard let object = value.objectValue, let id = object["id"]?.stringValue else { continue }
@@ -2372,12 +2376,12 @@ final class AppModel: ObservableObject {
         var visited = Set<String>()
         var current = identifier
         while !current.isEmpty {
-            guard visited.insert(current).inserted else { return "Route 环" }
-            guard let route = routes[current] else { return "Route \(current) 不存在" }
-            guard route["kind"]?.stringValue == "single" else { return "Route \(current) 不是 Single" }
-            guard route["enabled"]?.boolValue ?? true else { return "Route \(current) 已停用" }
+            guard visited.insert(current).inserted else { return "路由链存在循环引用" }
+            guard let route = routes[current] else { return "路由不存在" }
+            guard route["kind"]?.stringValue == "single" else { return "前置路由不是单节点路由" }
+            guard route["enabled"]?.boolValue ?? true else { return "前置路由已停用" }
             let node = route["node"]?.stringValue ?? ""
-            guard nodes.contains(node) else { return "Route \(current) 的 Node 缺失或已停用" }
+            guard nodes.contains(node) else { return "路由节点缺失或已停用" }
             current = route["detour"]?.stringValue ?? ""
         }
         return nil
@@ -2497,7 +2501,7 @@ final class AppModel: ObservableObject {
         }
         let references = SteerUISpec.inboundReferences(root: root, targetCollection: key, targetID: identifier)
         if !references.isEmpty {
-            return "仍被引用：" + references.map { "\($0.sourceObjectType) \($0.sourceLabel) / \($0.field)" }.joined(separator: "，")
+            return "仍被其他配置使用，请先修改相关引用"
         }
         return nil
     }
@@ -2576,8 +2580,8 @@ final class AppModel: ObservableObject {
         )
         if draftStayedAtSavedVersion { validation = outcome.validation }
         message = draftStayedAtSavedVersion
-            ? "配置已保存；运行态未改变"
-            : "操作开始时的 Draft 已保存；期间产生的新修改仍未保存"
+            ? "配置已保存；运行配置未改变"
+            : "操作开始时的工作副本已保存；期间产生的新修改仍未保存"
         return draftStayedAtSavedVersion
     }
 
@@ -2591,7 +2595,7 @@ final class AppModel: ObservableObject {
         runtime = outcome.status
         guard outcome.saved else {
             throw BackendClientError.processFailed(
-                outcome.error.isEmpty ? "配置未保存，Active 未切换" : outcome.error
+                outcome.error.isEmpty ? "配置未保存，运行配置未改变" : outcome.error
             )
         }
         let draftStayedAtSavedVersion = adoptSavedRevision(
@@ -2604,12 +2608,12 @@ final class AppModel: ObservableObject {
         }
         if !outcome.applied {
             message = draftStayedAtSavedVersion
-                ? "配置已保存，但 Apply 失败：\(outcome.error.isEmpty ? "运行态未切换" : outcome.error)"
-                : "操作开始时的 Draft 已保存但 Apply 失败；期间产生的新修改仍未保存"
+                ? "配置已保存，但应用失败：\(outcome.error.isEmpty ? "运行配置未改变" : outcome.error)"
+                : "操作开始时的工作副本已保存但应用失败；期间产生的新修改仍未保存"
         } else {
             message = draftStayedAtSavedVersion
                 ? (runtime.healthy ? "配置已应用，Steer 运行正常" : "配置已保存，Steer 已停用")
-                : "操作开始时的 Draft 已应用；期间产生的新修改仍未保存"
+                : "操作开始时的工作副本已应用；期间产生的新修改仍未保存"
         }
         return draftStayedAtSavedVersion
     }
@@ -2620,7 +2624,7 @@ final class AppModel: ObservableObject {
               case let .revisionConflict(currentRevision) = backendError else { return false }
         revisionConflict = DraftRevisionConflict(currentRevision: currentRevision, operation: operation)
         isDirty = true
-        message = "Saved 配置已变化；本地 Draft、Saved 与 Active 均未被此次操作修改"
+        message = "服务器配置已变化；本地工作副本、已保存配置和运行配置均未被此次操作修改"
         return true
     }
 
@@ -2631,9 +2635,9 @@ final class AppModel: ObservableObject {
         if draftMatches(document: document, sequence: sequence) {
             validation = result
             validationFocus = nil
-            message = "配置校验失败：\(result.errors.count) 个错误，\(result.warnings.count) 个警告；未保存也未 Apply"
+            message = "配置校验失败：\(result.errors.count) 个错误，\(result.warnings.count) 个警告；未保存也未应用"
         } else {
-            message = "写操作校验失败，但 Draft 已变化；旧问题结果已丢弃"
+            message = "保存时校验失败，但工作副本已变化；旧问题结果已丢弃"
         }
         return true
     }
@@ -2644,7 +2648,7 @@ final class AppModel: ObservableObject {
             operation: .subscriptionInventory
         )
         isDirty = true
-        message = "订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。更新期间的本地 Draft 已保留。"
+        message = "订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留，更新期间的本地修改也已保留。"
     }
 
     private func perform(message pendingMessage: String, operation: @escaping () async throws -> Void) {
@@ -2687,7 +2691,7 @@ final class AppModel: ObservableObject {
     private func mutateCollection(_ key: String, _ mutate: (inout [JSONValue]) -> Void) {
         guard pendingDraftAction == nil else { return }
         guard var root = parseDraft()?.objectValue else {
-            message = "当前 draft 不是 JSON object，无法修改 \(key)"
+            message = "当前 JSON 配置格式有误，无法修改此项目"
             return
         }
         var values: [JSONValue]
@@ -2749,9 +2753,9 @@ final class AppModel: ObservableObject {
         }
         if key == "rules" {
             let labels = [
-                "inbound": "Inbound", "domain_match": "Domain", "ip_match": "IP",
-                "source_ip_cidr": "Source CIDR", "source_mac_address": "Source MAC",
-                "network": "Network", "protocol": "Protocol", "port": "Port",
+                "inbound": "本地入口", "domain_match": "域名", "ip_match": "目标 IP",
+                "source_ip_cidr": "源 IP", "source_mac_address": "源 MAC",
+                "network": "网络", "protocol": "协议", "port": "端口",
             ]
             var summary = SteerUISpec.ruleSummaryTokens(object).map { token -> String in
                 if token == "default" { return "Default" }
@@ -2761,8 +2765,8 @@ final class AppModel: ObservableObject {
             if summary.isEmpty { summary = ["无匹配条件"] }
             if SteerUISpec.ruleDNSContinues(object) { summary.append("DNS 继续后续规则") }
             let decision = [
-                object["dns_profile"]?.stringValue.map { "DNS \($0)" },
-                object["route"]?.stringValue.map { "Route \($0)" },
+                object["dns_profile"]?.stringValue.map { "DNS \(referencedTitle(key: "dns_profiles", identifier: $0))" },
+                object["route"]?.stringValue.map { "路由 \(referencedTitle(key: "routes", identifier: $0))" },
             ].compactMap { $0 }.joined(separator: " · ")
             if !decision.isEmpty { summary.append(decision) }
             return summary.joined(separator: " · ")
@@ -2771,7 +2775,7 @@ final class AppModel: ObservableObject {
         let dns = object["dns_profile"]?.stringValue
         var details: [String] = []
         if let route, !route.isEmpty {
-            details.append("Route \(referencedTitle(key: "routes", identifier: route))")
+            details.append("路由 \(referencedTitle(key: "routes", identifier: route))")
         }
         if let dns, !dns.isEmpty {
             details.append("DNS \(referencedTitle(key: "dns_profiles", identifier: dns))")

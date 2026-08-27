@@ -24,12 +24,12 @@
   }
 
   function updateSummary(status) {
-    return `added ${status.added || 0} · current ${status.current || 0} · stale ${(status.stale || []).length} · skipped ${status.skipped || 0}`;
+    return `新增 ${status.added || 0} · 当前 ${status.current || 0} · 已失效 ${(status.stale || []).length} · 已跳过 ${status.skipped || 0}`;
   }
 
   function updateNotice(status) {
     const counts = status ? ` ${updateSummary(status)}。` : '';
-    return `订阅节点已更新；当前运行配置未改变。仍被 Route 引用、但已从订阅消失的节点已保留为 stale。${counts}`;
+    return `订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留。${counts}`;
   }
 
   function requestDelete(subscription) {
@@ -56,18 +56,16 @@
   function openEditor(sub, focusOption) {
     const isNew = !sub;
     const opened = ui.drawer({
-      eyebrow: `订阅 · ${isNew ? '新建' : sub.id}`, title: sub?.name || '新订阅', submitLabel: '保存到工作副本',
+      eyebrow: isNew ? '新建订阅' : '编辑订阅', title: sub?.name || '新订阅', submitLabel: '保存到工作副本',
       renderBody(body) {
         const defaultInterval = S.uiSpec.subscription_update_interval_default;
         const draft = sub ? JSON.parse(JSON.stringify(sub)) : ui.creationDraft('subscriptions');
-        const id = ui.input({ value: draft.id, disabled: true });
         const name = ui.input({ value: draft.name || '', placeholder: '订阅名称' });
         const enabled = ui.toggle(draft.enabled, (v) => { draft.enabled = v; });
         const url = ui.input({ value: draft.url || '', placeholder: 'https://sub.example.com/all' });
         const interval = ui.input({ value: draft.update_interval || '', placeholder: defaultInterval });
         body.append(
           h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '订阅'), [
-            ui.field('ID', id, isNew ? '已按共享策略自动生成；创建后保持稳定' : '稳定 ID · 不可修改', 'id'),
             ui.field('名称', name, null, 'name'),
             ui.field('启用', enabled, null, 'enabled'),
             ui.field('订阅 URL', url, null, 'url'),
@@ -76,9 +74,8 @@
         );
         return {
           submit() {
-            if (!/^[a-z][a-z0-9_]{0,31}$/.test(id.value.trim())) { ui.toast('ID 必须 1–32 位小写字母开头', 'err'); return false; }
+            if (!draft.id || !/^[a-z][a-z0-9_]{0,31}$/.test(draft.id)) { ui.toast('无法创建订阅，请取消后重试', 'err'); return false; }
             if (!/^https?:\/\//.test(url.value.trim())) { ui.toast('订阅 URL 必须是 http(s)://', 'err'); return false; }
-            draft.id = id.value.trim();
             draft.name = name.value.trim() || undefined;
             draft.url = url.value.trim();
             draft.update_interval = interval.value.trim() || undefined;
@@ -105,17 +102,15 @@
       box.replaceChildren();
       const remaining = nodes.filter((n) => n.pinned_stale);
       if (!remaining.length) {
-        box.replaceChildren(h('p', { class: 'muted' }, '没有 stale 节点。'));
+        box.replaceChildren(h('p', { class: 'muted' }, '没有已失效节点。'));
         return;
       }
       box.append(h('ul', { class: 'issue-list' }, remaining.map((node) => h('li', { class: 'issue issue--warning' }, [
-        h('span', { class: 'issue__code' }, 'SUBSCRIPTION_NODE_STALE'),
-        h('span', { class: 'issue__where' }, node.id),
         h('span', { class: 'issue__msg' }, node.name || node.id),
         h('button', { class: 'btn btn--sm btn--danger', onclick: async () => {
           if (!ui.guardCollectionDeletion('nodes', node.id, node.name || node.id)) return;
           if (S.store.dirty) {
-            ui.toast('请先保存或放弃工作副本修改，再清理 stale 节点', 'warn');
+            ui.toast('请先保存或放弃工作副本修改，再清理已失效节点', 'warn');
             return;
           }
           try {
@@ -124,30 +119,30 @@
             let reloaded = false;
             if (S.store.draftEpoch !== startedEpoch && S.store.dirty) {
               await S.store.refreshOverview();
-              ui.toast(`已清理服务器库存中的 ${node.id}；期间 Draft 已变化，已保留本地修改`, 'warn');
+              ui.toast(`已清理 ${node.name || '节点'}；期间工作副本已变化，已保留本地修改`, 'warn');
             } else {
               const reload = await S.store.reload();
               reloaded = reload?.ok === true;
-              if (!reloaded) ui.toast(`已清理服务器库存中的 ${node.id}；Draft 未自动 reload`, 'warn');
+              if (!reloaded) ui.toast(`已清理 ${node.name || '节点'}；工作副本未能自动重新载入`, 'warn');
             }
             if (reloaded) {
               const index = nodes.indexOf(node);
               if (index >= 0) nodes.splice(index, 1);
-              ui.toast(`已清理 ${node.id}`, 'ok');
+              ui.toast(`已清理 ${node.name || '失效节点'}`, 'ok');
             }
             renderList();
             if (isCurrent()) view.render(root);
           } catch (e) {
-            ui.toast(`${e.code || 'ERROR'}: ${e.message}`, 'err');
+            ui.toast(e.message, 'err');
           }
         } }, '移除')
       ]))));
     };
     renderList();
     ui.dialog({
-      title: `清理 stale 节点 · ${subscription.name || subscription.id}`,
+      title: `清理已失效节点 · ${subscription.name || subscription.id}`,
       body: h('div', {}, [
-        h('p', { class: 'muted' }, 'stale 节点是订阅更新后仍被 pin 保留的过期节点。仍被路由引用的节点会被后端拒绝清理（NODE_STILL_REFERENCED）。'),
+        h('p', { class: 'muted' }, '已失效节点指订阅更新后不再存在的节点。若仍有路由正在引用该节点，将无法直接清理。'),
         box
       ]),
       actions: [['关闭', null]]
@@ -162,7 +157,7 @@
       statuses = (await S.api.subscriptions()).subscriptions;
 
       const table = h('table', { class: 'table' }, [
-        h('thead', {}, h('tr', {}, ['状态', '订阅', 'URL', '间隔', '最近成功', '最近失败', '节点', 'skipped / stale', '操作'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['状态', '订阅', 'URL', '间隔', '最近成功', '最近失败', '节点', '跳过 / 失效', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, statuses.map((s) => {
           const state = statusLabel(s);
           const updateBtn = h('button', { class: 'btn btn--sm', onclick: async () => {
@@ -184,13 +179,13 @@
               let reloaded = false;
               if (S.store.draftEpoch !== startedEpoch && S.store.dirty) {
                 await S.store.refreshOverview();
-                ui.toast('节点库存已更新；期间 Draft 已变化，已保留本地修改且未自动 reload', 'warn');
+                ui.toast('节点列表已更新；期间工作副本已变化，已保留本地修改且未自动重新载入', 'warn');
               } else {
                 const reload = await S.store.reload();
                 reloaded = reload?.ok === true;
-                if (!reloaded) ui.toast('节点库存已更新；Draft 未自动 reload，请稍后重试', 'warn');
+                if (!reloaded) ui.toast('节点列表已更新；工作副本未自动重新载入，请稍后重试', 'warn');
               }
-              if (reloaded) ui.toast(updateNotice(updated), 'warn');
+              if (reloaded) ui.toast(updateNotice(updated), 'ok');
               updateBtn.textContent = '立即更新';
               if (isCurrent()) await view.render(root);
             } catch (e) {
@@ -205,7 +200,7 @@
             ? h('button', {
               class: 'btn btn--sm btn--danger',
                 onclick: () => openCleanup(s, intent.nodes.filter((n) => n.source_subscription === s.id), isCurrent, root)
-              }, `清理 stale ×${s.stale.length}`)
+              }, `清理失效节点 ×${s.stale.length}`)
             : null;
           const failure = s.last_failure;
           return h('tr', { class: s.enabled === false ? 'is-disabled' : null }, [
@@ -213,7 +208,7 @@
               ui.toggle(s.enabled, (v) => { const sub = S.store.intent.subscriptions.find((x) => x.id === s.id); sub.enabled = v; S.store.touch(); }),
               h('span', { class: `badge ${state[1]}` }, state[0])
             ])),
-            h('td', {}, h('div', {}, h('strong', {}, s.name || s.id), h('div', { class: 'mono' }, s.id))),
+            h('td', {}, h('strong', {}, s.name || s.id)),
             h('td', { class: 'mono' }, h('span', { title: s.url }, s.url.length > 34 ? s.url.slice(0, 34) + '…' : s.url)),
             h('td', { class: 'mono' }, s.update_interval || '—'),
             h('td', { class: 'mono' }, s.last_success ? fmtTime(s.last_success) : h('span', { class: 'muted' }, '—')),
@@ -221,7 +216,7 @@
               h('div', { class: 'mono' }, failure.at ? fmtTime(failure.at) : '—'),
               h('div', { class: 'muted', title: failure.summary }, failure.summary)
             ]) : h('span', { class: 'muted' }, '—')),
-            h('td', { class: 'mono num' }, `${s.node_count} (${s.current} current)`),
+            h('td', { class: 'mono num' }, `${s.node_count}（当前 ${s.current}）`),
             h('td', { class: 'mono num' }, `${s.skipped || 0} / ${(s.stale || []).length}`),
             h('td', {}, h('div', { class: 'row-actions row-actions--wrap' }, [
               updateBtn,
@@ -235,7 +230,7 @@
 
       if (!isCurrent()) return;
       root.append(
-        ui.viewHead('订阅', 'systemd timer 只更新节点库存，不自动 Apply；被 Route 引用的消失节点保留为 stale', [
+        ui.viewHead('订阅', '管理远程节点订阅与定时更新', [
           h('button', { class: 'btn btn--primary', onclick: () => openEditor(null) }, '添加订阅')
         ]),
         statuses.length

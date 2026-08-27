@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* 诊断：共享的 Probe 历史、Validation、Apply 与相关服务日志。 */
+/* 诊断：连通性测试、配置校验、应用结果与相关服务日志。 */
 'use strict';
 (function () {
   const S = window.S;
   const { h, fmtDuration, fmtReport, fmtTime } = S;
   const ui = S.ui;
 
-  const overviewBoundary = '按当前 Active 规则访问配置的测试目标。成功只表示该 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。';
+  const overviewBoundary = '使用当前运行配置访问测试地址；成功仅表示该地址在测试时可达。';
 
   function fact(label, value) { return h('div', { class: 'fact' }, h('dt', {}, label), h('dd', {}, value)); }
 
@@ -24,21 +24,23 @@
     const rate = result.downloaded_bytes > 0 && result.download_milliseconds > 0
       ? (result.downloaded_bytes * 8 / result.download_milliseconds / 1000).toFixed(1) + ' Mbps'
       : '—';
-    const target = report.scope === 'overview' ? 'Overview' : `${report.scope}/${report.object_id || '—'}`;
+    const scopeLabel = { overview: '总览', node: '节点', nodes: '节点', route: '路由', routes: '路由' }[report.scope] || '测试对象';
+    const target = report.scope === 'overview' ? scopeLabel : scopeLabel;
+    const kind = { direct: '直连测试', proxy: '代理测试', speedtest: '下载测试', connect: '连接测试', download: '下载测试' }[report.kind] || '连通性测试';
     return h('article', { class: 'card card--compact' }, [
       h('div', { class: 'card__head' }, [
-        h('div', {}, h('strong', {}, target), h('span', { class: 'mono muted' }, ` · ${report.kind}`)),
+        h('div', {}, h('strong', {}, target), h('span', { class: 'muted' }, ` · ${kind}`)),
         h('span', { class: `badge ${stale ? 'badge--warn' : (report.ok ? 'badge--ok' : 'badge--err')}` }, stale ? '已过期' : (report.ok ? '成功' : '失败'))
       ]),
       h('div', { class: 'facts' }, [
-        fact('tested_at', report.tested_at ? fmtTime(report.tested_at) : '—'),
+        fact('测试时间', report.tested_at ? fmtTime(report.tested_at) : '—'),
         fact('URL', result.url || '—'),
         fact('尝试', String(result.attempts ?? '—')),
         fact('连接', fmtDuration(result.connect_milliseconds)),
         fact('TLS', fmtDuration(result.tls_milliseconds)),
         fact('TTFB', fmtDuration(result.first_byte_milliseconds)),
         fact('HTTP', String(result.status ?? '—')),
-        fact('下载', result.downloaded_bytes ? `${result.downloaded_bytes} bytes / ${fmtDuration(result.download_milliseconds)}` : '—'),
+        fact('下载', result.downloaded_bytes ? `${result.downloaded_bytes} 字节 / ${fmtDuration(result.download_milliseconds)}` : '—'),
         fact('速率', rate)
       ]),
       report.error || result.error ? h('p', { class: 'alert alert--err' }, report.error || result.error) : null
@@ -57,14 +59,14 @@
         out.replaceChildren(
           h('div', { class: `test-result ${summary.ok ? 'is-ok' : 'is-err'}` }, h('strong', {}, summary.label), h('small', {}, summary.detail)),
           h('div', { class: 'facts u-mt-10' }, [
-            fact('tested_at', report.tested_at ? fmtTime(report.tested_at) : '—'),
+            fact('测试时间', report.tested_at ? fmtTime(report.tested_at) : '—'),
             fact('URL', result.url || '—'), fact('连接', fmtDuration(result.connect_milliseconds)),
             fact('TLS', fmtDuration(result.tls_milliseconds)), fact('TTFB', fmtDuration(result.first_byte_milliseconds)),
             fact('HTTP', String(result.status ?? '—')), fact('尝试次数', String(result.attempts ?? '—'))
           ])
         );
       } catch (error) {
-        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, '已保存安全错误摘要；刷新下方报告查看')));
+        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '失败'), h('small', {}, '测试未成功，详情请查看下方报告')));
       }
       run.disabled = false;
     } }, '运行测试');
@@ -82,7 +84,6 @@
         S.api.validate(S.store.intent).catch((error) => ({ errors: [{ code: 'VALIDATION_UNAVAILABLE', message: error.message }], warnings: [] }))
       ]);
       const status = S.store.overview?.status || {};
-      const dnsBoundary = S.uiSpec.dns_boundaries.linux;
       const dnsCapture = diagnostics.dns_capture || {};
       if (!isCurrent()) return;
       const refresh = h('button', { class: 'btn', onclick: async () => {
@@ -92,48 +93,39 @@
       root.append(
         ui.viewHead('诊断', overviewBoundary, [refresh]),
         h('div', { class: 'grid-3' }, [
-          probeCard('direct', '直连目标', '按当前 Active 规则访问配置的直连测试目标'),
-          probeCard('proxy', '代理目标', '按当前 Active 规则访问配置的代理测试目标'),
-          probeCard('speedtest', '下载目标', '按当前 Active 规则访问配置的下载测试目标')
-        ]),
-        h('section', { class: 'card card--edge edge--route' }, [
-          h('span', { class: 'eyebrow' }, '能力边界'),
-          h('p', { class: 'muted' }, overviewBoundary),
-          h('p', { class: 'muted' }, '节点与路由测试使用独立临时核心验证所选链路访问测试目标，不代表当前 Active 规则命中了该节点或路由。')
+          probeCard('direct', '直连目标', '测试直连地址是否可访问'),
+          probeCard('proxy', '代理目标', '测试代理地址是否可访问'),
+          probeCard('speedtest', '下载目标', '测试代理下载速度')
         ]),
         h('section', { class: 'card card--edge edge--dns' }, [
           h('div', { class: 'card__head' }, [
-            h('div', {}, h('span', { class: 'eyebrow' }, 'DNS capture'), h('div', { class: 'card__title' }, 'Active port-53 配置检查')),
+            h('div', {}, h('span', { class: 'eyebrow' }, 'DNS'), h('div', { class: 'card__title' }, '系统 DNS 接管检查')),
             h('span', { class: `badge ${dnsCapture.configured ? 'badge--ok' : 'badge--warn'}` }, dnsCapture.configured ? '已配置' : '未确认')
           ]),
           h('div', { class: 'facts' }, [
-            fact('模式', dnsCapture.mode || dnsBoundary.capture_mode),
-            fact('Active generation', dnsCapture.active_generation || '—'),
-            fact('结果', dnsCapture.detail || '—'),
-            fact('捕获范围', dnsBoundary.capture_scope),
-            fact('exclusions', dnsBoundary.exclusions.join(' · '))
-          ]),
-          h('p', { class: 'muted' }, dnsBoundary.diagnostic_boundary),
-          h('p', { class: 'muted' }, dnsBoundary.encrypted_dns_boundary)
+            fact('结果', dnsCapture.detail === 'the published Active generation contains the expected port-53 capture artifacts'
+              ? '系统 DNS 接管已配置'
+              : (dnsCapture.detail || '尚未检查'))
+          ])
         ]),
         h('section', { class: 'card' }, [
-          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Reports'), h('div', { class: 'card__title' }, '最近 Overview / Node / Route 报告'))),
+          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '测试报告'), h('div', { class: 'card__title' }, '最近连通性报告'))),
           ...(diagnostics.warnings || []).map((warning) => h('p', { class: 'alert' }, warning)),
-          (diagnostics.reports || []).length ? h('div', { class: 'stack' }, diagnostics.reports.map((report) => reportView(report, diagnostics))) : h('p', { class: 'muted' }, '尚无已保存 Probe 报告')
+          (diagnostics.reports || []).length ? h('div', { class: 'stack' }, diagnostics.reports.map((report) => reportView(report, diagnostics))) : h('p', { class: 'muted' }, '尚无已保存测试报告')
         ]),
         h('section', { class: 'card' }, [
-          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Validation'), h('div', { class: 'card__title' }, '当前 Draft 校验'))),
+          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '配置校验'), h('div', { class: 'card__title' }, '当前工作副本'))),
           (validation.errors || []).length || (validation.warnings || []).length
             ? h('div', {}, [ui.issueList(validation.errors || [], ui.jumpToObject), ui.issueList(validation.warnings || [], ui.jumpToObject, true)])
-            : h('p', { class: 'muted' }, '当前 Draft 校验通过')
+            : h('p', { class: 'muted' }, '当前工作副本校验通过')
         ]),
         h('section', { class: 'card' }, [
-          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'Apply'), h('div', { class: 'card__title' }, '最近 Apply 结果'))),
-          h('div', { class: 'facts' }, [fact('当前 generation', status.generation || '—'), fact('当前 Intent digest', status.intent_digest ? status.intent_digest.slice(0, 12) : '—'), fact('运行健康', status.healthy ? '是' : '否')]),
+          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '应用记录'), h('div', { class: 'card__title' }, '最近应用结果'))),
+          h('div', { class: 'facts' }, [fact('运行状态', status.healthy ? '正常' : (status.generation ? '异常' : '已停止'))]),
           ui.applyRecord(status)
         ]),
         h('section', { class: 'card' }, [
-          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'journalctl'), h('div', { class: 'card__title' }, 'steer / steer-web / steer-subscription'))),
+          h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '系统日志'), h('div', { class: 'card__title' }, 'Steer 服务日志'))),
           h('pre', { class: 'mono command-block diagnostics-log' }, logs.output || '当前没有日志输出')
         ])
       );

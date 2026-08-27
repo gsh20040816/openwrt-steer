@@ -38,10 +38,10 @@ func classifyLocalProxyListen(_ value: String) -> LocalProxyListenClassification
 
 func validateLocalProxyAuthentication(listen: String, username: String, password: String) -> String? {
     let classification = classifyLocalProxyListen(listen)
-    if classification == .invalid { return "监听地址必须是 IP literal，不能使用 hostname" }
+    if classification == .invalid { return "监听地址必须是 IP 地址，不能填写域名" }
     if username.isEmpty != password.isEmpty { return "用户名和密码必须同时填写" }
     if classification == .nonLoopback && username.isEmpty {
-        return "非 loopback 监听会扩大暴露范围，必须设置用户名和密码"
+        return "该监听地址可能允许其他设备连接，必须设置用户名和密码"
     }
     return nil
 }
@@ -195,12 +195,12 @@ struct DraftItemEditor: View {
     private func validate(_ value: [String: JSONValue]) -> String? {
         let identifier = draftString(value, "id").trimmingCharacters(in: .whitespacesAndNewlines)
         if identifier.isEmpty || identifier.contains(where: { $0.isWhitespace }) {
-            return "内部标识无效；请取消后重新创建"
+            return "标识无效；请取消后重新创建"
         }
         if model.draftItems(for: target.key).contains(where: {
             $0.identifier == identifier && $0.index != target.index
         }) {
-            return "内部标识冲突；请取消后重新创建"
+            return "标识冲突；请取消后重新创建"
         }
 
         switch target.key {
@@ -228,7 +228,7 @@ struct DraftItemEditor: View {
             if !["direct", "block", "single"].contains(kind) { return "请选择路由类型" }
             if kind == "single" {
                 let nodeID = draftString(value, "node")
-                if let problem = model.nodeReferenceProblem(nodeID) { return "Node 引用无效：\(problem)" }
+                if let problem = model.nodeReferenceProblem(nodeID) { return "节点选择无效：\(problem)" }
                 let detourID = draftString(value, "detour")
                 if let problem = model.routeDetourProblem(routeID: identifier, detourID: detourID) {
                     return problem
@@ -252,7 +252,7 @@ struct DraftItemEditor: View {
                 password: draftString(value, "password")
             ) { return error }
         case "rules":
-            if draftString(value, "route").isEmpty { return "请选择 Route" }
+            if draftString(value, "route").isEmpty { return "请选择路由" }
             if draftString(value, "dns_profile").isEmpty { return "请选择 DNS Profile" }
             if !draftBool(value, "default") && !ruleHasMatch(value) { return "非 Default 规则至少需要一个匹配条件" }
         case "subscriptions":
@@ -335,7 +335,7 @@ struct NodeImportSheet: View {
                         TextEditor(text: $document)
                             .font(.system(.body, design: .monospaced))
                             .frame(minHeight: 260)
-                        Text("支持 VLESS、VMess、Trojan、Hysteria、TUIC、Shadowsocks、SOCKS、HTTP、SSH 等由 Steer 后端解析的格式。")
+                        Text("支持 VLESS、VMess、Trojan、Hysteria、TUIC、Shadowsocks、SOCKS、HTTP 与 SSH 等分享格式。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -581,10 +581,10 @@ private struct RouteDraftForm: View {
                     }
                 }
                 if let problem = model.nodeReferenceProblem(selectedNodeID), !selectedNodeID.isEmpty {
-                    Label("当前 Node：\(problem)", systemImage: "exclamationmark.triangle.fill")
+                    Label("当前节点：\(problem)", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 }
-                Picker("前置路由 (detour)", selection: stringBinding($object, "detour")) {
+                Picker("前置路由", selection: stringBinding($object, "detour")) {
                     Text("直连（无前置）").tag("")
                     ForEach(selectableDetours) { item in
                         Text(model.draftReferenceLabel(item, in: "routes")).tag(item.identifier)
@@ -600,7 +600,7 @@ private struct RouteDraftForm: View {
                     Label(problem, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 }
-                Text("非空时先拨号前置路由，再连接当前节点。")
+                Text("非空时先连接前置路由，再连接当前节点。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -681,14 +681,14 @@ private struct LocalProxyDraftForm: View {
             }
         } else if listenClassification == .invalid && !listen.isEmpty {
             Section {
-                Label("监听地址必须是 IPv4 或 IPv6 literal，不能使用 hostname。", systemImage: "xmark.octagon.fill")
+                Label("监听地址必须是 IPv4 或 IPv6 地址，不能填写域名。", systemImage: "xmark.octagon.fill")
                     .foregroundStyle(.red)
             }
         }
         Section("认证（可选）") {
             TextField("用户名", text: stringBinding($object, "username"))
             SecureField("密码", text: stringBinding($object, "password"))
-            Text("用户名和密码必须成对设置；loopback 可不设置认证。")
+            Text("用户名和密码必须同时设置；仅限本机访问时可以不设置认证。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -770,10 +770,10 @@ private struct GeoCatalogCompletion: View {
     var body: some View {
         DisclosureGroup("添加 \(label)") {
             if catalog.isEmpty {
-                Label("Geo catalog 当前不可用；仍可在上方手动输入 \(prefix)category。", systemImage: "exclamationmark.triangle")
+                Label("Geo 规则列表当前不可用；仍可在上方手动输入 \(prefix)规则名。", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             } else {
-                TextField("搜索完整 \(label) catalog", text: $query)
+                TextField("搜索 \(label) 规则", text: $query)
                     .onSubmit { appendSelection() }
                 if results.isEmpty {
                     Text("没有匹配项；仍可在上方手动输入。")
@@ -819,8 +819,8 @@ private struct RuleDecisionSection: View {
 
     var body: some View {
         Section("决策") {
-            Picker("Route", selection: stringBinding($object, "route", required: true)) {
-                Text("请选择 Route").tag("")
+            Picker("路由", selection: stringBinding($object, "route", required: true)) {
+                Text("请选择路由").tag("")
                 ForEach(model.draftItems(for: "routes")) { item in
                     Text(model.draftReferenceLabel(item, in: "routes")).tag(item.identifier)
                 }
@@ -866,7 +866,7 @@ private struct RuleDraftForm: View {
         Section("规则") {
             Toggle("启用规则", isOn: boolBinding($object, "enabled"))
             TextField("名称", text: stringBinding($object, "name"))
-            LabeledContent("类型", value: "普通 first-match 规则")
+            LabeledContent("类型", value: "普通规则")
         }
 
         RuleDecisionSection(model: model, object: $object)
@@ -912,7 +912,7 @@ private struct RuleDraftForm: View {
                     .foregroundStyle(.red)
             }
             let capability = SteerUISpec.contract.platformCapabilities["macos"]
-            Label("Source MAC 不可用：\(capability?.sourceMACReason ?? "此平台不支持该匹配")", systemImage: "nosign")
+            Label("源 MAC 地址匹配不可用：\(capability?.sourceMACReason ?? "此平台不支持该匹配")", systemImage: "nosign")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -925,7 +925,7 @@ private struct RuleDraftForm: View {
                     Toggle(option.label, isOn: membershipBinding($object, "protocol", option.value))
                 }
             }
-            Text("IP match、Network、Protocol 与 Port 只参与连接阶段；规则只有这些条件时，DNS 会继续匹配后续规则。")
+            Text("提示：目标 IP、网络、协议与端口匹配仅在连接阶段生效。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -941,7 +941,7 @@ private struct SubscriptionDraftForm: View {
             TextField("名称", text: stringBinding($object, "name"))
             TextField("URL", text: stringBinding($object, "url", required: true), prompt: Text("https://example.com/subscription"))
             TextField("更新间隔", text: stringBinding($object, "update_interval"), prompt: Text(SteerUISpec.contract.subscriptionUpdateIntervalDefault))
-            Text("订阅刷新由平台后端执行；订阅生成的节点在节点页保持只读。")
+            Text("订阅会按设置的间隔自动更新；订阅节点在节点页保持只读。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

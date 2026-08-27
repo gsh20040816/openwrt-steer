@@ -16,7 +16,7 @@ struct DraftActionButtons: View {
         Button {
             model.applySaved()
         } label: {
-            Label("Apply Saved", systemImage: "bolt")
+            Label("应用已保存配置", systemImage: "bolt")
         }
         .disabled(!model.canApplySaved)
 
@@ -44,13 +44,15 @@ struct ContentView: View {
                     ProgressView()
                         .controlSize(.small)
                 }
-                Label(model.runtime.healthy ? "运行中" : "未运行",
-                      systemImage: model.runtime.healthy ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(model.runtime.healthy ? .green : .secondary)
+                Label(
+                    model.runtime.healthy ? "运行正常" : (model.runtime.generationID.isEmpty ? "未运行" : "运行异常"),
+                    systemImage: model.runtime.healthy ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty ? "circle" : "exclamationmark.triangle.fill")
+                )
+                .foregroundStyle(model.runtime.healthy ? .green : (model.runtime.generationID.isEmpty ? .secondary : .orange))
                 Button { model.refreshStatus() } label: {
                     Label("刷新状态", systemImage: "arrow.clockwise")
                 }
-                .help("刷新 LaunchDaemon 运行状态")
+                .help("刷新服务运行状态")
                 .disabled(model.isBusy || model.pendingDraftAction != nil)
                 Button { model.validate() } label: {
                     Label("校验", systemImage: "checkmark.shield")
@@ -84,19 +86,19 @@ struct ContentView: View {
             Text(model.draftGuardExplanation)
         }
         .alert(
-            "Saved revision 冲突",
+            "配置冲突",
             isPresented: Binding(
                 get: { model.revisionConflict != nil },
                 set: { _ in }
             )
         ) {
-            Button("Reload Saved", role: .destructive) {
+            Button("重新载入服务器配置", role: .destructive) {
                 model.reloadSavedAfterRevisionConflict()
             }
-            Button("保留本地 Draft", role: .cancel) {
+            Button("保留本地工作副本", role: .cancel) {
                 model.keepLocalDraftAfterRevisionConflict()
             }
-            Button("显式覆盖", role: .destructive) {
+            Button("覆盖服务器配置", role: .destructive) {
                 model.overwriteAfterRevisionConflict()
             }
         } message: {
@@ -128,13 +130,13 @@ private struct SidebarView: View {
         .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
-                Image(systemName: model.runtime.healthy ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(model.runtime.healthy ? .green : .secondary)
+                Image(systemName: model.runtime.healthy ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty ? "circle" : "exclamationmark.triangle.fill"))
+                    .foregroundStyle(model.runtime.healthy ? .green : (model.runtime.generationID.isEmpty ? .secondary : .orange))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(model.runtime.healthy ? "运行中" : "未运行")
+                    Text(model.runtime.healthy ? "服务运行正常" : (model.runtime.generationID.isEmpty ? "服务未运行" : "服务运行异常"))
                         .font(.caption.weight(.medium))
-                    Text(model.runtime.generationID.isEmpty ? "无 active generation" : model.runtime.generationID)
-                        .font(.caption2.monospaced())
+                    Text(model.isDirty ? "有未保存修改" : "配置已保存")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -268,40 +270,14 @@ struct OverviewView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label(model.runtime.healthy ? "已连接" : "未运行",
-                          systemImage: model.runtime.healthy ? "checkmark.circle.fill" : "pause.circle")
+                    Label(
+                        model.runtime.healthy ? "服务运行正常" : (model.runtime.generationID.isEmpty ? "服务未运行" : "服务运行异常"),
+                        systemImage: model.runtime.healthy ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty ? "pause.circle" : "exclamationmark.triangle.fill")
+                    )
                         .font(.title.weight(.semibold))
-                        .foregroundStyle(model.runtime.healthy ? .green : .secondary)
-                    Text("LaunchDaemon + sing-box TUN")
+                        .foregroundStyle(model.runtime.healthy ? .green : (model.runtime.generationID.isEmpty ? .secondary : .orange))
+                    Text("系统 TUN 模式")
                         .foregroundStyle(.secondary)
-                    Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 5) {
-                        GridRow {
-                            Text("Generation").foregroundStyle(.secondary)
-                            Text(model.runtime.generationID.isEmpty ? "—" : model.runtime.generationID)
-                                .font(.body.monospaced())
-                                .textSelection(.enabled)
-                        }
-                        GridRow {
-                            Text("Intent digest").foregroundStyle(.secondary)
-                            Text(model.runtime.intentDigest.isEmpty ? "—" : model.runtime.intentDigest)
-                                .font(.caption.monospaced())
-                                .lineLimit(1)
-                                .textSelection(.enabled)
-                        }
-                        GridRow {
-                            Text("Saved revision").foregroundStyle(.secondary)
-                            Text(model.savedRevision.isEmpty ? "—" : model.savedRevision)
-                                .font(.caption.monospaced())
-                                .lineLimit(1)
-                                .textSelection(.enabled)
-                        }
-                        GridRow {
-                            Text("Last Apply").foregroundStyle(.secondary)
-                            Text(lastApplySummary)
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
-                        }
-                    }
                 }
                 Spacer(minLength: 20)
                 VStack(alignment: .trailing, spacing: 12) {
@@ -311,7 +287,7 @@ struct OverviewView: View {
                     ))
                     .toggleStyle(.switch)
                     .disabled(!model.canToggleEnabled)
-                    .help(model.isDirty ? "请先保存或丢弃 Draft，避免连同半成品一起部署" : "立即保存并应用启用状态")
+                    .help(model.isDirty ? "请先保存或丢弃工作副本中的修改" : "立即保存并应用启用状态")
                     ControlGroup {
                         Button("校验") { model.validate() }
                             .disabled(model.draftSyntaxError != nil)
@@ -337,13 +313,13 @@ struct OverviewView: View {
 
     private var executionContent: some View {
         HStack(spacing: 14) {
-            pipelineStep(value: model.itemCount(for: "rules"), title: "匹配规则", subtitle: "严格 first-match", symbol: "line.3.horizontal.decrease.circle")
+            pipelineStep(value: model.itemCount(for: "rules"), title: "匹配规则", subtitle: "首条匹配即停止", symbol: "line.3.horizontal.decrease.circle")
             pipelineArrow
             pipelineStep(value: model.itemCount(for: "dns_profiles"), title: "DNS Profile", subtitle: "独立解析路径", symbol: "network")
             pipelineArrow
-            pipelineStep(value: model.itemCount(for: "routes"), title: "路由", subtitle: "Direct / Reject / Single", symbol: "arrow.triangle.branch")
+            pipelineStep(value: model.itemCount(for: "routes"), title: "路由", subtitle: "直连 / 拒绝 / 节点链", symbol: "arrow.triangle.branch")
             pipelineArrow
-            pipelineStep(value: 1, title: "网络出口", subtitle: "Darwin utun", symbol: "globe")
+            pipelineStep(value: 1, title: "网络出口", subtitle: "本地出口", symbol: "globe")
         }
     }
 
@@ -358,8 +334,8 @@ struct OverviewView: View {
             GridRow {
                 metric(value: model.itemCount(for: "local_proxies"), label: "本地入口", footnote: "\(model.enabledItemCount(for: "local_proxies")) 已启用", symbol: "rectangle.connected.to.line.below")
                 metric(value: model.itemCount(for: "subscriptions"), label: "订阅", footnote: "\(model.enabledItemCount(for: "subscriptions")) 已启用", symbol: "arrow.down.circle")
-                metric(value: model.validation?.warnings.count ?? 0, label: "Warnings", footnote: model.validation == nil ? "尚未校验" : "当前 Draft", symbol: "exclamationmark.triangle")
-                metric(value: model.validation?.errors.count ?? 0, label: "Errors", footnote: model.validation == nil ? "尚未校验" : "当前 Draft", symbol: "xmark.octagon")
+                metric(value: model.validation?.warnings.count ?? 0, label: "警告", footnote: model.validation == nil ? "尚未校验" : "当前工作副本", symbol: "exclamationmark.triangle")
+                metric(value: model.validation?.errors.count ?? 0, label: "错误", footnote: model.validation == nil ? "尚未校验" : "当前工作副本", symbol: "xmark.octagon")
             }
         }
     }
@@ -367,20 +343,15 @@ struct OverviewView: View {
     private var configurationContent: some View {
         Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
             GridRow {
-                LabeledContent("Schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
-                LabeledContent("Log level", value: model.draftLogLevel)
+                LabeledContent("日志级别", value: model.draftLogLevel)
+                LabeledContent("DNS 缓存", value: model.draftDNSCacheCapacity.formatted())
             }
             GridRow {
-                LabeledContent("DNS cache", value: model.draftDNSCacheCapacity.formatted())
                 LabeledContent("工作副本", value: model.isDirty ? "有未保存修改" : "已同步")
+                LabeledContent("配置开关", value: model.draftEnabled ? "启用" : "禁用")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var lastApplySummary: String {
-        guard let apply = model.runtime.lastApply else { return "—" }
-        return "\(apply.sequence) · \(apply.result.ok ? "成功" : "失败")"
     }
 
     private func pipelineStep(value: Int, title: String, subtitle: String, symbol: String) -> some View {
@@ -423,8 +394,6 @@ struct ConfigurationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Schema \(model.draftSchemaVersion)", systemImage: "curlybraces")
-                    .foregroundStyle(.secondary)
                 if model.isDirty {
                     Label("有未保存修改", systemImage: "circle.fill")
                         .foregroundStyle(.orange)
@@ -439,7 +408,7 @@ struct ConfigurationView: View {
                 .disabled(model.isBusy)
             }
             VStack(alignment: .leading, spacing: 8) {
-                Label("Canonical JSON", systemImage: "doc.plaintext")
+                Label("JSON 配置", systemImage: "doc.plaintext")
                     .font(.headline)
                 Divider()
                 TextEditor(text: Binding(
@@ -476,7 +445,7 @@ struct DraftCollectionDescriptor {
     static let nodes = Self(key: "nodes", title: "节点库", emptyMessage: "尚未添加节点", addLabel: "添加节点", symbol: "point.3.connected.trianglepath.dotted", ordered: false)
     static let routes = Self(key: "routes", title: "路由", emptyMessage: "尚未添加路由", addLabel: "添加路由", symbol: "arrow.triangle.branch", ordered: false)
     static let dns = Self(key: "dns_profiles", title: "DNS Profile", emptyMessage: "尚未添加 DNS Profile", addLabel: "添加 Profile", symbol: "network", ordered: false)
-    static let rules = Self(key: "rules", title: "First-Match 规则", emptyMessage: "尚未添加规则", addLabel: "添加规则", symbol: "list.number", ordered: true)
+    static let rules = Self(key: "rules", title: "顺序规则", emptyMessage: "尚未添加规则", addLabel: "添加规则", symbol: "list.number", ordered: true)
     static let subscriptions = Self(key: "subscriptions", title: "订阅", emptyMessage: "尚未添加订阅", addLabel: "添加订阅", symbol: "arrow.down.circle", ordered: false)
     static let proxies = Self(key: "local_proxies", title: "本地代理", emptyMessage: "尚未添加本地代理", addLabel: "添加入口", symbol: "rectangle.connected.to.line.below", ordered: false)
 }
@@ -494,7 +463,7 @@ private struct SubscriptionStaleList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("stale 节点", systemImage: "clock.badge.exclamationmark")
+                Label("已失效节点", systemImage: "clock.badge.exclamationmark")
                     .font(.headline)
                 Text(status.name ?? status.id)
                     .foregroundStyle(.secondary)
@@ -507,17 +476,14 @@ private struct SubscriptionStaleList: View {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text(node.name?.isEmpty == false ? node.name! : node.id)
+                            Text(node.name?.isEmpty == false ? node.name! : "未命名节点")
                                 .fontWeight(.medium)
-                            Text(node.id)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                            Label("pinned-stale", systemImage: "pin.fill")
+                            Label("已保留", systemImage: "pin.fill")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
                         Text(node.referencedBy.isEmpty
-                             ? "所属订阅 \(status.id) · 未被 Route 引用，可独立清理"
+                             ? "未被任何路由使用，可以安全清理"
                              : "阻止原因：" + node.referencedBy.map(referenceLabel).joined(separator: "，"))
                             .font(.caption)
                             .foregroundStyle(node.referencedBy.isEmpty ? Color.secondary : Color.red)
@@ -529,7 +495,7 @@ private struct SubscriptionStaleList: View {
                     .disabled(model.isBusy || model.isDirty
                               || model.subscriptionOperationInProgress(status.id)
                               || !node.referencedBy.isEmpty)
-                    .help(node.referencedBy.isEmpty ? "只移除这个 stale 节点；不会自动 Apply" : "仍被引用，不能清理")
+                    .help(node.referencedBy.isEmpty ? "只移除这个已失效节点；不会改变当前运行配置" : "仍被路由使用，不能清理")
                 }
                 .padding(.vertical, 3)
             }
@@ -540,8 +506,9 @@ private struct SubscriptionStaleList: View {
     }
 
     private func referenceLabel(_ reference: SubscriptionReference) -> String {
-        let label = reference.name?.isEmpty == false ? reference.name! : reference.id
-        return "\(reference.objectType) \(label)"
+        let type = ["route": "路由", "rule": "规则"][reference.objectType] ?? "配置"
+        let label = reference.name?.isEmpty == false ? reference.name! : "未命名\(type)"
+        return "\(type) \(label)"
     }
 }
 
@@ -571,7 +538,7 @@ private struct DefaultRuleCard: View {
             Text(detail)
                 .font(.callout.monospaced())
                 .foregroundStyle(.secondary)
-            Text("第 \(item.index + 1) 条 · 只能修改显示名称、DNS Profile 与 Route")
+            Text("第 \(item.index + 1) 条 · 只能修改显示名称、DNS Profile 与路由")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -631,7 +598,7 @@ struct DraftCollectionView: View {
         for source in allItems.compactMap(\.sourceSubscription) where !known.contains(source) {
             known.insert(source)
             groups.append(NodeCollectionGroup(
-                id: source, label: "缺失订阅：\(source)",
+                id: source, label: "已删除的订阅",
                 count: allItems.filter { $0.sourceSubscription == source }.count
             ))
         }
@@ -689,7 +656,7 @@ struct DraftCollectionView: View {
                                   || model.subscriptionStatus(selectedItem.identifier)?.enabled == false)
                         .help(model.subscriptionStatus(selectedItem.identifier)?.enabled == false
                               ? "已停用的订阅不能更新；请先启用并保存"
-                              : "更新 Saved 节点库，不自动 Apply")
+                              : "更新已保存的节点列表，不改变当前运行配置")
                 }
                 Button { addItem() } label: {
                     Label(descriptor.addLabel, systemImage: "plus")
@@ -698,23 +665,8 @@ struct DraftCollectionView: View {
                 .disabled(model.isBusy || model.draftSyntaxError != nil)
             }
 
-            if descriptor.key == "dns_profiles", let boundary = SteerUISpec.contract.dnsBoundaries["macos"] {
-                VStack(alignment: .leading, spacing: 5) {
-                    Label("Bootstrap 与加密 DNS 边界", systemImage: "network.badge.shield.half.filled")
-                        .font(.headline)
-                    Text(boundary.bootstrapBoundary)
-                    Text("port-53 capture：\(boundary.captureScope)")
-                    Text("Exclusions：\(boundary.exclusions.joined(separator: " · "))")
-                    Text(boundary.encryptedDNSBoundary)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(12)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-            }
-
             if descriptor.key == "subscriptions" {
-                Label("订阅更新只刷新 Saved 节点库存，不自动 Apply；被 Route 引用的消失节点保留为 stale。", systemImage: "exclamationmark.triangle")
+                Label("订阅会定时刷新节点列表；仍被路由使用的节点将自动保留。", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -725,7 +677,7 @@ struct DraftCollectionView: View {
                         Label(item.enabled ? "启用" : "停用", systemImage: "lock.fill")
                             .labelStyle(.iconOnly)
                             .foregroundStyle(item.enabled ? .green : .secondary)
-                            .help(item.subscriptionOwned ? "订阅节点状态由订阅管理" : "Direct 是系统必需路由，始终启用")
+                            .help(item.subscriptionOwned ? "订阅节点状态由订阅管理" : "系统直连路由始终启用")
                     } else {
                         Toggle("", isOn: Binding(
                             get: { item.enabled },
@@ -743,10 +695,10 @@ struct DraftCollectionView: View {
                             HStack(spacing: 6) {
                                 Text(item.title).fontWeight(.medium)
                                 if descriptor.key == "nodes", item.pinnedStale {
-                                    Label("stale", systemImage: "pin.fill")
+                                    Label("已失效", systemImage: "pin.fill")
                                         .font(.caption)
                                         .foregroundStyle(.orange)
-                                        .help("pinned-stale · 所属订阅 \(item.sourceSubscription ?? "未知")")
+                                        .help("原订阅中已不再包含此节点；因仍在使用而暂时保留")
                                 }
                             }
                         }
@@ -779,7 +731,7 @@ struct DraftCollectionView: View {
                                       || model.subscriptionStatus(item.identifier)?.enabled == false)
                             .help(model.subscriptionStatus(item.identifier)?.enabled == false
                                   ? "已停用的订阅不能更新"
-                                  : "更新 Saved 节点库，不自动 Apply")
+                                  : "更新已保存的节点列表，不改变当前运行配置")
                         }
                         if item.subscriptionOwned {
                             Image(systemName: "lock.fill")
@@ -849,14 +801,14 @@ struct DraftCollectionView: View {
                         Image(systemName: "xmark.octagon.fill")
                             .font(.largeTitle)
                             .foregroundStyle(.red)
-                        Text("Raw Draft JSON 语法无效")
+                        Text("JSON 配置格式有误")
                             .font(.headline)
                         Text(syntaxError)
                             .font(.callout.monospaced())
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .lineLimit(4)
-                        Text("请先在 Configuration 页面修复；此处不会把解析失败显示成空集合。")
+                        Text("请先在高级配置页面修复后再继续。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -935,7 +887,7 @@ struct DraftCollectionView: View {
                 HStack(spacing: 8) {
                     Text("先修改引用：").foregroundStyle(.secondary)
                     ForEach(blockedReferences, id: \.sourceID) { reference in
-                        Button("\(reference.sourceLabel) / \(reference.field)") {
+                        Button(reference.sourceLabel) {
                             model.focusValidationIssue(ValidationIssue(
                                 code: "STILL_REFERENCED", objectType: reference.sourceObjectType,
                                 objectID: reference.sourceID, option: reference.field,
@@ -1137,7 +1089,7 @@ struct DiagnosticsView: View {
     var body: some View {
         List {
             Section("连通性探测") {
-                Text("目标来自当前 Active generation，并按 Active 规则访问。成功只表示该 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。")
+                Text("使用当前运行配置访问测试地址；成功仅表示该地址在测试时可达。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -1146,14 +1098,14 @@ struct DiagnosticsView: View {
                     overviewProbeButton("测试下载 URL", kind: "speedtest", download: true)
                 }
                 if !model.hasActiveGeneration {
-                    Label("当前没有 Active generation；概览探测不会发起请求。", systemImage: "pause.circle")
+                    Label("服务尚未运行，暂时无法测试。", systemImage: "pause.circle")
                         .foregroundStyle(.secondary)
                 }
                 overviewProbeResult("直连 URL", kind: "direct")
                 overviewProbeResult("代理 URL", kind: "proxy")
                 overviewProbeResult("下载 URL", kind: "speedtest")
             }
-            Section("最近 Probe 报告") {
+            Section("最近测试报告") {
                 if model.diagnosticProbeReports.isEmpty {
                     Label("尚无已保存报告", systemImage: "doc.text.magnifyingglass")
                         .foregroundStyle(.secondary)
@@ -1182,50 +1134,36 @@ struct DiagnosticsView: View {
                 Button("校验当前工作副本") { model.validate() }
                     .disabled(model.isBusy)
             }
-            Section("Active port-53 配置检查") {
-                let boundary = SteerUISpec.contract.dnsBoundaries["macos"]
+            Section("系统 DNS 接管检查") {
                 if let capture = model.diagnosticsDNSCapture {
                     LabeledContent("结果", value: capture.configured ? "已配置" : "未确认")
-                    LabeledContent("模式", value: capture.mode)
-                    LabeledContent("Generation", value: capture.activeGeneration ?? "—")
-                    LabeledContent("详情", value: capture.detail)
+                    LabeledContent(
+                        "详情",
+                        value: capture.detail == "the published Active generation contains the expected port-53 capture artifacts"
+                            ? "系统 DNS 接管已配置"
+                            : capture.detail
+                    )
                 } else {
-                    Label("尚未读取 DNS capture 诊断", systemImage: "questionmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-                if let boundary {
-                    LabeledContent("范围", value: boundary.captureScope)
-                    LabeledContent("Exclusions", value: boundary.exclusions.joined(separator: " · "))
-                    Text(boundary.diagnosticBoundary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(boundary.encryptedDNSBoundary)
-                        .font(.caption)
+                    Label("尚未检查系统 DNS 接管状态", systemImage: "questionmark.circle")
                         .foregroundStyle(.secondary)
                 }
             }
-            Section("运行后端") {
-                LabeledContent("Service", value: "LaunchDaemon + sing-box TUN")
-                LabeledContent("健康状态", value: model.runtime.healthy ? "正常" : "未运行")
-                LabeledContent("Generation", value: model.runtime.generationID.isEmpty ? "—" : model.runtime.generationID)
+            Section("服务状态") {
+                LabeledContent("运行状态", value: model.runtime.healthy ? "正常" : (model.runtime.generationID.isEmpty ? "未运行" : "异常"))
                 if !model.runtime.error.isEmpty {
                     LabeledContent("错误", value: model.runtime.error)
                 }
                 Button("刷新状态") { model.refreshStatus() }
                     .disabled(model.isBusy)
             }
-            Section("最近 Apply") {
+            Section("最近应用") {
                 if let apply = model.runtime.lastApply {
-                    LabeledContent("Sequence", value: apply.sequence)
                     LabeledContent("结果", value: apply.result.ok ? "成功" : "失败")
-                    if let generation = apply.result.generation, !generation.isEmpty {
-                        LabeledContent("Generation", value: generation)
-                    }
                     if let error = apply.result.error, !error.isEmpty {
                         LabeledContent("错误", value: error)
                     }
                 } else {
-                    Text("尚无 Apply 记录").foregroundStyle(.secondary)
+                    Text("尚无应用记录").foregroundStyle(.secondary)
                 }
             }
             Section("最近消息") {
@@ -1275,7 +1213,7 @@ struct DiagnosticsView: View {
             }
         }
         .disabled(running || !model.hasActiveGeneration)
-        .help(model.hasActiveGeneration ? "目标来自 Active generation，并按 Active 规则访问" : "需要 Active generation")
+        .help(model.hasActiveGeneration ? "使用当前运行配置进行测试" : "服务运行后才能测试")
     }
 
     @ViewBuilder
@@ -1296,19 +1234,19 @@ struct DiagnosticsView: View {
         let stale = model.probeReportIsStale(report)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(report.scope == "overview" ? "Overview" : "\(report.scope)/\(report.objectID ?? "—")")
+                Text(reportScopeLabel(report.scope))
                     .fontWeight(.medium)
-                Text(report.kind).font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text(reportKindLabel(report.kind)).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Label(stale ? "已过期" : (report.ok ? "成功" : "失败"),
                       systemImage: stale ? "clock.badge.exclamationmark" : (report.ok ? "checkmark.circle.fill" : "xmark.circle.fill"))
                     .font(.caption)
                     .foregroundStyle(stale ? .orange : (report.ok ? .green : .red))
             }
-            LabeledContent("tested_at", value: report.testedAt)
+            LabeledContent("测试时间", value: report.testedAt)
             if let result = report.results.first {
                 if let url = result.url, !url.isEmpty { LabeledContent("URL", value: url) }
-                if let attempts = result.attempts { LabeledContent("Attempts", value: String(attempts)) }
+                if let attempts = result.attempts { LabeledContent("尝试次数", value: String(attempts)) }
                 HStack(spacing: 14) {
                     measurement("Connect", result.connectMilliseconds, "ms")
                     measurement("TLS", result.tlsMilliseconds, "ms")
@@ -1318,7 +1256,7 @@ struct DiagnosticsView: View {
                 if let bytes = result.downloadedBytes, bytes > 0 {
                     let milliseconds = result.downloadMilliseconds ?? 0
                     let rate = milliseconds > 0 ? String(format: "%.1f Mbps", Double(bytes) * 8 / Double(milliseconds) / 1000) : "—"
-                    Text("\(bytes) bytes · \(milliseconds) ms · \(rate)")
+                    Text("\(bytes) 字节 · \(milliseconds) ms · \(rate)")
                         .font(.caption.monospaced())
                 }
                 if let error = result.error, !error.isEmpty { Text(error).foregroundStyle(.red) }
@@ -1336,12 +1274,11 @@ struct DiagnosticsView: View {
     }
 
     private func issueRow(_ issue: ValidationIssue, isError: Bool) -> some View {
-        let location = [issue.objectType, issue.objectID, issue.option].compactMap { $0 }.joined(separator: " / ")
         return Button {
             model.focusValidationIssue(issue)
         } label: {
             HStack {
-                Label("[\(issue.code)] \(location) · \(issue.message)", systemImage: isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                Label(validationIssueMessage(issue), systemImage: isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
                     .foregroundStyle(isError ? .red : .orange)
                 Spacer()
                 if issue.destinationPage != nil {
@@ -1352,6 +1289,46 @@ struct DiagnosticsView: View {
         }
         .buttonStyle(.plain)
         .disabled(issue.destinationPage == nil)
+    }
+
+    private func reportScopeLabel(_ scope: String) -> String {
+        switch scope {
+        case "overview": return "总览"
+        case "node", "nodes": return "节点"
+        case "route", "routes": return "路由"
+        default: return "测试对象"
+        }
+    }
+
+    private func validationIssueMessage(_ issue: ValidationIssue) -> String {
+        switch issue.code {
+        case "REQUIRED": return "必填字段尚未填写"
+        case "DANGLING_NODE": return "所选节点不存在"
+        case "DANGLING_DETOUR": return "所选前置路由不存在"
+        case "DANGLING_DNS_PROFILE": return "所选 DNS Profile 不存在"
+        case "DANGLING_ROUTE": return "所选路由不存在"
+        case "DANGLING_LOCAL_PROXY": return "所选本地代理入口不存在"
+        case "DISABLED_NODE": return "所选节点已停用"
+        case "DISABLED_DETOUR": return "所选前置路由已停用"
+        case "DISABLED_DNS_PROFILE": return "所选 DNS Profile 已停用"
+        case "DISABLED_ROUTE": return "所选路由已停用"
+        case "DISABLED_LOCAL_PROXY": return "所选本地代理入口已停用"
+        case "ROUTE_DETOUR_CYCLE": return "前置代理链存在循环引用"
+        case "LOCAL_PROXY_AUTH_REQUIRED": return "该监听地址允许其他设备连接，必须设置用户名和密码"
+        case "INVALID_DURATION": return "更新间隔必须是大于零的时长"
+        case "DNS_PROJECTION_EMPTY": return "该规则仅含连接阶段条件，不影响 DNS 上游选择"
+        default: return issue.message
+        }
+    }
+
+    private func reportKindLabel(_ kind: String) -> String {
+        switch kind {
+        case "direct": return "直连测试"
+        case "proxy": return "代理测试"
+        case "speedtest", "download": return "下载测试"
+        case "connect": return "连接测试"
+        default: return "连通性测试"
+        }
     }
 }
 
@@ -1376,33 +1353,24 @@ struct SystemView: View {
                     Button("更新系统组件…") { model.installSystemComponents() }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isBusy)
-                    Text("更新会再次请求一次管理员密码；用户配置和运行状态目录会保留。")
+                    Text("更新会再次请求管理员授权；用户配置和运行状态会保留。")
                         .foregroundStyle(.secondary)
                 } else if model.systemComponentsNeedRepair, model.embeddedInstallerAvailable {
-                    Button("Repair 系统组件…") { model.installSystemComponents() }
+                    Button("修复系统组件…") { model.installSystemComponents() }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isBusy)
-                    Text("Repair 复用 App 内固定 payload，补齐缺失或无效组件；config、state 与当前 Draft 默认保留。")
+                    Text("修复会补齐缺失或损坏的组件，并保留用户配置、运行状态和当前工作副本。")
                         .foregroundStyle(.secondary)
                 } else if !model.systemComponentsInstalled {
                     if model.embeddedInstallerAvailable {
                         Button("安装系统组件…") { model.installSystemComponents() }
                             .buttonStyle(.borderedProminent)
                             .disabled(model.isBusy)
-                        Text("首次安装会请求一次管理员密码，并安装 root control daemon、运行 helper、sing-box 与 Geo seed。")
+                        Text("首次安装会请求管理员授权，并安装运行 Steer 所需的系统组件。")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("当前源码开发构建没有内置 payload，请运行 macos/scripts/install-launchdaemon.sh。")
+                        Text("当前开发构建不包含安装组件；请使用项目提供的安装脚本。")
                             .foregroundStyle(.secondary)
-                    }
-                }
-                if !model.systemComponentFacts.isEmpty {
-                    ForEach(model.systemComponentFacts) { fact in
-                        LabeledContent(fact.label) {
-                            Label(componentStateLabel(fact), systemImage: componentStateSymbol(fact))
-                                .foregroundStyle(fact.ready ? .green : .orange)
-                                .help("\(fact.path) · \(fact.detail)")
-                        }
                     }
                 }
                 if model.systemComponentsHaveArtifacts {
@@ -1414,43 +1382,29 @@ struct SystemView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("默认卸载会保留 /Library/Application Support/Steer/config、state 与 /Library/Logs/Steer。")
+                Text("默认卸载会保留用户配置、运行状态和日志。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Section("版本与运行时") {
-                LabeledContent("Canonical schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
-                LabeledContent("Backend", value: "steer-macos \(model.versions.helper)")
-                LabeledContent("数据面", value: "sing-box \(model.versions.singBox) · TUN")
-                LabeledContent("Build tags", value: model.versions.singBoxTags.isEmpty ? "—" : model.versions.singBoxTags.joined(separator: " / "))
-                LabeledContent("Active generation", value: model.runtime.generationID.isEmpty ? "—" : model.runtime.generationID)
-                LabeledContent("Last Apply", value: model.runtime.lastApply.map { "\($0.sequence) · \($0.result.ok ? "成功" : "失败")" } ?? "—")
-                LabeledContent("LaunchDaemon", value: "com.steer.steer")
-                LabeledContent("Geo seed version", value: model.versions.geoVersion)
-                LabeledContent("Geo seed rules", value: model.versions.geoRuleCount?.formatted() ?? "—")
-                LabeledContent("GeoSite selectors", value: model.geositeNames.count.formatted())
-                LabeledContent("GeoIP categories", value: model.geoipNames.count.formatted())
-            }
-            Section("DNS capture boundary") {
-                if let boundary = SteerUISpec.contract.dnsBoundaries["macos"] {
-                    LabeledContent("模式", value: boundary.captureMode)
-                    LabeledContent("范围", value: boundary.captureScope)
-                    LabeledContent("Exclusions", value: boundary.exclusions.joined(separator: " · "))
-                    Text(boundary.encryptedDNSBoundary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                LabeledContent("Steer 版本", value: model.versions.helper)
+                LabeledContent("核心版本", value: model.versions.singBox)
+                LabeledContent("运行状态", value: model.runtime.healthy ? "正常" : (model.runtime.generationID.isEmpty ? "未运行" : "异常"))
+                LabeledContent("上次应用", value: model.runtime.lastApply.map { $0.result.ok ? "成功" : "失败" } ?? "—")
+                LabeledContent("规则数据版本", value: model.versions.geoVersion)
+                LabeledContent("规则总数", value: model.versions.geoRuleCount?.formatted() ?? "—")
+                LabeledContent("GeoSite 规则集", value: model.geositeNames.count.formatted())
+                LabeledContent("GeoIP 分类", value: model.geoipNames.count.formatted())
             }
             Section("存储路径") {
                 pathRow("配置", "/Library/Application Support/Steer/config/config.json")
                 pathRow("运行目录", "/Library/Application Support/Steer/run")
                 pathRow("状态目录", "/Library/Application Support/Steer/state")
-                pathRow("Geo Seed", "/Library/Application Support/Steer/geodata-seed")
+                pathRow("规则数据", "/Library/Application Support/Steer/geodata-seed")
                 pathRow("日志", "/Library/Logs/Steer")
-                pathRow("控制 IPC", "/var/run/steer/control.sock")
             }
             Section("授权") {
-                Text("首次安装系统组件需要一次 macOS 管理员授权。之后保存和应用只通过 root control daemon 的受限 Unix socket IPC；服务会同时校验 socket 权限与调用者的 admin 组凭据，不执行任意命令。")
+                Text("首次安装系统组件需要管理员授权；日常保存和应用配置不再重复请求授权。")
                     .foregroundStyle(.secondary)
             }
         }
@@ -1464,7 +1418,7 @@ struct SystemView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("将停止三个 LaunchDaemon，并删除 helper、sing-box、plist、control socket 与 Geo/runtime 组件。config、state 和日志默认保留。")
+            Text("将停止 Steer 服务并删除系统组件；用户配置、运行状态和日志默认保留。")
         }
         .alert("同时删除用户数据？", isPresented: $showingDeleteUserData) {
             Button("永久删除配置、状态与日志", role: .destructive) {
@@ -1474,20 +1428,6 @@ struct SystemView: View {
         } message: {
             Text("这会额外删除 /Library/Application Support/Steer 和 /Library/Logs/Steer，无法从 Steer 恢复。")
         }
-    }
-
-    private func componentStateLabel(_ fact: SystemComponentFact) -> String {
-        switch fact.state {
-        case .ready: return fact.detail
-        case .missing: return "缺失"
-        case .outdated: return "版本不一致"
-        case .inactive: return "未加载"
-        case .invalid: return "无效"
-        }
-    }
-
-    private func componentStateSymbol(_ fact: SystemComponentFact) -> String {
-        fact.ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
     }
 
     private func pathRow(_ title: String, _ path: String) -> some View {
@@ -1521,7 +1461,7 @@ private extension AppPage {
         switch self {
         case .overview: return "总览"
         case .general: return "基础设置"
-        case .configuration: return "Canonical JSON · 高级"
+        case .configuration: return "高级配置"
         case .nodes: return "节点"
         case .routes: return "路由"
         case .dns: return "DNS Profile"
@@ -1536,32 +1476,32 @@ private extension AppPage {
     var eyebrow: String {
         switch self {
         case .overview: return "Steer for macOS"
-        case .general: return "Configuration"
-        case .configuration: return "Canonical JSON"
-        case .nodes: return "Nodes"
-        case .routes: return "Routes"
+        case .general: return "配置"
+        case .configuration: return "JSON"
+        case .nodes: return "节点"
+        case .routes: return "路由"
         case .dns: return "DNS Profiles"
-        case .rules: return "First-Match"
-        case .subscriptions: return "Subscriptions"
-        case .proxies: return "Local Proxies"
-        case .diagnostics: return "Diagnostics"
-        case .settings: return "System"
+        case .rules: return "顺序规则"
+        case .subscriptions: return "订阅"
+        case .proxies: return "本地代理"
+        case .diagnostics: return "诊断"
+        case .settings: return "系统"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .overview: return "透明代理控制面 · Canonical Intent 摘要与运行状态"
-        case .general: return "运行、探测、DNS 缓存与 Bootstrap 的原生字段设置"
+        case .overview: return "配置概览与服务运行状态"
+        case .general: return "运行、连通性探测、DNS 缓存与启动解析设置"
         case .configuration: return "高级编辑与校验；所有可视化页面共享同一份工作副本"
         case .nodes: return "手动节点可编辑，订阅节点保持只读"
-        case .routes: return "Direct、Reject 与 Single Route 的确定性出口关系"
+        case .routes: return "管理直连、拒绝与单节点出口链路"
         case .dns: return "上游解析器与每条规则的独立 DNS 路径"
         case .rules: return "从上到下严格匹配，Default 必须位于最后"
-        case .subscriptions: return "订阅源、节点同步与 stale 清理"
+        case .subscriptions: return "管理订阅源、节点更新与失效节点清理"
         case .proxies: return "本机 SOCKS、HTTP 与 Mixed 入口"
-        case .diagnostics: return "完整 Probe 报告、配置校验、最近 Apply 与相关日志"
-        case .settings: return "版本、运行时与系统路径"
+        case .diagnostics: return "连通性报告、配置校验、应用结果与系统日志"
+        case .settings: return "系统组件、版本与存储路径"
         }
     }
 }

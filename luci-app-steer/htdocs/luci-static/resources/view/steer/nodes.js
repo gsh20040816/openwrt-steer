@@ -564,7 +564,7 @@ function renderSubscriptionStatus(result, gate) {
 								});
 							}
 							const status = (update.subscriptions || []).find((item) => item.id == subscription.id) || {};
-							const message = _('Subscription inventory updated; the current Active configuration was not changed. Nodes still referenced by Routes but no longer advertised by the subscription were preserved as stale. Added %d, current %d, stale %d, skipped %d.').format(
+							const message = _('Subscription nodes updated. The running configuration was not changed, and nodes still used by Routes were kept. Added %d, current %d, unavailable %d, skipped %d.').format(
 								status.added || 0, status.current || 0, (status.stale || []).length, status.skipped || 0);
 							ui.addNotification(null, E('p', {}, message), 'warning');
 							return gate.mayReload(startVersion).then((reload) => {
@@ -603,7 +603,7 @@ function renderSubscriptionStatus(result, gate) {
 								ui.addNotification(_('Subscription node removal failed'), E('p', {}, steer.rpcErrorText(clean)), 'danger');
 								return clean;
 							}
-							ui.addNotification(null, E('p', {}, _('Stale node removed from Saved inventory. Running configuration was not changed.')), 'warning');
+							ui.addNotification(null, E('p', {}, _('Unavailable node removed. The running configuration was not changed.')), 'info');
 							return gate.mayReload(startVersion).then((reload) => {
 								if (reload) window.location.reload();
 								else ui.addNotification(null, E('p', {}, _('Visible edits appeared while cleanup was running; they were preserved and the page was not reloaded.')), 'warning');
@@ -612,7 +612,7 @@ function renderSubscriptionStatus(result, gate) {
 						});
 						});
 					}
-				}, references.length ? _('Referenced: %s').format(node.id) : _('Remove %s').format(node.id));
+				}, references.length ? _('In use: %s').format(node.name || _('Unavailable node')) : _('Remove %s').format(node.name || _('Unavailable node')));
 					gate.bind(cleanButton, '', 'subscription_clean');
 					actions.push(' ', cleanButton);
 				});
@@ -622,7 +622,7 @@ function renderSubscriptionStatus(result, gate) {
 				return E('div', { 'class': 'tr' }, [
 					E('div', { 'class': 'td' }, subscription.name || subscription.id),
 					E('div', { 'class': 'td', 'title': failureDetail }, failureDetail ? [ last, E('br'), failureDetail ] : last),
-					E('div', { 'class': 'td' }, _('%d current / %d stale / %d skipped').format(subscription.current || 0, stale.length, subscription.skipped || 0)),
+					E('div', { 'class': 'td' }, _('%d current / %d unavailable / %d skipped').format(subscription.current || 0, stale.length, subscription.skipped || 0)),
 					E('div', { 'class': 'td' }, actions)
 				]);
 			})
@@ -692,7 +692,7 @@ function renderImportButton(allowed) {
 		E('div', { 'class': 'steer-section-heading' }, [
 			E('div', {}, [
 				E('h3', {}, _('Import nodes')),
-				E('p', {}, _('Paste one node link per line, or paste a Base64-wrapped subscription document. Steer parses and validates it before it enters the pending configuration.'))
+				E('p', {}, _('Paste one node link per line, or paste a Base64 subscription document. You can preview the parsed nodes before adding them.'))
 			]),
 			E('button', {
 				'class': 'cbi-button cbi-button-add',
@@ -903,7 +903,7 @@ function showImportDialog() {
 	};
 
 	ui.showModal(_('Import nodes'), [
-		E('p', {}, _('Paste one node link per line, or paste a Base64-wrapped subscription document. Steer parses and validates it before it enters the pending configuration.')),
+		E('p', {}, _('Paste one node link per line, or paste a Base64 subscription document. You can preview the parsed nodes before adding them.')),
 		input,
 		preview,
 		E('div', { 'class': 'right' }, [
@@ -1022,7 +1022,7 @@ return view.extend({
 						return _('Direct connection');
 					return routeReferences.find((reference) => reference.id == detour)?.label || _('Missing route');
 				};
-				o.description = _('The selected single-node route dials first. Apply rejects missing, disabled, non-single and cyclic detours.');
+				o.description = _('The selected single-node route dials through the detour proxy first.');
 			}
 
 			o = s.option(form.Button, '_route_connect_test', _('Chain connection test'));

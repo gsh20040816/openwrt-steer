@@ -5,8 +5,6 @@
   const S = window.S;
   const { h } = S;
   const ui = S.ui;
-  const dnsBoundary = S.uiSpec.dns_boundaries.linux;
-
   const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.dns_protocols.map((item) => [item.value, item.label]));
   const DNS_FIELDS = new Set(S.uiSpec.dns_protocols.flatMap((item) => item.fields));
 
@@ -46,7 +44,7 @@
   function openEditor(profile, focusOption) {
     const isNew = !S.store.intent.dns_profiles.includes(profile);
     const opened = ui.drawer({
-      eyebrow: `DNS Profile · ${profile.id}`, title: profile.name || '未命名', submitLabel: '保存到工作副本',
+      eyebrow: isNew ? '新建 DNS Profile' : '编辑 DNS Profile', title: profile.name || '未命名', submitLabel: '保存到工作副本',
       renderBody(body) {
         const draft = JSON.parse(JSON.stringify(profile));
         const initialSpec = protocolSpec(draft.protocol);
@@ -141,7 +139,7 @@
         h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '服务器', '规则引用', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, intent.dns_profiles.map((p) => h('tr', { class: p.enabled === false ? 'is-disabled' : null }, [
           h('td', {}, ui.toggle(p.enabled, (v) => { p.enabled = v; S.store.touch(); })),
-          h('td', {}, h('div', {}, h('strong', {}, p.name || p.id), h('div', { class: 'mono' }, p.id))),
+          h('td', {}, h('strong', {}, p.name || p.id)),
           h('td', {}, h('span', { class: 'badge badge--dns' }, PROTOCOL_LABEL[p.protocol] || p.protocol)),
           h('td', { class: 'mono' }, `${p.server}:${p.server_port}${p.path ? p.path : ''}`),
           h('td', { class: 'mono num' }, String(refCount(intent, p.id))),
@@ -159,22 +157,9 @@
       ]);
 
       root.append(
-        ui.viewHead('DNS Profile', '每个实际使用的 (规则, Profile) 拥有独立传输路径；被规则引用后不可悬空', [
+        ui.viewHead('DNS Profile', '配置上游 DNS 解析器；支持 UDP、TCP、TLS、HTTPS (DoH)、QUIC (DoQ) 与 HTTP/3', [
 		  h('button', { class: 'btn btn--primary', onclick: () => openEditor(ui.creationDraft('dns_profiles')) }, '添加 Profile')
 		]),
-        h('section', { class: 'card card--edge edge--dns' }, [
-          h('div', { class: 'card__head' }, h('div', {}, [
-            h('span', { class: 'eyebrow' }, '解析边界'),
-            h('div', { class: 'card__title' }, 'Bootstrap 与应用自带加密 DNS')
-          ])),
-          h('div', { class: 'facts' }, [
-            h('div', { class: 'fact' }, [h('dt', {}, 'Bootstrap'), h('dd', {}, `${intent.bootstrap.protocol.toUpperCase()} ${intent.bootstrap.server}:${intent.bootstrap.server_port} · ${intent.bootstrap.strategy}`)]),
-            h('div', { class: 'fact' }, [h('dt', {}, 'port-53 capture'), h('dd', {}, dnsBoundary.capture_scope)]),
-            h('div', { class: 'fact' }, [h('dt', {}, 'exclusions'), h('dd', {}, dnsBoundary.exclusions.join(' · '))])
-          ]),
-          h('p', { class: 'muted' }, dnsBoundary.bootstrap_boundary),
-          h('p', { class: 'muted' }, dnsBoundary.encrypted_dns_boundary)
-        ]),
         intent.dns_profiles.length
           ? h('section', { class: 'card table-card' }, h('div', { class: 'table-wrap' }, table))
           : h('div', { class: 'empty' }, '还没有 DNS Profile')

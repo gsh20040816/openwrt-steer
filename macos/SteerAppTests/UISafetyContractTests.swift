@@ -220,14 +220,14 @@ final class UISafetyContractTests: XCTestCase {
         let items = model.draftItems(for: "nodes")
         XCTAssertEqual(model.draftReferenceLabel(try XCTUnwrap(items.first { $0.identifier == "node-unique" }), in: "nodes"), "Unique")
         let duplicate = model.draftReferenceLabel(try XCTUnwrap(items.first { $0.identifier == "node-a1b2c3" }), in: "nodes")
-        XCTAssertTrue(duplicate.contains("Same · a.example:1080 · #a1b2c3"), duplicate)
+        XCTAssertTrue(duplicate.contains("Same · a.example:1080 · 同名项 1"), duplicate)
         for (collection, identifier) in [
             ("routes", "route-a1b2c3"), ("dns_profiles", "dns-a1b2c3"),
             ("local_proxies", "proxy-a1b2c3"),
         ] {
             let item = try XCTUnwrap(model.draftItems(for: collection).first { $0.identifier == identifier })
             let label = model.draftReferenceLabel(item, in: collection)
-            XCTAssertTrue(label.contains("Same") && label.contains("#a1b2c3"), label)
+            XCTAssertTrue(label.contains("Same") && label.contains("同名项 1"), label)
         }
     }
 

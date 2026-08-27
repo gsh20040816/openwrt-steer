@@ -111,7 +111,7 @@ def main() -> None:
     assert 'Bootstrap DNS' in general and 'DNS 缓存' in general and '连通性探测' in general
     assert 'setEnabledAndApply($0)' not in general and 'setEnabledAndApply($0)' in content
     assert 'func setEnabledAndApply' in state
-    assert 'guard !isDirty else {' in state and '不会静默部署未完成修改' in state
+    assert 'guard !isDirty else {' in state and '请先保存或丢弃当前工作副本' in state
     assert 'initialStateLoadInProgress' in state
     assert 'guard !hasInitializedDraft, !initialStateLoadInProgress,' in state
     assert '!isBusy, pendingDraftAction == nil else { return }' in state
@@ -119,7 +119,7 @@ def main() -> None:
     assert 'func applySaved()' in state and 'func saveAndApplyDraft()' in state
     assert 'savedApplyPending' not in state and '已保存，待 Apply' not in content
     assert 'draftMatches(document:' in state and 'draftSequence:' in state
-    for global_action in ('Label("保存"', 'Label("Apply Saved"', 'Label("保存并应用"'):
+    for global_action in ('Label("保存"', 'Label("应用已保存配置"', 'Label("保存并应用"'):
         assert global_action in content
     assert 'DraftActionButtons(model: model)' in app
     assert 'applicationShouldTerminate' in app and 'beginTerminationGuard' in app
@@ -139,7 +139,7 @@ def main() -> None:
     assert 'isSystemRoute(item)' in content and 'isDefaultRule(item)' in content
     assert 'private struct DefaultRuleCard: View' in content and 'private var defaultRule: DraftItem?' in content
     assert 'Label("始终启用 · 固定在最后", systemImage: "lock.fill")' in content
-    assert '只能修改显示名称、DNS Profile 与 Route' in content
+    assert '只能修改显示名称、DNS Profile 与路由' in content
     assert "enum RuleDraftPolicy" in state and "RuleDraftPolicy.replacement" in state
     assert '系统必需 · 始终启用' in editors
     assert 'Picker("类型"' not in editors and 'LabeledContent("类型")' in editors and 'Text("Single 节点")' in editors
@@ -165,7 +165,7 @@ def main() -> None:
     assert 'case revisionConflict(currentRevision: String)' in state
     assert state.count('let startingWasDirty = isDirty') == 2
     assert state.count('!startingWasDirty && draftMutationSequence == startingDraftSequence') == 2
-    for conflict_choice in ("Reload Saved", "保留本地 Draft", "显式覆盖"):
+    for conflict_choice in ("重新载入服务器配置", "保留本地工作副本", "覆盖服务器配置"):
         assert conflict_choice in content
     assert 'executePrivileged(Self.command([installer.path]))' in state
     assert 'executePrivileged("\\(install)' not in state
@@ -206,10 +206,10 @@ def main() -> None:
     assert 'if [ -f "$support_directory/config/config.json" ]' in embedded_installer
     assert 'launchctl bootstrap system "$control_plist_path"' in embedded_installer
     assert '安装系统组件' in content
-    assert 'Repair 系统组件' in content
+    assert '修复系统组件' in content
     assert '卸载并保留用户数据' in content
     assert '永久删除配置、状态与日志' in content
-    assert '受限 Unix socket IPC' in content
+    assert '日常保存和应用配置不再重复请求授权' in content
     assert (ROOT / "macos/scripts/uninstall-embedded-payload.sh").exists()
     assert (ROOT / "ui/macos-system-component-fixtures.json").exists()
     assert (ROOT / "macos/SteerAppTests/SystemComponentsStatusTests.swift").exists()

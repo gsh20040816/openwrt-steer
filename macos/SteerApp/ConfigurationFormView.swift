@@ -9,7 +9,6 @@ struct ConfigurationFormView: View {
         VStack(spacing: 0) {
             Form {
                 Section("运行") {
-                    LabeledContent("Canonical schema", value: model.draftSchemaVersion == 0 ? "—" : String(model.draftSchemaVersion))
                     Picker("日志级别", selection: stringBinding("main", "log_level", required: true)) {
                         if model.draftValue(in: "main", key: "log_level")?.stringValue == nil {
                             Text("缺失（需修复）").foregroundStyle(.red).tag("")
@@ -24,7 +23,7 @@ struct ConfigurationFormView: View {
                     TextField("直连探测", text: stringBinding("main", "probe_direct", required: true), prompt: Text("https://www.example.com/"))
                     TextField("代理探测", text: stringBinding("main", "probe_proxy", required: true), prompt: Text("https://www.google.com/generate_204"))
                     TextField("代理测速", text: stringBinding("main", "speedtest_proxy", required: true), prompt: Text("https://speed.example.com/file"))
-                    Text("探测地址必须是无凭据、无 fragment 的 HTTPS URL。")
+                    Text("探测地址必须使用 HTTPS，且不能包含账号密码或 # 片段。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -60,14 +59,6 @@ struct ConfigurationFormView: View {
                     Text("Bootstrap 服务器必须填写 IP 地址，避免解析环路。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if let boundary = SteerUISpec.contract.dnsBoundaries["macos"] {
-                        Text(boundary.bootstrapBoundary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(boundary.encryptedDNSBoundary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
             .formStyle(.grouped)

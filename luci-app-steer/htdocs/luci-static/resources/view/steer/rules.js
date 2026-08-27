@@ -254,24 +254,6 @@ function matchSummary(sectionId) {
 	return parts.length ? parts.join(', ') : _('No match condition');
 }
 
-function renderSystemBypass() {
-	return E('section', { 'class': 'steer-system-rule' }, [
-		E('div', { 'class': 'steer-system-rule__order' }, [
-			E('span', {}, _('Before rule 1')),
-			E('strong', {}, _('System'))
-		]),
-		E('div', { 'class': 'steer-system-rule__body' }, [
-			E('strong', {}, _('System rescue direct')),
-			E('p', {}, _('Non-globally-reachable and local destinations bypass Steer before user rules. Router-originated UDP NTP on port 123 always goes direct. Traditional TCP and UDP DNS on port 53 enters the dedicated DNS shim.')),
-			E('details', {}, [
-				E('summary', {}, _('Show fixed boundary')),
-				E('p', {}, _('Loopback, private-use, shared, link-local, documentation, benchmarking, discard-only and multicast ranges. Globally reachable special-purpose exceptions remain eligible for user rules. The NTP exception applies only to traffic created by the router; LAN client UDP/123 still follows user rules.'))
-			])
-		]),
-		E('dl', { 'class': 'steer-system-rule__facts' }, [ E('div', {}, [ E('dt', {}, _('Route')), E('dd', {}, 'DIRECT') ]) ])
-	]);
-}
-
 return view.extend({
 	load: function() {
 		return Promise.all([ uci.load('steer'), steer.geodataCatalog() ]);
@@ -310,7 +292,7 @@ return view.extend({
 		s.filter = function(sectionId) {
 			return uci.get('steer', sectionId, 'default') != '1';
 		};
-		s.tab('intent', _('Intent'));
+		s.tab('intent', _('Rule action'));
 		s.tab('match', _('Match'));
 
 		o = s.taboption('intent', form.Flag, 'enabled', _('Enabled'));
@@ -339,7 +321,7 @@ return view.extend({
 		addReferences(o, routeReferences);
 
 		if (inboundReferences.length) {
-			o = s.taboption('match', form.MultiValue, 'inbound', _('Inbound'));
+			o = s.taboption('match', form.MultiValue, 'inbound', _('Local proxy entry'));
 			o.modalonly = true;
 			addReferences(o, inboundReferences);
 			o.description = _('Optionally limit this rule to one or more user-created local proxy endpoints.');
@@ -349,13 +331,13 @@ return view.extend({
 		o.modalonly = true;
 		o.placeholder = 'domain:example.com\nfull:www.example.com\nkeyword\ngeosite:geolocation-!cn\nregexp:^api\\d+\\.example\\.com$';
 		configureMatchEditor(o, catalog, 'domain');
-		o.description = _('One expression per line. Plain text is a keyword; full:, domain:, regexp: and geosite: select exact, suffix, regular-expression and GeoSite matching. Lines are OR.') + ' ' + o.description;
+		o.description = _('One expression per line. Matches by domain, prefix, regular expression or GeoSite.') + ' ' + o.description;
 
 		o = s.taboption('match', MatchEditor, 'ip_match', _('Destination IP match'));
 		o.modalonly = true;
 		o.placeholder = '1.1.1.1\n10.0.0.0/8\ngeoip:cn';
 		configureMatchEditor(o, catalog, 'ip');
-		o.description = _('One IP, CIDR or geoip: expression per line. Lines are OR. This field affects traffic routing but not DNS selection.') + ' ' + o.description;
+		o.description = _('One IP, CIDR or geoip: expression per line. This field affects traffic routing but not DNS selection.') + ' ' + o.description;
 
 		o = s.taboption('match', form.DynamicList, 'source_ip_cidr', _('Client IP/CIDR'));
 		o.modalonly = true;
@@ -365,22 +347,22 @@ return view.extend({
 		o = s.taboption('match', form.DynamicList, 'source_mac_address', _('Client MAC address'));
 		o.modalonly = true;
 		o.datatype = 'macaddr';
-		o.description = _('Matches LAN clients before IP routing, so the same rule covers IPv4, IPv6, SLAAC and temporary addresses. It cannot be combined with a local proxy inbound.');
+		o.description = _('Matches LAN clients by MAC address. Cannot be combined with a local proxy inbound.');
 
 		o = s.taboption('match', form.MultiValue, 'network', _('Network'));
 		o.modalonly = true;
-		o.description = _('Connection stage only. If a rule has only IP, network, protocol or port conditions, DNS continues to subsequent rules.');
+		o.description = _('Connection stage only.');
 		uiSpec.rule_networks.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 
 		o = s.taboption('match', form.MultiValue, 'protocol', _('Detected protocol'));
 		o.modalonly = true;
-		o.description = _('Connection stage only. Values come from the shared protocol enumeration.');
+		o.description = _('Connection stage only.');
 		uiSpec.rule_protocols.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));
 
 		o = s.taboption('match', form.DynamicList, 'port', _('Destination ports'));
 		o.modalonly = true;
 		o.datatype = 'port';
-		o.description = _('Exact ports only. This condition is evaluated by traffic routing, not DNS.');
+		o.description = _('Exact ports only. Evaluated during connection stage.');
 
 		s = m.section(form.TableSection, 'rule', _('Default'));
 		s.anonymous = false;
@@ -418,7 +400,7 @@ return view.extend({
 		]);
 
 		return m.render().then((formNode) => steer.focusSection(orderedSection, 'rule').then(() =>
-			E([], [ renderSystemBypass(), intent, formNode ])));
+			E([], [ intent, formNode ])));
 	},
 
 	handleSaveApply: function(ev, mode) {

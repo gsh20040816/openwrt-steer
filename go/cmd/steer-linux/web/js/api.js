@@ -148,10 +148,10 @@
         }
       }
     }, [
-      S.h('span', { class: 'eyebrow' }, 'loopback console'),
+      S.h('span', { class: 'eyebrow' }, '本机管理控制台'),
       S.h('h1', { class: 'auth-title' }, '连接 Steer'),
       S.h('p', { class: 'muted' }, '控制面仅监听本机回环地址。令牌只保存在当前浏览器标签页中。'),
-      S.h('label', { class: 'field' }, S.h('span', {}, 'Bearer token'), input),
+      S.h('label', { class: 'field' }, S.h('span', {}, 'Web 令牌'), input),
       errorText,
       S.h('div', { class: 'auth-actions' }, submit),
       S.h('p', { class: 'auth-hint mono' }, 'sudo steer web-token')

@@ -65,7 +65,7 @@
     const side = document.querySelector('#side');
     const brand = h('div', { class: 'brand' }, [
       h('strong', {}, 'steer'),
-      h('span', { class: 'brand__sub' }, 'linux · loopback console')
+      h('span', { class: 'brand__sub' }, 'Linux 管理控制台')
     ]);
     const nav = h('nav', {});
     for (const group of NAV) {
@@ -82,7 +82,7 @@
         class: 'btn btn--sm',
         onclick: () => S.auth.logout()
       }, '退出登录'),
-      h('div', { class: 'side-foot__note' }, 'Bearer 认证 · 令牌仅保存在当前标签页\nloopback only · 不对公网监听')
+      h('div', { class: 'side-foot__note' }, '仅允许本机访问\n登录信息只在当前页面保留')
     ]);
     side.append(brand, nav, foot);
   }
@@ -102,7 +102,7 @@
 
   async function onValidate() {
     if (S.store.draftValid === false) {
-      toast(`当前 JSON Draft 无效：${S.store.draftError}`, 'err');
+      toast(`当前配置格式有误：${S.store.draftError}`, 'err');
       return;
     }
     const v = await S.api.validate(S.store.intent);
@@ -177,8 +177,7 @@
       body: h('div', {}, [
         h('p', {}, '以下对象仍在引用它。请先修改这些引用；Steer 不会自动级联改写规则或路由。'),
         h('ul', { class: 'issue-list' }, references.map((reference) => h('li', { class: 'issue issue--warning' }, [
-          h('span', { class: 'issue__code' }, reference.source_object_type),
-          h('span', { class: 'issue__where' }, `${reference.source_label} / ${reference.field}`),
+          h('span', { class: 'issue__where' }, reference.source_label),
           h('button', { class: 'btn btn--sm', onclick: () => jumpToObject({
             object_type: reference.source_object_type, object_id: reference.source_id, option: reference.field
           }) }, '前往引用')
@@ -195,22 +194,22 @@
       if (res.ok) {
         const writeValidation = res.res.apply_result?.validation || res.res.validation;
         if ((writeValidation?.errors?.length || 0) + (writeValidation?.warnings?.length || 0) > 0) {
-          showValidation(writeValidation, apply && res.res.applied === false ? 'Save / Apply 校验结果' : '保存校验结果');
+          showValidation(writeValidation, apply && res.res.applied === false ? '保存和应用校验结果' : '保存校验结果');
         }
         const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
         if (apply && res.res.applied === false) {
-          toast(`快照已保存但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
+          toast(`配置已保存但应用失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
         } else if (res.staleDraft) {
-          toast(`${apply ? '请求时的 Draft 已保存并 Apply；期间新增修改仍未保存' : '请求时的 Draft 已保存；期间新增修改仍未保存'}${overviewWarning}。`, 'warn');
+          toast(`${apply ? '请求时的工作副本已保存并应用；期间新增修改仍未保存' : '请求时的工作副本已保存；期间新增修改仍未保存'}${overviewWarning}。`, 'warn');
         } else if (res.overviewError) {
-          toast(`${apply ? '已保存并 Apply' : `已保存 · 修订 ${S.fmtRevision(S.store.revision)}`}${overviewWarning}`, 'warn');
+          toast(`${apply ? '已保存并应用' : '已保存'}${overviewWarning}`, 'warn');
         } else {
-          toast(apply ? `已保存并 Apply · generation ${res.res.apply_result?.generation || '已切换'}` : `已保存 · 修订 ${S.fmtRevision(S.store.revision)}`, 'ok');
+          toast(apply ? '已保存并应用。' : '已保存。', 'ok');
         }
       } else if (res.conflict) {
         conflictDialog(res.conflict, null, apply);
       } else if (res.busy) {
-        toast('已有 Save 或 reload 操作正在进行，请等待完成。', 'warn');
+        toast('已有保存或重新载入操作正在进行，请等待完成。', 'warn');
       }
     } catch (error) {
       if (error.details?.validation) showValidation(error.details.validation, '保存前校验失败');
@@ -222,12 +221,12 @@
     try {
       const result = await S.store.reload();
       if (!result?.ok) {
-        if (result?.staleDraft) toast('reload 期间 Draft 又发生变化；已保留这些新修改。', 'warn');
-        else if (result?.busy) toast('Save、Apply 或 reload 正在进行；Draft 未丢弃，请稍后重试。', 'warn');
+        if (result?.staleDraft) toast('重新载入期间工作副本又发生变化；已保留这些新修改。', 'warn');
+        else if (result?.busy) toast('保存、应用或重新载入正在进行；工作副本未丢弃，请稍后重试。', 'warn');
         return false;
       }
       close?.();
-      toast(message || `已放弃全部 Draft 修改并重载 · ${S.fmtRevision(S.store.revision)}`, 'info');
+      toast(message || '已放弃全部修改并重新载入已保存配置。', 'info');
       S.renderCurrent?.();
       return true;
     } catch (error) {
@@ -239,10 +238,10 @@
   function onDiscard() {
     if (!S.store.dirty) return;
     dialog({
-      title: '放弃当前全部 Draft 修改？',
+      title: '放弃当前全部修改？',
       body: h('div', {}, [
         h('p', {}, '这会丢弃当前工作副本中的全部修改，并重新载入服务器上已保存的配置。'),
-        h('p', { class: 'muted' }, 'Advanced JSON 中尚未提交的文本也会被丢弃；此操作不会改变当前 Active generation。')
+        h('p', { class: 'muted' }, '高级配置中尚未保存的文本也会被丢弃；当前运行配置不会改变。')
       ]),
       actions: [
         ['取消', null],
@@ -255,17 +254,17 @@
     try {
       const result = await S.store.applySaved();
       if (result.busy) {
-        toast('已有 Save、Apply 或 reload 操作正在进行，请等待完成。', 'warn');
+        toast('已有保存、应用或重新载入操作正在进行，请等待完成。', 'warn');
       } else if (result.ok) {
-        if (result.validation?.warnings?.length) showValidation(result.validation, 'Apply Saved 校验结果');
-        if (result.overviewError) toast(`已 Apply 已保存配置；状态刷新失败：${result.overviewError.message}`, 'warn');
-        else toast('已 Apply 已保存配置。', 'ok');
+        if (result.validation?.warnings?.length) showValidation(result.validation, '应用已保存配置校验结果');
+        if (result.overviewError) toast(`已应用已保存配置；状态刷新失败：${result.overviewError.message}`, 'warn');
+        else toast('已应用已保存配置。', 'ok');
       } else {
-        if (result.validation) showValidation(result.validation, 'Apply Saved 校验失败');
-        else toast(`Apply 已保存配置失败：${applyFailureSummary(result)}${result.overviewError ? `；状态刷新失败：${result.overviewError.message}` : ''}`, 'err');
+        if (result.validation) showValidation(result.validation, '应用已保存配置校验失败');
+        else toast(`应用已保存配置失败：${applyFailureSummary(result)}${result.overviewError ? `；状态刷新失败：${result.overviewError.message}` : ''}`, 'err');
       }
     } catch (error) {
-      toast(`Apply 已保存配置失败：${error.message}`, 'err');
+      toast(`应用已保存配置失败：${error.message}`, 'err');
     }
   }
 
@@ -273,9 +272,9 @@
     try {
       const result = await S.store.refreshServerState();
       if (result?.busy) {
-        toast('Save、Apply 或 reload 正在进行；稍后再刷新。', 'warn');
+        toast('保存、应用或重新载入正在进行；稍后再刷新。', 'warn');
       } else if (result?.changed) {
-        toast(S.store.dirty ? '服务器 Saved revision 已变化；当前 Draft 已保留，保存前请先处理冲突。' : '服务器 Saved revision 已变化；可一键重载最新 Saved 配置。', 'warn');
+        toast(S.store.dirty ? '服务器上的配置已变化；当前工作副本已保留，保存前请先处理冲突。' : '服务器上的配置已变化；可重新载入最新配置。', 'warn');
       } else if (result?.ok) {
         toast('服务器配置与运行状态已刷新。', 'info');
       }
@@ -287,21 +286,21 @@
 
   function onReloadExternal() {
     if (S.store.dirty) {
-      toast('外部 Saved revision 已变化；当前 Draft 未被覆盖。请先保存、放弃或显式处理冲突。', 'warn');
+      toast('服务器上的配置已变化；当前工作副本未被覆盖。请先保存、放弃或处理冲突。', 'warn');
       return false;
     }
-    return reloadSavedDraft(null, '已重载服务器上的最新 Saved 配置。');
+    return reloadSavedDraft(null, '已重新载入服务器上的最新配置。');
   }
 
   async function onToggleEnabled(next) {
     const main = S.store.intent?.main;
     if (!main || enabledToggleBusy || Boolean(main.enabled) === Boolean(next)) return;
     if (S.store.draftValid === false) {
-      toast(`请先修复或放弃无效 JSON Draft：${S.store.draftError}`, 'err');
+      toast(`请先修复或放弃格式有误的配置：${S.store.draftError}`, 'err');
       return;
     }
     if (S.store.saving === true || S.store.reloading === true || S.store.applying === true) {
-      toast('已有 Save、Apply 或 reload 操作正在进行，请等待完成。', 'warn');
+      toast('已有保存、应用或重新载入操作正在进行，请等待完成。', 'warn');
       return;
     }
 
@@ -314,13 +313,13 @@
       if (res.ok) {
         const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
         if (res.res.applied === false) {
-          toast(`已保存为${next ? '启用' : '禁用'}，但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
+          toast(`已保存为${next ? '启用' : '禁用'}，但应用失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
         } else if (res.staleDraft) {
-          toast(`已保存并 Apply ${next ? '启用' : '禁用'}；期间新增修改仍未保存${overviewWarning}。`, 'warn');
+          toast(`已保存并应用${next ? '启用' : '禁用'}状态；期间新增修改仍未保存${overviewWarning}。`, 'warn');
         } else if (res.overviewError) {
-          toast(`${next ? 'Steer 已启用并 Apply' : 'Steer 已禁用并清理运行资源'}${overviewWarning}`, 'warn');
+          toast(`${next ? 'Steer 已启用并应用' : 'Steer 已禁用并清理运行资源'}${overviewWarning}`, 'warn');
         } else {
-          toast(next ? 'Steer 已启用并 Apply。' : 'Steer 已禁用并清理运行资源。', 'ok');
+          toast(next ? 'Steer 已启用并应用。' : 'Steer 已禁用并清理运行资源。', 'ok');
         }
       } else if (res.conflict) {
         if (!res.staleDraft && S.store.intent?.main) S.store.intent.main.enabled = previous;
@@ -349,39 +348,32 @@
     if ((!date || Number.isNaN(date.getTime())) && /^\d{13,}$/.test(String(record?.sequence || ''))) {
       date = new Date(Number(String(record.sequence).slice(0, 13)));
     }
-    if (!date || Number.isNaN(date.getTime())) return record?.sequence ? `#${record.sequence}` : '—';
+    if (!date || Number.isNaN(date.getTime())) return '时间未知';
     return date.toLocaleString();
   }
 
   function applyFailureSummary(result) {
     const error = typeof result?.error === 'string' ? result.error : (result?.error?.message || '运行态未切换');
-    if (result?.candidate_generation && !result?.activated) return `${error}；candidate ${generationLabel(result.candidate_generation)} 未激活`;
     return error;
   }
 
   function applyRecord(status) {
     const record = status?.last_apply || null;
-    if (!record) return h('p', { class: 'muted' }, '尚无 Apply 记录。');
+    if (!record) return h('p', { class: 'muted' }, '尚无应用记录。');
     const result = record.result || record;
-    const candidate = generationLabel(result.candidate_generation || result.generation);
     const failedBeforeActivation = !!result.candidate_generation && !result.activated;
     return h('div', { class: `apply-record ${result.ok ? 'is-ok' : 'is-err'}` }, [
       h('div', { class: 'apply-record__head' }, [
-        h('strong', {}, result.ok ? 'Apply 成功' : 'Apply 失败'),
+        h('strong', {}, result.ok ? '应用成功' : '应用失败'),
         h('span', { class: `badge ${result.ok ? 'badge--ok' : 'badge--err'}` }, result.ok ? '成功' : '失败'),
-        h('span', { class: 'mono muted', title: record.timestamp || record.sequence || '' }, applyTime(record))
+        h('span', { class: 'muted' }, applyTime(record))
       ]),
       failedBeforeActivation
-        ? h('p', { class: 'alert alert--err' }, `candidate ${candidate} 未激活；Status 当前 generation 为 ${status.generation || '无'}。`)
+        ? h('p', { class: 'alert alert--err' }, '新配置未启用，当前运行配置保持不变。')
         : (!result.ok && result.activated
-            ? h('p', { class: 'alert alert--err' }, `candidate ${candidate} 已发布，但 Apply 未完成；运行事实以 Status 为准。`)
+            ? h('p', { class: 'alert alert--err' }, '运行配置已变化，但应用过程未完成；请检查诊断信息。')
             : null),
-      result.error ? h('p', { class: 'apply-record__error mono' }, result.error) : null,
-      h('div', { class: 'apply-record__meta mono muted' }, [
-        result.intent_digest ? `Intent ${result.intent_digest.slice(0, 12)}` : null,
-        result.runtime_digest ? `Runtime ${result.runtime_digest.slice(0, 12)}` : null,
-        `Sequence ${record.sequence || '—'}`
-      ].filter(Boolean).join(' · '))
+      result.error ? h('p', { class: 'apply-record__error' }, result.error) : null
     ]);
   }
 
@@ -390,12 +382,12 @@
       const res = await S.store.save(!!apply, true);
       if (res.ok) {
         const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
-        if (apply && res.res.applied === false) toast(`快照已覆盖保存但 Apply 失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
-        else if (res.staleDraft) toast(`请求时的 Draft 已覆盖保存；期间新增修改仍未保存${overviewWarning}。`, 'warn');
-        else if (res.overviewError) toast(`${apply ? '已覆盖保存并 Apply' : `已覆盖保存 · 修订 ${S.fmtRevision(S.store.revision)}`}${overviewWarning}`, 'warn');
-        else toast(apply ? '已覆盖保存并 Apply。' : `已覆盖保存 · 修订 ${S.fmtRevision(S.store.revision)}`, 'ok');
+        if (apply && res.res.applied === false) toast(`已覆盖保存，但应用失败：${applyFailureSummary(res.res.apply_result || res.res)}${res.staleDraft ? '；期间新修改仍未保存' : ''}${overviewWarning}`, 'err');
+        else if (res.staleDraft) toast(`请求时的工作副本已覆盖保存；期间新增修改仍未保存${overviewWarning}。`, 'warn');
+        else if (res.overviewError) toast(`${apply ? '已覆盖保存并应用' : '已覆盖保存'}${overviewWarning}`, 'warn');
+        else toast(apply ? '已覆盖保存并应用。' : '已覆盖保存。', 'ok');
       } else if (res.busy) {
-        toast('已有 Save 或 reload 操作正在进行，请等待完成。', 'warn');
+        toast('已有保存或重新载入操作正在进行，请等待完成。', 'warn');
       }
     } catch (error) {
       toast(`覆盖保存失败：${error.message}`, 'err');
@@ -421,30 +413,27 @@
 
     strip.append(
       h('div', { class: 'strip__group' }, [
-        h('span', { class: `health-dot ${active ? (healthy ? 'is-ok' : 'is-err') : (savedEnabled ? 'is-err' : 'is-disabled')}`, title: active ? (healthy ? '当前 Active generation 运行健康' : '当前 Active generation 不健康') : (savedEnabled ? 'Saved 为启用，但当前无 Active generation' : (desiredEnabled !== savedEnabled ? 'Draft desired 与 Saved 不同；Active 未改变' : 'Saved 为禁用，当前无 Active generation')) }),
+        h('span', { class: `health-dot ${active ? (healthy ? 'is-ok' : 'is-err') : (savedEnabled ? 'is-err' : 'is-disabled')}`, title: active ? (healthy ? '分流服务运行正常' : '分流服务运行异常') : (savedEnabled ? '已保存为启用，但分流服务未运行' : '分流服务已停止') }),
         h('div', { class: 'strip__toggle' }, [
           toggle(desiredEnabled, (next) => onToggleEnabled(next), '启用或禁用 Steer'),
-          h('div', {}, h('span', { class: 'strip__fact-label' }, 'Draft desired'), h('span', { class: 'strip__fact-value' }, desiredEnabled ? '启用' : '禁用'))
+          h('div', {}, h('span', { class: 'strip__fact-label' }, '配置开关'), h('span', { class: 'strip__fact-value' }, desiredEnabled ? '启用' : '禁用'))
         ]),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'Saved desired'), h('span', { class: 'strip__fact-value' }, savedEnabled ? '启用' : '禁用')),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, active ? (healthy ? 'healthy' : 'unhealthy') : 'stopped')),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'systemd'), h('span', { class: 'strip__fact-value' }, healthy ? 'active' : (active ? 'inactive' : 'stopped'))),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, 'generation'), h('span', { class: 'strip__fact-value' }, status.generation || '—')),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '修订'), h('span', { class: 'strip__fact-value', title: S.store.revision }, S.fmtRevision(S.store.revision))),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次 Apply'), h('span', { class: 'strip__fact-value', title: lastResult?.error || '' }, lastApply ? `${applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
+        desiredEnabled !== savedEnabled ? h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '已保存开关'), h('span', { class: 'strip__fact-value' }, savedEnabled ? '启用' : '禁用')) : null,
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, active ? (healthy ? '正常运行' : '运行异常') : '已停止')),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次应用'), h('span', { class: 'strip__fact-value', title: lastResult?.error || '' }, lastApply ? `${applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
         dirty ? h('span', { class: 'badge badge--warn', title: '工作副本有未保存修改' }, '工作副本已修改') : null,
-        !draftValid ? h('span', { class: 'badge badge--err', title: S.store.draftError }, 'JSON Draft 无效') : null,
-        pendingApply ? h('span', { class: 'badge badge--warn', title: '已保存配置与运行态不同，或最近 Apply 失败' }, '已保存，待 Apply') : null,
-        externalChange ? h('span', { class: 'badge badge--err', title: `服务器 revision ${S.store.externalRevision} 与当前 Draft 基线不同；Draft 未被覆盖` }, '服务器配置已变化') : null
+        !draftValid ? h('span', { class: 'badge badge--err', title: S.store.draftError }, '配置格式有误') : null,
+        pendingApply ? h('span', { class: 'badge badge--warn', title: '已保存配置尚未应用到运行环境' }, '待应用') : null,
+        externalChange ? h('span', { class: 'badge badge--err', title: '服务器配置与当前工作副本不同；工作副本未被覆盖' }, '服务器配置已变化') : null
       ]),
       h('div', { class: 'strip__actions' }, [
-        h('button', { class: 'btn', onclick: onRefreshState, disabled: busy, title: S.store.lastRefreshedAt ? `上次刷新 ${S.fmtTime(S.store.lastRefreshedAt)}` : '刷新服务器事实' }, '刷新'),
-        externalChange ? h('button', { class: `btn ${dirty ? 'btn--danger' : 'btn--primary'}`, onclick: onReloadExternal, disabled: busy }, dirty ? '外部变更冲突' : '重载最新 Saved') : null,
+        h('button', { class: 'btn', onclick: onRefreshState, disabled: busy, title: S.store.lastRefreshedAt ? `上次刷新 ${S.fmtTime(S.store.lastRefreshedAt)}` : '刷新状态' }, '刷新'),
+        externalChange ? h('button', { class: `btn ${dirty ? 'btn--danger' : 'btn--primary'}`, onclick: onReloadExternal, disabled: busy }, dirty ? '处理配置冲突' : '重新载入') : null,
         h('button', { class: 'btn', onclick: onValidate }, '校验'),
         dirty ? h('button', { class: 'btn btn--danger', onclick: onDiscard, disabled: busy }, '放弃修改') : null,
-        h('button', { class: 'btn', onclick: () => onSave(false), disabled: !dirty || !draftValid || busy, title: !draftValid ? '请先修复或放弃无效 JSON Draft' : '' }, '保存'),
-        h('button', { class: `btn ${dirty && draftValid && !busy ? 'btn--primary' : ''}`, onclick: () => onSave(true), disabled: !dirty || !draftValid || busy, title: !draftValid ? '请先修复或放弃无效 JSON Draft' : '' }, '保存并 Apply'),
-        h('button', { class: `btn ${!dirty && pendingApply && !busy ? 'btn--primary' : ''}`, onclick: onApplySaved, disabled: !pendingApply || busy, title: pendingApply ? 'Apply 当前已保存配置，不需要制造工作副本修改' : '已保存配置与运行态一致' }, 'Apply 已保存配置')
+        h('button', { class: 'btn', onclick: () => onSave(false), disabled: !dirty || !draftValid || busy, title: !draftValid ? '请先修复或放弃格式有误的配置' : '' }, '保存'),
+        h('button', { class: `btn ${dirty && draftValid && !busy ? 'btn--primary' : ''}`, onclick: () => onSave(true), disabled: !dirty || !draftValid || busy, title: !draftValid ? '请先修复或放弃格式有误的配置' : '' }, '保存并应用'),
+        h('button', { class: `btn ${!dirty && pendingApply && !busy ? 'btn--primary' : ''}`, onclick: onApplySaved, disabled: !pendingApply || busy, title: pendingApply ? '应用当前已保存配置' : '已保存配置与运行配置一致' }, '应用已保存配置')
       ])
     );
     strip.querySelector('.strip__toggle .switch').disabled = enabledToggleBusy || !draftValid;
@@ -482,25 +471,22 @@
   }
 
   function conflictDialog(conflict, beforeForceSave, apply = false) {
-    const external = conflict.external || {};
     dialog({
-      title: '修订冲突 · 配置已被其他会话修改',
+      title: '配置冲突',
       body: h('div', {}, [
-        h('p', { class: 'muted' }, external.note || '服务器上的配置已经变化。'),
+        h('p', { class: 'muted' }, '服务器上的配置已被其他会话修改。请选择保留哪一份配置。'),
         h('div', { class: 'conflict-grid' }, [
           h('div', { class: 'conflict-col' }, [
             h('span', { class: 'eyebrow' }, '本地工作副本'),
-            h('span', { class: 'mono' }, S.store.revision),
             h('p', { class: 'muted' }, '包含你的未保存修改'),
             h('span', { class: 'badge badge--warn' }, '未保存')
           ]),
           h('div', { class: 'conflict-col' }, [
             h('span', { class: 'eyebrow' }, '服务器'),
-            h('span', { class: 'mono' }, conflict.serverRevision),
-            h('ul', { class: 'conflict-changes' }, (external.changes || ['配置已变化']).map((c) => h('li', {}, c)))
+            h('p', { class: 'muted' }, '包含其他会话保存的最新修改'),
+            h('span', { class: 'badge' }, '最新配置')
           ])
-        ]),
-        h('p', { class: 'muted' }, '修订号只用于并发控制，不提供配置历史。')
+        ])
       ]),
       actions: [
         ['以服务器为准（丢弃本地修改）', (close) => reloadSavedDraft(close, '已丢弃本地修改并重载服务器配置'), 'btn--danger'],
@@ -842,13 +828,31 @@
   }
 
   /* ---------- 校验问题列表 ---------- */
+  function issueMessage(issue) {
+    return {
+      REQUIRED: '必填字段尚未填写',
+      DANGLING_NODE: '所选节点不存在',
+      DANGLING_DETOUR: '所选前置路由不存在',
+      DANGLING_DNS_PROFILE: '所选 DNS Profile 不存在',
+      DANGLING_ROUTE: '所选路由不存在',
+      DANGLING_LOCAL_PROXY: '所选本地代理入口不存在',
+      DISABLED_NODE: '所选节点已停用',
+      DISABLED_DETOUR: '所选前置路由已停用',
+      DISABLED_DNS_PROFILE: '所选 DNS Profile 已停用',
+      DISABLED_ROUTE: '所选路由已停用',
+      DISABLED_LOCAL_PROXY: '所选本地代理入口已停用',
+      ROUTE_DETOUR_CYCLE: '前置代理链存在循环引用',
+      LOCAL_PROXY_AUTH_REQUIRED: '该监听地址允许其他设备连接，必须设置用户名和密码',
+      INVALID_DURATION: '更新间隔必须是大于零的时长',
+      DNS_PROJECTION_EMPTY: '该规则仅含连接阶段条件，不影响 DNS 上游选择'
+    }[issue.code] || issue.message;
+  }
+
   function issueList(issues, jump, warning = false) {
     if (!issues.length) return null;
     return h('ul', { class: 'issue-list' },
       issues.map((issue) => h('li', { class: `issue ${warning ? 'issue--warning' : ''}` }, [
-        h('span', { class: 'issue__code' }, issue.code),
-        h('span', { class: 'issue__where' }, [issue.object_type, issue.object_id, issue.option].filter(Boolean).join(' / ') || '全局'),
-        h('span', { class: 'issue__msg' }, issue.message),
+        h('span', { class: 'issue__msg' }, issueMessage(issue)),
         jump && issue.object_type ? h('button', { class: 'btn btn--sm', onclick: () => jump(issue) }, '前往') : null
       ])));
   }
@@ -883,23 +887,30 @@
     const values = asList(items);
     const baseLabels = values.map((item) => item.name || item.id);
     const counts = new Map();
+    const ordinals = new Map();
     baseLabels.forEach((label) => counts.set(label, (counts.get(label) || 0) + 1));
     const endpoint = (host, port) => host && port ? `${host}:${port}` : '';
     return values.map((item, index) => {
       const base = baseLabels[index];
       if ((counts.get(base) || 0) < 2) return [item.id, base];
+      const ordinal = (ordinals.get(base) || 0) + 1;
+      ordinals.set(base, ordinal);
       let detail = '';
       if (collection === 'nodes') {
         detail = endpoint(item.server, item.server_port) || item.type || '';
-        if (item.source_subscription) detail += `${detail ? ' · ' : ''}订阅 ${item.source_subscription}`;
+        if (item.source_subscription) {
+          const source = asList(S.store.intent?.subscriptions).find((subscription) => subscription.id === item.source_subscription);
+          detail += `${detail ? ' · ' : ''}订阅 ${source?.name || '未命名订阅'}`;
+        }
       } else if (collection === 'routes') {
-        detail = item.kind === 'single' ? `Node ${item.node || '未选择'}` : (item.kind || '');
+        const node = asList(S.store.intent?.nodes).find((candidate) => candidate.id === item.node);
+        detail = item.kind === 'single' ? `节点 ${node?.name || '未选择'}` : (item.kind || '');
       } else if (collection === 'dns_profiles') {
         detail = endpoint(item.server, item.server_port) || item.protocol || '';
       } else if (collection === 'local_proxies') {
         detail = endpoint(item.listen, item.listen_port) || item.protocol || '';
       }
-      return [item.id, `${base}${detail ? ` · ${detail}` : ''} · #${String(item.id).slice(-6)}`];
+      return [item.id, `${base}${detail ? ` · ${detail}` : ''} · 同名项 ${ordinal}`];
     });
   }
 

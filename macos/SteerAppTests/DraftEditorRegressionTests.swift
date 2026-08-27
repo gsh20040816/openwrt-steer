@@ -125,11 +125,11 @@ final class DraftCacheAndRouteGraphTests: XCTestCase {
             route("missing-node-route", node: "missing-node"),
         ])
 
-        XCTAssertEqual(model.nodeReferenceProblem("disabled-node"), "Node 已停用")
-        XCTAssertEqual(model.nodeReferenceProblem("missing-node"), "Node 不存在")
+        XCTAssertEqual(model.nodeReferenceProblem("disabled-node"), "节点已停用")
+        XCTAssertEqual(model.nodeReferenceProblem("missing-node"), "节点不存在")
         XCTAssertNotNil(model.routeDetourProblem(routeID: "good", detourID: "good"))
-        XCTAssertEqual(model.routeDetourProblem(routeID: "good", detourID: "missing"), "detour Route 不存在")
-        XCTAssertEqual(model.routeDetourProblem(routeID: "good", detourID: "disabled-route"), "detour Route 已停用")
+        XCTAssertEqual(model.routeDetourProblem(routeID: "good", detourID: "missing"), "前置路由不存在")
+        XCTAssertEqual(model.routeDetourProblem(routeID: "good", detourID: "disabled-route"), "前置路由已停用")
         XCTAssertNotNil(model.routeDetourProblem(routeID: "good", detourID: "disabled-node-route"))
         XCTAssertNotNil(model.routeDetourProblem(routeID: "good", detourID: "missing-node-route"))
     }

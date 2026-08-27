@@ -31,18 +31,11 @@ function testResult(report, kind) {
 	]);
 }
 
-function boundaryModeLabel(mode) {
-	return {
-		dedicated_shim: _('Dedicated DNS shim'),
-		tun_port53_hijack: _('TUN port-53 hijack')
-	}[mode] || mode;
-}
-
 function reportScopeLabel(scope) {
 	return {
 		overview: _('Overview'),
-		node: _('Node'),
-		route: _('Route')
+		node: _('Node'), nodes: _('Node'),
+		route: _('Route'), routes: _('Route')
 	}[scope] || scope;
 }
 
@@ -67,7 +60,7 @@ function diagnosticErrorText(error) {
 function diagnosticDetail(detail) {
 	const value = String(detail || '');
 	if (value == 'the published Active generation contains the expected port-53 capture artifacts')
-		return _('Expected port-53 capture artifacts are present in the active generation.');
+		return _('System DNS capture is configured.');
 	return detail;
 }
 
@@ -105,9 +98,9 @@ function renderTestCard(kind, title, description, allowed) {
 
 function renderOverviewTests(allowed) {
 	return E('div', { 'class': 'steer-test-grid' }, [
-		renderTestCard('direct', _('Direct target'), _('Visits the configured direct test target under the current Active rules.'), allowed),
-		renderTestCard('proxy', _('Proxy target'), _('Visits the configured proxy test target under the current Active rules.'), allowed),
-		renderTestCard('speedtest', _('Download target'), _('Visits the configured download test target under the current Active rules.'), allowed)
+		renderTestCard('direct', _('Direct target'), _('Tests the direct target with the current running configuration.'), allowed),
+		renderTestCard('proxy', _('Proxy target'), _('Tests the proxy target with the current running configuration.'), allowed),
+		renderTestCard('speedtest', _('Download target'), _('Tests download speed with the current running configuration.'), allowed)
 	]);
 }
 
@@ -133,9 +126,9 @@ function renderProbeReport(report, diagnostics, pending) {
 	const stale = reportIsStale(report, diagnostics, pending);
 	const rate = result.downloaded_bytes > 0 && result.download_milliseconds > 0
 		? (result.downloaded_bytes * 8 / result.download_milliseconds / 1000).toFixed(1) + ' Mbps' : '—';
-	const target = report.scope == 'overview' ? _('Overview') : '%s/%s'.format(reportScopeLabel(report.scope), report.object_id || '—');
+	const target = report.scope == 'overview' ? _('Overview') : reportScopeLabel(report.scope);
 	return E('article', { 'class': 'cbi-section' }, [
-		E('h4', {}, [ target, ' · ', reportKindLabel(report.kind), ' · ', stale ? _('Stale') : (report.ok ? _('Succeeded') : _('Failed')) ]),
+		E('h4', {}, [ target, ' · ', reportKindLabel(report.kind), ' · ', stale ? _('Outdated') : (report.ok ? _('Succeeded') : _('Failed')) ]),
 		E('dl', { 'class': 'steer-status__facts' }, [
 			diagnosticFact(_('Tested at'), report.tested_at), diagnosticFact(_('URL'), result.url),
 			diagnosticFact(_('Attempts'), result.attempts), diagnosticFact(_('Connect'), result.connect_milliseconds == null ? null : result.connect_milliseconds + ' ms'),
@@ -152,29 +145,22 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 	const pending = hasPendingSteerChanges(changes);
 	const lastApply = status?.last_apply;
 	const result = lastApply?.result;
-	const dnsBoundary = uiSpec.dns_boundaries.openwrt;
 	const dnsCapture = diagnostics?.dns_capture || {};
 	return E([], [
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Connectivity targets')),
-			E('p', {}, _('Targets are visited under the current Active rules. Success only proves that the URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.')),
+			E('p', {}, _('The tests use the current running configuration. Success only means the target was reachable at that time.')),
 			renderOverviewTests(permissions?.overview_probe === true)
 		]),
 		E('section', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Active port-53 capture inspection')),
+			E('h3', {}, _('System DNS capture check')),
 			E('dl', { 'class': 'steer-status__facts' }, [
 				diagnosticFact(_('Configured'), dnsCapture.configured ? _('Yes') : _('No')),
-				diagnosticFact(_('Mode'), boundaryModeLabel(dnsCapture.mode || dnsBoundary.capture_mode)),
-				diagnosticFact(_('Generation'), dnsCapture.active_generation),
-				diagnosticFact(_('Result'), diagnosticDetail(dnsCapture.detail)),
-				diagnosticFact(_('Capture scope'), _(dnsBoundary.capture_scope)),
-				diagnosticFact(_('Exclusions'), dnsBoundary.exclusions.map((item) => _(item)).join(' · '))
-			]),
-			E('p', {}, _(dnsBoundary.diagnostic_boundary)),
-			E('p', {}, _(dnsBoundary.encrypted_dns_boundary))
+				diagnosticFact(_('Result'), diagnosticDetail(dnsCapture.detail))
+			])
 		]),
 		E('section', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Recent Overview, Node and Route probe reports')),
+			E('h3', {}, _('Recent connectivity reports')),
 			...(diagnostics?.warnings || []).map((warning) => E('p', { 'class': 'alert-message warning' }, warning)),
 			...((diagnostics?.reports || []).length ? diagnostics.reports.map((report) => renderProbeReport(report, diagnostics, pending)) : [ E('p', {}, _('No saved probe reports.')) ])
 		]),
@@ -182,13 +168,13 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 			E('h3', {}, _('Validation')),
 			...((validation?.errors || []).map((issue) => E('p', { 'class': 'alert-message danger' }, steer.issueText(issue)))),
 			...((validation?.warnings || []).map((issue) => E('p', { 'class': 'alert-message warning' }, steer.issueText(issue)))),
-			validation?.ok ? E('p', {}, _('The committed configuration is valid.')) : ''
+			validation?.ok ? E('p', {}, _('The saved configuration is valid.')) : ''
 		]),
 		E('section', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Recent Apply')),
+			E('h3', {}, _('Recent application result')),
 			E('dl', { 'class': 'steer-status__facts' }, [
-				diagnosticFact(_('Sequence'), lastApply?.sequence), diagnosticFact(_('Result'), result?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—')),
-				diagnosticFact(_('Generation'), result?.generation), diagnosticFact(_('Error'), result?.error)
+				diagnosticFact(_('Result'), result?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—')),
+				diagnosticFact(_('Error'), result?.error)
 			])
 		]),
 		E('section', { 'class': 'cbi-section' }, [
@@ -241,15 +227,15 @@ function renderLifecycleOverview(state) {
 	const savedWarnings = saved.validation?.warnings || [];
 	return E([], [
 		E('section', { 'class': 'cbi-section steer-lifecycle' }, [
-			E('h3', {}, _('Draft / Saved / Active')),
+			E('h3', {}, _('Configuration status')),
 			pending
-				? E('p', { 'class': 'alert-message warning' }, _('Pending desired values differ from Saved. Active traffic is unchanged until Save & Apply succeeds.'))
-				: E('p', {}, _('There are no pending Steer changes. Desired and Saved are aligned.')),
+				? E('p', { 'class': 'alert-message warning' }, _('The working copy has unsaved changes. The running configuration remains unchanged until they are saved and applied.'))
+				: E('p', {}, _('The working copy is saved.')),
 			E('div', { 'class': 'steer-test-grid' }, [
 				E('article', { 'class': 'steer-test-card' }, [
-					E('h4', {}, _('Pending desired')),
+					E('h4', {}, _('Working copy')),
 					E('dl', { 'class': 'steer-status__facts' }, [
-						diagnosticFact(_('Pending'), pending ? _('Yes') : _('No')),
+						diagnosticFact(_('Unsaved changes'), pending ? _('Yes') : _('No')),
 						diagnosticFact(_('Enabled'), desired.enabled ? _('Enabled') : _('Disabled')),
 						diagnosticFact(_('Objects'), lifecycleCounts(desired.counts)),
 						diagnosticFact(_('Validation'), desired.validation?.ok ? _('Valid') : _('Invalid')),
@@ -259,8 +245,7 @@ function renderLifecycleOverview(state) {
 				E('article', { 'class': 'steer-test-card' }, [
 					E('h4', {}, _('Saved configuration')),
 					E('dl', { 'class': 'steer-status__facts' }, [
-						diagnosticFact(_('Saved desired'), saved.enabled ? _('Enabled') : _('Disabled')),
-						diagnosticFact(_('Saved revision'), saved.digest ? saved.digest.slice(0, 12) : '—'),
+						diagnosticFact(_('Enabled'), saved.enabled ? _('Enabled') : _('Disabled')),
 						diagnosticFact(_('Pending apply'), state?.pending_apply ? _('Yes') : _('No')),
 						diagnosticFact(_('Objects'), lifecycleCounts(saved.counts)),
 						diagnosticFact(_('Validation'), saved.validation?.ok ? _('Valid') : _('Invalid')),
@@ -268,23 +253,19 @@ function renderLifecycleOverview(state) {
 					])
 				]),
 				E('article', { 'class': 'steer-test-card' }, [
-					E('h4', {}, _('Active runtime')),
+					E('h4', {}, _('Running configuration')),
 					E('dl', { 'class': 'steer-status__facts' }, [
 						diagnosticFact(_('Running'), active.generation ? _('Yes') : _('No')),
-						diagnosticFact(_('Healthy'), active.healthy ? _('Yes') : _('No')),
-						diagnosticFact(_('Generation'), active.generation),
-						diagnosticFact(_('Intent digest'), active.intent_digest ? active.intent_digest.slice(0, 12) : '—'),
-						diagnosticFact(_('Last Apply'), lastApply?.sequence),
+						diagnosticFact(_('Status'), active.generation ? (active.healthy ? _('Normal') : _('Abnormal')) : _('Stopped')),
 						diagnosticFact(_('Apply result'), lastResult?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—'))
 					])
 				])
 			]),
 			...actions
 		]),
-		...desiredWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Pending warning: %s').format(steer.issueText(issue)))),
-		...savedWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Saved warning: %s').format(steer.issueText(issue)))),
-		lastResult?.ok === false ? E('p', { 'class': 'alert-message danger' }, _('The last Apply failed. Saved remains committed and Active remains the generation shown above.')) : '',
-		E('p', { 'class': 'alert-message notice' }, _('Subscription inventory refreshes do not change Route or Rule selection and do not create pending Apply by themselves.'))
+		...desiredWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Working copy warning: %s').format(steer.issueText(issue)))),
+		...savedWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Saved configuration warning: %s').format(steer.issueText(issue)))),
+		lastResult?.ok === false ? E('p', { 'class': 'alert-message danger' }, _('The last application failed. The saved configuration is still available; check Diagnostics for details.')) : ''
 	]);
 }
 
@@ -350,7 +331,7 @@ return view.extend({
 		o = s.option(form.ListValue, 'protocol', _('Protocol'));
 		uiSpec.bootstrap_protocols.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label))); o.rmempty = false;
 		o = s.option(form.Value, 'server', _('Server IP')); o.datatype = 'ipaddr'; o.rmempty = false;
-		o.description = _(uiSpec.dns_boundaries.openwrt.bootstrap_boundary);
+		o.description = _('Server IP used to resolve encrypted DNS upstream domains.');
 		o = s.option(form.Value, 'server_port', _('Port')); o.datatype = 'port'; o.rmempty = false;
 		o = s.option(form.ListValue, 'strategy', _('Address strategy'));
 		uiSpec.bootstrap_strategies.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));

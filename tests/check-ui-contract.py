@@ -249,21 +249,25 @@ require(luci_nodes, "uiSpec.node_fields", "LuCI field matrix")
 require(luci_nodes, "addGeneratedNodeField", "LuCI generated controls")
 require(mac_content, "SteerUISpec.contract.navigation", "macOS navigation")
 require(mac_ui_spec, "pageResponsibilities", "macOS page responsibility contract")
-require(linux_overview, "Draft / Saved / Active", "Linux Overview responsibility")
-require(linux_diagnostics, "S.uiSpec.dns_boundaries", "Linux Diagnostics DNS boundary")
-require(linux_system, "S.uiSpec.dns_boundaries", "Linux System DNS boundary")
-require(linux_dns, "S.uiSpec.dns_boundaries", "Linux DNS boundary")
-require(luci_overview, "uiSpec.dns_boundaries", "LuCI Diagnostics DNS boundary")
-require(luci_system, "uiSpec.dns_boundaries", "LuCI System DNS boundary")
-require(luci_dns, "uiSpec.dns_boundaries", "LuCI DNS boundary")
-require(mac_content, "SteerUISpec.contract.dnsBoundaries", "macOS DNS boundary")
+require(linux_overview, "工作副本、已保存配置与运行状态", "Linux Overview responsibility")
+for content, owner in (
+    (linux_diagnostics, "Linux Diagnostics"),
+    (linux_system, "Linux System"),
+    (linux_dns, "Linux DNS"),
+    (luci_overview, "LuCI Diagnostics"),
+    (luci_system, "LuCI System"),
+    (luci_dns, "LuCI DNS"),
+    (mac_content, "macOS pages"),
+):
+    if "dns_boundaries" in content or "dnsBoundaries" in content:
+        raise SystemExit(f"check-ui-contract: {owner} still renders the internal DNS boundary copy")
 for content, owner, fragments in (
     (linux_overview, "Linux Overview", ("lastApply", "intent.nodes.length", "validation.warnings")),
     (linux_diagnostics, "Linux Diagnostics", ("diagnostics.reports", "S.api.logs", "diagnostics.dns_capture")),
-    (linux_system, "Linux System", ("runtime.sing_box?.tags", "status.generation", "/run/steer")),
+    (linux_system, "Linux System", ("runtime.sing_box", "status.last_apply", "/run/steer")),
     (luci_overview, "LuCI Overview/Diagnostics", ("renderLifecycleOverview", "diagnostics?.logs", "diagnostics?.dns_capture")),
-    (luci_system, "LuCI System", ("singBox.tags", "status.generation", "/run/steer")),
-    (mac_content, "macOS pages", ("savedRevision", "diagnosticsDNSCapture", "singBoxTags", "geoVersion", "/Library/Application Support/Steer/run")),
+    (luci_system, "LuCI System", ("singBox.version", "status.last_apply", "/run/steer")),
+    (mac_content, "macOS pages", ("diagnosticsDNSCapture", "geoVersion", "/Library/Application Support/Steer/run")),
 ):
     for fragment in fragments:
         require(content, fragment, owner)
@@ -372,10 +376,10 @@ require(mac_state, "draftReferenceLabel", "macOS disambiguated references")
 if "defaultValue:" in mac_editors or "defaultValue:" in mac_configuration:
     raise SystemExit("check-ui-contract: macOS still renders a field-missing phantom default")
 
-require(linux_ui, "Draft desired", "Linux Draft state")
-require(linux_ui, "Saved desired", "Linux Saved state")
-require(linux_ui, "重载最新 Saved", "Linux external revision reload")
-require(luci_overview, "Draft / Saved / Active", "LuCI lifecycle model")
+require(linux_ui, "配置开关", "Linux working-copy state")
+require(linux_ui, "已保存开关", "Linux saved state")
+require(linux_ui, "重新载入", "Linux external revision reload")
+require(luci_overview, "Configuration status", "LuCI lifecycle model")
 require(luci_overview, "Save & Apply pending changes", "LuCI pending Apply action")
 require(luci_helper, "steer-lifecycle-global", "LuCI global lifecycle actions")
 require(luci_helper, "applySaved", "LuCI Apply Saved action")
@@ -388,9 +392,9 @@ require(linux_rules, "rule_connection_only_fields", "Linux DNS-stage boundary")
 require(luci_rules, "rule_connection_only_fields", "LuCI DNS-stage boundary")
 require(mac_editors, "sourceMACReason", "macOS source-MAC capability reason")
 
-require(linux_diagnostics, "不证明具体 outbound", "Linux accurate probe boundary")
-require(luci_overview, "does not prove a particular outbound", "LuCI accurate probe boundary")
-require(mac_content, "不证明具体 outbound", "macOS accurate probe boundary")
+require(linux_diagnostics, "成功仅表示该地址在测试时可达", "Linux accurate probe boundary")
+require(luci_overview, "Success only means the target was reachable", "LuCI accurate probe boundary")
+require(mac_content, "成功仅表示该地址在测试时可达", "macOS accurate probe boundary")
 require(linux_diagnostics, "diagnostics.reports", "Linux persisted probe reports")
 require(luci_overview, "diagnostics.reports", "LuCI persisted probe reports")
 require(mac_content, "diagnosticProbeReports", "macOS persisted probe reports")
@@ -400,14 +404,14 @@ require(mac_content, "!item.enabled", "macOS disabled probe action")
 require(linux_subscriptions, "last_failure", "Linux subscription failure state")
 require(linux_subscriptions, "status.stale", "Linux subscription stale state")
 require(linux_subscriptions, "当前运行配置未改变", "Linux no-Apply inventory warning")
-require(linux_subscriptions, "Route 引用", "Linux referenced stale inventory warning")
+require(linux_subscriptions, "仍被路由使用的节点已自动保留", "Linux referenced stale inventory warning")
 require(luci_nodes, "subscriptionOperationGate", "LuCI pending subscription gate")
-require(luci_nodes, "current Active configuration was not changed", "LuCI no-Apply inventory warning")
-require(luci_nodes, "preserved as stale", "LuCI referenced stale inventory warning")
+require(luci_nodes, "running configuration was not changed", "LuCI no-Apply inventory warning")
+require(luci_nodes, "nodes still used by Routes were kept", "LuCI referenced stale inventory warning")
 require(mac_state, "SubscriptionStaleNode", "macOS stale node contract")
 require(mac_state, "当前运行配置未改变", "macOS no-Apply inventory warning")
 require(mac_content, "SubscriptionStaleList", "macOS per-node stale management")
-require(mac_content, "pinned-stale", "macOS stale node badge")
+require(mac_content, "已失效", "macOS stale node badge")
 for source, owner in (
     (linux_web_api, "Linux subscription API"),
     (openwrt_cli, "OpenWrt subscription CLI"),

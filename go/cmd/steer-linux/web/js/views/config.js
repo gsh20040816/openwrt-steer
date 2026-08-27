@@ -24,11 +24,10 @@
       const syntax = h('div', { class: 'match-editor__status' });
       const suggestions = h('div', { class: 'node-groups' });
       const issues = h('div', {});
-      const revBadge = h('span', { class: 'badge', title: S.store.revision }, `修订 ${S.fmtRevision(S.store.revision)}`);
       const dirtyBadge = h('span', { class: 'badge badge--warn', hidden: !S.store.dirty }, '工作副本已修改');
-      const invalidBadge = h('span', { class: 'badge badge--err', hidden: S.store.draftValid !== false }, 'JSON Draft 无效');
+      const invalidBadge = h('span', { class: 'badge badge--err', hidden: S.store.draftValid !== false }, '配置格式有误');
       const saveButton = h('button', { class: 'btn', onclick: () => ui.onSave(false) }, '保存');
-      const saveApplyButton = h('button', { class: 'btn btn--primary', onclick: () => ui.onSave(true) }, '保存并 Apply');
+      const saveApplyButton = h('button', { class: 'btn btn--primary', onclick: () => ui.onSave(true) }, '保存并应用');
 
       let matches = [];
 	  let validationEpoch = null;
@@ -36,10 +35,9 @@
         const valid = S.store.draftValid !== false;
         if (editor.value !== S.store.draftText) editor.value = S.store.draftText;
         syntax.textContent = valid
-          ? `JSON 语法 OK · GeoSite ${catalogs.geosite.readable ? catalogs.geosite.count + ' 名称' : 'catalog 不可用'} · GeoIP ${catalogs.geoip.readable ? catalogs.geoip.count + ' 名称' : 'catalog 不可用'}`
-          : `JSON Draft 无效，已阻止 Save 与结构化页面：${S.store.draftError}`;
+          ? 'JSON 语法正常'
+          : `JSON 格式有误，已阻止保存与结构化页面：${S.store.draftError}`;
         syntax.classList.toggle('is-err', !valid);
-        revBadge.textContent = `修订 ${S.fmtRevision(S.store.revision)}`;
         dirtyBadge.hidden = !S.store.dirty;
         invalidBadge.hidden = valid;
         invalidBadge.title = S.store.draftError || '';
@@ -76,13 +74,13 @@
 
       async function validate() {
         if (S.store.draftValid === false) {
-          issues.replaceChildren(h('div', { class: 'alert alert--err' }, `当前 JSON Draft 无效：${S.store.draftError}`));
+          issues.replaceChildren(h('div', { class: 'alert alert--err' }, `当前 JSON 格式无效：${S.store.draftError}`));
           return;
         }
 		const requestedEpoch = S.store.draftEpoch;
 		const v = await S.api.validate(S.store.intent);
 		if (requestedEpoch !== S.store.draftEpoch) {
-			issues.replaceChildren(h('div', { class: 'alert' }, '校验期间 Draft 已变化；旧结果已丢弃。'));
+			issues.replaceChildren(h('div', { class: 'alert' }, '校验期间工作副本已变化；旧结果已丢弃。'));
 			validationEpoch = null;
 			return;
 		}
@@ -99,7 +97,7 @@
         if (!isCurrent()) return;
         syncState();
 		if (validationEpoch != null && validationEpoch !== S.store.draftEpoch) {
-			issues.replaceChildren(h('div', { class: 'alert' }, 'Draft 已变化；先前校验结果已过期，请重新校验。'));
+			issues.replaceChildren(h('div', { class: 'alert' }, '工作副本已变化；先前校验结果已过期，请重新校验。'));
 			validationEpoch = null;
 		}
       });
@@ -107,7 +105,7 @@
       syncState();
 
       root.append(
-        ui.viewHead('高级配置', 'Canonical JSON 原文（schema 9）。文本与结构化页面共享唯一 Draft', [revBadge, dirtyBadge, invalidBadge]),
+        ui.viewHead('高级配置', '直接查看与编辑 JSON 配置文本', [dirtyBadge, invalidBadge]),
         h('section', { class: 'card' }, [
           h('div', { class: 'editor-actions' }, [
             h('button', { class: 'btn', onclick: validate }, '校验'),

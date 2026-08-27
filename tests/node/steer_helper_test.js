@@ -189,7 +189,7 @@ async function main() {
 		id: node.id, label: node.name, detail: `${node.server}:${node.server_port}`
 	})));
 	assert.equal(ambiguous.find((item) => item.id == 'node-unique').label, 'Unique');
-	assert.match(ambiguous.find((item) => item.id == 'node-a1b2c3').label, /Same · a\.example:1080 · #a1b2c3/);
+	assert.match(ambiguous.find((item) => item.id == 'node-a1b2c3').label, /Same · a\.example:1080 · Duplicate 1/);
 	runtime.permissions.node_import = false;
 	assert.deepEqual(await helper.permissions([ 'node_import', 'node_speedtest' ]), {
 		node_import: false, node_speedtest: true
@@ -203,7 +203,7 @@ async function main() {
 		'RPC failures are localized by stable code before raw detail');
 	helper.loadStyle();
 	await new Promise((resolve) => setImmediate(resolve));
-	assert.ok(textContent(runtime.lifecycleBar).includes('Draft / Saved / Active'));
+	assert.ok(textContent(runtime.lifecycleBar).includes('Configuration status'));
 	assert.ok(textContent(runtime.lifecycleBar).includes('Save & Apply pending changes'));
 	runtime.lifecycleState = {
 		ok: true, pending: false, pending_apply: true,
@@ -319,7 +319,7 @@ async function main() {
 		'An intentionally disabled Steer reports a disabled state');
 
 	rendered = helper.renderStatus({ healthy: false }, runtime.validation, true);
-	assert.ok(textContent(rendered).includes('Traffic steering is not healthy'),
+	assert.ok(textContent(rendered).includes('Traffic steering is running abnormally'),
 		'Live component readiness determines unhealthy state');
 
 	rendered = helper.renderStatus({ healthy: false }, {
@@ -353,9 +353,8 @@ async function main() {
 	assert.equal(activationFailure.saved, true);
 	assert.equal(activationFailure.active_unchanged, true);
 	const activationNotice = runtime.notifications.at(-1);
-	assert.equal(activationNotice.title, 'Configuration saved; Active unchanged');
-	assert.ok(textContent(activationNotice.content).includes('committed to Saved') &&
-		textContent(activationNotice.content).includes('previous Active generation') &&
+	assert.equal(activationNotice.title, 'Configuration saved; application failed');
+	assert.ok(textContent(activationNotice.content).includes('previous running configuration') &&
 		textContent(activationNotice.content).includes('Apply Saved configuration'),
 		'activation failure explains commit-before-apply and the recovery action on every page');
 
@@ -377,9 +376,9 @@ async function main() {
 	runtime.applyResult = { ok: false, activated: true, error: 'candidate became unhealthy' };
 	const changedActiveFailure = await helper.applyPending();
 	assert.equal(changedActiveFailure.active_unchanged, false);
-	assert.equal(runtime.notifications.at(-1).title, 'Configuration saved; activation failed');
+	assert.equal(runtime.notifications.at(-1).title, 'Configuration saved; application failed');
 	assert.ok(textContent(runtime.notifications.at(-1).content).includes('Check Diagnostics before relying on traffic stability') &&
-		textContent(runtime.notifications.at(-1).content).includes('generation-candidate'),
+		!textContent(runtime.notifications.at(-1).content).includes('generation-candidate'),
 		'a partial activation never falsely promises that the previous Active generation is still carrying traffic');
 	delete runtime.afterApplyGeneration;
 	delete runtime.status.generation;

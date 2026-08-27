@@ -64,7 +64,7 @@
     const isNew = !S.store.intent.rules.includes(rule);
     const geo = await catalogs();
     const opened = ui.drawer({
-      eyebrow: `规则 · ${rule.id}`, title: rule.name || '未命名', submitLabel: '保存到工作副本', width: 560,
+      eyebrow: isNew ? '新建规则' : '编辑规则', title: rule.name || '未命名', submitLabel: '保存到工作副本', width: 560,
       renderBody(body) {
         const intent = S.store.intent;
         const draft = JSON.parse(JSON.stringify(rule));
@@ -94,23 +94,23 @@
         const ports = ui.chips(asList(draft.port).map(String), { placeholder: '443 / 27015', onchange: (v) => { draft.port = v.map((x) => (/^\d+$/.test(x) ? Number(x) : x)); } });
 
         body.append(
-          h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '意图'), [
+          h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '规则效果'), [
             ui.field('名称', name, null, 'name'),
             ui.field('启用', enabled, null, 'enabled'),
             h('div', { class: 'field--row' }, [ui.field('DNS Profile', dnsSel, null, 'dns_profile'), ui.field('路由', routeSel, null, 'route')])
           ]),
-          h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '匹配条件 · 同字段 OR · 跨字段 AND'), [
-            ui.field('inbound（本地代理端点）', inboundControl, '只能选择当前本地代理；悬空引用会保留供修复', 'inbound'),
-            ui.field('域名匹配', domain.el, `每行一条 · ${geo.geosite?.readable ? `${geo.geosite.count} 个 GeoSite 名称可补全` : 'catalog 不可用，Apply 时最终判定'}`, 'domain_match'),
-            ui.field('目标 IP 匹配', ip.el, `每行一条 · ${geo.geoip?.readable ? `${geo.geoip.count} 个 GeoIP 名称可补全` : 'catalog 不可用，Apply 时最终判定'} · 只参与连接阶段`, 'ip_match'),
-            ui.field('源 IP/CIDR', srcCidr, '稳定 DHCP 租约或稳定 IPv6 地址', 'source_ip_cidr'),
-            ui.field('源 MAC', srcMac, '由 sing-box 1.14 邻居解析原生匹配；不能与本地代理 inbound 组合', 'source_mac_address'),
+          h('div', { class: 'drawer-section' }, h('div', { class: 'drawer-section__title' }, '匹配条件 · 同一字段满足任一项，多个字段需同时满足'), [
+            ui.field('本地代理入口', inboundControl, '可将规则限定到一个或多个本地代理入口', 'inbound'),
+            ui.field('域名匹配', domain.el, `每行一条 · 支持域名与 GeoSite 规则${geo.geosite?.readable ? ` (${geo.geosite.count} 个 GeoSite 可补全)` : ''}`, 'domain_match'),
+            ui.field('目标 IP 匹配', ip.el, `每行一条 · 支持 IP/CIDR 与 GeoIP 规则${geo.geoip?.readable ? ` (${geo.geoip.count} 个 GeoIP 可补全)` : ''} · 仅连接阶段`, 'ip_match'),
+            ui.field('源 IP/CIDR', srcCidr, '按客户端 IP 地址或网段匹配', 'source_ip_cidr'),
+            ui.field('源 MAC', srcMac, '按客户端 MAC 地址匹配；不能与本地代理入口同时使用', 'source_mac_address'),
             h('div', { class: 'field--row' }, [
               ui.field('网络', nets, '仅连接阶段', 'network'),
               ui.field('检测协议', protos, '仅连接阶段', 'protocol')
             ]),
             ui.field('目标端口', ports, '精确端口 · 仅连接阶段', 'port'),
-            h('div', { class: 'alert' }, 'DNS Profile 只使用 inbound、域名、源 IP/CIDR 与源 MAC 条件。只有 IP/network/protocol/port 时，DNS 会继续匹配后续规则。')
+            h('div', { class: 'alert' }, '提示：仅包含目标 IP、网络、协议或端口的规则不影响 DNS 上游选择。')
           ])
         );
         return {
@@ -148,7 +148,7 @@
     const row = h('div', { class: `rule-row ${rule.enabled === false ? 'is-disabled' : ''}`, draggable: 'true', dataset: { ruleId: rule.id } }, [
       h('span', { class: 'grip', title: '拖拽排序' }, '⠿'),
       h('span', { class: 'rule-row__order' }, String(index + 1).padStart(2, '0')),
-      h('div', { class: 'rule-row__name' }, h('strong', {}, rule.name || rule.id), h('span', { class: 'rule-row__summary' }, summary(rule))),
+      h('div', { class: 'rule-row__name' }, h('strong', {}, rule.name || (rule.default ? 'Default' : rule.id)), h('span', { class: 'rule-row__summary' }, summary(rule))),
       h('div', { class: 'rule-row__intent' }, [
         h('span', { class: 'badge badge--dns' }, dnsLabel(intent, rule.dns_profile)),
         h('span', { class: 'badge badge--route' }, routeLabel(intent, rule.route))
@@ -201,19 +201,6 @@
       const ordered = intent.rules.filter((r) => !r.default);
       const defaultRule = intent.rules.find((r) => r.default);
 
-      const sysCard = h('section', { class: 'card sys-card' }, [
-        h('div', { class: 'sys-card__order' }, h('span', {}, '规则 1 之前'), h('strong', {}, '系统')),
-        h('div', {}, [
-          h('strong', {}, '系统直连'),
-          h('p', {}, '非全球可达与本地目的地址在用户规则之前放行：环回、私网、链路本地等。传统 TCP/UDP 53 请求进入 DNS shim。'),
-          h('details', { class: 'fold' }, [
-            h('summary', {}, '查看固定边界'),
-            h('p', {}, '环回、私有、共享、链路本地、文档、基准、丢弃与组播范围。全球可达的特殊用途地址仍可参与用户规则。')
-          ])
-        ]),
-        h('span', { class: 'badge badge--dns' }, 'DIRECT')
-      ]);
-
       const list = h('div', { class: 'rule-list' }, ordered.map((rule, i) => renderRow(rule, i)));
       if (!ordered.length) list.append(h('div', { class: 'empty' }, '还没有普通规则；Default 规则兜底'));
 
@@ -229,7 +216,7 @@
       ]);
 
       root.append(
-        ui.viewHead('规则', 'first-match 有序执行；拖拽调整顺序。启用配置必须恰好一个 Default 规则', [
+        ui.viewHead('规则', '按列表顺序自上而下首条命中即停；支持拖拽调整顺序', [
           h('button', { class: 'btn btn--primary', onclick: () => {
             const direct = intent.routes.find((route) => route.kind === 'direct' && route.enabled !== false)
               || intent.routes.find((route) => route.enabled !== false);
@@ -240,7 +227,6 @@
             openRuleEditor(rule);
           } }, '添加规则')
         ]),
-        sysCard,
         list,
         defaultCard
       );
