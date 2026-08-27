@@ -84,11 +84,20 @@ def main() -> None:
     assert "DraftStringListCodecTests" in rule_tests and "AppModelRulePolicyTests" in rule_tests
     assert "testCommaBearingEntriesRoundTripWithoutRewriting" in rule_tests
     assert "testDefaultCannotBeDisabledDeletedOrMoved" in rule_tests
+    assert "testStableIdentifierToggleResolvesTheCurrentRuleAfterReordering" in rule_tests
     assert 'SteerAgent' not in package
     assert "SteerNetwork" not in package
     assert 'NavigationSplitView' in content
     assert 'navigationSplitViewColumnWidth(min: 200' in content
     assert 'Table(of: DraftItem.self, selection: $selection)' in content
+    assert 'identifiedBy: item.identifier' in content
+    assert 'at: item.index, enabled:' not in content
+    assert 'get: { item.enabled }' not in content
+    assert '.id("\\(item.id):enabled")' in content
+    assert 'func draftItemEnabled(in key: String, identifiedBy identifier: String)' in state
+    assert 'requiredForInstallation: false' in state
+    assert 'let installationFacts = facts.filter(\\.requiredForInstallation)' in state
+    assert '运行服务未激活不影响系统组件安装完整性' in content
     assert 'descriptor.ordered && !isPinned(item) ? NSItemProvider(object: item.id as NSString) : nil' in content
     assert '.dropDestination(for: String.self)' in content
     assert '"line.3.horizontal"' in content and '"pin.fill"' in content

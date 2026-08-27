@@ -680,12 +680,24 @@ struct DraftCollectionView: View {
                             .help(item.subscriptionOwned ? "订阅节点状态由订阅管理" : "系统直连路由始终启用")
                     } else {
                         Toggle("", isOn: Binding(
-                            get: { item.enabled },
-                            set: { model.setDraftItemEnabled(in: descriptor.key, at: item.index, enabled: $0) }
+                            get: {
+                                model.draftItemEnabled(
+                                    in: descriptor.key,
+                                    identifiedBy: item.identifier
+                                ) ?? item.enabled
+                            },
+                            set: {
+                                model.setDraftItemEnabled(
+                                    in: descriptor.key,
+                                    identifiedBy: item.identifier,
+                                    enabled: $0
+                                )
+                            }
                         ))
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .controlSize(.small)
+                        .id("\(item.id):enabled")
                     }
                 }
                 .width(58)
@@ -1382,6 +1394,30 @@ struct SystemView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if !model.systemComponentFacts.isEmpty {
+                Section("组件详情") {
+                    ForEach(model.systemComponentFacts) { fact in
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Label(fact.label, systemImage: componentSymbol(fact.state))
+                                    .foregroundStyle(componentColor(fact.state))
+                                Spacer()
+                                Text(fact.detail)
+                                    .foregroundStyle(fact.ready ? .secondary : componentColor(fact.state))
+                            }
+                            Text(fact.path)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                            if !fact.requiredForInstallation, fact.state == .inactive {
+                                Text("运行服务未激活不影响系统组件安装完整性。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
             Section("版本与运行时") {
                 LabeledContent("Steer 版本", value: model.versions.helper)
                 LabeledContent("核心版本", value: model.versions.singBox)
@@ -1431,6 +1467,25 @@ struct SystemView: View {
             Text(path)
                 .font(.callout.monospaced())
                 .textSelection(.enabled)
+        }
+    }
+
+    private func componentSymbol(_ state: SystemComponentFact.State) -> String {
+        switch state {
+        case .ready: return "checkmark.circle.fill"
+        case .inactive: return "pause.circle"
+        case .outdated: return "arrow.down.circle.fill"
+        case .missing: return "questionmark.circle"
+        case .invalid: return "xmark.octagon.fill"
+        }
+    }
+
+    private func componentColor(_ state: SystemComponentFact.State) -> Color {
+        switch state {
+        case .ready: return .green
+        case .inactive: return .secondary
+        case .outdated: return .orange
+        case .missing, .invalid: return .red
         }
     }
 }
