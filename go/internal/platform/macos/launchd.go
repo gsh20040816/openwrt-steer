@@ -12,6 +12,7 @@ import (
 	"time"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
+	"github.com/gsh20040816/steer/go/internal/compiler"
 )
 
 func (backend *Backend) launchDaemonLoaded(ctx context.Context) (bool, error) {
@@ -112,10 +113,17 @@ func (backend *Backend) ReadStatus(ctx context.Context) Status {
 		}
 		file.Close()
 	}
-	current, err := backend.paths().LoadCurrent()
+	current, value, err := backend.paths().LoadCurrentIntent()
 	if err == nil {
 		status.GenerationID = current.GenerationID
 		status.IntentDigest = current.IntentDigest
+		if file, openErr := os.Open(filepath.Join(backend.options.RunDirectory, "generations", current.Directory, "sing-box.json")); openErr == nil {
+			var singBox map[string]any
+			if json.NewDecoder(file).Decode(&singBox) == nil {
+				status.RuntimeDigest = compiler.RuntimeDigest(value, singBox)
+			}
+			file.Close()
+		}
 		if backend.checkHealthyOnce(ctx, filepath.Join(backend.options.RunDirectory, "generations", current.Directory)) == nil {
 			status.Healthy = true
 		}

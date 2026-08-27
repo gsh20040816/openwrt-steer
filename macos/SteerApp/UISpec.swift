@@ -176,6 +176,25 @@ struct UIIDPolicy: Decodable {
 struct UIPageResponsibility: Decodable {
     let summary: String
     let facts: [String]
+    let regions: [UIPageRegion]?
+    let objectCountSource: String?
+    let validationSource: String?
+    let forbiddenFacts: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case summary, facts, regions
+        case objectCountSource = "object_count_source"
+        case validationSource = "validation_source"
+        case forbiddenFacts = "forbidden_facts"
+    }
+}
+
+struct UIPageRegion: Decodable, Identifiable {
+    let key: String
+    let facts: [String]
+    let sources: [String]
+    let actions: [String]?
+    var id: String { key }
 }
 
 struct UIDNSBoundary: Decodable {

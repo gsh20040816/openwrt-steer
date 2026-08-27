@@ -56,6 +56,7 @@ def main() -> None:
     assert 'case "apply"' in macos_cli
     assert 'case "parse-nodes"' in macos_cli
     assert 'case "probe"' in macos_cli and 'case "_probe-results"' in macos_cli
+    assert 'case "_state"' in macos_cli
     assert 'case "geo-catalog"' in macos_cli
     assert 'case "subscription"' in macos_cli
     assert 'case "verify-geodata"' in macos_cli
@@ -88,6 +89,8 @@ def main() -> None:
     assert 'SteerAgent' not in package
     assert "SteerNetwork" not in package
     assert 'NavigationSplitView' in content
+    assert 'func overviewState() async throws -> OverviewLifecycleState' in state
+    assert 'model.overviewLifecycle.saved' in content and 'model.overviewLifecycle.pendingApply' in content
     assert 'navigationSplitViewColumnWidth(min: 200' in content
     assert 'Table(of: DraftItem.self, selection: $selection)' in content
     assert 'identifiedBy: item.identifier' in content

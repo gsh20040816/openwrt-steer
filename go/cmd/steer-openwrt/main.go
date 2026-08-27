@@ -25,6 +25,7 @@ import (
 	"github.com/gsh20040816/steer/go/internal/platform/openwrt"
 	coreprobe "github.com/gsh20040816/steer/go/internal/probe"
 	"github.com/gsh20040816/steer/go/internal/subscription"
+	"github.com/gsh20040816/steer/go/internal/uistate"
 )
 
 var version = "development"
@@ -83,28 +84,10 @@ func run(args []string) error {
 	}
 }
 
-type uiIntentCounts struct {
-	Nodes         int `json:"nodes"`
-	Subscriptions int `json:"subscriptions"`
-	Routes        int `json:"routes"`
-	DNSProfiles   int `json:"dns_profiles"`
-	LocalProxies  int `json:"local_proxies"`
-	Rules         int `json:"rules"`
-}
-
-type uiIntentState struct {
-	Available     bool             `json:"available"`
-	Enabled       bool             `json:"enabled"`
-	Digest        string           `json:"digest,omitempty"`
-	RuntimeDigest string           `json:"runtime_digest,omitempty"`
-	Counts        uiIntentCounts   `json:"counts"`
-	Validation    model.Validation `json:"validation"`
-}
-
 type uiLifecycleState struct {
-	Saved        uiIntentState  `json:"saved"`
-	Active       openwrt.Status `json:"active"`
-	PendingApply bool           `json:"pending_apply"`
+	Saved        uistate.IntentState `json:"saved"`
+	Active       openwrt.Status      `json:"active"`
+	PendingApply bool                `json:"pending_apply"`
 }
 
 func runUIState(args []string) error {
@@ -123,43 +106,21 @@ func runUIState(args []string) error {
 		return errors.New("_state accepts flags only")
 	}
 	value, decodeValidation := loadIntent(*configPath)
-	saved := uiIntentState{Counts: uiIntentCounts{}, Validation: decodeValidation}
+	saved := uistate.IntentState{Counts: uistate.Counts{}, Validation: decodeValidation}
 	if decodeValidation.OK {
 		validation := openwrt.ValidateWithGeoDataDirectory(value, *seedDirectory)
-		compiled := compiler.Compile(value, compiler.Options{
+		saved = uistate.FromIntent(value, validation, compiler.Options{
 			StateDirectory: *stateDirectory, GeoDataDirectory: *seedDirectory,
 			Target: openwrt.NewPlan(value).CompilerTarget(),
 		})
-		saved = uiIntentState{
-			Available: true, Enabled: value.Main.Enabled, Digest: compiled.IntentDigest, RuntimeDigest: compiled.RuntimeDigest, Validation: validation,
-			Counts: uiIntentCounts{
-				Nodes: len(value.Nodes), Subscriptions: len(value.Subscriptions), Routes: len(value.Routes),
-				DNSProfiles: len(value.DNSProfiles), LocalProxies: len(value.LocalProxies), Rules: len(value.Rules),
-			},
-		}
 	}
 	active := openwrt.Status{}
 	if !*savedOnly {
 		active = openwrt.ReadStatus(context.Background(), openwrt.ExecRunner{}, *runDirectory, *nftBinary)
 	}
-	pendingApply := uiPendingApply(saved, active)
+	pendingApply := uistate.PendingApply(saved, active.Generation, active.RuntimeDigest, active.LastApply)
 	writeJSON(uiLifecycleState{Saved: saved, Active: active, PendingApply: pendingApply})
 	return nil
-}
-
-func uiPendingApply(saved uiIntentState, active openwrt.Status) bool {
-	if !saved.Available || !saved.Validation.OK {
-		return false
-	}
-	if saved.Enabled {
-		if active.Generation == "" || active.RuntimeDigest != saved.RuntimeDigest {
-			return true
-		}
-	} else if active.Generation != "" {
-		return true
-	}
-	lastApply := active.LastApply
-	return lastApply != nil && !lastApply.Result.OK && lastApply.Result.RuntimeDigest != "" && lastApply.Result.RuntimeDigest == saved.RuntimeDigest
 }
 
 func runDiagnostics(args []string) error {

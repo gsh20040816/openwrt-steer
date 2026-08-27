@@ -970,6 +970,16 @@ async function main() {
 		'custom panels, cards, compact controls and table facts share the desktop spacing scale');
 	assert.ok(/\.steer-section-heading h3,\s*\.steer-section-heading p\s*\{[^}]*margin:\s*0;[^}]*padding:\s*0;/s.test(stylesheet),
 		'import heading and explanatory copy reset Argon padding to one shared content boundary');
+	assert.ok(/\.steer-overview-shell\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;/s.test(stylesheet) &&
+		/\.steer-overview-region\s*\{[^}]*box-sizing:\s*border-box;[^}]*min-width:\s*0;[^}]*padding:\s*var\(--steer-space-card\) var\(--steer-space-page\);/s.test(stylesheet),
+		'Overview regions keep one padded content boundary without horizontal overflow');
+	assert.ok(stylesheet.includes('grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);') &&
+		/@media \(max-width: 1100px\)[\s\S]*\.steer-overview-pipeline \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/.test(stylesheet) &&
+		/@media \(max-width: 700px\)[\s\S]*\.steer-overview-pipeline \{ grid-template-columns: 1fr; \}/.test(stylesheet),
+		'Overview pipeline has explicit 1920/1280 desktop and 1024/narrow responsive layouts');
+	assert.ok(/\.steer-overview-metrics\s*\{[^}]*repeat\(auto-fit, minmax\(8rem, 1fr\)\)/s.test(stylesheet) &&
+		/\.steer-overview-actions\s*\{[^}]*flex-wrap:\s*wrap;/s.test(stylesheet),
+		'Overview scale and shortcuts reflow without fixed blank columns or squeezed actions');
 	assert.ok(stylesheet.includes('--steer-monospace: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;') &&
 		stylesheet.includes('.steer-machine-input'),
 		'machine-readable import input uses the shared monospace stack');
@@ -1819,8 +1829,14 @@ async function main() {
 		'The Steer root resolves to Overview instead of accidentally rendering General');
 	assert.equal(environment.statusRenderCalls, 0,
 		'The Steer root uses the lifecycle panel instead of the legacy mixed status headline');
-	for (const expected of [ 'Configuration status', 'Working copy', 'Saved configuration', 'Running configuration' ])
+	for (const expected of [ 'Execution model', 'Configuration lifecycle', 'Working copy', 'Saved configuration',
+		'Active status', 'Working copy scale', 'Validation and warning summary', 'Recent application and shortcuts' ])
 		assert.ok(elementText(environment.rendered).includes(expected), `Overview lifecycle panel must render ${expected}`);
+	assert.deepEqual(findElements(environment.rendered, (node) => node.attributes?.['data-overview-region'])
+		.map((node) => node.attributes['data-overview-region']),
+	[ 'execution_model', 'configuration_lifecycle', 'object_scale', 'validation_summary', 'last_apply_and_actions' ]);
+	for (const expected of [ 'Nodes', 'Routes', 'DNS Profiles', 'Local Proxies', 'Rules', 'Subscriptions' ])
+		assert.ok(elementText(environment.rendered).includes(expected), `Overview Draft scale must render ${expected}`);
 	assert.ok(!elementText(environment.rendered).includes('generation-a'), 'Overview lifecycle panel hides the internal generation identifier');
 	assert.equal(findElements(environment.rendered,
 		(node) => node.tag == 'button' && node.children?.[0] == 'Run test').length, 0,
@@ -1865,18 +1881,19 @@ async function main() {
 		};
 		const lifecycleEnvironment = await renderOverview({}, 'overview', lifecycle);
 		const lifecycleText = elementText(lifecycleEnvironment.rendered);
-		for (const expected of [ 'Working copy', 'Saved configuration', 'Running configuration' ])
+		for (const expected of [ 'Working copy', 'Saved configuration', 'Active status' ])
 			assert.ok(lifecycleText.includes(expected), `${fixture.name} must render ${expected}`);
 		if (fixture.name == 'pending-disable') {
-			assert.ok(!lifecycleText.includes('generation-old') && /Status\s+Normal/.test(lifecycleText),
+			assert.ok(!lifecycleText.includes('generation-old') && /Active status\s+Normal/.test(lifecycleText),
 				'pending disable keeps the service state visible without exposing the generation identifier');
-			assert.ok(lifecycleText.includes('Save & Apply pending changes') && lifecycleText.includes('Discard pending changes'));
+			assert.ok(lifecycleText.includes('Consistent') && lifecycleText.includes('Unsaved changes'));
 		}
 		if (fixture.name == 'failed-apply') {
-			assert.ok(lifecycleText.includes('The last application failed') && !lifecycleText.includes('generation-old'),
+			assert.ok(lifecycleText.includes('The running configuration did not change') && !lifecycleText.includes('generation-old') &&
+				!lifecycleText.includes('activation failed'),
 				'failed application keeps the recovery state visible without exposing runtime identity');
-			assert.ok(lifecycleText.includes('Apply Saved configuration'),
-				'clean failed Apply exposes an Apply Saved retry without manufacturing pending UCI');
+			assert.ok(lifecycleText.includes('Save, Apply Saved, Save and Apply, and Discard are available in the global status area above.'),
+				'Overview points to the single global action owner instead of duplicating lifecycle buttons');
 		}
 	}
 	environment = await renderNodes({ subscription: [], node: [], route: [] }, '', { subscriptions: [] }, 'subscriptions');

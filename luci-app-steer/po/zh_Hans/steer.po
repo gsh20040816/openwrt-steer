@@ -675,38 +675,17 @@ msgstr "清理期间出现了可见编辑；已保留这些修改，页面未重
 msgid "Visible edits appeared while the update was running; they were preserved and the page was not reloaded."
 msgstr "更新期间出现了可见编辑；已保留这些修改，页面未重新加载。"
 
-msgid "Apply result"
-msgstr "应用结果"
-
 msgid "Discard pending changes"
 msgstr "丢弃待处理修改"
 
-msgid "Invalid"
-msgstr "无效"
-
 msgid "No"
 msgstr "否"
-
-msgid "Objects"
-msgstr "对象"
-
-msgid "Pending changes were discarded."
-msgstr "待处理修改已丢弃。"
-
-msgid "Pending changes were saved and applied."
-msgstr "待处理修改已保存并应用。"
-
-msgid "Running"
-msgstr "运行中"
 
 msgid "Save & Apply pending changes"
 msgstr "保存并应用待处理修改"
 
 msgid "Saved configuration"
 msgstr "已保存配置"
-
-msgid "Valid"
-msgstr "有效"
 
 msgid "Yes"
 msgstr "是"
@@ -716,9 +695,6 @@ msgstr "应用已保存配置"
 
 msgid "Operation failed."
 msgstr "操作失败。"
-
-msgid "Saved configuration was applied."
-msgstr "已保存配置已应用。"
 
 msgid "Operation failed"
 msgstr "操作失败"
@@ -1221,9 +1197,6 @@ msgstr "已配置"
 msgid "Geo seed path"
 msgstr "Geo 数据种子路径"
 
-msgid "Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d · Subscriptions %d"
-msgstr "节点 %d · 路由 %d · DNS %d · 本地入口 %d · 规则 %d · 订阅 %d"
-
 msgid "Platform components and paths"
 msgstr "平台组件与路径"
 
@@ -1305,9 +1278,6 @@ msgstr "所有修改均已保存"
 msgid "Configuration saved; application failed"
 msgstr "配置已保存，但应用失败"
 
-msgid "Configuration status"
-msgstr "配置状态"
-
 msgid "Configuration was not saved"
 msgstr "配置未保存"
 
@@ -1341,9 +1311,6 @@ msgstr "最近应用结果"
 msgid "Rule action"
 msgstr "规则效果"
 
-msgid "Running configuration"
-msgstr "运行配置"
-
 msgid "Running status"
 msgstr "运行状态"
 
@@ -1368,9 +1335,6 @@ msgstr "在当前网络环境中测试直连地址。"
 msgid "Tests the proxy target in the current network environment."
 msgstr "在当前网络环境中测试代理地址。"
 
-msgid "The last application failed. The saved configuration is still available; check Diagnostics for details."
-msgstr "最近一次应用失败。已保存配置仍可用；详细原因请查看诊断页面。"
-
 msgid "The running configuration may have changed. Check Diagnostics before relying on traffic stability."
 msgstr "运行配置可能已经变化；确认流量稳定性前请检查诊断页面。"
 
@@ -1382,12 +1346,6 @@ msgstr "服务继续使用此前的运行配置。"
 
 msgid "The tests use the current network environment and remain available while Steer is disabled. Success only means the target was reachable at that time."
 msgstr "测试使用设备当前网络环境；Steer 未启用时仍可运行。成功仅表示目标在测试时可达。"
-
-msgid "The working copy has unsaved changes. The running configuration remains unchanged until they are saved and applied."
-msgstr "工作副本有未保存修改；保存并应用前，当前运行配置不会改变。"
-
-msgid "The working copy is saved."
-msgstr "工作副本已保存。"
 
 msgid "Unavailable node"
 msgstr "已失效节点"
@@ -1469,3 +1427,93 @@ msgstr "当前会话无权切换 Steer。"
 
 msgid "The pending Steer configuration could not be discarded."
 msgstr "无法丢弃待处理的 Steer 配置。"
+
+msgid "Active status"
+msgstr "运行状态"
+
+msgid "Configuration lifecycle"
+msgstr "配置生命周期"
+
+msgid "Consistent"
+msgstr "一致"
+
+msgid "DNS Profile"
+msgstr "DNS Profile"
+
+msgid "Different; action required"
+msgstr "不一致；需要处理"
+
+msgid "Direct, Reject, or Node chain"
+msgstr "直连、拒绝或节点链"
+
+msgid "Errors"
+msgstr "错误"
+
+msgid "Establish the final connection"
+msgstr "最终建立连接"
+
+msgid "Execution model"
+msgstr "执行模型"
+
+msgid "First matching Rule wins"
+msgstr "首条匹配规则即停止"
+
+msgid "Independent resolution path"
+msgstr "独立解析路径"
+
+msgid "Match rules"
+msgstr "匹配规则"
+
+msgid "Network egress"
+msgstr "网络出口"
+
+msgid "No application has been recorded yet."
+msgstr "尚无应用记录。"
+
+msgid "Open Diagnostics"
+msgstr "打开诊断"
+
+msgid "Recent application and shortcuts"
+msgstr "最近应用与快捷操作"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Save, Apply Saved, Save and Apply, and Discard are available in the global status area above."
+msgstr "保存、应用已保存配置、保存并应用和放弃修改由上方全局状态区提供。"
+
+msgid "Saved"
+msgstr "已保存"
+
+msgid "Saved / Active"
+msgstr "Saved / Active"
+
+msgid "System information"
+msgstr "系统信息"
+
+msgid "The Saved configuration was applied successfully."
+msgstr "已保存配置已成功应用。"
+
+msgid "The current working copy is valid."
+msgstr "当前工作副本校验通过。"
+
+msgid "The running configuration changed but Apply did not finish. Open Diagnostics for recovery steps."
+msgstr "运行配置已变化，但应用未完成；请打开诊断查看恢复步骤。"
+
+msgid "The running configuration did not change. The Saved configuration can be applied again."
+msgstr "运行配置未切换；可以再次应用已保存配置。"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Time unknown"
+msgstr "时间未知"
+
+msgid "Validation and warning summary"
+msgstr "校验与警告摘要"
+
+msgid "Warning groups"
+msgstr "警告分组"
+
+msgid "Working copy scale"
+msgstr "工作副本规模"

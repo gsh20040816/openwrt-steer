@@ -152,8 +152,17 @@ final class UISafetyContractTests: XCTestCase {
     func testSharedPageDNSAndSubscriptionResponsibilityContractsDecode() throws {
         XCTAssertEqual(
             Set(SteerUISpec.contract.pageResponsibilities["overview"]?.facts ?? []),
-            Set(["draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"])
+            Set(["execution_model", "draft", "saved", "active", "object_counts", "validation_summary", "warning_summary", "last_apply", "quick_actions"])
         )
+        let overview = try XCTUnwrap(SteerUISpec.contract.pageResponsibilities["overview"])
+        XCTAssertEqual(overview.objectCountSource, "draft")
+        XCTAssertEqual(overview.validationSource, "draft_validation")
+        XCTAssertEqual(overview.regions?.map(\.key), [
+            "execution_model", "configuration_lifecycle", "object_scale", "validation_summary", "last_apply_and_actions"
+        ])
+        XCTAssertEqual(overview.regions?[2].facts, ["nodes", "routes", "dns_profiles", "local_proxies", "rules", "subscriptions"])
+        XCTAssertEqual(overview.regions?[4].actions ?? [], ["refresh", "diagnostics", "system", "save", "apply_saved", "save_and_apply", "discard"])
+        XCTAssertEqual(overview.forbiddenFacts ?? [], ["probe_history", "raw_error_chain", "object_ids", "digests", "generation_paths"])
         XCTAssertTrue(SteerUISpec.contract.pageResponsibilities["diagnostics"]?.facts.contains("dns_capture") == true)
         XCTAssertEqual(
             Set(SteerUISpec.contract.pageResponsibilities["system"]?.facts ?? []),
@@ -229,6 +238,20 @@ final class UISafetyContractTests: XCTestCase {
         let overview = String(content[overviewStart..<overviewEnd])
         XCTAssertTrue(shell.contains("Toggle(\"Steer\"") && shell.contains("model.setEnabledAndApply($0)"))
         XCTAssertFalse(overview.contains("Toggle(\"启用配置\""), "Overview must not own a duplicate service toggle")
+        for expected in ["执行模型", "配置生命周期", "工作副本规模", "校验与警告摘要", "最近应用与快捷操作"] {
+            XCTAssertTrue(overview.contains(expected), "macOS Overview is missing \(expected)")
+        }
+        for collection in ["nodes", "routes", "dns_profiles", "local_proxies", "rules", "subscriptions"] {
+            XCTAssertTrue(overview.contains("itemCount(for: \"\(collection)\")"), "macOS Overview Draft scale is missing \(collection)")
+        }
+        XCTAssertTrue(overview.contains("model.overviewLifecycle.saved") &&
+                      overview.contains("model.overviewLifecycle.pendingApply") &&
+                      overview.contains("model.overviewLifecycle.active"))
+        XCTAssertTrue(overview.contains("localizedLastApplyTime") && overview.contains("safeLastApplySummary"))
+        XCTAssertFalse(overview.contains("result.error") || overview.contains("intentDigest") || overview.contains("generationID)"),
+                       "macOS Overview must not render raw errors or runtime identity")
+        XCTAssertFalse(overview.contains("DraftActionButtons"),
+                       "Overview reuses the global toolbar instead of duplicating lifecycle actions")
 
         let app = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/SteerApp.swift"))
         XCTAssertTrue(app.contains("model.setEnabledAndApply(!model.draftEnabled)"),

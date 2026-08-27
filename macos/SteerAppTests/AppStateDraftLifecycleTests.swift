@@ -172,6 +172,21 @@ private actor DraftLifecycleBackend: BackendClient {
     }
 
     func status() async throws -> RuntimeStatus { runtimeStatus }
+    func overviewState() async throws -> OverviewLifecycleState {
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(snapshot.document.utf8)).objectValue ?? [:]
+        let count: (String) -> Int = { root[$0]?.arrayValue?.count ?? 0 }
+        let enabled = root["main"]?.objectValue?["enabled"]?.boolValue ?? false
+        let saved = OverviewIntentState(
+            available: true, enabled: enabled,
+            counts: OverviewCounts(
+                nodes: count("nodes"), subscriptions: count("subscriptions"), routes: count("routes"),
+                dnsProfiles: count("dns_profiles"), localProxies: count("local_proxies"), rules: count("rules")
+            ),
+            validation: ValidationResult(ok: true, errors: [], warnings: [])
+        )
+        let activeEnabled = !runtimeStatus.generationID.isEmpty
+        return OverviewLifecycleState(saved: saved, active: runtimeStatus, pendingApply: enabled != activeEnabled)
+    }
     func diagnostics() async throws -> ProbeDiagnostics { persistedDiagnostics }
     func probeResults() async throws -> ProbeLatestResults { persistedProbeResults }
     func logs() async throws -> String { "" }
@@ -297,6 +312,10 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertEqual(counts.loads, 1)
         XCTAssertEqual(model.rawJSON, editedDocument)
         XCTAssertTrue(model.isDirty)
+        XCTAssertFalse(model.overviewLifecycle.saved.enabled)
+        XCTAssertTrue(model.overviewLifecycle.active.healthy)
+        XCTAssertTrue(model.overviewLifecycle.pendingApply,
+                      "Saved disabled and an Active generation must remain visibly different")
     }
 
     func testInitialLoadPreservesEditsMadeWhileLoadIsInFlight() async throws {

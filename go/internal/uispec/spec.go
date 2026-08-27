@@ -94,8 +94,19 @@ type IDPolicy struct {
 }
 
 type PageResponsibility struct {
-	Summary string   `json:"summary"`
+	Summary           string       `json:"summary"`
+	Facts             []string     `json:"facts"`
+	Regions           []PageRegion `json:"regions,omitempty"`
+	ObjectCountSource string       `json:"object_count_source,omitempty"`
+	ValidationSource  string       `json:"validation_source,omitempty"`
+	ForbiddenFacts    []string     `json:"forbidden_facts,omitempty"`
+}
+
+type PageRegion struct {
+	Key     string   `json:"key"`
 	Facts   []string `json:"facts"`
+	Sources []string `json:"sources"`
+	Actions []string `json:"actions,omitempty"`
 }
 
 type DNSBoundary struct {
@@ -284,8 +295,21 @@ func ContractValue() Contract {
 		},
 		PageResponsibilities: map[string]PageResponsibility{
 			"overview": {
-				Summary: "Draft, Saved and Active summary with last Apply, object scale, warnings and a few recovery actions",
-				Facts:   []string{"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
+				Summary: "Execution model, Draft/Saved/Active lifecycle, Draft object scale and validation, last Apply and recovery actions",
+				Facts: []string{
+					"execution_model", "draft", "saved", "active", "object_counts", "validation_summary",
+					"warning_summary", "last_apply", "quick_actions",
+				},
+				Regions: []PageRegion{
+					{Key: "execution_model", Facts: []string{"ordered_rule_match", "dns_profile_resolution", "route_selection", "network_egress"}, Sources: []string{"shared_ui_spec", "draft"}},
+					{Key: "configuration_lifecycle", Facts: []string{"draft_dirty", "saved_enabled", "pending_apply", "active_status", "saved_active_difference"}, Sources: []string{"draft", "saved", "active"}},
+					{Key: "object_scale", Facts: []string{"nodes", "routes", "dns_profiles", "local_proxies", "rules", "subscriptions"}, Sources: []string{"draft"}},
+					{Key: "validation_summary", Facts: []string{"error_count", "warning_group_count", "warning_groups"}, Sources: []string{"draft_validation"}, Actions: []string{"view_affected_items"}},
+					{Key: "last_apply_and_actions", Facts: []string{"localized_time", "result", "safe_summary"}, Sources: []string{"active.last_apply"}, Actions: []string{"refresh", "diagnostics", "system", "save", "apply_saved", "save_and_apply", "discard"}},
+				},
+				ObjectCountSource: "draft",
+				ValidationSource:  "draft_validation",
+				ForbiddenFacts:    []string{"probe_history", "raw_error_chain", "object_ids", "digests", "generation_paths"},
 			},
 			"diagnostics": {
 				Summary: "Validation, probes with latest safe results, port-53 capture inspection and logs",

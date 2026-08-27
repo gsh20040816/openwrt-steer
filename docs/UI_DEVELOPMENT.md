@@ -107,7 +107,7 @@ Code review 和契约测试必须拒绝以下实现：把后端对象直接传�
   └─ 高级配置 / Canonical 预览
 ```
 
-- 总览只展示 Draft/Saved/Active、last Apply、对象规模、warnings 摘要和少量快捷操作，不承载长期配置表单。
+- 总览固定为五个语义区域：执行模型、配置生命周期、当前 Draft 的六类对象规模、当前 Draft 校验与聚合 Warning、最近 Apply 与快捷操作。六类规模固定为 Node、Route、DNS Profile、Local Proxy、Rule、Subscription；Saved/Active 与 pending Apply 必须来自平台后端真实状态，不能由 Draft 或最近 Apply 冒充。时间必须本地化，失败只显示安全可操作摘要；Save、Apply Saved、Save and Apply、Discard 可以由同页全局状态区承载，不得复制第二套开关或动作状态。
 - 基础设置只编辑 Main、探测目标、DNS cache 和 Bootstrap。
 - 节点与路由必须是独立页面；订阅状态和更新不能塞入节点页。
 - 诊断统一容纳 overview 测试操作及最新安全摘要、Validate、Active port-53 配置检查、最近 Apply 和按需加载的受限日志，并提供 Refresh；不得展示 overview/node/route 连续历史报告。Node/Route 最近测速结果回到对应实体操作旁。
