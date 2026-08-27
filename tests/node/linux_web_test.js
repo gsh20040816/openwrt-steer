@@ -972,6 +972,38 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   assert.strictEqual(routeCalls, 0, 'disabled Linux Route test must not reach the backend');
 }
 
+async function testOverviewUsesBoundedBackendWarningGroups() {
+  const intent = draftLifecycleIntent();
+  const rawWarnings = Array.from({ length: 120 }, (_, index) => ({
+    code: 'INSECURE_TLS', object_type: 'node', object_id: `private-node-${index}`,
+    option: 'insecure', message: `raw secret warning ${index}`
+  }));
+  const validation = {
+    ok: true, errors: [], warnings: rawWarnings,
+    warning_groups: [{
+      code: 'INSECURE_TLS', object_type: 'node', option: 'insecure', count: 120,
+      summary: 'TLS certificate verification is disabled', destination: 'nodes'
+    }]
+  };
+  const environment = createEnvironment(async () => ({ ok: true }), intent, { api: {
+    validate: async () => validation
+  } });
+  let destination = '';
+  environment.S.router = (page) => { destination = page; };
+  loadView(environment, 'overview');
+  const overviewRoot = new Element('main');
+  await environment.S.views.overview.render(overviewRoot);
+  const rendered = text(overviewRoot);
+  assert.match(rendered, /TLS 证书校验已关闭/);
+  assert.match(rendered, /120 个正在使用的节点/);
+  assert.doesNotMatch(rendered, /private-node-|raw secret warning/,
+    'Overview must not render raw Warning object IDs or messages');
+  assert.strictEqual(findAll(overviewRoot, (element) => classSet(element).has('warning-group')).length, 1,
+    'a large warning set must render one backend group');
+  buttonWithText(overviewRoot, '查看节点').listeners.click();
+  assert.strictEqual(destination, 'nodes');
+}
+
 async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const server = { intent: draftLifecycleIntent(), revision: 'saved-initial' };
@@ -1945,6 +1977,7 @@ Promise.resolve()
   .then(testStoreTracksSavedPendingApply)
   .then(testActualGenerationAndPersistentApplyFixture)
   .then(testSharedProbeDiagnosticsAndDisabledActions)
+  .then(testOverviewUsesBoundedBackendWarningGroups)
   .then(testExternalRevisionRefreshPreservesDraftAndLifecycleFacts)
   .then(testSharedUISafetyContracts)
   .then(testJSONDraftStoreLifecycle)

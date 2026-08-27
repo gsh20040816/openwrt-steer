@@ -310,6 +310,37 @@
 	margin-left: var(--steer-space-page);
 }
 
+.steer-warning-groups {
+	display: grid;
+	gap: var(--steer-space-compact);
+	box-sizing: border-box;
+	padding: 0 var(--steer-space-page) var(--steer-space-card);
+}
+
+.steer-warning-group {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--steer-space-card);
+	padding: var(--steer-space-compact) var(--steer-space-card);
+	border: 1px solid color-mix(in srgb, #b7791f 35%, transparent);
+	border-left: .25rem solid #b7791f;
+	border-radius: .35rem;
+	background: color-mix(in srgb, #b7791f 7%, transparent);
+}
+
+.steer-warning-group > div {
+	display: flex;
+	flex-direction: column;
+	gap: .2rem;
+	min-width: 0;
+}
+
+.steer-warning-group span {
+	color: var(--steer-muted);
+	font-size: .82rem;
+}
+
 .steer-machine-input {
 	box-sizing: border-box;
 	width: 100%;

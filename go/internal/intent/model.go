@@ -178,8 +178,21 @@ type Issue struct {
 	Message    string `json:"message"`
 }
 
+// WarningGroup is the bounded, user-facing representation of one class of
+// runtime warning. Object IDs and raw validation messages deliberately stay
+// in Warnings for field-level actions and never enter this overview contract.
+type WarningGroup struct {
+	Code        string `json:"code"`
+	ObjectType  string `json:"object_type"`
+	Option      string `json:"option"`
+	Count       int    `json:"count"`
+	Summary     string `json:"summary"`
+	Destination string `json:"destination,omitempty"`
+}
+
 type Validation struct {
-	OK       bool    `json:"ok"`
-	Errors   []Issue `json:"errors"`
-	Warnings []Issue `json:"warnings"`
+	OK            bool           `json:"ok"`
+	Errors        []Issue        `json:"errors"`
+	Warnings      []Issue        `json:"warnings"`
+	WarningGroups []WarningGroup `json:"warning_groups"`
 }

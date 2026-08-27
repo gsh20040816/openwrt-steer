@@ -11,7 +11,7 @@ import (
 )
 
 func ValidateNode(value Node) Validation {
-	validation := Validation{Errors: []Issue{}, Warnings: []Issue{}}
+	validation := Validation{Errors: []Issue{}, Warnings: []Issue{}, WarningGroups: []WarningGroup{}}
 	err := func(code, objectType, objectID, option, message string) {
 		validation.Errors = append(validation.Errors, Issue{Code: code, ObjectType: objectType, ObjectID: objectID, Option: option, Message: message})
 	}
@@ -20,6 +20,7 @@ func ValidateNode(value Node) Validation {
 	}
 	validateNode(value, err, warn)
 	validation.OK = len(validation.Errors) == 0
+	validation.WarningGroups = GroupWarnings(validation.Warnings)
 	return validation
 }
 
@@ -52,7 +53,7 @@ type ValidationOptions struct {
 // ValidateWithOptions combines the Canonical contract with the listener
 // addresses reserved by one platform adapter.
 func ValidateWithOptions(intent Intent, options ValidationOptions) Validation {
-	validation := Validation{Errors: []Issue{}, Warnings: []Issue{}}
+	validation := Validation{Errors: []Issue{}, Warnings: []Issue{}, WarningGroups: []WarningGroup{}}
 	err := func(code, objectType, objectID, option, message string) {
 		validation.Errors = append(validation.Errors, Issue{Code: code, ObjectType: objectType, ObjectID: objectID, Option: option, Message: message})
 	}
@@ -210,6 +211,8 @@ func ValidateWithOptions(intent Intent, options ValidationOptions) Validation {
 	if defaultCount != 1 {
 		err("DEFAULT_COUNT", "rule", "", "", "exactly one enabled Default rule is required")
 	}
+	validation.Warnings = ReachableWarnings(intent, validation.Warnings)
+	validation.WarningGroups = GroupWarnings(validation.Warnings)
 	validation.OK = len(validation.Errors) == 0
 	return validation
 }

@@ -71,6 +71,7 @@ Canonical Intent / Validate / Compiler
 最近 UI 开发形成以下强制收敛规则：
 
 - Warning 必须先按候选配置或 Active 配置的实际可达运行图过滤，完全未被使用的节点、路由、DNS Profile 等实体不产生运行 Warning；普通界面按稳定类型聚合并显示数量，不逐条铺开同类问题。Error 仍保持严格校验，不得借此隐藏。
+- 共享校验结果必须输出 `warning_groups`，其稳定分组键为 `code/object_type/option`，并携带受影响实体数、安全摘要和共享页面目标。三端 Overview 只能本地化这些分组和执行页面跳转，不得读取 `object_id`、raw `message` 或自行重建 Rule → DNS Profile/Route → Node/Detour 可达图；`main.enabled=false` 时实体运行 Warning 为空。
 - probe 后端可以保留完成测试所需的结构化事实，但普通界面不展示连续历史报告。每个 overview/node/route 测试入口只持久显示对应 kind 的最近时间、结果和一个核心指标；配置身份变化后只标记“已过期”。
 - 最近测试结果必须由共享 Go 层生成 `scope/object_id/kind/tested_at/ok/stale/summary/error_summary` DTO，并由三端独立的批量读取 capability 提供。普通前端只能本地化时间和选择原生样式；源码不得引用 `diagnostics.reports`、Saved/Active digest、阶段耗时或下载字节来计算结果。未保存的 Draft 本身不改变测试所依据的 Saved identity，不能由前端擅自标记 stale。测试失败后仍必须立即安装动作返回的 DTO，或按键重新读取后端结果。
 - 全局状态区域只显示运行状态、工作副本/Saved/Active 的必要差异和可执行操作，不显示 digest、generation、candidate 路径或内部 apply 阶段。状态必须与操作位于同一清晰容器，不能退化成贴边的小字遥测行。

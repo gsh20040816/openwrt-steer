@@ -138,6 +138,43 @@ function lifecycleCounts(counts) {
 		counts.nodes || 0, counts.routes || 0, counts.dns_profiles || 0, counts.local_proxies || 0, counts.rules || 0, counts.subscriptions || 0);
 }
 
+function warningGroupLabel(group) {
+	if (group?.code == 'INSECURE_TLS' && group?.object_type == 'dns_profile') return _('DNS certificate verification is disabled');
+	if (group?.code == 'INSECURE_TLS') return _('TLS certificate verification is disabled');
+	if (group?.code == 'SUBSCRIPTION_NODE_STALE') return _('Subscription node is no longer advertised');
+	if (group?.code == 'DNS_REJECT_PROJECTION_SKIPPED') return _('DNS reject conditions cannot be applied before resolution');
+	if (group?.code == 'DNS_PROJECTION_EMPTY') return _('DNS continues matching later rules');
+	return group?.summary || _('Configuration warning');
+}
+
+function warningGroupScope(group) {
+	return ({ node: _('node(s)'), route: _('route(s)'), dns_profile: _('DNS Profile(s)'),
+		local_proxy: _('local proxy entry/entries'), rule: _('rule(s)') })[group?.object_type] || _('object(s)');
+}
+
+function warningGroupDestination(group) {
+	return ({ nodes: 'nodes', routes: 'routes', dns: 'dns', proxies: 'proxies', rules: 'rules',
+		subscriptions: 'subscriptions', general: 'general' })[group?.destination];
+}
+
+function renderWarningGroups(validation, title) {
+	const groups = validation?.warning_groups || [];
+	if (!groups.length) return '';
+	return E('section', { 'class': 'cbi-section steer-warning-summary' }, [
+		E('h3', {}, title),
+		E('div', { 'class': 'steer-warning-groups' }, groups.map((group) => {
+			const destination = warningGroupDestination(group);
+			return E('article', { 'class': 'steer-warning-group' }, [
+				E('div', {}, [
+					E('strong', {}, warningGroupLabel(group)),
+					E('span', {}, _('%d affected in-use %s').format(group.count || 0, warningGroupScope(group)))
+				]),
+				destination ? E('a', { 'class': 'btn cbi-button-action', 'href': destination }, _('View affected items')) : ''
+			]);
+		}))
+	]);
+}
+
 function renderLifecycleOverview(state) {
 	const desired = state?.desired || {};
 	const saved = state?.saved || {};
@@ -172,6 +209,7 @@ function renderLifecycleOverview(state) {
 	}
 	const desiredWarnings = desired.validation?.warnings || [];
 	const savedWarnings = saved.validation?.warnings || [];
+	const overviewValidation = pending ? desired.validation : saved.validation;
 	return E([], [
 		E('section', { 'class': 'cbi-section steer-lifecycle' }, [
 			E('h3', {}, _('Configuration status')),
@@ -210,8 +248,7 @@ function renderLifecycleOverview(state) {
 			]),
 			...actions
 		]),
-		...desiredWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Working copy warning: %s').format(steer.issueText(issue)))),
-		...savedWarnings.map((issue) => E('p', { 'class': 'alert-message warning' }, _('Saved configuration warning: %s').format(steer.issueText(issue)))),
+		renderWarningGroups(overviewValidation, pending ? _('Working copy warning summary') : _('Saved configuration warning summary')),
 		lastResult?.ok === false ? E('p', { 'class': 'alert-message danger' }, _('The last application failed. The saved configuration is still available; check Diagnostics for details.')) : ''
 	]);
 }

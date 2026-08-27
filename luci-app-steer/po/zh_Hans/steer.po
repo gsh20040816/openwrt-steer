@@ -30,6 +30,9 @@ msgstr "%d 个端口"
 msgid "%d valid %s names are available for dynamic completion."
 msgstr "当前有 %d 个合法 %s 名称可用于动态补全。"
 
+msgid "%d affected in-use %s"
+msgstr "影响 %d 个正在使用的%s"
+
 msgid "%d. %s"
 msgstr "%d. %s"
 
@@ -77,6 +80,9 @@ msgstr "取消"
 
 msgid "Certificate verification"
 msgstr "证书校验"
+
+msgid "Configuration warning"
+msgstr "配置警告"
 
 msgid "Choose DNS profile"
 msgstr "选择 DNS 配置"
@@ -972,6 +978,9 @@ msgstr "TCP / Raw"
 msgid "TLS certificate verification is disabled."
 msgstr "TLS 证书校验已关闭。"
 
+msgid "TLS certificate verification is disabled"
+msgstr "TLS 证书校验已关闭"
+
 msgid "TUIC"
 msgstr "TUIC"
 
@@ -1350,9 +1359,6 @@ msgstr "运行配置"
 msgid "Running status"
 msgstr "运行状态"
 
-msgid "Saved configuration warning: %s"
-msgstr "已保存配置警告：%s"
-
 msgid "Service running abnormally"
 msgstr "服务运行异常"
 
@@ -1416,8 +1422,8 @@ msgstr "有未保存修改"
 msgid "Working copy"
 msgstr "工作副本"
 
-msgid "Working copy warning: %s"
-msgstr "工作副本警告：%s"
+msgid "Working copy warning summary"
+msgstr "工作副本警告摘要"
 
 msgid "Duplicate %d"
 msgstr "同名项 %d"
@@ -1427,3 +1433,39 @@ msgstr "已过期"
 
 msgid "Tested at"
 msgstr "上次测试"
+
+msgid "DNS Profile(s)"
+msgstr "DNS Profile"
+
+msgid "DNS certificate verification is disabled"
+msgstr "DNS 证书校验已关闭"
+
+msgid "DNS reject conditions cannot be applied before resolution"
+msgstr "DNS 拒绝条件无法在解析前应用"
+
+msgid "DNS continues matching later rules"
+msgstr "DNS 将继续匹配后续规则"
+
+msgid "Saved configuration warning summary"
+msgstr "已保存配置警告摘要"
+
+msgid "Subscription node is no longer advertised"
+msgstr "订阅已不再提供此节点"
+
+msgid "View affected items"
+msgstr "查看受影响项"
+
+msgid "local proxy entry/entries"
+msgstr "本地入口"
+
+msgid "node(s)"
+msgstr "节点"
+
+msgid "object(s)"
+msgstr "对象"
+
+msgid "route(s)"
+msgstr "路由"
+
+msgid "rule(s)"
+msgstr "规则"

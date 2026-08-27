@@ -81,6 +81,31 @@ func TestUnreadableManifestHasAStableDistinctIssueAcrossPlatforms(t *testing.T) 
 	}
 }
 
+func TestReachableWarningGroupsAreConsistentAcrossPlatforms(t *testing.T) {
+	value := platformIntent()
+	value.Nodes = []model.Node{
+		{ID: "used", Enabled: true, Type: "vless", Server: "used.example", ServerPort: 443,
+			NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}, NodeTLS: model.NodeTLS{Insecure: true}},
+		{ID: "unused", Enabled: true, Type: "vless", Server: "unused.example", ServerPort: 443,
+			NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000002"}, NodeTLS: model.NodeTLS{Insecure: true}},
+	}
+	value.Routes = append(value.Routes, model.Route{ID: "proxy", Enabled: true, Kind: "single", Node: "used"})
+	value.Rules = append([]model.Rule{{
+		ID: "proxy_rule", Enabled: true, DNSProfile: "dns", Route: "proxy", DomainMatch: []string{"domain:example.com"},
+	}}, value.Rules...)
+	for name, validate := range platformValidators(writeManifest(t)) {
+		t.Run(name, func(t *testing.T) {
+			validation := validate(value)
+			if !validation.OK || len(validation.Warnings) != 1 || validation.Warnings[0].ObjectID != "used" {
+				t.Fatalf("platform warning reachability drifted: %#v", validation)
+			}
+			if len(validation.WarningGroups) != 1 || validation.WarningGroups[0].Count != 1 || validation.WarningGroups[0].Destination != "nodes" {
+				t.Fatalf("platform warning grouping drifted: %#v", validation.WarningGroups)
+			}
+		})
+	}
+}
+
 func TestPlatformReservedListenersMatchGeneratedPlans(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -15,6 +15,31 @@
   }
   const arrow = () => h('span', { class: 'arrow', 'aria-hidden': 'true' }, '→');
 
+  function warningGroupLabel(group) {
+    if (group.code === 'INSECURE_TLS' && group.object_type === 'dns_profile') return 'DNS 证书校验已关闭';
+    if (group.code === 'INSECURE_TLS') return 'TLS 证书校验已关闭';
+    if (group.code === 'SUBSCRIPTION_NODE_STALE') return '订阅已不再提供此节点';
+    if (group.code === 'DNS_REJECT_PROJECTION_SKIPPED') return 'DNS 拒绝条件无法在解析前完整执行';
+    if (group.code === 'DNS_PROJECTION_EMPTY') return 'DNS 将继续匹配后续规则';
+    return group.summary || '配置警告';
+  }
+
+  function warningGroupScope(group) {
+    return ({ node: '节点', route: '路由', dns_profile: 'DNS Profile', local_proxy: '本地入口', rule: '规则' })[group.object_type] || '对象';
+  }
+
+  function warningGroups(validation) {
+    const groups = Array.isArray(validation?.warning_groups) ? validation.warning_groups : [];
+    if (!groups.length) return null;
+    return h('div', { class: 'warning-groups', 'aria-label': '警告摘要' }, groups.map((group) => h('article', { class: 'warning-group' }, [
+      h('div', { class: 'warning-group__copy' }, [
+        h('strong', {}, warningGroupLabel(group)),
+        h('span', {}, `${group.count || 0} 个正在使用的${warningGroupScope(group)}`)
+      ]),
+      group.destination ? h('button', { class: 'btn btn--sm', onclick: () => S.router?.(group.destination) }, `查看${warningGroupScope(group)}`) : null
+    ])));
+  }
+
   const view = {
     name: 'overview',
     async render(root) {
@@ -67,6 +92,7 @@
           fact('上次应用', lastApply ? `${ui.applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')
         ]),
         h('div', { class: 'u-mt-10' }, ui.applyRecord(status)),
+        warningGroups(validation),
         h('p', { class: 'muted' }, validation.errors.length || validation.warnings.length
           ? '可在“诊断”页面查看详细问题、连通性报告与系统日志。'
           : '当前工作副本校验通过。可在“诊断”页面查看连通性报告与系统日志。')
