@@ -63,6 +63,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runProbe(args[1:], stdout)
 	case "_diagnostics":
 		return runDiagnostics(args[1:], stdout)
+	case "_probe-results":
+		return runProbeResults(args[1:], stdout)
 	case "geo-catalog":
 		return runGeoCatalog(args[1:], stdout)
 	case "subscription":
@@ -374,5 +376,5 @@ func writeJSON(writer io.Writer, value any) error {
 }
 
 func usage() error {
-	return errors.New("usage: steer-macos {version|validate|compile|parse-nodes|probe|geo-catalog|subscription|verify-geodata|prepare|apply|health|status|cleanup|control|_diagnostics|_control|_run} [flags]")
+	return errors.New("usage: steer-macos {version|validate|compile|parse-nodes|probe|geo-catalog|subscription|verify-geodata|prepare|apply|health|status|cleanup|control|_diagnostics|_probe-results|_control|_run} [flags]")
 }

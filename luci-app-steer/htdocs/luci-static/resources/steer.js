@@ -16,6 +16,7 @@ const callIntentPreview = rpc.declare({ object: 'luci.steer', method: 'intent_pr
 const callRuntime = rpc.declare({ object: 'luci.steer', method: 'runtime', expect: { '': {} } });
 const callLogs = rpc.declare({ object: 'luci.steer', method: 'logs', expect: { '': {} } });
 const callDiagnostics = rpc.declare({ object: 'luci.steer', method: 'diagnostics', expect: { '': {} } });
+const callProbeResults = rpc.declare({ object: 'luci.steer', method: 'probe_results', expect: { '': {} } });
 const callGeodataCatalog = rpc.declare({ object: 'luci.steer', method: 'geodata_catalog', expect: { '': {} } });
 const callSubscriptions = rpc.declare({ object: 'luci.steer', method: 'subscriptions', expect: { '': {} } });
 const callSubscriptionUpdate = rpc.declare({ object: 'luci.steer', method: 'subscription_update', params: [ 'id' ], expect: { '': {} } });
@@ -370,6 +371,7 @@ return baseclass.extend({
 	runtime: function() { return L.resolveDefault(callRuntime(), {}); },
 	logs: function() { return L.resolveDefault(callLogs(), {}); },
 	diagnostics: function() { return L.resolveDefault(callDiagnostics(), {}); },
+	probeResults: function() { return L.resolveDefault(callProbeResults(), { latest_results: [], warnings: [] }); },
 	geodataCatalog: function() { return L.resolveDefault(callGeodataCatalog(), {}); },
 	subscriptions: function() { return L.resolveDefault(callSubscriptions(), {}); },
 	updateSubscription: function(id) { return callSubscriptionUpdate(id); },

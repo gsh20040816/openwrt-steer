@@ -3,7 +3,9 @@
 package probe
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,17 +13,19 @@ import (
 	"time"
 )
 
-func TestReportArchiveSanitizesSecretsAndReturnsNewestFirst(t *testing.T) {
+func TestLatestProbeResultsSanitizeReportsAndReturnNewestFirst(t *testing.T) {
 	stateDirectory := t.TempDir()
 	older := Report{
 		Scope: "nodes", ObjectID: "node_a", Kind: "connect", TestedAt: time.Date(2026, 8, 26, 1, 0, 0, 0, time.UTC),
-		Error: "temporary sing-box: password=secret outbound={private_key: hidden}", Results: []Result{{
+		SavedDigest: "saved-a",
+		Error:       "temporary sing-box: password=secret outbound={private_key: hidden}", Results: []Result{{
 			URL: "https://user:token@example.test/probe?token=secret&bytes=1000#private", Error: "dial tcp: password=secret",
 		}},
 	}
 	newer := Report{
 		Scope: "overview", Kind: "proxy", OK: true, TestedAt: older.TestedAt.Add(time.Hour),
-		ActiveGeneration: "generation-a", ActiveDigest: "active-a", Results: []Result{{URL: "https://example.test/", OK: true, Status: 204}},
+		SavedDigest: "saved-a", ActiveGeneration: "generation-a", ActiveDigest: "active-a",
+		Results: []Result{{URL: "https://example.test/", OK: true, Status: 204}},
 	}
 	if err := SaveReport(stateDirectory, older); err != nil {
 		t.Fatal(err)
@@ -29,18 +33,21 @@ func TestReportArchiveSanitizesSecretsAndReturnsNewestFirst(t *testing.T) {
 	if err := SaveReport(stateDirectory, newer); err != nil {
 		t.Fatal(err)
 	}
-	diagnostics := ReadDiagnostics(stateDirectory)
-	if len(diagnostics.Reports) != 2 || diagnostics.Reports[0].Kind != "proxy" {
-		t.Fatalf("archive order drifted: %#v", diagnostics.Reports)
+	results := ReadLatestProbeResults(stateDirectory, Identity{SavedDigest: "saved-a", ActiveGeneration: "generation-a", ActiveDigest: "active-a"})
+	if len(results.Results) != 2 || results.Results[0].Kind != "proxy" {
+		t.Fatalf("latest result order drifted: %#v", results.Results)
 	}
-	encoded := diagnostics.Reports[1].Results[0].URL + diagnostics.Reports[1].Error + diagnostics.Reports[1].Results[0].Error
+	encoded, err := json.Marshal(results)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, secret := range []string{"user:", "token@", "secret", "private_key", "outbound="} {
-		if strings.Contains(encoded, secret) {
-			t.Fatalf("sanitized archive leaked %q: %s", secret, encoded)
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("latest result leaked %q: %s", secret, encoded)
 		}
 	}
-	if !strings.Contains(diagnostics.Reports[1].Results[0].URL, "/REDACTED") || strings.Contains(diagnostics.Reports[1].Results[0].URL, "1000") {
-		t.Fatalf("diagnostic URL path/query values were not redacted: %q", diagnostics.Reports[1].Results[0].URL)
+	if results.Results[1].ErrorSummary != "请查看诊断日志" {
+		t.Fatalf("unsafe failure was not reduced to a product summary: %#v", results.Results[1])
 	}
 }
 
@@ -48,7 +55,8 @@ func TestReportArchiveKeepsOnlyLatestScopeObjectKind(t *testing.T) {
 	stateDirectory := t.TempDir()
 	first := Report{
 		Scope: "nodes", ObjectID: "node_a", Kind: "connect", TestedAt: time.Date(2026, 8, 26, 1, 0, 0, 0, time.UTC),
-		Results: []Result{{OK: false, Error: "timeout"}},
+		SavedDigest: "saved-a",
+		Results:     []Result{{OK: false, Error: "timeout"}},
 	}
 	latest := first
 	latest.OK = true
@@ -60,25 +68,95 @@ func TestReportArchiveKeepsOnlyLatestScopeObjectKind(t *testing.T) {
 	if err := SaveReport(stateDirectory, latest); err != nil {
 		t.Fatal(err)
 	}
-	diagnostics := ReadDiagnostics(stateDirectory)
-	if len(diagnostics.Reports) != 1 || !diagnostics.Reports[0].OK ||
-		diagnostics.Reports[0].TestedAt != latest.TestedAt || diagnostics.Reports[0].Results[0].FirstByteMilliseconds != 42 {
-		t.Fatalf("scope/object/kind did not retain exactly the latest result: %#v", diagnostics.Reports)
+	if err := SaveReport(stateDirectory, first); err != nil {
+		t.Fatal(err)
+	}
+	results := ReadLatestProbeResults(stateDirectory, Identity{SavedDigest: "saved-a"})
+	if len(results.Results) != 1 || !results.Results[0].OK ||
+		results.Results[0].TestedAt != latest.TestedAt || results.Results[0].Summary != "42 ms" {
+		t.Fatalf("scope/object/kind did not retain exactly the latest result: %#v", results.Results)
 	}
 }
 
 func TestReportArchiveWarnsAndContinuesPastInvalidState(t *testing.T) {
 	stateDirectory := t.TempDir()
-	if err := SaveReport(stateDirectory, Report{Scope: "overview", Kind: "direct", TestedAt: time.Now(), Results: []Result{}}); err != nil {
+	if err := SaveReport(stateDirectory, Report{Scope: "overview", Kind: "direct", TestedAt: time.Now(), SavedDigest: "saved-a", Results: []Result{}}); err != nil {
 		t.Fatal(err)
 	}
 	invalid := filepath.Join(stateDirectory, "logs", "tests", "overview", "invalid.json")
 	if err := os.WriteFile(invalid, []byte("{not-json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	diagnostics := ReadDiagnostics(stateDirectory)
-	if len(diagnostics.Reports) != 1 || len(diagnostics.Warnings) != 1 {
-		t.Fatalf("invalid state hid valid reports or lacked a warning: %#v", diagnostics)
+	results := ReadLatestProbeResults(stateDirectory, Identity{SavedDigest: "saved-a"})
+	if len(results.Results) != 1 || len(results.Warnings) != 1 {
+		t.Fatalf("invalid state hid valid results or lacked a warning: %#v", results)
+	}
+}
+
+func TestLatestProbeResultsAreUnboundedAndBackendComputesStale(t *testing.T) {
+	stateDirectory := t.TempDir()
+	for index := 0; index < 140; index++ {
+		for _, kind := range []string{"connect", "download"} {
+			report := Report{
+				Scope: "nodes", ObjectID: fmt.Sprintf("node_%03d", index), Kind: kind,
+				OK: true, TestedAt: time.Date(2026, 8, 26, 1, index%60, 0, 0, time.UTC), SavedDigest: "saved-a",
+				Results: []Result{{OK: true, FirstByteMilliseconds: 17, DownloadedBytes: 1_000_000, DownloadMilliseconds: 500}},
+			}
+			if err := SaveReport(stateDirectory, report); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	results := ReadLatestProbeResults(stateDirectory, Identity{SavedDigest: "saved-a"})
+	if len(results.Results) != 280 {
+		t.Fatalf("latest results were globally truncated: got %d, want 280", len(results.Results))
+	}
+	for _, result := range results.Results {
+		if result.Stale {
+			t.Fatalf("matching Saved identity was marked stale: %#v", result)
+		}
+	}
+	stale := ReadLatestProbeResults(stateDirectory, Identity{SavedDigest: "saved-b"})
+	if !stale.Results[0].Stale {
+		t.Fatal("changed Saved identity did not stale a persisted Node result")
+	}
+}
+
+func TestLatestProbeResultUsesBackendMetricAndSafeFailureSummary(t *testing.T) {
+	identity := Identity{SavedDigest: "saved-a"}
+	download := PresentLatestProbeResult(Report{
+		Scope: "nodes", ObjectID: "node_a", Kind: "download", OK: true, SavedDigest: "saved-a", TestedAt: time.Now(),
+		Results: []Result{{OK: true, DownloadedBytes: 1_000_000, DownloadMilliseconds: 500}},
+	}, identity)
+	if download.Summary != "16.0 Mbps" || download.ErrorSummary != "" {
+		t.Fatalf("download summary drifted: %#v", download)
+	}
+	failure := PresentLatestProbeResult(Report{
+		Scope: "routes", ObjectID: "route_a", Kind: "connect", SavedDigest: "saved-a", TestedAt: time.Now(),
+		Error: "dial tcp 192.0.2.1:443: connection refused; password=secret",
+	}, identity)
+	if failure.OK || failure.ErrorSummary != "连接被拒绝" || failure.Summary != "" {
+		t.Fatalf("failure summary drifted: %#v", failure)
+	}
+}
+
+func TestOverviewLatestResultUsesSavedAndActiveIdentity(t *testing.T) {
+	report := Report{
+		Scope: "overview", Kind: "proxy", OK: true, TestedAt: time.Now(),
+		SavedDigest: "saved-a", ActiveGeneration: "generation-a", ActiveDigest: "active-a",
+		Results: []Result{{OK: true, FirstByteMilliseconds: 21}},
+	}
+	matching := PresentLatestProbeResult(report, Identity{
+		SavedDigest: "saved-a", ActiveGeneration: "generation-a", ActiveDigest: "active-a",
+	})
+	if matching.Stale {
+		t.Fatal("matching Saved/Active identity was marked stale")
+	}
+	changed := PresentLatestProbeResult(report, Identity{
+		SavedDigest: "saved-a", ActiveGeneration: "generation-b", ActiveDigest: "active-b",
+	})
+	if !changed.Stale {
+		t.Fatal("changed Active identity did not stale an Overview result")
 	}
 }
 

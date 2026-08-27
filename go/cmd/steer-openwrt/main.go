@@ -72,6 +72,8 @@ func run(args []string) error {
 		return runRuntime(args[1:])
 	case "_diagnostics":
 		return runDiagnostics(args[1:])
+	case "_probe-results":
+		return runProbeResults(args[1:])
 	case "_state":
 		return runUIState(args[1:])
 	case "_start":
@@ -173,6 +175,22 @@ func runDiagnostics(args []string) error {
 		return errors.New("_diagnostics accepts flags only")
 	}
 	writeJSON(openwrt.ReadDiagnostics(*configPath, *runDirectory, *stateDirectory))
+	return nil
+}
+
+func runProbeResults(args []string) error {
+	flags := flag.NewFlagSet("_probe-results", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
+	stateDirectory := flags.String("state-dir", "/var/lib/steer", "generated state directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("_probe-results accepts flags only")
+	}
+	writeJSON(openwrt.ReadLatestProbeResults(*configPath, *runDirectory, *stateDirectory))
 	return nil
 }
 
@@ -474,41 +492,40 @@ func runProbe(args []string) error {
 		if *kind != "speedtest" {
 			return errors.New("--node and --route require --kind speedtest")
 		}
-		var report openwrt.TestReport
 		var err error
 		if *nodeID != "" {
-			report, err = openwrt.SpeedTestNode(context.Background(), *configPath, *stateDirectory, *singBoxPath, *nodeID, *download)
+			_, err = openwrt.SpeedTestNode(context.Background(), *configPath, *stateDirectory, *singBoxPath, *nodeID, *download)
 		} else {
-			report, err = openwrt.SpeedTestRoute(context.Background(), *configPath, *stateDirectory, *singBoxPath, *routeID, *download)
+			_, err = openwrt.SpeedTestRoute(context.Background(), *configPath, *stateDirectory, *singBoxPath, *routeID, *download)
 		}
-		if err != nil {
-			scope, objectID := "nodes", *nodeID
-			if *routeID != "" {
-				scope, objectID = "routes", *routeID
-			}
-			testKind := "connect"
-			if *download {
-				testKind = "download"
-			}
-			writeJSON(coreprobe.FailureReport(scope, objectID, testKind, err))
-			return err
+		scope, objectID := "nodes", *nodeID
+		if *routeID != "" {
+			scope, objectID = "routes", *routeID
 		}
-		writeJSON(report)
-		if !report.OK {
-			return errors.New("HTTPS test failed")
+		testKind := "connect"
+		if *download {
+			testKind = "download"
 		}
-		return nil
-	}
-	report, err := openwrt.ProbeOverview(context.Background(), *configPath, *runDirectory, *stateDirectory, *kind, nil)
-	if err != nil {
-		writeJSON(coreprobe.FailureReport("overview", "", *kind, err))
+		results := openwrt.ReadLatestProbeResults(*configPath, *runDirectory, *stateDirectory)
+		if latest, ok := coreprobe.FindLatestProbeResult(results, scope, objectID, testKind); ok {
+			writeJSON(latest)
+			return nil
+		}
+		if err == nil {
+			err = errors.New("latest probe result was not persisted")
+		}
 		return err
 	}
-	writeJSON(report)
-	if !report.OK {
-		return errors.New("one or more HTTPS probes failed")
+	_, err := openwrt.ProbeOverview(context.Background(), *configPath, *runDirectory, *stateDirectory, *kind, nil)
+	results := openwrt.ReadLatestProbeResults(*configPath, *runDirectory, *stateDirectory)
+	if latest, ok := coreprobe.FindLatestProbeResult(results, "overview", "", *kind); ok {
+		writeJSON(latest)
+		return nil
 	}
-	return nil
+	if err == nil {
+		err = errors.New("latest probe result was not persisted")
+	}
+	return err
 }
 
 func runSubscription(args []string) error {

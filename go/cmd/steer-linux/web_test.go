@@ -422,7 +422,7 @@ func TestWebRuntimeReportsInstalledToolVersions(t *testing.T) {
 	}
 }
 
-func TestWebDiagnosticsReturnsSanitizedHistoryAndAggregatedLogs(t *testing.T) {
+func TestWebProbeResultsReturnOnlySafeLatestDTOAndDiagnosticsAggregateLogs(t *testing.T) {
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.json")
 	stateDirectory := filepath.Join(root, "state")
@@ -443,13 +443,24 @@ func TestWebDiagnosticsReturnsSanitizedHistoryAndAggregatedLogs(t *testing.T) {
 		t.Fatalf("diagnostics endpoint returned %d: %s", diagnosticsResponse.Code, diagnosticsResponse.Body.String())
 	}
 	var diagnostics probe.Diagnostics
-	if err := json.Unmarshal(diagnosticsResponse.Body.Bytes(), &diagnostics); err != nil || len(diagnostics.Reports) != 1 || diagnostics.SavedDigest == "" {
+	if err := json.Unmarshal(diagnosticsResponse.Body.Bytes(), &diagnostics); err != nil {
 		t.Fatalf("diagnostics response drifted: %v %#v", err, diagnostics)
 	}
-	encoded := diagnosticsResponse.Body.String()
+	probeResultsResponse := httptest.NewRecorder()
+	app.handleProbeResults(probeResultsResponse, httptest.NewRequest(http.MethodGet, "/api/v1/probe-results", nil))
+	var latest probe.LatestProbeResults
+	if err := json.Unmarshal(probeResultsResponse.Body.Bytes(), &latest); err != nil || len(latest.Results) != 1 || latest.Results[0].ErrorSummary != "请查看诊断日志" {
+		t.Fatalf("latest probe results response drifted: %v %#v", err, latest)
+	}
+	encoded := diagnosticsResponse.Body.String() + probeResultsResponse.Body.String()
 	for _, secret := range []string{"user:token", "secret", "temporary sing-box"} {
 		if strings.Contains(encoded, secret) {
 			t.Fatalf("diagnostics response leaked %q: %s", secret, encoded)
+		}
+	}
+	for _, forbidden := range []string{"\"reports\"", "saved_digest", "active_digest", "\"results\":"} {
+		if strings.Contains(encoded, forbidden) {
+			t.Fatalf("ordinary probe contract exposed %q: %s", forbidden, encoded)
 		}
 	}
 
@@ -460,6 +471,25 @@ func TestWebDiagnosticsReturnsSanitizedHistoryAndAggregatedLogs(t *testing.T) {
 		if !strings.Contains(arguments, unit) {
 			t.Fatalf("aggregated journal omitted %s: %s", unit, arguments)
 		}
+	}
+}
+
+func TestWebProbeFailureImmediatelyReturnsPersistedLatestDTO(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	if _, err := (linuxplatform.IntentStore{Path: configPath}).Save(webTestIntent(), ""); err != nil {
+		t.Fatal(err)
+	}
+	app := webApplication{ConfigPath: configPath, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state")}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/probes/nodes/missing-node", strings.NewReader(`{"download":false}`))
+	app.handleProbes(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("persisted probe failure returned HTTP %d: %s", response.Code, response.Body.String())
+	}
+	var result probe.LatestProbeResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.OK || result.Scope != "nodes" || result.ObjectID != "missing-node" || result.Stale {
+		t.Fatalf("probe failure did not immediately return the backend DTO: %v %#v", err, result)
 	}
 }
 

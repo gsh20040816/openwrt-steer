@@ -56,7 +56,7 @@ for attempt in 1 2 3 4 5; do
 	sleep 1
 done
 ubus -v list luci.steer > "$TEST_DIR/rpc-methods.txt"
-for method in commit_candidate geodata_catalog node_speedtest overview_probe route_speedtest status subscriptions validate; do
+for method in commit_candidate geodata_catalog node_speedtest overview_probe probe_results route_speedtest status subscriptions validate; do
 	grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"
 done
 for removed in plan rollback; do

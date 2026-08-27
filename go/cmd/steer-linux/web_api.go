@@ -17,6 +17,7 @@ import (
 	"github.com/gsh20040816/steer/go/internal/geodata"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
+	coreprobe "github.com/gsh20040816/steer/go/internal/probe"
 	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
@@ -137,31 +138,42 @@ func (app webApplication) handleProbes(writer http.ResponseWriter, request *http
 		if kind == "" {
 			kind = "direct"
 		}
-		report, err := linuxplatform.ProbeOverviewWithState(request.Context(), app.ConfigPath, app.RunDirectory, app.StateDirectory, kind, nil)
-		if err != nil {
-			writeWebError(writer, err, http.StatusUnprocessableEntity)
+		if kind != "direct" && kind != "proxy" && kind != "speedtest" {
+			writeWebError(writer, errors.New("probe kind must be direct, proxy or speedtest"), http.StatusBadRequest)
 			return
 		}
-		writeWebJSON(writer, report)
+		_, probeErr := linuxplatform.ProbeOverviewWithState(request.Context(), app.ConfigPath, app.RunDirectory, app.StateDirectory, kind, nil)
+		app.writeLatestProbeResult(writer, "overview", "", kind, probeErr)
 		return
 	}
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) == 2 && (parts[0] == "nodes" || parts[0] == "routes") {
-		var report linuxplatform.TestReport
-		var err error
+		var probeErr error
 		if parts[0] == "nodes" {
-			report, err = linuxplatform.SpeedTestNode(request.Context(), app.ConfigPath, app.StateDirectory, "/usr/bin/sing-box", parts[1], payload.Download)
+			_, probeErr = linuxplatform.SpeedTestNode(request.Context(), app.ConfigPath, app.StateDirectory, "/usr/bin/sing-box", parts[1], payload.Download)
 		} else {
-			report, err = linuxplatform.SpeedTestRoute(request.Context(), app.ConfigPath, app.StateDirectory, "/usr/bin/sing-box", parts[1], payload.Download)
+			_, probeErr = linuxplatform.SpeedTestRoute(request.Context(), app.ConfigPath, app.StateDirectory, "/usr/bin/sing-box", parts[1], payload.Download)
 		}
-		if err != nil {
-			writeWebError(writer, err, http.StatusUnprocessableEntity)
-			return
+		kind := "connect"
+		if payload.Download {
+			kind = "download"
 		}
-		writeWebJSON(writer, report)
+		app.writeLatestProbeResult(writer, parts[0], parts[1], kind, probeErr)
 		return
 	}
 	http.NotFound(writer, request)
+}
+
+func (app webApplication) writeLatestProbeResult(writer http.ResponseWriter, scope, objectID, kind string, probeErr error) {
+	results := linuxplatform.ReadLatestProbeResults(app.ConfigPath, app.RunDirectory, app.StateDirectory)
+	if result, ok := coreprobe.FindLatestProbeResult(results, scope, objectID, kind); ok {
+		writeWebJSON(writer, result)
+		return
+	}
+	if probeErr == nil {
+		probeErr = errors.New("latest probe result was not persisted")
+	}
+	writeWebError(writer, probeErr, http.StatusUnprocessableEntity)
 }
 
 func (app webApplication) handleSubscriptions(writer http.ResponseWriter, request *http.Request) {

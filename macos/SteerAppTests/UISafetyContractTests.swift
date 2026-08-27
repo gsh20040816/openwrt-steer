@@ -169,6 +169,11 @@ final class UISafetyContractTests: XCTestCase {
 
         XCTAssertFalse(SteerUISpec.contract.subscriptionInventory.changesActiveGeneration)
         XCTAssertEqual(SteerUISpec.contract.subscriptionInventory.staleReferencedNodes, "preserved")
+        XCTAssertEqual(SteerUISpec.contract.probeResults.keyFields, ["scope", "object_id", "kind"])
+        XCTAssertEqual(
+            SteerUISpec.contract.probeResults.resultFields,
+            ["scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"]
+        )
     }
 
     func testSharedValidationIssuesPreserveLocationWithoutSecrets() throws {

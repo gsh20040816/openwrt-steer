@@ -11,10 +11,12 @@ final class ProbeDiagnosticsTests: XCTestCase {
         let ordinaryUI: OrdinaryUIContract
         let objects: FixtureObjects
         let diagnostics: ProbeDiagnostics
+        let probeResults: ProbeLatestResults
 
         enum CodingKeys: String, CodingKey {
             case schemaVersion = "schema_version"
             case capability, objects, diagnostics
+            case probeResults = "probe_results"
             case ordinaryUI = "ordinary_ui"
         }
     }
@@ -54,9 +56,9 @@ final class ProbeDiagnosticsTests: XCTestCase {
         return try JSONDecoder().decode(FixtureDocument.self, from: Data(contentsOf: url))
     }
 
-    func testSharedProbeFixtureKeepsFullSanitizedReportsAndAccurateBoundary() throws {
+    func testSharedProbeFixtureContainsOnlyBackendLatestResultDTOs() throws {
         let document = try fixture()
-        XCTAssertEqual(document.schemaVersion, 1)
+        XCTAssertEqual(document.schemaVersion, 2)
         XCTAssertTrue(document.capability["overview"]?.contains("does not prove a particular outbound") == true)
         XCTAssertEqual(document.ordinaryUI.latestPerScopeObjectKind, 1)
         XCTAssertEqual(Set(document.ordinaryUI.requiredFacts), Set(["tested_at", "ok", "core_metric", "stale"]))
@@ -64,42 +66,29 @@ final class ProbeDiagnosticsTests: XCTestCase {
         XCTAssertEqual(document.objects.nodes.map(\.enabled), [true, false])
         XCTAssertEqual(document.objects.routes.map(\.enabled), [true, false])
         XCTAssertEqual(document.objects.subscriptions.map(\.enabled), [true, false])
-        XCTAssertEqual(document.diagnostics.reports.map(\.scope), ["overview", "nodes", "routes"])
+        XCTAssertEqual(document.probeResults.latestResults.map(\.scope), ["overview", "nodes", "routes"])
         XCTAssertEqual(document.diagnostics.dnsCapture?.mode, "dedicated_shim")
         XCTAssertEqual(document.diagnostics.dnsCapture?.activeGeneration, "generation-a")
         XCTAssertEqual(document.diagnostics.dnsCapture?.configured, true)
         XCTAssertTrue(document.diagnostics.dnsCapture?.detail.contains("port-53 capture artifacts") == true)
 
-        let overview = document.diagnostics.reports[0]
-        XCTAssertEqual(overview.results.first?.url, "https://probe.example/REDACTED")
-        XCTAssertEqual(overview.results.first?.attempts, 1)
-        XCTAssertEqual(overview.results.first?.connectMilliseconds, 7)
-        XCTAssertEqual(overview.results.first?.tlsMilliseconds, 9)
-        XCTAssertEqual(overview.results.first?.firstByteMilliseconds, 21)
-        XCTAssertFalse(overview.isStale(relativeTo: RuntimeStatus(
-            healthy: true, generationID: "generation-a", intentDigest: "active-a", error: ""
-        ), savedDigest: "saved-a"))
-        XCTAssertFalse(overview.isStale(relativeTo: RuntimeStatus(
-            healthy: false, generationID: "generation-a", intentDigest: "active-a", error: "runtime unhealthy"
-        ), savedDigest: "saved-a"))
-
-        let download = document.diagnostics.reports[1].results[0]
-        XCTAssertEqual(download.downloadedBytes, 1_000_000)
-        XCTAssertEqual(download.downloadMilliseconds, 500)
-        XCTAssertEqual(document.diagnostics.reports[2].error, "probe timed out")
+        let overview = document.probeResults.latestResults[0]
+        XCTAssertTrue(overview.ok)
+        XCTAssertFalse(overview.stale)
+        XCTAssertEqual(overview.summary, "21 ms")
+        XCTAssertEqual(overview.errorSummary, "")
+        let download = document.probeResults.latestResults[1]
+        XCTAssertEqual(download.summary, "16.0 Mbps")
+        let failure = document.probeResults.latestResults[2]
+        XCTAssertFalse(failure.ok)
+        XCTAssertTrue(failure.stale)
+        XCTAssertEqual(failure.errorSummary, "连接超时")
 
         let contentView = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/ContentView.swift"))
+        let appState = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/AppState.swift"))
         XCTAssertFalse(contentView.contains("Section(\"最近测试报告\")"))
         XCTAssertFalse(contentView.contains("diagnosticProbeReports"))
-    }
-}
-
-private extension RuntimeStatus {
-    init(healthy: Bool, generationID: String, intentDigest: String, error: String) {
-        self.init()
-        self.healthy = healthy
-        self.generationID = generationID
-        self.intentDigest = intentDigest
-        self.error = error
+        XCTAssertFalse(appState.contains("diagnostics.reports"))
+        XCTAssertFalse(appState.contains("firstByteMilliseconds"))
     }
 }

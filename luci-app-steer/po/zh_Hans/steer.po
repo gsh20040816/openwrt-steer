@@ -156,20 +156,11 @@ msgstr "下载测速"
 msgid "Batch download test"
 msgstr "批量下载测速"
 
-msgid "%s Mbps"
-msgstr "%s Mbps"
-
 msgid "Failed"
 msgstr "失败"
 
 msgid "Testing…"
 msgstr "测速中…"
-
-msgid "No download measurement was returned."
-msgstr "未返回下载速率。"
-
-msgid "No connection latency was returned."
-msgstr "未返回连接延迟。"
 
 msgid "%d/%d succeeded; click to test again."
 msgstr "%d/%d 个节点成功；点击可重新测速。"
@@ -459,14 +450,8 @@ msgstr "订阅状态"
 msgid "Subscription URL"
 msgstr "订阅地址"
 
-msgid "%d ms"
-msgstr "%d 毫秒"
-
 msgid "Test"
 msgstr "测试"
-
-msgid "%s ms"
-msgstr "%s 毫秒"
 
 msgid "Chain connection test"
 msgstr "代理链连接测试"
@@ -1440,20 +1425,5 @@ msgstr "同名项 %d"
 msgid "Outdated"
 msgstr "已过期"
 
-msgid "Probe timed out"
-msgstr "探测超时"
-
 msgid "Tested at"
 msgstr "上次测试"
-
-msgid "Connection was refused"
-msgstr "连接被拒绝"
-
-msgid "TLS verification failed"
-msgstr "TLS 校验失败"
-
-msgid "Target could not be resolved"
-msgstr "目标无法解析"
-
-msgid "Test was cancelled"
-msgstr "测试已取消"

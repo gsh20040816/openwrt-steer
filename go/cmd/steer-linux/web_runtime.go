@@ -71,6 +71,15 @@ func (app webApplication) handleDiagnostics(writer http.ResponseWriter, request 
 	writeWebJSON(writer, linuxplatform.ReadDiagnostics(app.ConfigPath, app.RunDirectory, app.StateDirectory))
 }
 
+func (app webApplication) handleProbeResults(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		writer.Header().Set("Allow", http.MethodGet)
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeWebJSON(writer, linuxplatform.ReadLatestProbeResults(app.ConfigPath, app.RunDirectory, app.StateDirectory))
+}
+
 func (app webApplication) runtimeInfo(ctx context.Context) runtimeInfo {
 	info := runtimeInfo{
 		Steer:           version,

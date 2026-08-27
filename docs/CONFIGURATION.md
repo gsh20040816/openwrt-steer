@@ -25,8 +25,8 @@ config bootstrap 'bootstrap'
 
 三个测试地址都必须是没有凭据和 fragment 的单个 HTTPS URL：
 
-- `probe_direct`：按当前 Active 规则访问的直连测试目标；
-- `probe_proxy`：按当前 Active 规则访问的代理测试目标，以及裸节点和路由链临时测试的默认目标；
+- `probe_direct`：使用设备当前网络环境访问的直连测试目标；
+- `probe_proxy`：使用设备当前网络环境访问的代理测试目标，以及裸节点和路由链临时测试的默认目标；
 - `speedtest_proxy`：完整下载测速。
 
 后端不会补默认 URL。Bootstrap 只支持 UDP/TCP，服务器必须是 IP 字面量，策略为 `prefer_ipv4`、`prefer_ipv6`、`ipv4_only` 或 `ipv6_only`。Bootstrap 只解析 DNS 上游等基础设施主机名；Direct UDP/TCP Bootstrap 可能产生明文 53，但其中不是原始业务查询域名。
@@ -178,7 +178,7 @@ steer probe --kind speedtest --route <route-id>
 steer probe --kind speedtest --route <route-id> --download
 ```
 
-连接测试内部记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试内部记录字节、耗时和速率。平台 state 只需按 overview/node/route 与测试 kind 保留最近结果。普通 UI 不展示原始报告或历史列表，只在测试入口显示最近的本地化时间、成功/失败和延迟或速率等一个核心指标；完整阶段数据仅供受控排错使用，并继续去除 credentials、URL path/query values 与进程诊断。概览请求从 Saved 配置读取 URL，直接使用设备当前网络环境访问，不要求 Steer 已启用；成功只证明 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。节点/路由测试只验证隔离临时链路，不证明当前规则选择了该链路。
+连接测试内部记录 TCP、TLS、首字节、HTTP 状态和尝试次数；下载测试内部记录字节、耗时和速率。平台 state 按 overview/node/route 与测试 kind 各保留一个原始报告，但普通控制面读取的是后端生成的 `LatestProbeResult`：`scope/object_id/kind/tested_at/ok/stale/summary/error_summary`。读取不按全局条数截断，失败动作也会返回或重新读取刚持久化的 DTO。普通 UI 不展示原始报告或历史列表，不比较 Saved/Active digest，也不自行计算 stale、延迟、吞吐率或错误分类；它只本地化时间并在测试入口展示后端摘要。完整阶段数据仅供受控排错使用，并继续去除 credentials、URL path/query values 与进程诊断。概览请求从 Saved 配置读取 URL，直接使用设备当前网络环境访问，不要求 Steer 已启用；成功只证明 URL 当时可达，不证明具体 outbound、DNS resolver 或 DNS 无泄漏。节点/路由测试只验证隔离临时链路，不证明当前规则选择了该链路。
 
 ## 版本与升级
 

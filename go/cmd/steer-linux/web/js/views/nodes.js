@@ -3,7 +3,7 @@
 'use strict';
 (function () {
   const S = window.S;
-  const { h, fmtReport, fmtLatestProbe, asList } = S;
+  const { h, fmtLatestProbe, asList } = S;
   const ui = S.ui;
 
   const MANUAL = '_manual';
@@ -19,15 +19,15 @@
     }));
   }
 
-  function latestReport(nodeId, download) {
+  function latestResult(nodeId, download) {
     const kind = download ? 'download' : 'connect';
-    return (S.store.diagnostics?.reports || []).find((report) =>
-      report.scope === 'nodes' && report.object_id === nodeId && report.kind === kind);
+    return (S.store.probeResults?.latest_results || []).find((result) =>
+      result.scope === 'nodes' && result.object_id === nodeId && result.kind === kind);
   }
 
-  function syncLatest(button, report = latestReport(button._nodeId, button._download)) {
+  function syncLatest(button, result = latestResult(button._nodeId, button._download)) {
     if (!button._latest) return;
-    const latest = fmtLatestProbe(report, S.store.diagnostics, S.store.dirty);
+    const latest = fmtLatestProbe(result);
     button._latest.className = `probe-latest ${latest.stale ? 'is-stale' : (latest.ok === false ? 'is-err' : '')}`;
     button._latest.replaceChildren(latest.text);
   }
@@ -103,20 +103,20 @@
       btn.classList.add('spinning');
       btn.textContent = '测试中…';
       try {
-        const report = await S.api.speedtestNode(nodeId, download);
-        S.store.installProbeReport?.(report);
-        const r = fmtReport(report, download);
+        const result = await S.api.speedtestNode(nodeId, download);
+        S.store.installProbeResult?.(result);
         btn.classList.remove('spinning');
-        btn.textContent = r.label;
-        btn.title = r.detail;
-        btn.classList.toggle('is-ok', r.ok);
-        btn.classList.toggle('is-err', !r.ok);
-        syncLatest(btn, report);
+        btn.textContent = result.ok ? (result.summary || '成功') : '失败';
+        btn.title = result.ok ? '成功' : (result.error_summary || '详细原因请查看诊断日志');
+        btn.classList.toggle('is-ok', result.ok);
+        btn.classList.toggle('is-err', !result.ok);
+        syncLatest(btn, result);
       } catch (e) {
         btn.classList.remove('spinning');
         btn.textContent = '失败';
         btn.title = '详细原因请查看诊断日志';
         btn.classList.add('is-err');
+        try { await S.store.refreshProbeResults(); syncLatest(btn); } catch (_) { /* keep explicit request failure */ }
       }
       syncTestButtons();
     }, disabled: !eligible || S.store.dirty, title: !eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : label) }, label);
@@ -159,16 +159,18 @@
           btn.classList.add('spinning');
           btn.textContent = '…';
           try {
-            const report = await S.api.speedtestNode(id, download);
-            S.store.installProbeReport?.(report);
-            const r = fmtReport(report, download);
-            btn.textContent = r.label;
-            btn.title = r.detail;
-            btn.classList.toggle('is-ok', r.ok);
-            btn.classList.toggle('is-err', !r.ok);
-            if (r.ok) succeeded++;
-            syncLatest(btn, report);
-          } catch (e) { btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err'); }
+            const result = await S.api.speedtestNode(id, download);
+            S.store.installProbeResult?.(result);
+            btn.textContent = result.ok ? (result.summary || '成功') : '失败';
+            btn.title = result.ok ? '成功' : (result.error_summary || '详细原因请查看诊断日志');
+            btn.classList.toggle('is-ok', result.ok);
+            btn.classList.toggle('is-err', !result.ok);
+            if (result.ok) succeeded++;
+            syncLatest(btn, result);
+          } catch (e) {
+            btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err');
+            try { await S.store.refreshProbeResults(); syncLatest(btn); } catch (_) { /* keep explicit request failure */ }
+          }
           btn.classList.remove('spinning');
         }
         button.textContent = `${title} · ${cursor}/${ids.length}`;

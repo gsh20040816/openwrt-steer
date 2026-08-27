@@ -10,12 +10,12 @@
 
   function fact(label, value) { return h('div', { class: 'fact' }, h('dt', {}, label), h('dd', {}, value)); }
 
-  function probeCard(kind, title, description, diagnostics) {
-    const reportForKind = () => (diagnostics.reports || [])
-      .find((report) => report.scope === 'overview' && report.kind === kind);
+  function probeCard(kind, title, description, probeResults) {
+    const resultForKind = () => (probeResults.latest_results || [])
+      .find((result) => result.scope === 'overview' && result.kind === kind);
     const out = h('div', { class: 'test-slot' });
-    const showLatest = (report = reportForKind()) => {
-      const latest = fmtLatestProbe(report, diagnostics, false);
+    const showLatest = (result = resultForKind()) => {
+      const latest = fmtLatestProbe(result);
       out.replaceChildren(h('div', {
         class: `test-result ${latest.stale ? 'is-stale' : (latest.ok === false ? 'is-err' : (latest.ok ? 'is-ok' : ''))}`
       }, h('strong', {}, latest.text)));
@@ -25,11 +25,17 @@
       run.disabled = true;
       out.replaceChildren(h('span', { class: 'muted spinning' }, '测试中…'));
       try {
-        const report = await S.api.probe(kind);
-        S.store.installProbeReport?.(report);
-        showLatest(report);
+        const result = await S.api.probe(kind);
+        S.store.installProbeResult?.(result);
+        showLatest(result);
       } catch (error) {
-        out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '本次请求失败 · 请查看诊断日志')));
+        try {
+          const refreshed = await S.store.refreshProbeResults();
+          probeResults.latest_results = refreshed.latest_results;
+          showLatest();
+        } catch (_) {
+          out.replaceChildren(h('div', { class: 'test-result is-err' }, h('strong', {}, '本次请求失败 · 请查看诊断日志')));
+        }
       }
       run.disabled = false;
     } }, '运行测试');
@@ -40,11 +46,13 @@
     name: 'diagnostics',
     async render(root) {
       const isCurrent = ui.beginRender(root);
-      let logs = { output: '' }, diagnostics = { reports: [], warnings: [] }, validation = { errors: [], warnings: [] };
-      [logs, diagnostics, validation] = await Promise.all([
+      let logs = { output: '' }, diagnostics = { warnings: [] }, probeResults = { latest_results: [], warnings: [] }, validation = { errors: [], warnings: [] };
+      [logs, diagnostics, probeResults, validation] = await Promise.all([
         S.api.logs().catch((error) => ({ output: `日志刷新失败：${error.message}` })),
         (typeof S.store.refreshDiagnostics === 'function' ? S.store.refreshDiagnostics() : S.api.diagnostics())
-          .catch((error) => ({ reports: [], warnings: [`最近结果刷新失败：${error.message}`] })),
+          .catch((error) => ({ warnings: [`诊断状态刷新失败：${error.message}`] })),
+        (typeof S.store.refreshProbeResults === 'function' ? S.store.refreshProbeResults() : S.api.probeResults())
+          .catch((error) => ({ latest_results: [], warnings: [`最近结果刷新失败：${error.message}`] })),
         S.api.validate(S.store.intent).catch((error) => ({ errors: [{ code: 'VALIDATION_UNAVAILABLE', message: error.message }], warnings: [] }))
       ]);
       const status = S.store.overview?.status || {};
@@ -57,9 +65,9 @@
       root.append(
         ui.viewHead('诊断', overviewBoundary, [refresh]),
         h('div', { class: 'grid-3' }, [
-          probeCard('direct', '直连目标', '在当前网络环境中测试直连地址', diagnostics),
-          probeCard('proxy', '代理目标', '在当前网络环境中测试代理地址', diagnostics),
-          probeCard('speedtest', '下载目标', '在当前网络环境中测试下载速度', diagnostics)
+          probeCard('direct', '直连目标', '在当前网络环境中测试直连地址', probeResults),
+          probeCard('proxy', '代理目标', '在当前网络环境中测试代理地址', probeResults),
+          probeCard('speedtest', '下载目标', '在当前网络环境中测试下载速度', probeResults)
         ]),
         h('section', { class: 'card card--edge edge--dns' }, [
           h('div', { class: 'card__head' }, [
@@ -73,6 +81,7 @@
           ])
         ]),
         ...(diagnostics.warnings || []).slice(0, 3).map((warning) => h('p', { class: 'alert' }, warning)),
+        ...(probeResults.warnings || []).slice(0, 3).map((warning) => h('p', { class: 'alert' }, warning)),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '配置校验'), h('div', { class: 'card__title' }, '当前工作副本'))),
           (validation.errors || []).length || (validation.warnings || []).length

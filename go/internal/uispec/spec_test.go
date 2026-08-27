@@ -158,6 +158,11 @@ func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t 
 		contract.SubscriptionInventory.StaleReferencedNodes != "preserved" || contract.SubscriptionInventory.Notice == "" {
 		t.Fatalf("subscription inventory semantics drifted: %#v", contract.SubscriptionInventory)
 	}
+	if !reflect.DeepEqual(contract.ProbeResults.KeyFields, []string{"scope", "object_id", "kind"}) ||
+		!reflect.DeepEqual(contract.ProbeResults.ResultFields, []string{"scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"}) ||
+		contract.ProbeResults.FrontendRole == "" {
+		t.Fatalf("latest probe result semantics drifted: %#v", contract.ProbeResults)
+	}
 }
 
 func TestHighFrequencyInputFormatsAreShared(t *testing.T) {

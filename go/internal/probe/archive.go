@@ -15,24 +15,44 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
-const (
-	maxArchivedReportSize = 1 << 20
-	maxArchivedReports    = 100
-)
+const maxArchivedReportSize = 1 << 20
 
-// Diagnostics is the shared, sanitized latest-result contract. SaveReport
-// overwrites each scope/object/kind key; platform adapters add validation,
-// Apply and log facts around this payload.
+// Identity is the Saved/Active configuration identity used by the backend to
+// decide whether a persisted probe result still describes the current state.
+// It is deliberately not part of the ordinary UI payload.
+type Identity struct {
+	SavedDigest      string
+	ActiveGeneration string
+	ActiveDigest     string
+}
+
+// LatestProbeResult is the only persisted-probe contract intended for an
+// ordinary UI. Raw Report values remain an internal diagnostic artifact.
+type LatestProbeResult struct {
+	Scope        string    `json:"scope"`
+	ObjectID     string    `json:"object_id,omitempty"`
+	Kind         string    `json:"kind"`
+	TestedAt     time.Time `json:"tested_at"`
+	OK           bool      `json:"ok"`
+	Stale        bool      `json:"stale"`
+	Summary      string    `json:"summary"`
+	ErrorSummary string    `json:"error_summary"`
+}
+
+type LatestProbeResults struct {
+	Results  []LatestProbeResult `json:"latest_results"`
+	Warnings []string            `json:"warnings"`
+}
+
+// Diagnostics contains non-probe-history diagnostics. Latest probe results
+// are exposed through the separate LatestProbeResults capability.
 type Diagnostics struct {
-	Reports          []Report             `json:"reports"`
-	SavedDigest      string               `json:"saved_digest,omitempty"`
-	ActiveGeneration string               `json:"active_generation,omitempty"`
-	ActiveDigest     string               `json:"active_digest,omitempty"`
-	DNSCapture       DNSCaptureDiagnostic `json:"dns_capture"`
-	Warnings         []string             `json:"warnings"`
+	DNSCapture DNSCaptureDiagnostic `json:"dns_capture"`
+	Warnings   []string             `json:"warnings"`
 }
 
 func FailureReport(scope, objectID, kind string, err error) Report {
@@ -40,6 +60,15 @@ func FailureReport(scope, objectID, kind string, err error) Report {
 		Scope: scope, ObjectID: objectID, Kind: kind,
 		Error: SafeError(err), TestedAt: time.Now().UTC(), Results: []Result{},
 	})
+}
+
+func BindReportIdentity(report Report, identity Identity) Report {
+	report.SavedDigest = identity.SavedDigest
+	if report.Scope == "overview" {
+		report.ActiveGeneration = identity.ActiveGeneration
+		report.ActiveDigest = identity.ActiveDigest
+	}
+	return report
 }
 
 // SanitizeReport removes credentials, query values and process diagnostics
@@ -88,6 +117,19 @@ func SafeError(err error) string {
 	if err == nil || strings.TrimSpace(err.Error()) == "" {
 		return ""
 	}
+	existing := strings.TrimSpace(err.Error())
+	switch existing {
+	case "probe timed out", "probe was cancelled", "TLS verification failed", "probe connection was refused", "probe target could not be resolved", "probe failed":
+		return existing
+	}
+	if strings.HasPrefix(existing, "probe target returned HTTP ") {
+		fields := strings.Fields(strings.TrimPrefix(existing, "probe target returned HTTP "))
+		if len(fields) > 0 {
+			if status, parseErr := strconv.Atoi(fields[0]); parseErr == nil && status >= 100 && status <= 599 {
+				return fmt.Sprintf("probe target returned HTTP %d", status)
+			}
+		}
+	}
 	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout") || strings.Contains(strings.ToLower(err.Error()), "timed out") {
 		return "probe timed out"
 	}
@@ -125,6 +167,18 @@ func SaveReport(stateDirectory string, report Report) error {
 		return fmt.Errorf("create test log directory: %w", err)
 	}
 	report = SanitizeReport(report)
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open test report lock: %w", err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock test report: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	if current, err := readReportFile(path); err == nil && current.TestedAt.After(report.TestedAt) {
+		return nil
+	}
 	encoded, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode test report: %w", err)
@@ -156,61 +210,177 @@ func SaveReport(stateDirectory string, report Report) error {
 	return nil
 }
 
-func ReadDiagnostics(stateDirectory string) Diagnostics {
+// ReadLatestProbeResults returns one result for every persisted
+// scope/object/kind key. It intentionally has no global count limit: 135
+// Nodes with two probe kinds must still yield all 270 latest results.
+func ReadLatestProbeResults(stateDirectory string, identity Identity) LatestProbeResults {
+	reports, warnings := readReports(stateDirectory)
+	results := make([]LatestProbeResult, 0, len(reports))
+	for _, report := range reports {
+		results = append(results, PresentLatestProbeResult(report, identity))
+	}
+	return LatestProbeResults{Results: results, Warnings: warnings}
+}
+
+func PresentLatestProbeResult(report Report, identity Identity) LatestProbeResult {
+	report = SanitizeReport(report)
+	result := LatestProbeResult{
+		Scope: report.Scope, ObjectID: report.ObjectID, Kind: report.Kind,
+		TestedAt: report.TestedAt, OK: report.OK, Stale: reportIsStale(report, identity),
+	}
+	if report.OK {
+		result.Summary = coreMetric(report)
+	} else {
+		result.ErrorSummary = safeErrorSummary(report)
+	}
+	return result
+}
+
+func FindLatestProbeResult(results LatestProbeResults, scope, objectID, kind string) (LatestProbeResult, bool) {
+	for _, result := range results.Results {
+		if result.Scope == scope && result.ObjectID == objectID && result.Kind == kind {
+			return result, true
+		}
+	}
+	return LatestProbeResult{}, false
+}
+
+func readReports(stateDirectory string) ([]Report, []string) {
 	root := filepath.Join(normalizeStateDirectory(stateDirectory), "logs", "tests")
-	diagnostics := Diagnostics{Reports: []Report{}, Warnings: []string{}}
+	reports := []Report{}
+	warnings := []string{}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if path == root && errors.Is(walkErr, fs.ErrNotExist) {
 				return nil
 			}
-			diagnostics.Warnings = append(diagnostics.Warnings, "a saved probe report is unavailable")
+			warnings = append(warnings, "a saved probe result is unavailable")
 			return nil
 		}
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			diagnostics.Warnings = append(diagnostics.Warnings, "a saved probe report is invalid")
+			warnings = append(warnings, "a saved probe result is invalid")
 			return nil
 		}
 		if info, err := entry.Info(); err != nil || info.Size() > maxArchivedReportSize {
-			diagnostics.Warnings = append(diagnostics.Warnings, "a saved probe report is invalid")
+			warnings = append(warnings, "a saved probe result is invalid")
 			return nil
 		}
-		file, err := os.Open(path)
-		if err != nil {
-			diagnostics.Warnings = append(diagnostics.Warnings, "a saved probe report is unavailable")
+		report, err := readReportFile(path)
+		if err != nil || !validReportIdentity(report) {
+			warnings = append(warnings, "a saved probe result is invalid")
 			return nil
 		}
-		decoder := json.NewDecoder(io.LimitReader(file, maxArchivedReportSize))
-		decoder.DisallowUnknownFields()
-		var report Report
-		decodeErr := decoder.Decode(&report)
-		if decodeErr == nil {
-			var trailing any
-			if err := decoder.Decode(&trailing); err != io.EOF {
-				decodeErr = errors.New("probe report contains trailing data")
-			}
-		}
-		closeErr := file.Close()
-		if decodeErr != nil || closeErr != nil || !validReportIdentity(report) {
-			diagnostics.Warnings = append(diagnostics.Warnings, "a saved probe report is invalid")
-			return nil
-		}
-		diagnostics.Reports = append(diagnostics.Reports, SanitizeReport(report))
+		reports = append(reports, SanitizeReport(report))
 		return nil
 	})
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		diagnostics.Warnings = append(diagnostics.Warnings, "saved probe reports are unavailable")
+		warnings = append(warnings, "saved probe results are unavailable")
 	}
-	sort.Slice(diagnostics.Reports, func(left, right int) bool {
-		return diagnostics.Reports[left].TestedAt.After(diagnostics.Reports[right].TestedAt)
+	sort.Slice(reports, func(left, right int) bool {
+		return reports[left].TestedAt.After(reports[right].TestedAt)
 	})
-	if len(diagnostics.Reports) > maxArchivedReports {
-		diagnostics.Reports = diagnostics.Reports[:maxArchivedReports]
+	return reports, warnings
+}
+
+func readReportFile(path string) (Report, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return Report{}, err
 	}
-	return diagnostics
+	decoder := json.NewDecoder(io.LimitReader(file, maxArchivedReportSize))
+	decoder.DisallowUnknownFields()
+	var report Report
+	decodeErr := decoder.Decode(&report)
+	if decodeErr == nil {
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			decodeErr = errors.New("probe report contains trailing data")
+		}
+	}
+	closeErr := file.Close()
+	if decodeErr != nil {
+		return Report{}, decodeErr
+	}
+	return report, closeErr
+}
+
+func reportIsStale(report Report, identity Identity) bool {
+	if report.SavedDigest == "" || identity.SavedDigest == "" || report.SavedDigest != identity.SavedDigest {
+		return true
+	}
+	if report.Scope != "overview" {
+		return false
+	}
+	return report.ActiveGeneration != identity.ActiveGeneration || report.ActiveDigest != identity.ActiveDigest
+}
+
+func coreMetric(report Report) string {
+	for _, result := range report.Results {
+		if !result.OK {
+			continue
+		}
+		if report.Kind == "download" || report.Kind == "speedtest" {
+			if result.DownloadedBytes > 0 && result.DownloadMilliseconds > 0 {
+				megabitsPerSecond := float64(result.DownloadedBytes) * 8 / float64(result.DownloadMilliseconds) / 1000
+				return fmt.Sprintf("%.1f Mbps", megabitsPerSecond)
+			}
+			continue
+		}
+		milliseconds := result.FirstByteMilliseconds
+		if milliseconds == 0 {
+			milliseconds = result.TLSMilliseconds
+		}
+		if milliseconds == 0 {
+			milliseconds = result.ConnectMilliseconds
+		}
+		if milliseconds > 0 {
+			return fmt.Sprintf("%d ms", milliseconds)
+		}
+		if result.Status > 0 {
+			return fmt.Sprintf("HTTP %d", result.Status)
+		}
+	}
+	return "成功"
+}
+
+func safeErrorSummary(report Report) string {
+	errorValue := report.Error
+	if errorValue == "" {
+		for _, result := range report.Results {
+			if result.Error != "" {
+				errorValue = result.Error
+				break
+			}
+		}
+	}
+	safe := errorValue
+	if safe != "probe timed out" && safe != "probe was cancelled" && safe != "TLS verification failed" &&
+		safe != "probe connection was refused" && safe != "probe target could not be resolved" &&
+		!strings.HasPrefix(safe, "probe target returned HTTP ") {
+		safe = SafeError(errors.New(errorValue))
+	}
+	switch safe {
+	case "probe timed out":
+		return "连接超时"
+	case "probe was cancelled":
+		return "测试已取消"
+	case "TLS verification failed":
+		return "TLS 校验失败"
+	case "probe connection was refused":
+		return "连接被拒绝"
+	case "probe target could not be resolved":
+		return "目标无法解析"
+	case "probe failed", "":
+		return "请查看诊断日志"
+	default:
+		if strings.HasPrefix(safe, "probe target returned HTTP ") {
+			return strings.Replace(safe, "probe target returned HTTP ", "目标返回 HTTP ", 1)
+		}
+		return "请查看诊断日志"
+	}
 }
 
 func reportPath(stateDirectory string, report Report) (string, error) {

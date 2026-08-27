@@ -3,7 +3,7 @@
 		"description": "Grant access to Steer configuration",
 		"read": {
 			"ubus": {
-				"luci.steer": [ "status", "overview_state", "validate", "intent_preview", "runtime", "logs", "diagnostics", "geodata_catalog", "subscriptions" ]
+				"luci.steer": [ "status", "overview_state", "validate", "intent_preview", "runtime", "logs", "diagnostics", "probe_results", "geodata_catalog", "subscriptions" ]
 			},
 			"uci": [ "steer" ]
 		},

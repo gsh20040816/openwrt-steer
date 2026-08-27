@@ -12,29 +12,48 @@ import (
 )
 
 func ReadDiagnostics(configPath, runDirectory, stateDirectory string) probe.Diagnostics {
-	diagnostics := probe.ReadDiagnostics(stateDirectory)
+	identity, warnings := readProbeIdentity(configPath, runDirectory)
+	latest := probe.ReadLatestProbeResults(stateDirectory, identity)
+	diagnostics := probe.Diagnostics{Warnings: append(warnings, latest.Warnings...)}
+	if runDirectory == "" {
+		runDirectory = "/run/steer"
+	}
+	currentPath := filepath.Join(runDirectory, "current")
+	diagnostics.DNSCapture = probe.InspectDNSCapture(
+		"dedicated_shim", identity.ActiveGeneration,
+		filepath.Join(currentPath, "sing-box.json"), filepath.Join(currentPath, "firewall.nft"),
+	)
+	return diagnostics
+}
+
+func ReadLatestProbeResults(configPath, runDirectory, stateDirectory string) probe.LatestProbeResults {
+	identity, warnings := readProbeIdentity(configPath, runDirectory)
+	results := probe.ReadLatestProbeResults(stateDirectory, identity)
+	results.Warnings = append(warnings, results.Warnings...)
+	return results
+}
+
+func readProbeIdentity(configPath, runDirectory string) (probe.Identity, []string) {
+	identity := probe.Identity{}
+	warnings := []string{}
 	if config, err := os.ReadFile(configPath); err == nil {
 		if value, decodeErr := DecodeBytes(config); decodeErr == nil {
-			diagnostics.SavedDigest = compiler.IntentDigest(value)
+			identity.SavedDigest = compiler.IntentDigest(value)
 		} else {
-			diagnostics.Warnings = append(diagnostics.Warnings, "the Saved configuration identity is unavailable")
+			warnings = append(warnings, "the Saved configuration identity is unavailable")
 		}
 	} else {
-		diagnostics.Warnings = append(diagnostics.Warnings, "the Saved configuration identity is unavailable")
+		warnings = append(warnings, "the Saved configuration identity is unavailable")
 	}
 	if runDirectory == "" {
 		runDirectory = "/run/steer"
 	}
 	currentPath := filepath.Join(runDirectory, "current")
 	if value, err := generation.ReadIntent(currentPath); err == nil {
-		diagnostics.ActiveDigest = compiler.IntentDigest(value)
-		diagnostics.ActiveGeneration = currentGenerationID(currentPath)
+		identity.ActiveDigest = compiler.IntentDigest(value)
+		identity.ActiveGeneration = currentGenerationID(currentPath)
 	}
-	diagnostics.DNSCapture = probe.InspectDNSCapture(
-		"dedicated_shim", diagnostics.ActiveGeneration,
-		filepath.Join(currentPath, "sing-box.json"), filepath.Join(currentPath, "firewall.nft"),
-	)
-	return diagnostics
+	return identity, warnings
 }
 
 func currentGenerationID(currentPath string) string {

@@ -11,26 +11,53 @@ import (
 
 func ReadDiagnostics(configPath string, options BackendOptions) probe.Diagnostics {
 	options = normalizeBackendOptions(options)
-	diagnostics := probe.ReadDiagnostics(options.StateDirectory)
+	identity, warnings := readProbeIdentity(configPath, options)
+	latest := probe.ReadLatestProbeResults(options.StateDirectory, identity)
+	diagnostics := probe.Diagnostics{Warnings: append(warnings, latest.Warnings...)}
+	if identity.ActiveGeneration != "" {
+		if current, err := runtimePaths(options.RunDirectory, "").LoadCurrent(); err == nil {
+			diagnostics.DNSCapture = probe.InspectDNSCapture(
+				"tun_port53_hijack", current.GenerationID,
+				filepath.Join(options.RunDirectory, "generations", current.Directory, "sing-box.json"), "",
+			)
+			return diagnostics
+		}
+	}
+	diagnostics.DNSCapture = probe.InspectDNSCapture("tun_port53_hijack", "", "", "")
+	return diagnostics
+}
+
+func ReadLatestProbeResults(configPath string, options BackendOptions) probe.LatestProbeResults {
+	options = normalizeBackendOptions(options)
+	identity, warnings := readProbeIdentity(configPath, options)
+	results := probe.ReadLatestProbeResults(options.StateDirectory, identity)
+	results.Warnings = append(warnings, results.Warnings...)
+	return results
+}
+
+func readProbeIdentity(configPath string, options BackendOptions) (probe.Identity, []string) {
+	identity := probe.Identity{}
+	warnings := []string{}
 	if value, _, err := (IntentStore{Paths: Paths{ConfigPath: configPath}}).Load(); err == nil {
-		diagnostics.SavedDigest = compiler.IntentDigest(value)
+		identity.SavedDigest = compiler.IntentDigest(value)
 	} else {
-		diagnostics.Warnings = append(diagnostics.Warnings, "the Saved configuration identity is unavailable")
+		warnings = append(warnings, "the Saved configuration identity is unavailable")
 	}
 	if current, err := runtimePaths(options.RunDirectory, "").LoadCurrent(); err == nil {
-		diagnostics.ActiveGeneration = current.GenerationID
-		diagnostics.ActiveDigest = current.IntentDigest
-		diagnostics.DNSCapture = probe.InspectDNSCapture(
-			"tun_port53_hijack", current.GenerationID,
-			filepath.Join(options.RunDirectory, "generations", current.Directory, "sing-box.json"), "",
-		)
-	} else {
-		diagnostics.DNSCapture = probe.InspectDNSCapture("tun_port53_hijack", "", "", "")
+		identity.ActiveGeneration = current.GenerationID
+		identity.ActiveDigest = current.IntentDigest
 	}
-	return diagnostics
+	return identity, warnings
 }
 
 func SaveTestReport(options BackendOptions, report TestReport) error {
 	options = normalizeBackendOptions(options)
+	return probe.SaveReport(options.StateDirectory, report)
+}
+
+func SaveTestFailure(configPath string, options BackendOptions, scope, objectID, kind string, testErr error) error {
+	options = normalizeBackendOptions(options)
+	identity, _ := readProbeIdentity(configPath, options)
+	report := probe.BindReportIdentity(probe.FailureReport(scope, objectID, kind, testErr), identity)
 	return probe.SaveReport(options.StateDirectory, report)
 }

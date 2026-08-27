@@ -165,19 +165,19 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
     h,
     icon: () => new Element('span'),
     asList: (value) => value || [],
-    fmtDuration: () => '—',
     fmtTime: (value) => String(value),
     fmtRevision: (value) => value,
-    fmtReport: () => ({ ok: true, label: 'ok', detail: '' }),
     uid: (prefix) => `${prefix}-test`,
     api: {
       async geodata() { return { names: [], readable: false, count: 0 }; },
-      async speedtestNode() { return { results: [] }; },
+      async speedtestNode() { return { scope: 'nodes', object_id: 'node', kind: 'connect', tested_at: '2026-08-26T01:00:00Z', ok: true, stale: false, summary: '21 ms', error_summary: '' }; },
+      async probeResults() { return options.probeResults || probeDiagnosticsFixtures.probe_results; },
       ...(options.api || {})
     },
     store: {
       intent,
-      diagnostics: options.diagnostics || { reports: [], warnings: [] },
+      diagnostics: options.diagnostics || { warnings: [] },
+      probeResults: options.probeResults || { latest_results: [], warnings: [] },
       overview: options.overview || {},
       runtime: options.runtime || {},
       revision: 'revision-1',
@@ -185,13 +185,16 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
       pendingApply: options.pendingApply === true,
       save,
       applySaved: options.applySaved || (async () => ({ ok: true })),
-      installProbeReport(report) {
+      installProbeResult(result) {
         const key = (value) => `${value.scope}:${value.object_id || ''}:${value.kind}`;
-        this.diagnostics = {
-          ...this.diagnostics,
-          saved_digest: report.saved_digest || this.diagnostics.saved_digest,
-          reports: [report, ...(this.diagnostics.reports || []).filter((candidate) => key(candidate) !== key(report))]
+        this.probeResults = {
+          ...this.probeResults,
+          latest_results: [result, ...(this.probeResults.latest_results || []).filter((candidate) => key(candidate) !== key(result))]
         };
+      },
+      async refreshProbeResults() {
+        this.probeResults = await S.api.probeResults();
+        return this.probeResults;
       },
       touch() { touchCount++; this.dirty = true; }
     }
@@ -807,7 +810,8 @@ async function testActualGenerationAndPersistentApplyFixture() {
       validate: async () => ({ ok: true, errors: [], warnings: [] }),
       probe: async () => ({}),
       logs: async () => ({ output: '' }),
-      diagnostics: async () => probeDiagnosticsFixtures.diagnostics
+      diagnostics: async () => probeDiagnosticsFixtures.diagnostics,
+      probeResults: async () => probeDiagnosticsFixtures.probe_results
     }
   });
   environment.S.ui.renderStatusStrip();
@@ -880,16 +884,18 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   intent.nodes.push({ ...disabledNode, name: 'Disabled node', type: 'socks', server: 'disabled.example', server_port: 1080 });
   intent.routes.push({ ...disabledRoute, name: 'Disabled route', node: 'node_disabled' });
   const persistedDiagnostics = JSON.parse(JSON.stringify(probeDiagnosticsFixtures.diagnostics));
-  persistedDiagnostics.reports[1].object_id = 'node';
-  persistedDiagnostics.reports[2].object_id = 'proxy';
+  const persistedProbeResults = JSON.parse(JSON.stringify(probeDiagnosticsFixtures.probe_results));
+  persistedProbeResults.latest_results[1].object_id = 'node';
+  persistedProbeResults.latest_results[2].object_id = 'proxy';
   let nodeCalls = 0, routeCalls = 0;
-  const environment = createEnvironment(async () => ({ ok: true }), intent, { diagnostics: persistedDiagnostics, api: {
+  const environment = createEnvironment(async () => ({ ok: true }), intent, { diagnostics: persistedDiagnostics, probeResults: persistedProbeResults, api: {
     validate: async () => ({ ok: true, errors: [], warnings: [] }),
     logs: async () => ({ output: 'steer-web probe log' }),
     diagnostics: async () => persistedDiagnostics,
-    probe: async () => persistedDiagnostics.reports[0],
-    speedtestNode: async () => { nodeCalls++; return persistedDiagnostics.reports[1]; },
-    speedtestRoute: async () => { routeCalls++; return persistedDiagnostics.reports[2]; }
+    probeResults: async () => persistedProbeResults,
+    probe: async () => persistedProbeResults.latest_results[0],
+    speedtestNode: async () => { nodeCalls++; return persistedProbeResults.latest_results[1]; },
+    speedtestRoute: async () => { routeCalls++; return persistedProbeResults.latest_results[2]; }
   } });
   environment.S.store.refreshOverview = async () => ({ ok: true });
 
@@ -1128,6 +1134,7 @@ function createDraftBackend() {
     async overview() { return { pending_apply: true, status: { healthy: false } }; },
     async runtime() { return {}; },
     async diagnostics() { return probeDiagnosticsFixtures.diagnostics; },
+    async probeResults() { return probeDiagnosticsFixtures.probe_results; },
     async geodata() { return { readable: true, names: [], count: 0 }; },
     async validate() { return { ok: true, errors: [], warnings: [] }; },
     async putConfig(intent, _revision, apply) {
@@ -1137,8 +1144,8 @@ function createDraftBackend() {
       return { saved: true, applied: !!apply, revision: state.revision, request_ok: true };
     },
     async applySaved() { state.applyCalls++; return { ok: true }; },
-    async speedtestNode() { state.nodeTests++; return { results: [] }; },
-    async speedtestRoute() { state.routeTests++; return { results: [] }; },
+    async speedtestNode() { state.nodeTests++; return { scope: 'nodes', object_id: 'node', kind: 'connect', tested_at: '2026-08-26T01:00:00Z', ok: true, stale: false, summary: '21 ms', error_summary: '' }; },
+    async speedtestRoute() { state.routeTests++; return { scope: 'routes', object_id: 'proxy', kind: 'connect', tested_at: '2026-08-26T01:00:00Z', ok: true, stale: false, summary: '21 ms', error_summary: '' }; },
     async subscriptions() {
       return { subscriptions: [{
         id: 'feed', enabled: true, name: 'Feed', url: 'https://feed.example/sub', update_interval: '6h',

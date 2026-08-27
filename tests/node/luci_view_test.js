@@ -387,6 +387,7 @@ function createEnvironment(sections) {
 		validate: () => Promise.resolve({ ok: true, errors: [], warnings: [] }),
 		geodataCatalog: () => Promise.resolve({}),
 		diagnostics: () => Promise.resolve(environment.diagnosticsResult),
+		probeResults: () => Promise.resolve(environment.probeResultsResult),
 		subscriptions: () => Promise.resolve({ subscriptions: [] }),
 		renderStatus: () => { statusRenderCalls++; return element('div'); },
 		updateSubscription: (id) => {
@@ -403,17 +404,14 @@ function createEnvironment(sections) {
 		},
 		routeSpeedtest: (route, download) => {
 			routeSpeedtestCalls.push({ route, download });
-			return Promise.resolve({ ok: true, results: [ {
-				url: 'https://speed.example/', ok: true, status: 204, attempts: 1, first_byte_milliseconds: 55,
-				downloaded_bytes: 1000000, download_milliseconds: 1000
-			} ] });
+			return Promise.resolve({ scope: 'routes', object_id: route, kind: download ? 'download' : 'connect',
+				tested_at: '2026-08-26T05:00:00Z', ok: true, stale: false, summary: download ? '8.0 Mbps' : '55 ms', error_summary: '' });
 		},
 		overviewProbe: (kind) => {
 			overviewProbeCalls.push(kind);
 			return Promise.resolve({
 				scope: 'overview', kind, ok: true, tested_at: '2026-08-26T05:00:00Z',
-				saved_digest: 'saved-a', active_generation: 'generation-a', active_digest: 'active-a',
-				results: [ { url: 'https://test.example/', ok: true, first_byte_milliseconds: 20 } ]
+				stale: false, summary: '20 ms', error_summary: ''
 			});
 		},
 		importNodes: (document) => {
@@ -446,16 +444,15 @@ function createEnvironment(sections) {
 		statusResult: {},
 		runtimeResult: {},
 		diagnosticsResult: JSON.parse(JSON.stringify(probeDiagnosticsFixtures.diagnostics)),
+		probeResultsResult: JSON.parse(JSON.stringify(probeDiagnosticsFixtures.probe_results)),
 		lifecycleState: {
 			ok: true, pending: false,
 			desired: { available: true, enabled: true, digest: 'saved-a', counts: {}, validation: { ok: true, errors: [], warnings: [] } },
 			saved: { available: true, enabled: true, digest: 'saved-a', counts: {}, validation: { ok: true, errors: [], warnings: [] } },
 			active: { healthy: true, generation: 'generation-a', intent_digest: 'active-a' }
 		},
-		speedtestResult: { ok: true, results: [ {
-			url: 'https://speed.example/', ok: true, status: 204, attempts: 1,
-			first_byte_milliseconds: 42, downloaded_bytes: 1000000, download_milliseconds: 1000
-		} ] },
+		speedtestResult: { scope: 'nodes', object_id: 'node_a', kind: 'connect', tested_at: '2026-08-26T05:00:00Z',
+			ok: true, stale: false, summary: '42 ms', error_summary: '' },
 			importNodesResult: { nodes: [], skipped: 0 },
 			permissions: {},
 		modal: null,
@@ -731,9 +728,9 @@ async function renderRules(sections, catalog = {}) {
 	return environment;
 }
 
-async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes', pendingChanges = [], permissions = {}, diagnosticsResult) {
+async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes', pendingChanges = [], permissions = {}, probeResultsResult) {
 	const environment = createEnvironment(sections);
-	if (diagnosticsResult) environment.diagnosticsResult = diagnosticsResult;
+	if (probeResultsResult) environment.probeResultsResult = probeResultsResult;
 	environment.permissions = { ...permissions };
 	environment.setPendingChanges(pendingChanges);
 	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
@@ -753,7 +750,7 @@ async function renderNodes(sections, search = '', subscriptionStatus, page = 'no
 		}
 	);
 	environment.rendered = await view.render([ null, subscriptionStatus, { steer: pendingChanges },
-		environment.diagnosticsResult,
+		environment.probeResultsResult,
 		{
 			...Object.fromEntries([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import' ]
 				.map((method) => [ method, environment.permissions[method] !== false ])),
@@ -859,7 +856,8 @@ async function renderOverview(sections, page = 'general', lifecycleState, permis
 			_: environment.translate
 		}
 	);
-	environment.rendered = await view.render([ null, environment.lifecycleState, { ok: true, errors: [], warnings: [] }, environment.diagnosticsResult, { steer: [] },
+	environment.rendered = await view.render([ null, environment.lifecycleState, { ok: true, errors: [], warnings: [] }, environment.diagnosticsResult,
+		environment.probeResultsResult, { steer: [] },
 		{ overview_probe: environment.permissions.overview_probe !== false } ]);
 	return environment;
 }
@@ -1520,7 +1518,7 @@ async function main() {
 	assert.ok([ pendingConnect, pendingDownload ].every((option) => option.dependencies.some((dependency) => dependency[0] == 'enabled' && dependency[1] == '1')),
 		'disabled LuCI Nodes do not render backend-rejected test actions');
 	const persistedNodeProbe = elementText(pendingDownload.renderWidget('node_enabled'));
-	assert.ok(/Tested at.*Outdated.*Succeeded.*16\.0 Mbps/.test(persistedNodeProbe),
+	assert.ok(/Tested at.*Succeeded.*16\.0 Mbps/.test(persistedNodeProbe) && !persistedNodeProbe.includes('Outdated'),
 		'LuCI Node restores the persisted latest download result beside its action');
 	for (const forbidden of probeDiagnosticsFixtures.ordinary_ui.forbidden_fragments)
 		assert.ok(!persistedNodeProbe.includes(forbidden), `LuCI Node latest result hides ${forbidden}`);
@@ -1534,11 +1532,11 @@ async function main() {
 		node: [ { '.name': 'node_enabled', enabled: '1', name: 'Node' } ],
 		route: [ { '.name': 'route_enabled', enabled: '1', name: 'Route', kind: 'single', node: 'node_enabled' } ],
 		subscription: []
-	}, '', undefined, 'routes', [], {}, probeDiagnosticsFixtures.diagnostics);
+	}, '', undefined, 'routes', [], {}, probeDiagnosticsFixtures.probe_results);
 	const latestRouteSection = latestRouteEnvironment.maps[0].sections.find((section) => section.sectionType == 'route');
 	const persistedRouteProbe = elementText(latestRouteSection.options
 		.find((option) => option.name == '_route_connect_test').renderWidget('route_enabled'));
-	assert.ok(/Tested at.*Outdated.*Failed.*Probe timed out/.test(persistedRouteProbe),
+	assert.ok(/Tested at.*Outdated.*Failed.*连接超时/.test(persistedRouteProbe),
 		'LuCI Route restores and expires the persisted latest connection result beside its action');
 	for (const forbidden of probeDiagnosticsFixtures.ordinary_ui.forbidden_fragments)
 		assert.ok(!persistedRouteProbe.includes(forbidden), `LuCI Route latest result hides ${forbidden}`);
@@ -2007,7 +2005,7 @@ async function main() {
 	assert.deepEqual(acl.read.uci, [ 'steer' ]);
 	assert.equal(acl.read.ubus.service, undefined,
 		'unused service.list and firewall UCI grants are removed from read-only sessions');
-	for (const method of [ 'status', 'overview_state', 'validate', 'runtime', 'diagnostics', 'subscriptions' ])
+	for (const method of [ 'status', 'overview_state', 'validate', 'runtime', 'diagnostics', 'probe_results', 'subscriptions' ])
 		assert.ok(acl.read.ubus['luci.steer'].includes(method), `read-only sessions retain ${method}`);
 	assert.ok(steerSource.includes("object: 'session', method: 'access'") &&
 		steerSource.includes("callSessionAccess('ubus', 'luci.steer', method)"),

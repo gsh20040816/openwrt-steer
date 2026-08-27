@@ -1444,6 +1444,24 @@ enum GeneratedUISpec {
     "changes_active_generation": false,
     "stale_referenced_nodes": "preserved",
     "notice": "Subscription inventory updated; current Active configuration was not changed. Nodes still referenced by Routes are preserved as stale."
+  },
+  "probe_results": {
+    "key_fields": [
+      "scope",
+      "object_id",
+      "kind"
+    ],
+    "result_fields": [
+      "scope",
+      "object_id",
+      "kind",
+      "tested_at",
+      "ok",
+      "stale",
+      "summary",
+      "error_summary"
+    ],
+    "frontend_role": "Localize tested_at and render native style only; stale, metric and error summaries are backend facts"
   }
 }
 """#

@@ -176,6 +176,27 @@ func TestProbeParsesRouteAndRejectsAmbiguousTargets(t *testing.T) {
 	}
 }
 
+func TestProbeBusinessFailureReturnsPersistedLatestDTO(t *testing.T) {
+	configPath := filepath.Join("..", "..", "..", "steer", "files", "etc", "config", "steer")
+	stateDirectory := t.TempDir()
+	output := captureStdout(t, func() error {
+		return runProbe([]string{
+			"--kind", "speedtest", "--node", "missing-node", "--config", configPath,
+			"--state-dir", stateDirectory, "--run-dir", t.TempDir(),
+		})
+	})
+	var result struct {
+		Scope        string `json:"scope"`
+		ObjectID     string `json:"object_id"`
+		OK           bool   `json:"ok"`
+		Stale        bool   `json:"stale"`
+		ErrorSummary string `json:"error_summary"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil || result.OK || result.Stale || result.Scope != "nodes" || result.ObjectID != "missing-node" || result.ErrorSummary == "" {
+		t.Fatalf("probe failure did not immediately return the backend DTO: %v %#v\n%s", err, result, output)
+	}
+}
+
 func TestUsageExposesOnlyFrozenPublicCommands(t *testing.T) {
 	message := usage().Error()
 	for _, command := range []string{"version", "validate", "apply", "health", "status", "probe", "subscription", "geo-catalog", "cleanup"} {

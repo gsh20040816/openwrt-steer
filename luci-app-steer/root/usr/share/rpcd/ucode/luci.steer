@@ -413,6 +413,11 @@ const methods = {
 			return diagnostics;
 		}
 	},
+	probe_results: {
+		call: function() {
+			return command_json('/usr/sbin/steer _probe-results');
+		}
+	},
 	geodata_catalog: {
 		call: function() {
 			const geosite = command_json('/usr/sbin/steer geo-catalog --kind geosite');
