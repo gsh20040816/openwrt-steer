@@ -6,6 +6,8 @@
 	<string>Steer</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.steer.steer</string>
+	<key>CFBundleIconFile</key>
+	<string>SteerAppIcon</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>

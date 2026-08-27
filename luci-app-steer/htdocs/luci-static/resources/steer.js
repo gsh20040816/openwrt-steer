@@ -149,7 +149,7 @@ function validationMessage(issue) {
 function rpcErrorText(result) {
 	const code = result?.error_code;
 	if (code && rpcErrorMessages[code]) return rpcErrorMessages[code];
-	return code ? _('Operation failed (%s).').format(code) : _('Operation failed.');
+	return _('Operation failed.');
 }
 
 function uiSpecLabel(label) {
@@ -189,11 +189,9 @@ function validateInput(formatName, value) {
 
 function issueText(issue) {
 	let target = issueObjectLabels[issue?.object_type] || _('Configuration');
-	if (issue.object_id)
-		target += ' “%s”'.format(issue.object_id);
-	if (issue.option)
-		target += ' / %s'.format(issueOptionLabels[issue.option] || issue.option);
-	return '[%s] %s: %s'.format(issue.code || 'VALIDATION', target, validationMessage(issue));
+	if (issueOptionLabels[issue?.option])
+		target += ' / %s'.format(issueOptionLabels[issue.option]);
+	return '%s: %s'.format(target, validationMessage(issue));
 }
 
 function issueDestination(issue) {
@@ -247,10 +245,7 @@ function resultMessage(result) {
 			E('span', {}, issueText(entry.issue)),
 			issueDestination(entry.issue) ? E('button', { 'class': 'btn cbi-button-action', 'click': () => navigateIssue(entry.issue) }, _('Go to field')) : ''
 		])));
-	return E('div', {}, [
-		E('p', {}, rpcErrorText(result)),
-		result?.error ? E('details', {}, [ E('summary', {}, _('Technical details')), E('pre', {}, String(result.error)) ]) : ''
-	]);
+	return E('p', {}, rpcErrorText(result));
 }
 
 function waitForApply(sequence, attempts) {

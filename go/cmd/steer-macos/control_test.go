@@ -157,19 +157,14 @@ func TestControlServiceDiagnosticsReturnsSanitizedPersistedReports(t *testing.T)
 	}
 }
 
-func TestControlServiceOverviewProbeRequiresHealthyActiveGeneration(t *testing.T) {
+func TestControlServiceOverviewProbeRunsWithoutActiveGeneration(t *testing.T) {
 	called := false
 	service := &controlService{
-		status: func(macosplatform.BackendOptions) macosplatform.Status {
-			return macosplatform.Status{
-				SchemaVersion: macosplatform.RuntimeSchemaVersion,
-				GenerationID:  "generation-a",
-				IntentDigest:  "digest-a",
-			}
-		},
 		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
 			called = true
-			return probeResponse{}, nil
+			return probeResponse{TestReport: macosplatform.TestReport{
+				Scope: "overview", Kind: "proxy", OK: true, SavedDigest: "saved-a",
+			}}, nil
 		},
 	}
 	response := service.handle(controlRequest{
@@ -177,72 +172,28 @@ func TestControlServiceOverviewProbeRequiresHealthyActiveGeneration(t *testing.T
 		Operation:     "probe",
 		Kind:          "proxy",
 	})
-	if response.OK || called || !strings.Contains(response.Error, "not healthy") {
-		t.Fatalf("unhealthy Active probe was not rejected before HTTP: called=%v response=%+v", called, response)
+	if !response.OK || !called {
+		t.Fatalf("overview probe without Active was rejected: called=%v response=%+v", called, response)
 	}
 }
 
-func TestControlServiceOverviewProbeBindsHealthyActiveIdentity(t *testing.T) {
+func TestControlServiceOverviewProbeDoesNotRequireStableActiveIdentity(t *testing.T) {
 	service := &controlService{
 		status: func(macosplatform.BackendOptions) macosplatform.Status {
 			return macosplatform.Status{
 				SchemaVersion: macosplatform.RuntimeSchemaVersion,
-				Healthy:       true,
-				GenerationID:  "generation-a",
-				IntentDigest:  "digest-a",
+				GenerationID:  "generation-changing",
 			}
 		},
 		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
 			return probeResponse{
-				TestReport:       macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true},
-				ActiveGeneration: "generation-a",
-				ActiveDigest:     "digest-a",
+				TestReport: macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true, SavedDigest: "saved-a"},
 			}, nil
 		},
 	}
 	request := controlRequest{SchemaVersion: controlSchemaVersion, Operation: "probe", Kind: "proxy"}
 	if response := service.handle(request); !response.OK {
-		t.Fatalf("healthy Active probe was rejected: %+v", response)
-	}
-	service.probe = func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
-		return probeResponse{
-			TestReport:       macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true},
-			ActiveGeneration: "generation-b",
-			ActiveDigest:     "digest-b",
-		}, nil
-	}
-	if response := service.handle(request); response.OK || !strings.Contains(response.Error, "changed") {
-		t.Fatalf("mismatched Active identity was returned: %+v", response)
-	}
-}
-
-func TestControlServiceOverviewProbeRejectsRuntimeThatBecomesUnhealthy(t *testing.T) {
-	statusReads := 0
-	service := &controlService{
-		status: func(macosplatform.BackendOptions) macosplatform.Status {
-			statusReads++
-			return macosplatform.Status{
-				SchemaVersion: macosplatform.RuntimeSchemaVersion,
-				Healthy:       statusReads == 1,
-				GenerationID:  "generation-a",
-				IntentDigest:  "digest-a",
-			}
-		},
-		probe: func(context.Context, string, macosplatform.BackendOptions, probeSelection) (probeResponse, error) {
-			return probeResponse{
-				TestReport:       macosplatform.TestReport{Scope: "overview", Kind: "proxy", OK: true},
-				ActiveGeneration: "generation-a",
-				ActiveDigest:     "digest-a",
-			}, nil
-		},
-	}
-	response := service.handle(controlRequest{
-		SchemaVersion: controlSchemaVersion,
-		Operation:     "probe",
-		Kind:          "proxy",
-	})
-	if response.OK || statusReads != 2 || !strings.Contains(response.Error, "became unhealthy") {
-		t.Fatalf("probe survived an unhealthy Active transition: reads=%d response=%+v", statusReads, response)
+		t.Fatalf("current-network probe was coupled to Active identity: %+v", response)
 	}
 }
 

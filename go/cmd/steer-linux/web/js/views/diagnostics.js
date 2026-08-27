@@ -6,14 +6,15 @@
   const { h, fmtDuration, fmtReport, fmtTime } = S;
   const ui = S.ui;
 
-  const overviewBoundary = '使用当前运行配置访问测试地址；成功仅表示该地址在测试时可达。';
+  const overviewBoundary = '使用设备当前网络环境访问已保存的测试地址；即使 Steer 未启用也可以测试。成功仅表示该地址在测试时可达。';
 
   function fact(label, value) { return h('div', { class: 'fact' }, h('dt', {}, label), h('dd', {}, value)); }
 
   function reportIsStale(report, diagnostics) {
     if (report.scope === 'overview') {
-      return !report.active_generation || !report.active_digest ||
-        report.active_generation !== diagnostics.active_generation || report.active_digest !== diagnostics.active_digest;
+      return !report.saved_digest || report.saved_digest !== diagnostics.saved_digest ||
+        (report.active_generation || '') !== (diagnostics.active_generation || '') ||
+        (report.active_digest || '') !== (diagnostics.active_digest || '');
     }
     return S.store.dirty || !report.saved_digest || report.saved_digest !== diagnostics.saved_digest;
   }
@@ -93,9 +94,9 @@
       root.append(
         ui.viewHead('诊断', overviewBoundary, [refresh]),
         h('div', { class: 'grid-3' }, [
-          probeCard('direct', '直连目标', '测试直连地址是否可访问'),
-          probeCard('proxy', '代理目标', '测试代理地址是否可访问'),
-          probeCard('speedtest', '下载目标', '测试代理下载速度')
+          probeCard('direct', '直连目标', '在当前网络环境中测试直连地址'),
+          probeCard('proxy', '代理目标', '在当前网络环境中测试代理地址'),
+          probeCard('speedtest', '下载目标', '在当前网络环境中测试下载速度')
         ]),
         h('section', { class: 'card card--edge edge--dns' }, [
           h('div', { class: 'card__head' }, [

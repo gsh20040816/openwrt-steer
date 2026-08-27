@@ -275,8 +275,8 @@ func ContractValue() Contract {
 				Facts:   []string{"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
 			},
 			"system": {
-				Summary: "Runtime, schema, generation, Geo, build, paths and platform component facts",
-				Facts:   []string{"versions", "canonical_schema", "generation", "last_apply", "geo", "build_tags", "dns_capture", "paths", "platform_components"},
+				Summary: "Versions, Geo data, platform components, paths and access actions",
+				Facts:   []string{"versions", "last_apply", "geo", "paths", "platform_components", "access"},
 			},
 		},
 		DNSBoundaries: map[string]DNSBoundary{

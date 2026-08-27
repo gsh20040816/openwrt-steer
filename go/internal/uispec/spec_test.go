@@ -140,7 +140,7 @@ func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t 
 	expectedPages := map[string][]string{
 		"overview":    {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
 		"diagnostics": {"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
-		"system":      {"versions", "canonical_schema", "generation", "last_apply", "geo", "build_tags", "dns_capture", "paths", "platform_components"},
+		"system":      {"versions", "last_apply", "geo", "paths", "platform_components", "access"},
 	}
 	for page, facts := range expectedPages {
 		if !reflect.DeepEqual(contract.PageResponsibilities[page].Facts, facts) {

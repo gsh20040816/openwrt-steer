@@ -29,10 +29,15 @@ struct ConfigurationFormView: View {
                 }
 
                 Section("DNS 缓存") {
-                    TextField("缓存容量", value: intBinding("main", "dns_cache_capacity"), format: .number)
+                    TextField(
+                        "缓存容量",
+                        value: optionalIntBinding("main", "dns_cache_capacity"),
+                        format: .number,
+                        prompt: Text("4096")
+                    )
                     Toggle("持久化 DNS 缓存", isOn: boolBinding("main", "dns_cache_persist"))
                     Toggle("乐观缓存", isOn: boolBinding("main", "dns_optimistic_cache"))
-                    Text("容量为 0 表示使用运行时默认值；自定义范围为 1,024…10,000,000。")
+                    Text("留空使用默认值；自定义范围为 1,024…10,000,000。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -118,6 +123,23 @@ struct ConfigurationFormView: View {
                     key: key,
                     value: value == 0 ? nil : .number(Double(value))
                 )
+            }
+        )
+    }
+
+    private func optionalIntBinding(_ section: String, _ key: String) -> Binding<Int?> {
+        Binding(
+            get: {
+                guard let value = model.draftValue(in: section, key: key)?.numberValue,
+                      value != 0 else { return nil }
+                return Int(value)
+            },
+            set: { value in
+                if let value, value != 0 {
+                    model.setDraftValue(in: section, key: key, value: .number(Double(value)))
+                } else {
+                    model.setDraftValue(in: section, key: key, value: nil)
+                }
             }
         )
     }

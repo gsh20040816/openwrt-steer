@@ -836,6 +836,7 @@ function draftLifecycleIntent() {
 
 async function testSharedProbeDiagnosticsAndDisabledActions() {
   const intent = draftLifecycleIntent();
+  intent.main.dns_cache_capacity = 0;
   const disabledNode = probeDiagnosticsFixtures.objects.nodes.find((item) => item.id === 'node_disabled');
   const disabledRoute = probeDiagnosticsFixtures.objects.routes.find((item) => item.id === 'route_disabled');
   intent.nodes.push({ ...disabledNode, name: 'Disabled node', type: 'socks', server: 'disabled.example', server_port: 1080 });
@@ -850,6 +851,15 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
     speedtestRoute: async () => { routeCalls++; return probeDiagnosticsFixtures.diagnostics.reports[2]; }
   } });
   environment.S.store.refreshOverview = async () => ({ ok: true });
+
+  loadView(environment, 'general');
+  const generalRoot = new Element('main');
+  environment.S.views.general.render(generalRoot);
+  const capacity = find(generalRoot, (element) => element.tag === 'input' && element.placeholder === '4096');
+  assert.ok(capacity, 'Linux General must render the DNS cache capacity field');
+  assert.strictEqual(capacity.value, '', 'Linux General must present the default DNS cache capacity as an empty field');
+  capacity.listeners.input({ target: { value: '0' } });
+  assert.ok(!Object.hasOwn(intent.main, 'dns_cache_capacity'), 'Linux General must normalize an entered zero to the empty default');
 
   loadView(environment, 'diagnostics');
   const diagnosticsRoot = new Element('main');

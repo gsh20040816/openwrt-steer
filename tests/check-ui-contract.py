@@ -139,7 +139,7 @@ if actual_navigation != expected_navigation:
 expected_page_facts = {
     "overview": {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
     "diagnostics": {"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
-    "system": {"versions", "canonical_schema", "generation", "last_apply", "geo", "build_tags", "dns_capture", "paths", "platform_components"},
+    "system": {"versions", "last_apply", "geo", "paths", "platform_components", "access"},
 }
 page_responsibilities = contract.get("page_responsibilities", {})
 if set(page_responsibilities) != set(expected_page_facts):
@@ -395,11 +395,19 @@ require(mac_editors, "sourceMACReason", "macOS source-MAC capability reason")
 require(linux_diagnostics, "成功仅表示该地址在测试时可达", "Linux accurate probe boundary")
 require(luci_overview, "Success only means the target was reachable", "LuCI accurate probe boundary")
 require(mac_content, "成功仅表示该地址在测试时可达", "macOS accurate probe boundary")
+require(linux_diagnostics, "当前网络环境", "Linux disabled overview probes")
+require(luci_overview, "current network environment", "LuCI disabled overview probes")
+require(mac_content, "当前网络环境", "macOS disabled overview probes")
+require(linux_diagnostics, "report.saved_digest", "Linux Saved overview probe identity")
+require(luci_overview, "report.saved_digest", "LuCI Saved overview probe identity")
+require(mac_state, "report.savedDigest", "macOS Saved overview probe identity")
 require(linux_diagnostics, "diagnostics.reports", "Linux persisted probe reports")
 require(luci_overview, "diagnostics.reports", "LuCI persisted probe reports")
 require(mac_content, "diagnosticProbeReports", "macOS persisted probe reports")
 require(luci_nodes, "probeOperationGate", "LuCI pending probe gate")
 require(mac_content, "!item.enabled", "macOS disabled probe action")
+if "服务运行后才能测试" in mac_content or ".disabled(running || !model.hasActiveGeneration)" in mac_content:
+    raise SystemExit("check-ui-contract: macOS still disables Overview probes without Active")
 
 require(linux_subscriptions, "last_failure", "Linux subscription failure state")
 require(linux_subscriptions, "status.stale", "Linux subscription stale state")

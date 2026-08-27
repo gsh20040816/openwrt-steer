@@ -24,13 +24,9 @@ type probeSelection struct {
 	Download bool
 }
 
-// probeResponse is the stable helper-to-GUI payload. Overview reports carry
-// the immutable Active identity used to choose their target; temporary
-// node/route reports intentionally do not claim an Active identity.
+// probeResponse is the stable helper-to-GUI payload.
 type probeResponse struct {
 	macosplatform.TestReport
-	ActiveGeneration string `json:"active_generation,omitempty"`
-	ActiveDigest     string `json:"active_digest,omitempty"`
 }
 
 func runDiagnostics(args []string, stdoutWriter interface{ Write([]byte) (int, error) }) error {
@@ -107,15 +103,11 @@ func performProbe(ctx context.Context, configPath string, options macosplatform.
 		return probeResponse{}, fmt.Errorf("unsupported probe kind %q", selection.Kind)
 	}
 	if selection.NodeID == "" && selection.RouteID == "" {
-		active, err := macosplatform.ProbeCurrent(ctx, options.RunDirectory, selection.Kind, nil)
+		report, err := macosplatform.ProbeOverview(ctx, configPath, options.RunDirectory, selection.Kind, nil)
 		if err != nil {
 			return probeResponse{}, err
 		}
-		return probeResponse{
-			TestReport:       active.Report,
-			ActiveGeneration: active.GenerationID,
-			ActiveDigest:     active.IntentDigest,
-		}, nil
+		return probeResponse{TestReport: report}, nil
 	}
 	if selection.Kind != "speedtest" {
 		return probeResponse{}, errors.New("node and route probes require kind speedtest")

@@ -25,11 +25,14 @@ import (
 type TestReport = probe.Report
 type TestResult = probe.Result
 
-func ProbeCurrentWithState(ctx context.Context, runDirectory, stateDirectory, kind string, client *http.Client) (TestReport, error) {
+func ProbeOverviewWithState(ctx context.Context, configPath, runDirectory, stateDirectory, kind string, client *http.Client) (TestReport, error) {
+	if configPath == "" {
+		configPath = "/etc/steer/config.json"
+	}
 	if runDirectory == "" {
 		runDirectory = "/run/steer"
 	}
-	generationID, _, intent, identity, err := readCurrentIdentity(BackendOptions{RunDirectory: runDirectory})
+	intent, err := readProbeIntent(configPath)
 	if err != nil {
 		return TestReport{}, recordProbeFailure(stateDirectory, "overview", "", kind, err)
 	}
@@ -46,15 +49,18 @@ func ProbeCurrentWithState(ctx context.Context, runDirectory, stateDirectory, ki
 		return TestReport{}, recordProbeFailure(stateDirectory, "overview", "", kind, err)
 	}
 	if target == "" {
-		err := fmt.Errorf("current intent has no %s HTTPS probe", kind)
+		err := fmt.Errorf("saved intent has no %s HTTPS probe", kind)
 		return TestReport{}, recordProbeFailure(stateDirectory, "overview", "", kind, err)
 	}
 	if client == nil {
 		client = probe.HTTPClient(nil, download)
 	}
 	report := probe.Run(ctx, client, "overview", "", kind, target, download)
-	report.ActiveGeneration = generationID
-	report.ActiveDigest = identity.IntentDigest
+	report.SavedDigest = compiler.IntentDigest(intent)
+	if generationID, _, _, identity, err := readCurrentIdentity(BackendOptions{RunDirectory: runDirectory}); err == nil {
+		report.ActiveGeneration = generationID
+		report.ActiveDigest = identity.IntentDigest
+	}
 	report = probe.SanitizeReport(report)
 	if stateDirectory != "" {
 		if err := saveTestReport(stateDirectory, report); err != nil {

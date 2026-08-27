@@ -1666,7 +1666,12 @@ async function main() {
 		const message = elementText(notification.body);
 		return message.includes('running configuration was not changed') && message.includes('nodes still used by Routes were kept') && message.includes('Added 2');
 	}), 'LuCI subscription Update must report inventory counters, unchanged runtime and retained referenced nodes');
-	environment = await renderOverview({ subscription: [] }, 'general');
+	environment = await renderOverview({
+		steer: [ { '.name': 'main', dns_cache_capacity: '0' } ], subscription: []
+	}, 'general');
+	const cacheCapacity = allOptions(environment).find((option) => option.name == 'dns_cache_capacity');
+	assert.equal(cacheCapacity.cfgvalue('main'), '',
+		'LuCI General must present the default DNS cache capacity as an empty field');
 	const probeOptions = [ 'probe_direct', 'probe_proxy', 'speedtest_proxy' ].map((name) =>
 		allOptions(environment).find((option) => option.name == name));
 	assert.ok(probeOptions.every((option) => option?.type == 'Value' && option.rmempty === false),

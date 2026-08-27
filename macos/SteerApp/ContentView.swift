@@ -344,7 +344,7 @@ struct OverviewView: View {
         Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
             GridRow {
                 LabeledContent("日志级别", value: model.draftLogLevel)
-                LabeledContent("DNS 缓存", value: model.draftDNSCacheCapacity.formatted())
+                LabeledContent("DNS 缓存", value: model.draftDNSCacheCapacityLabel)
             }
             GridRow {
                 LabeledContent("工作副本", value: model.isDirty ? "有未保存修改" : "已同步")
@@ -1089,17 +1089,13 @@ struct DiagnosticsView: View {
     var body: some View {
         List {
             Section("连通性探测") {
-                Text("使用当前运行配置访问测试地址；成功仅表示该地址在测试时可达。")
+                Text("使用设备当前网络环境访问已保存的测试地址；即使 Steer 未启用也可以测试。成功仅表示该地址在测试时可达。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
                     overviewProbeButton("测试直连 URL", kind: "direct")
                     overviewProbeButton("测试代理 URL", kind: "proxy")
                     overviewProbeButton("测试下载 URL", kind: "speedtest", download: true)
-                }
-                if !model.hasActiveGeneration {
-                    Label("服务尚未运行，暂时无法测试。", systemImage: "pause.circle")
-                        .foregroundStyle(.secondary)
                 }
                 overviewProbeResult("直连 URL", kind: "direct")
                 overviewProbeResult("代理 URL", kind: "proxy")
@@ -1212,8 +1208,8 @@ struct DiagnosticsView: View {
                 Text(title)
             }
         }
-        .disabled(running || !model.hasActiveGeneration)
-        .help(model.hasActiveGeneration ? "使用当前运行配置进行测试" : "服务运行后才能测试")
+        .disabled(running)
+        .help("使用设备当前网络环境进行测试")
     }
 
     @ViewBuilder
@@ -1426,7 +1422,7 @@ struct SystemView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这会额外删除 /Library/Application Support/Steer 和 /Library/Logs/Steer，无法从 Steer 恢复。")
+            Text("这会额外删除本机保存的配置、状态与日志，无法从 Steer 恢复。")
         }
     }
 

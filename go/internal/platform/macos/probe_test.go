@@ -47,7 +47,7 @@ func TestTemporaryProbeConfigUsesSharedBootstrapAndRoute(t *testing.T) {
 	}
 }
 
-func TestProbeCurrentUsesOnlyActiveGenerationAndBindsIdentity(t *testing.T) {
+func TestProbeOverviewUsesSavedTargetAndRecordsCurrentEnvironment(t *testing.T) {
 	paths, err := NewPaths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -64,37 +64,26 @@ func TestProbeCurrentUsesOnlyActiveGenerationAndBindsIdentity(t *testing.T) {
 	writeProbeTestIntent(t, paths.ConfigPath, saved)
 
 	transport := &recordingProbeTransport{}
-	result, err := ProbeCurrent(context.Background(), paths.Root, "proxy", &http.Client{Transport: transport})
+	result, err := ProbeOverview(context.Background(), paths.ConfigPath, paths.Root, "proxy", &http.Client{Transport: transport})
 	if err != nil {
 		t.Fatal(err)
 	}
 	activeDigest := compiler.IntentDigest(active)
-	if result.GenerationID != activeDigest || result.IntentDigest != activeDigest {
-		t.Fatalf("probe identity = %q/%q, want %q", result.GenerationID, result.IntentDigest, activeDigest)
+	if result.ActiveGeneration != activeDigest || result.ActiveDigest != activeDigest {
+		t.Fatalf("probe identity = %q/%q, want %q", result.ActiveGeneration, result.ActiveDigest, activeDigest)
 	}
-	if result.Report.TestedAt.IsZero() || result.Report.Scope != "overview" || result.Report.Kind != "proxy" || !result.Report.OK {
-		t.Fatalf("unexpected active probe report: %#v", result.Report)
+	if result.TestedAt.IsZero() || result.Scope != "overview" || result.Kind != "proxy" || !result.OK {
+		t.Fatalf("unexpected overview probe report: %#v", result)
 	}
-	if len(transport.urls) != 1 || transport.urls[0] != active.Main.ProbeProxyURL {
-		t.Fatalf("Save-only target affected Active probe: %#v", transport.urls)
-	}
-
-	publishProbeTestIntent(t, paths, saved)
-	transport.urls = nil
-	result, err = ProbeCurrent(context.Background(), paths.Root, "proxy", &http.Client{Transport: transport})
-	if err != nil {
-		t.Fatal(err)
-	}
-	savedDigest := compiler.IntentDigest(saved)
-	if result.GenerationID != savedDigest || result.IntentDigest != savedDigest || result.IntentDigest == activeDigest {
-		t.Fatalf("Apply did not switch probe identity: %#v", result)
+	if result.SavedDigest != compiler.IntentDigest(saved) {
+		t.Fatalf("probe did not bind Saved identity: %#v", result)
 	}
 	if len(transport.urls) != 1 || transport.urls[0] != saved.Main.ProbeProxyURL {
-		t.Fatalf("Apply did not switch probe target: %#v", transport.urls)
+		t.Fatalf("overview probe did not use the Saved target: %#v", transport.urls)
 	}
 }
 
-func TestProbeCurrentWithoutActiveGenerationFailsBeforeHTTP(t *testing.T) {
+func TestProbeOverviewRunsWithoutActiveGeneration(t *testing.T) {
 	paths, err := NewPaths(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -106,13 +95,21 @@ func TestProbeCurrentWithoutActiveGenerationFailsBeforeHTTP(t *testing.T) {
 	for _, kind := range []string{"proxy", "speedtest"} {
 		t.Run(kind, func(t *testing.T) {
 			transport := &recordingProbeTransport{}
-			if _, err := ProbeCurrent(context.Background(), paths.Root, kind, &http.Client{Transport: transport}); err == nil {
-				t.Fatal("probe without Active generation unexpectedly succeeded")
+			report, err := ProbeOverview(context.Background(), paths.ConfigPath, paths.Root, kind, &http.Client{Transport: transport})
+			if err != nil {
+				t.Fatal(err)
 			}
-			if len(transport.urls) != 0 {
-				t.Fatalf("probe without Active generation issued HTTP: %#v", transport.urls)
+			if !report.OK || report.SavedDigest == "" || report.ActiveGeneration != "" || len(transport.urls) != 1 {
+				t.Fatalf("probe without Active generation did not use the current network environment: report=%#v urls=%#v", report, transport.urls)
 			}
 		})
+	}
+}
+
+func TestProbeOverviewDefaultConfigurationPathMatchesPlatformLayout(t *testing.T) {
+	const expected = "/Library/Application Support/Steer/config/config.json"
+	if defaultProbeConfigPath != expected {
+		t.Fatalf("default overview probe configuration path = %q, want %q", defaultProbeConfigPath, expected)
 	}
 }
 

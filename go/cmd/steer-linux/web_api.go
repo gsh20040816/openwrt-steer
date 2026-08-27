@@ -137,7 +137,7 @@ func (app webApplication) handleProbes(writer http.ResponseWriter, request *http
 		if kind == "" {
 			kind = "direct"
 		}
-		report, err := linuxplatform.ProbeCurrentWithState(request.Context(), app.RunDirectory, app.StateDirectory, kind, nil)
+		report, err := linuxplatform.ProbeOverviewWithState(request.Context(), app.ConfigPath, app.RunDirectory, app.StateDirectory, kind, nil)
 		if err != nil {
 			writeWebError(writer, err, http.StatusUnprocessableEntity)
 			return

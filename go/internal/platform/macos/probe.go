@@ -24,19 +24,18 @@ import (
 
 type TestReport = probe.Report
 
-type ActiveProbe struct {
-	Report       TestReport
-	GenerationID string
-	IntentDigest string
-}
+const defaultProbeConfigPath = "/Library/Application Support/Steer/config/config.json"
 
-func ProbeCurrent(ctx context.Context, runDirectory, kind string, client *http.Client) (ActiveProbe, error) {
+func ProbeOverview(ctx context.Context, configPath, runDirectory, kind string, client *http.Client) (TestReport, error) {
+	if configPath == "" {
+		configPath = defaultProbeConfigPath
+	}
 	if runDirectory == "" {
 		runDirectory = "/Library/Application Support/Steer/run"
 	}
-	current, value, err := runtimePaths(runDirectory, "").LoadCurrentIntent()
+	value, err := readProbeIntent(configPath)
 	if err != nil {
-		return ActiveProbe{}, fmt.Errorf("load active macOS generation for probe: %w", err)
+		return TestReport{}, fmt.Errorf("load saved macOS configuration for probe: %w", err)
 	}
 	target, download := "", false
 	switch kind {
@@ -47,23 +46,22 @@ func ProbeCurrent(ctx context.Context, runDirectory, kind string, client *http.C
 	case "speedtest":
 		target, download = value.Main.SpeedtestProxyURL, true
 	default:
-		return ActiveProbe{}, fmt.Errorf("unsupported probe kind %q", kind)
+		return TestReport{}, fmt.Errorf("unsupported probe kind %q", kind)
 	}
 	if target == "" {
-		return ActiveProbe{}, fmt.Errorf("active macOS intent has no %s HTTPS probe", kind)
+		return TestReport{}, fmt.Errorf("saved macOS intent has no %s HTTPS probe", kind)
 	}
 	if client == nil {
 		client = probe.HTTPClient(nil, download)
 	}
 	report := probe.Run(ctx, client, "overview", "", kind, target, download)
-	report.ActiveGeneration = current.GenerationID
-	report.ActiveDigest = current.IntentDigest
+	report.SavedDigest = compiler.IntentDigest(value)
+	if current, _, err := runtimePaths(runDirectory, "").LoadCurrentIntent(); err == nil {
+		report.ActiveGeneration = current.GenerationID
+		report.ActiveDigest = current.IntentDigest
+	}
 	report = probe.SanitizeReport(report)
-	return ActiveProbe{
-		Report:       report,
-		GenerationID: current.GenerationID,
-		IntentDigest: current.IntentDigest,
-	}, nil
+	return report, nil
 }
 
 func SpeedTestNode(ctx context.Context, configPath, singBoxPath, nodeID string, download bool) (TestReport, error) {

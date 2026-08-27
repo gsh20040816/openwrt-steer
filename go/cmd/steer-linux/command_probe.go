@@ -50,7 +50,7 @@ func runProbe(args []string) error {
 		}
 		return nil
 	}
-	report, err := linuxplatform.ProbeCurrentWithState(context.Background(), *runDirectory, *stateDirectory, *kind, nil)
+	report, err := linuxplatform.ProbeOverviewWithState(context.Background(), *configPath, *runDirectory, *stateDirectory, *kind, nil)
 	if err != nil {
 		return err
 	}

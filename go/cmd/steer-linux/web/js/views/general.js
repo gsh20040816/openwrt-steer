@@ -13,12 +13,13 @@
     });
   }
 
-  function numberField(object, key, placeholder) {
+  function numberField(object, key, placeholder, zeroAsEmpty = false) {
+    const configured = object[key];
     return ui.input({
-      type: 'number', value: object[key] ?? '', placeholder: placeholder || '',
+      type: 'number', value: zeroAsEmpty && Number(configured) === 0 ? '' : (configured ?? ''), placeholder: placeholder || '',
       oninput: (event) => {
         const value = event.target.value;
-        if (value === '') delete object[key]; else object[key] = Number(value);
+        if (value === '' || (zeroAsEmpty && Number(value) === 0)) delete object[key]; else object[key] = Number(value);
         S.store.touch();
       }
     });
@@ -56,7 +57,7 @@
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, 'DNS cache'), h('div', { class: 'card__title' }, '共享缓存'))),
-          ui.field('缓存容量', numberField(main, 'dns_cache_capacity', '4096'), '0 或留空使用运行时默认值；自定义范围 1,024–10,000,000'),
+          ui.field('缓存容量', numberField(main, 'dns_cache_capacity', '4096', true), '留空使用默认值；自定义范围 1,024–10,000,000'),
           ui.field('持久化缓存', ui.toggle(main.dns_cache_persist, (value) => { main.dns_cache_persist = value; S.store.touch(); })),
           ui.field('乐观缓存', ui.toggle(main.dns_optimistic_cache, (value) => { main.dns_optimistic_cache = value; S.store.touch(); }))
         ]),

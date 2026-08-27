@@ -109,6 +109,14 @@ def main() -> None:
     assert 'Text(item.identifier)' not in content
     assert 'ConfigurationFormView' in content
     assert 'Bootstrap DNS' in general and 'DNS 缓存' in general and '连通性探测' in general
+    assert 'prompt: Text("4096")' in general and 'optionalIntBinding("main", "dns_cache_capacity")' in general
+    assert "if let value, value != 0" in general
+    assert "留空使用默认值" in general and "容量为 0" not in general
+    assert '使用设备当前网络环境' in content and '.disabled(running)' in content
+    assert '.disabled(running || !model.hasActiveGeneration)' not in content
+    assert '请确认服务正在运行' not in state and '请检查已保存的测试地址和当前网络' in state
+    assert '<key>CFBundleIconFile</key>' in app_info and '<string>SteerAppIcon</string>' in app_info
+    assert (ROOT / "macos/SteerAppIcon.png").exists()
     assert 'setEnabledAndApply($0)' not in general and 'setEnabledAndApply($0)' in content
     assert 'func setEnabledAndApply' in state
     assert 'guard !isDirty else {' in state and '请先保存或丢弃当前工作副本' in state
@@ -239,7 +247,7 @@ def main() -> None:
     )
     for base in checked_paths:
         for path in base.rglob("*"):
-            if not path.is_file() or ".build" in path.parts:
+            if not path.is_file() or ".build" in path.parts or path.suffix.lower() in {".png", ".icns"}:
                 continue
             content = path.read_text(encoding="utf-8")
             for token in forbidden:

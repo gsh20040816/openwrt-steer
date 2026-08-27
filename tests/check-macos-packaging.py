@@ -23,6 +23,7 @@ for path in (
     ROOT / "macos/scripts/uninstall-embedded-payload.sh",
     ROOT / "macos/launchd/com.steer.steer.control.plist",
     ROOT / "macos/launchd/com.steer.steer.subscription.plist",
+    ROOT / "macos/SteerAppIcon.png",
 ):
     if not path.exists():
         fail(f"missing required file: {path.relative_to(ROOT)}")
@@ -69,6 +70,10 @@ for fragment in (
     '"$app/Contents/Resources/Installer"',
     '"$app/Contents/Resources/geodata-seed"',
     '"$app/Contents/Resources/LICENSES"',
+    'app_icon="$repository_root/macos/SteerAppIcon.png"',
+    'iconutil -c icns "$iconset" -o "$resources_directory/SteerAppIcon.icns"',
+    "<key>CFBundleIconFile</key>",
+    "<string>SteerAppIcon</string>",
     "<string>SteerApp</string>",
     "<string>com.steer.steer</string>",
     "<string>13.0</string>",

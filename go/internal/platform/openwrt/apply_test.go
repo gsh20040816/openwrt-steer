@@ -14,7 +14,6 @@ import (
 	"time"
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
-	"github.com/gsh20040816/steer/go/internal/generation"
 )
 
 type applyRunner struct{ calls []string }
@@ -118,30 +117,25 @@ func TestDisableStopsAndRemovesRuntimeState(t *testing.T) {
 	}
 }
 
-func TestProbeCurrentReadsCanonicalIntent(t *testing.T) {
+func TestProbeOverviewUsesSavedIntentWithoutActiveGeneration(t *testing.T) {
 	root := t.TempDir()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusBadGateway)
 	}))
 	defer server.Close()
 	config := strings.Replace(minimalConfig, "option probe_direct 'https://www.baidu.com/'", "option probe_direct '"+server.URL+"'", 1)
-	value, err := DecodeBytes([]byte(config))
+	config = strings.Replace(config, "option enabled '1'", "option enabled '0'", 1)
+	configPath := filepath.Join(root, "steer")
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := ProbeOverview(
+		context.Background(), configPath, filepath.Join(root, "run"), filepath.Join(root, "state"), "direct", server.Client(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runDirectory := filepath.Join(root, "run")
-	candidate, err := generation.Create(filepath.Join(runDirectory, "generations"), value, map[string]any{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(candidate.Directory, filepath.Join(runDirectory, "current")); err != nil {
-		t.Fatal(err)
-	}
-	report, err := ProbeCurrent(context.Background(), runDirectory, "direct", server.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.OK || len(report.Results) != 1 || report.Results[0].Attempts != 2 {
+	if report.OK || len(report.Results) != 1 || report.Results[0].Attempts != 2 || report.SavedDigest == "" || report.ActiveGeneration != "" {
 		t.Fatalf("unexpected probe report: %#v", report)
 	}
 }

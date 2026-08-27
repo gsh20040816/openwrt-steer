@@ -1389,17 +1389,14 @@
       ]
     },
     "system": {
-      "summary": "Runtime, schema, generation, Geo, build, paths and platform component facts",
+      "summary": "Versions, Geo data, platform components, paths and access actions",
       "facts": [
         "versions",
-        "canonical_schema",
-        "generation",
         "last_apply",
         "geo",
-        "build_tags",
-        "dns_capture",
         "paths",
-        "platform_components"
+        "platform_components",
+        "access"
       ]
     }
   },

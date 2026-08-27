@@ -179,6 +179,7 @@ private actor DraftLifecycleBackend: BackendClient {
             error: nil,
             activeGeneration: nodeID == nil && routeID == nil ? runtimeStatus.generationID : nil,
             activeDigest: nodeID == nil && routeID == nil ? runtimeStatus.intentDigest : nil,
+            savedDigest: nodeID == nil && routeID == nil ? "saved-current" : nil,
             testedAt: "2026-08-26T01:02:03Z"
         )
     }
@@ -577,7 +578,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertTrue(model.isDirty)
     }
 
-    func testOverviewProbeIdentityStaysCurrentAfterSaveAndExpiresAfterActiveChangesOrStops() async throws {
+    func testOverviewProbeExpiresWhenSavedOrActiveIdentityChanges() async throws {
         let backend = DraftLifecycleBackend(document: savedDocument)
         let model = AppModel(backend: backend)
         model.loadInitialState()
@@ -593,14 +594,20 @@ final class AppStateDraftLifecycleTests: XCTestCase {
 
         model.rawJSON = editedDocument
         model.markDirty()
+        XCTAssertFalse(model.overviewProbeIsStale("proxy"), "unsaved edits do not change the Saved probe target")
         model.saveDraft()
         try await waitUntil { !model.isBusy && !model.isDirty }
         XCTAssertEqual(model.runtime.generationID, "active-original")
-        XCTAssertFalse(model.overviewProbeIsStale("proxy"), "Save-only must not change Active probe identity")
+        XCTAssertTrue(model.overviewProbeIsStale("proxy"), "saving a new configuration expires a report for the previous Saved identity")
+
+        model.runProbe(kind: "proxy")
+        try await waitUntil {
+            !model.overviewProbeInProgress("proxy") && !model.overviewProbeIsStale("proxy")
+        }
 
         model.runtime.healthy = false
         XCTAssertFalse(model.hasActiveGeneration)
-        XCTAssertTrue(model.overviewProbeIsStale("proxy"), "an unhealthy data plane must expire a green result")
+        XCTAssertFalse(model.overviewProbeIsStale("proxy"), "health alone does not change the network identity observed by the test")
         model.runtime.healthy = true
         XCTAssertTrue(model.hasActiveGeneration)
         XCTAssertFalse(model.overviewProbeIsStale("proxy"))

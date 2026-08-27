@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* 系统：包内 Geo seed、运行时版本与访问说明。 */
+/* 系统：规则数据、运行时版本、路径与访问说明。 */
 'use strict';
 (function () {
   const S = window.S;
@@ -86,7 +86,7 @@
       ]);
 
       if (!isCurrent()) return;
-      root.append(ui.viewHead('系统', '版本、规则数据与系统路径'), geoCard, factsCard, platformCard, accessCard);
+      root.append(ui.viewHead('系统', '版本、规则数据、系统路径与访问方式'), geoCard, factsCard, platformCard, accessCard);
     }
   };
 

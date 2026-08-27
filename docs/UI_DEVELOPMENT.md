@@ -115,7 +115,7 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 - 节点必须按“手动节点 / 订阅”分组；订阅节点只读，不得显示可用但无效的编辑、删除或状态开关。
 - 节点行和 Single Route 行必须同时提供连接测试与下载测速；批量测试只针对当前可见分组中已启用的节点。
 - 单行测试、批量测试、订阅更新和 stale 清理不得禁用整张表或阻断滚动；只禁用当前正在执行的操作。disabled 对象不得提供后端必拒绝的动作；LuCI 存在 pending UCI 时不得用 committed Node/Route 执行测试。
-- 普通列表只显示“失败”与“详细原因请查看诊断日志”。Diagnostics 展示 tested_at、scope/object、URL、TCP/TLS/TTFB/HTTP/bytes/rate 中实际存在的安全字段；临时核心名称、outbound ID、命令行和完整后端错误链不得进入报告 UI。
+- 三个概览测试读取 Saved URL，并直接使用设备当前网络环境；不得因 Steer 未启用或没有 Active generation 而禁用。普通列表只显示“失败”与“详细原因请查看诊断日志”。Diagnostics 展示 tested_at、scope/object、URL、TCP/TLS/TTFB/HTTP/bytes/rate 中实际存在的安全字段；临时核心名称、outbound ID、命令行和完整后端错误链不得进入报告 UI。
 - Direct 是系统必需且始终启用的固定路由；Reject 是固定类型但可启停。二者均不得显示删除、拖拽排序或类型转换操作，新建路由只能是 Single。Reject 只能编译为 sing-box route/DNS `reject` action，不得生成已废弃的 `type=block` outbound。
 - 删除订阅时必须先检查其节点是否被 Route 引用；无引用时订阅与其生成节点必须一起从工作副本移除。
 - 订阅 Update 的非阻断提示必须同时展示 added/current/stale/skipped，并明确“库存已更新、当前 Active 配置未改变、被 Route 引用的消失节点保留为 stale”；cleanup 只能移除无引用 stale 节点，不得级联改写 Route。

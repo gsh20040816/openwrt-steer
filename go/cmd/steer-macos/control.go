@@ -281,14 +281,6 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			response.Error = "probe accepts only kind, node_id, route_id and download"
 			return response
 		}
-		var activeStatus macosplatform.Status
-		if request.NodeID == "" && request.RouteID == "" {
-			activeStatus = service.readRuntimeStatus()
-			if !activeStatus.Healthy || activeStatus.GenerationID == "" || activeStatus.IntentDigest == "" {
-				response.Error = "active macOS generation is not healthy; overview probe was not started"
-				return response
-			}
-		}
 		run := service.probe
 		if run == nil {
 			run = performProbe
@@ -304,17 +296,6 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			_ = macosplatform.SaveTestReport(service.options, failure)
 			response.Error = err.Error()
 			return response
-		}
-		if request.NodeID == "" && request.RouteID == "" {
-			finalStatus := service.readRuntimeStatus()
-			if !finalStatus.Healthy || finalStatus.GenerationID != activeStatus.GenerationID ||
-				finalStatus.IntentDigest != activeStatus.IntentDigest ||
-				report.ActiveGeneration != activeStatus.GenerationID || report.ActiveDigest != activeStatus.IntentDigest {
-				identityErr := errors.New("active macOS generation changed or became unhealthy while the overview probe was running")
-				_ = macosplatform.SaveTestReport(service.options, probe.FailureReport("overview", "", selection.Kind, identityErr))
-				response.Error = identityErr.Error()
-				return response
-			}
 		}
 		_ = macosplatform.SaveTestReport(service.options, report.TestReport)
 		response.Payload, err = json.Marshal(report)

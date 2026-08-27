@@ -285,13 +285,19 @@ struct ProbeReport: Decodable, Sendable, Identifiable {
         return result.status.map { "HTTP \($0)" } ?? "成功"
     }
 
-    func isStale(relativeTo runtime: RuntimeStatus) -> Bool {
+    func isStale(relativeTo runtime: RuntimeStatus, savedDigest currentSavedDigest: String) -> Bool {
         guard scope == "overview" else { return false }
-        guard let activeGeneration, !activeGeneration.isEmpty,
-              let activeDigest, !activeDigest.isEmpty else { return true }
-        return !runtime.healthy
-            || runtime.generationID != activeGeneration
-            || runtime.intentDigest != activeDigest
+        guard let savedDigest, !savedDigest.isEmpty,
+              !currentSavedDigest.isEmpty,
+              savedDigest == currentSavedDigest else { return true }
+        let reportGeneration = activeGeneration ?? ""
+        let reportDigest = activeDigest ?? ""
+        if reportGeneration.isEmpty && reportDigest.isEmpty {
+            return runtime.healthy || !runtime.generationID.isEmpty || !runtime.intentDigest.isEmpty
+        }
+        guard !reportGeneration.isEmpty, !reportDigest.isEmpty else { return true }
+        return runtime.generationID != reportGeneration
+            || runtime.intentDigest != reportDigest
     }
 }
 
@@ -1321,8 +1327,10 @@ final class AppModel: ObservableObject {
         parseDraft()?.objectValue?["main"]?.objectValue?["log_level"]?.stringValue ?? "—"
     }
 
-    var draftDNSCacheCapacity: Int {
-        Int(parseDraft()?.objectValue?["main"]?.objectValue?["dns_cache_capacity"]?.numberValue ?? 0)
+    var draftDNSCacheCapacityLabel: String {
+        guard let value = parseDraft()?.objectValue?["main"]?.objectValue?["dns_cache_capacity"]?.numberValue,
+              value != 0 else { return "默认" }
+        return Int(value).formatted()
     }
 
     func itemCount(for key: String) -> Int {
@@ -2071,7 +2079,7 @@ final class AppModel: ObservableObject {
         let isOverview = nodeID == nil && routeID == nil
         guard activeProbeKeys.insert(key).inserted else { return }
         message = isOverview
-            ? "正在使用当前运行配置访问测试目标…"
+            ? "正在使用设备当前网络环境访问测试目标…"
             : (download ? "正在运行下载测速…" : "正在运行连接测试…")
         Task {
             defer { activeProbeKeys.remove(key) }
@@ -2082,6 +2090,9 @@ final class AppModel: ObservableObject {
                 probeReportDraftSequences[key] = draftMutationSequence
                 if isOverview {
                     overviewProbeReports[key] = report
+                    if let savedDigest = report.savedDigest, !savedDigest.isEmpty {
+                        diagnosticsSavedDigest = savedDigest
+                    }
                     message = report.ok
                         ? "连通性测试完成：\(report.summary)"
                         : "连通性测试失败；详细原因请查看诊断日志"
@@ -2097,7 +2108,7 @@ final class AppModel: ObservableObject {
                 }
                 if isOverview {
                     overviewProbeReports.removeValue(forKey: key)
-                    message = "连通性测试失败；请确认服务正在运行，详细原因可查看诊断日志"
+                    message = "连通性测试失败；请检查已保存的测试地址和当前网络，详细原因可查看诊断日志"
                 } else {
                     message = download ? "下载测速失败；详细原因请查看诊断日志" : "连接测试失败；详细原因请查看诊断日志"
                 }
@@ -2146,17 +2157,17 @@ final class AppModel: ObservableObject {
         guard let report = overviewProbeReports[key] else {
             return probeSummaries[key] ?? "未测试"
         }
-        return report.summary + (report.isStale(relativeTo: runtime) ? " · 已过期" : "")
+        return report.summary + (report.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) ? " · 已过期" : "")
     }
 
     func overviewProbeDetail(_ kind: String) -> String? {
         guard let report = overviewProbeReports["overview:\(kind)"] else { return nil }
-        let stale = report.isStale(relativeTo: runtime) ? " · 已过期" : ""
+        let stale = report.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) ? " · 已过期" : ""
         return "测试时间 \(report.testedAt)\(stale)"
     }
 
     func overviewProbeIsStale(_ kind: String) -> Bool {
-        overviewProbeReports["overview:\(kind)"]?.isStale(relativeTo: runtime) == true
+        overviewProbeReports["overview:\(kind)"]?.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) == true
     }
 
     var diagnosticProbeReports: [ProbeReport] {
@@ -2165,7 +2176,7 @@ final class AppModel: ObservableObject {
 
     func probeReportIsStale(_ report: ProbeReport) -> Bool {
         if report.scope == "overview" {
-            return report.isStale(relativeTo: runtime)
+            return report.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest)
         }
         let key = reportKey(report)
         if isDirty || probeReportDraftSequences[key] != draftMutationSequence {

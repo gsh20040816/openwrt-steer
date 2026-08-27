@@ -3,10 +3,53 @@
 package linux
 
 import (
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/gsh20040816/steer/go/internal/compiler"
 	model "github.com/gsh20040816/steer/go/internal/intent"
 )
+
+func TestProbeOverviewUsesSavedIntentWithoutActiveGeneration(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := model.DecodeJSON(bytes.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	value.Main.Enabled = false
+	value.Main.ProbeProxyURL = server.URL
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	var encoded bytes.Buffer
+	if err := model.EncodeJSON(&encoded, value); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := ProbeOverviewWithState(
+		context.Background(), configPath, filepath.Join(root, "run"), filepath.Join(root, "state"), "proxy", server.Client(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK || report.SavedDigest != compiler.IntentDigest(value) || report.ActiveGeneration != "" {
+		t.Fatalf("disabled Saved overview probe = %#v", report)
+	}
+}
 
 func TestTemporaryProbePreservesBootstrapAndMarksEveryDialSocket(t *testing.T) {
 	bootstrap := model.Bootstrap{Protocol: "udp", Server: "1.1.1.1", ServerPort: 53, Strategy: "prefer_ipv4"}

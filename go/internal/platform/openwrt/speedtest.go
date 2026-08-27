@@ -25,21 +25,16 @@ import (
 type TestReport = probe.Report
 type TestResult = probe.Result
 
-func ProbeCurrent(ctx context.Context, runDirectory, kind string, client *http.Client) (TestReport, error) {
-	return probeCurrent(ctx, runDirectory, "", kind, client)
-}
-
-func ProbeCurrentWithState(ctx context.Context, runDirectory, stateDirectory, kind string, client *http.Client) (TestReport, error) {
-	return probeCurrent(ctx, runDirectory, stateDirectory, kind, client)
-}
-
-func probeCurrent(ctx context.Context, runDirectory, stateDirectory, kind string, client *http.Client) (TestReport, error) {
+func ProbeOverview(ctx context.Context, configPath, runDirectory, stateDirectory, kind string, client *http.Client) (TestReport, error) {
+	if configPath == "" {
+		configPath = "/etc/config/steer"
+	}
 	if runDirectory == "" {
 		runDirectory = "/run/steer"
 	}
-	currentIntent, err := generation.ReadIntent(filepath.Join(runDirectory, "current"))
+	currentIntent, err := readTestIntent(configPath, "overview test")
 	if err != nil {
-		return TestReport{}, err
+		return TestReport{}, recordTestFailure(stateDirectory, "overview", "", kind, err)
 	}
 	target, download := "", false
 	switch kind {
@@ -50,17 +45,22 @@ func probeCurrent(ctx context.Context, runDirectory, stateDirectory, kind string
 	case "speedtest":
 		target, download = currentIntent.Main.SpeedtestProxyURL, true
 	default:
-		return TestReport{}, fmt.Errorf("unsupported probe kind %q", kind)
+		err := fmt.Errorf("unsupported probe kind %q", kind)
+		return TestReport{}, recordTestFailure(stateDirectory, "overview", "", kind, err)
 	}
 	if target == "" {
-		return TestReport{}, fmt.Errorf("current intent has no %s HTTPS probe", kind)
+		err := fmt.Errorf("saved intent has no %s HTTPS probe", kind)
+		return TestReport{}, recordTestFailure(stateDirectory, "overview", "", kind, err)
 	}
 	if client == nil {
 		client = probe.HTTPClient(nil, download)
 	}
 	report := probe.Run(ctx, client, "overview", "", kind, target, download)
-	report.ActiveGeneration = currentGenerationID(filepath.Join(runDirectory, "current"))
-	report.ActiveDigest = compiler.IntentDigest(currentIntent)
+	report.SavedDigest = compiler.IntentDigest(currentIntent)
+	if activeIntent, err := generation.ReadIntent(filepath.Join(runDirectory, "current")); err == nil {
+		report.ActiveGeneration = currentGenerationID(filepath.Join(runDirectory, "current"))
+		report.ActiveDigest = compiler.IntentDigest(activeIntent)
+	}
 	report = probe.SanitizeReport(report)
 	if stateDirectory != "" {
 		if err := saveTestReport(stateDirectory, report); err != nil {

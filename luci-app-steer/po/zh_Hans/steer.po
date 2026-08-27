@@ -69,6 +69,9 @@ msgstr "引导 DNS"
 msgid "Cache capacity"
 msgstr "缓存容量"
 
+msgid "Leave empty to use the default value; custom range is 1,024–10,000,000."
+msgstr "留空使用默认值；自定义范围为 1,024–10,000,000。"
+
 msgid "Cancel"
 msgstr "取消"
 
@@ -933,9 +936,6 @@ msgstr "NaiveProxy"
 msgid "Node import is not permitted"
 msgstr "不允许导入节点"
 
-msgid "Operation failed (%s)."
-msgstr "操作失败（%s）。"
-
 msgid "PacketAddr"
 msgstr "PacketAddr"
 
@@ -1013,9 +1013,6 @@ msgstr "TTFB"
 
 msgid "TUIC"
 msgstr "TUIC"
-
-msgid "Technical details"
-msgstr "技术详情"
 
 msgid "Tested at"
 msgstr "测试时间"
@@ -1440,14 +1437,14 @@ msgstr "系统 DNS 接管检查"
 msgid "System DNS capture is configured."
 msgstr "系统 DNS 接管已配置。"
 
-msgid "Tests download speed with the current running configuration."
-msgstr "使用当前运行配置测试下载速度。"
+msgid "Tests download speed in the current network environment."
+msgstr "在当前网络环境中测试下载速度。"
 
-msgid "Tests the direct target with the current running configuration."
-msgstr "使用当前运行配置测试直连地址。"
+msgid "Tests the direct target in the current network environment."
+msgstr "在当前网络环境中测试直连地址。"
 
-msgid "Tests the proxy target with the current running configuration."
-msgstr "使用当前运行配置测试代理地址。"
+msgid "Tests the proxy target in the current network environment."
+msgstr "在当前网络环境中测试代理地址。"
 
 msgid "The last application failed. The saved configuration is still available; check Diagnostics for details."
 msgstr "最近一次应用失败。已保存配置仍可用；详细原因请查看诊断页面。"
@@ -1461,8 +1458,8 @@ msgstr "已保存配置校验通过。"
 msgid "The service continues using the previous running configuration."
 msgstr "服务继续使用此前的运行配置。"
 
-msgid "The tests use the current running configuration. Success only means the target was reachable at that time."
-msgstr "测试使用当前运行配置；成功仅表示目标在测试时可达。"
+msgid "The tests use the current network environment and remain available while Steer is disabled. Success only means the target was reachable at that time."
+msgstr "测试使用设备当前网络环境；Steer 未启用时仍可运行。成功仅表示目标在测试时可达。"
 
 msgid "The working copy has unsaved changes. The running configuration remains unchanged until they are saved and applied."
 msgstr "工作副本有未保存修改；保存并应用前，当前运行配置不会改变。"

@@ -328,9 +328,10 @@ async function main() {
 		warnings: []
 	}, true);
 	const failedText = textContent(rendered);
-	assert.ok(failedText.includes('The saved configuration is invalid') && failedText.includes('DANGLING_ROUTE') &&
-		failedText.includes('The referenced Route does not exist.'),
-		'Invalid saved intent localizes the stable validation code and location');
+	assert.ok(failedText.includes('The saved configuration is invalid') &&
+		failedText.includes('The referenced Route does not exist.') &&
+		!failedText.includes('DANGLING_ROUTE') && !failedText.includes('broken'),
+		'Invalid saved intent shows a localized repair message without internal codes or IDs');
 
 	runtime.status = { healthy: true };
 	await helper.apply({ handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); } }, null, '1');
@@ -355,7 +356,8 @@ async function main() {
 	const activationNotice = runtime.notifications.at(-1);
 	assert.equal(activationNotice.title, 'Configuration saved; application failed');
 	assert.ok(textContent(activationNotice.content).includes('previous running configuration') &&
-		textContent(activationNotice.content).includes('Apply Saved configuration'),
+		textContent(activationNotice.content).includes('Apply Saved configuration') &&
+		!textContent(activationNotice.content).includes('systemd refused start'),
 		'activation failure explains commit-before-apply and the recovery action on every page');
 
 	runtime.sequence = [];
@@ -400,8 +402,8 @@ async function main() {
 	runtime.candidateValidation = { ok: true, errors: [], warnings: validationIssueFixtures.validation.warnings };
 	await helper.applyPending();
 	assert.equal(runtime.notifications.at(-1).level, 'warning');
-	assert.ok(textContent(runtime.notifications.at(-1).content).includes('DNS_PROJECTION_EMPTY') ||
-		textContent(runtime.notifications.at(-1).content).includes('connection-stage'),
+	assert.ok(textContent(runtime.notifications.at(-1).content).includes('connection-stage') &&
+		!textContent(runtime.notifications.at(-1).content).includes('DNS_PROJECTION_EMPTY'),
 		'non-blocking write warnings remain visible after a successful Apply');
 
 	runtime.sequence = [];
@@ -418,9 +420,10 @@ async function main() {
 	assert.equal(runtime.notifications.at(-1).level, 'danger');
 	const validationText = textContent(runtime.notifications.at(-1).content);
 	for (const issue of [ ...runtime.candidateValidation.errors, ...runtime.candidateValidation.warnings ]) {
-		assert.ok(validationText.includes(issue.code) || validationText.includes(issue.message));
-		const optionLabel = { node: 'Node', route: 'Route', dns_profile: 'DNS profile' }[issue.option] || issue.option;
-		assert.ok(validationText.includes(issue.object_id) && validationText.includes(optionLabel));
+		assert.ok(!validationText.includes(issue.code) && !validationText.includes(issue.object_id));
+		const optionLabel = { node: 'Node', route: 'Route', dns_profile: 'DNS profile' }[issue.option];
+		if (optionLabel) assert.ok(validationText.includes(optionLabel));
+		else assert.ok(!validationText.includes(issue.option));
 	}
 	assert.ok(validationText.includes('Go to field'),
 		'Every located write issue offers direct object/field navigation');
@@ -438,7 +441,8 @@ async function main() {
 	assert.equal(runtime.commitCalls, commitsBeforeRPCFailure,
 		'A failed standard UCI commit is never reported as committed');
 	assert.equal(commitFailure.saved, false);
-	assert.ok(textContent(runtime.notifications.at(-1).content).includes('commit status 4'));
+	assert.ok(textContent(runtime.notifications.at(-1).content).includes('Operation failed.') &&
+		!textContent(runtime.notifications.at(-1).content).includes('commit status 4'));
 	runtime.commitStatus = 0;
 
 	rendered = helper.renderStatus({ healthy: true, ignored_detail: true }, runtime.validation, true);

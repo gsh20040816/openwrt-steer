@@ -134,4 +134,4 @@ OpenWrt `status` 同样从 `current` generation 返回 Active generation、Inten
 
 共享订阅逻辑只依赖窄 `Store`：替换一组订阅节点或删除一个节点。OpenWrt Store 生成单次 UCI batch；JSON Store 使用 revision-guarded 原子写入。订阅只改变 Saved 节点库，提交后不主动 Apply。三端状态都由 `subscription.Status` 生成：最近成功 snapshot 与最近失败独立保存，失败摘要不含 URL/响应内容，stale 节点携带阻止 clean 的 Route 引用。UI 更新响应也使用该状态 DTO，不返回包含节点凭据的内部 snapshot。
 
-共享 probe 负责 HTTP/TLS 测量、报告脱敏和受限归档。三端按 scope/object/kind 保存最近报告，公开契约只包含安全 URL、稳定错误分类、阶段耗时和 Saved/Active identity；credentials、URL path/query values 与临时核心进程诊断不会进入 UI。OpenWrt 概览测试读取当前 generation 的 `intent.json`，节点和路由测试读取磁盘 UCI并临时启动环回 sing-box。macOS GUI 的概览请求经受限 control socket 由 root daemon 读取 Active generation，不以 Saved config 兜底。UI 在 Draft/Saved/Active identity 改变后把旧结果标为过期。概览请求按 Active 规则访问，只证明目标当时可达，不声称命中了某个 outbound 或 DNS resolver。测试报告不会进入配置或编译输入。
+共享 probe 负责 HTTP/TLS 测量、报告脱敏和受限归档。三端按 scope/object/kind 保存最近报告，公开契约只包含安全 URL、稳定错误分类、阶段耗时和 Saved/Active identity；credentials、URL path/query values 与临时核心进程诊断不会进入 UI。概览测试从各平台 Saved 配置读取三个固定 URL，直接使用设备当前网络环境访问，因此在 Steer 未启用时仍可运行；节点和路由测试读取 Saved 配置并临时启动环回 sing-box。UI 在 Saved 或测试时网络环境的 Active identity 改变后把旧结果标为过期。概览请求只证明目标当时可达，不声称命中了某个 outbound 或 DNS resolver。测试报告不会进入配置或编译输入。

@@ -45,6 +45,7 @@ embedded_installer="$repository_root/macos/scripts/install-embedded-payload.sh"
 embedded_uninstaller="$repository_root/macos/scripts/uninstall-embedded-payload.sh"
 config_example="$repository_root/linux/config.example.json"
 steer_license="$repository_root/LICENSE"
+app_icon="$repository_root/macos/SteerAppIcon.png"
 
 require_regular_file() {
 	[ -f "$1" ] && [ ! -L "$1" ] || {
@@ -65,6 +66,7 @@ for input in \
 	"$embedded_uninstaller" \
 	"$config_example" \
 	"$steer_license" \
+	"$app_icon" \
 	"$geodata_directory/manifest.json"; do
 	require_regular_file "$input"
 done
@@ -120,6 +122,7 @@ printf '%s\n' 'socks://user:pass@127.0.0.1:1080#PackagingSmoke' > "$node_input"
 rm -f "$node_input"
 
 app="$work_directory/Steer.app"
+resources_directory="$app/Contents/Resources"
 installer_directory="$app/Contents/Resources/Installer"
 licenses_directory="$app/Contents/Resources/LICENSES"
 mkdir -p "$app/Contents/MacOS" "$installer_directory" "$licenses_directory"
@@ -136,6 +139,26 @@ install -m 0644 "$steer_license" "$licenses_directory/Steer-GPL-3.0.txt"
 install -m 0644 "$sing_box_license" "$licenses_directory/sing-box-GPL-3.0.txt"
 cp -R "$geodata_directory" "$app/Contents/Resources/geodata-seed"
 
+iconset="$work_directory/SteerAppIcon.iconset"
+mkdir -p "$iconset"
+render_icon() {
+	size="$1"
+	output="$2"
+	sips --resampleHeightWidth "$size" "$size" "$app_icon" --out "$iconset/$output" >/dev/null
+}
+render_icon 16 icon_16x16.png
+render_icon 32 icon_16x16@2x.png
+render_icon 32 icon_32x32.png
+render_icon 64 icon_32x32@2x.png
+render_icon 128 icon_128x128.png
+render_icon 256 icon_128x128@2x.png
+render_icon 256 icon_256x256.png
+render_icon 512 icon_256x256@2x.png
+render_icon 512 icon_512x512.png
+render_icon 1024 icon_512x512@2x.png
+iconutil -c icns "$iconset" -o "$resources_directory/SteerAppIcon.icns"
+require_regular_file "$resources_directory/SteerAppIcon.icns"
+
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -147,6 +170,8 @@ cat > "$app/Contents/Info.plist" <<EOF
 	<string>SteerApp</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.steer.steer</string>
+	<key>CFBundleIconFile</key>
+	<string>SteerAppIcon</string>
 	<key>CFBundleName</key>
 	<string>Steer</string>
 	<key>CFBundlePackageType</key>

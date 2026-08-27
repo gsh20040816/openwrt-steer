@@ -58,7 +58,10 @@ final class ProbeDiagnosticsTests: XCTestCase {
         XCTAssertEqual(overview.results.first?.firstByteMilliseconds, 21)
         XCTAssertFalse(overview.isStale(relativeTo: RuntimeStatus(
             healthy: true, generationID: "generation-a", intentDigest: "active-a", error: ""
-        )))
+        ), savedDigest: "saved-a"))
+        XCTAssertFalse(overview.isStale(relativeTo: RuntimeStatus(
+            healthy: false, generationID: "generation-a", intentDigest: "active-a", error: "runtime unhealthy"
+        ), savedDigest: "saved-a"))
 
         let download = document.diagnostics.reports[1].results[0]
         XCTAssertEqual(download.downloadedBytes, 1_000_000)

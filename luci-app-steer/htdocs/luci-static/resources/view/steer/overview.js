@@ -98,9 +98,9 @@ function renderTestCard(kind, title, description, allowed) {
 
 function renderOverviewTests(allowed) {
 	return E('div', { 'class': 'steer-test-grid' }, [
-		renderTestCard('direct', _('Direct target'), _('Tests the direct target with the current running configuration.'), allowed),
-		renderTestCard('proxy', _('Proxy target'), _('Tests the proxy target with the current running configuration.'), allowed),
-		renderTestCard('speedtest', _('Download target'), _('Tests download speed with the current running configuration.'), allowed)
+		renderTestCard('direct', _('Direct target'), _('Tests the direct target in the current network environment.'), allowed),
+		renderTestCard('proxy', _('Proxy target'), _('Tests the proxy target in the current network environment.'), allowed),
+		renderTestCard('speedtest', _('Download target'), _('Tests download speed in the current network environment.'), allowed)
 	]);
 }
 
@@ -116,8 +116,9 @@ function hasPendingSteerChanges(changes) {
 
 function reportIsStale(report, diagnostics, pending) {
 	if (report.scope == 'overview')
-		return !report.active_generation || !report.active_digest ||
-			report.active_generation != diagnostics.active_generation || report.active_digest != diagnostics.active_digest;
+		return !report.saved_digest || report.saved_digest != diagnostics.saved_digest ||
+			(report.active_generation || '') != (diagnostics.active_generation || '') ||
+			(report.active_digest || '') != (diagnostics.active_digest || '');
 	return pending || !report.saved_digest || report.saved_digest != diagnostics.saved_digest;
 }
 
@@ -149,7 +150,7 @@ function renderDiagnostics(status, validation, diagnostics, changes, permissions
 	return E([], [
 		E('section', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Connectivity targets')),
-			E('p', {}, _('The tests use the current running configuration. Success only means the target was reachable at that time.')),
+			E('p', {}, _('The tests use the current network environment and remain available while Steer is disabled. Success only means the target was reachable at that time.')),
 			renderOverviewTests(permissions?.overview_probe === true)
 		]),
 		E('section', { 'class': 'cbi-section' }, [
@@ -303,6 +304,12 @@ return view.extend({
 		o = s.option(form.Value, 'dns_cache_capacity', _('Cache capacity'));
 		o.datatype = 'range(1024,10000000)';
 		o.placeholder = '4096';
+		o.rmempty = true;
+		o.description = _('Leave empty to use the default value; custom range is 1,024–10,000,000.');
+		o.cfgvalue = function(sectionId) {
+			const value = uci.get('steer', sectionId, 'dns_cache_capacity');
+			return value === '0' || value === 0 ? '' : value;
+		};
 
 		o = s.option(form.Flag, 'dns_cache_persist', _('Persistent cache'));
 		o.default = '0';

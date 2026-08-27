@@ -499,7 +499,7 @@ func runProbe(args []string) error {
 		}
 		return nil
 	}
-	report, err := openwrt.ProbeCurrentWithState(context.Background(), *runDirectory, *stateDirectory, *kind, nil)
+	report, err := openwrt.ProbeOverview(context.Background(), *configPath, *runDirectory, *stateDirectory, *kind, nil)
 	if err != nil {
 		writeJSON(coreprobe.FailureReport("overview", "", *kind, err))
 		return err

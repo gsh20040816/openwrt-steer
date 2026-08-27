@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "capability": {
-    "overview": "Success only proves that the configured URL was reachable under the current Active rules at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.",
+    "overview": "Overview probes use the Saved URL and the device's current network environment, even while Steer is disabled. Success only proves that the configured URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.",
     "temporary": "Node and Route probes validate an isolated temporary chain and do not prove which path the current Active rules selected."
   },
   "objects": {
@@ -35,6 +35,7 @@
         "kind": "proxy",
         "ok": true,
         "tested_at": "2026-08-26T04:00:00Z",
+        "saved_digest": "saved-a",
         "active_generation": "generation-a",
         "active_digest": "active-a",
         "results": [
