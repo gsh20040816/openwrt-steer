@@ -3,7 +3,7 @@
 'use strict';
 (function () {
   const S = window.S;
-  const { h, fmtReport } = S;
+  const { h, fmtReport, fmtLatestProbe } = S;
   const ui = S.ui;
   let routeButtons = [];
 
@@ -12,8 +12,24 @@
       if (button.classList.contains('spinning')) return;
       button.disabled = !button._eligible || S.store.dirty;
       button.title = !button._eligible ? '已停用路由不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : button._label);
+      syncLatest(button);
     });
   }
+
+  function latestReport(routeId, download) {
+    const kind = download ? 'download' : 'connect';
+    return (S.store.diagnostics?.reports || []).find((report) =>
+      report.scope === 'routes' && report.object_id === routeId && report.kind === kind);
+  }
+
+  function syncLatest(button, report = latestReport(button._routeId, button._download)) {
+    if (!button._latest) return;
+    const latest = fmtLatestProbe(report, S.store.diagnostics, S.store.dirty);
+    button._latest.className = `probe-latest ${latest.stale ? 'is-stale' : (latest.ok === false ? 'is-err' : '')}`;
+    button._latest.replaceChildren(latest.text);
+  }
+
+  function probeAction(button) { return h('div', { class: 'probe-action' }, button, button._latest); }
 
   function nodeLabel(intent, id) {
     const node = intent.nodes.find((n) => n.id === id);
@@ -62,14 +78,20 @@
       btn.disabled = true; btn.classList.add('spinning'); btn.textContent = '测试中…';
       try {
         const report = await S.api.speedtestRoute(routeId, download);
+        S.store.installProbeReport?.(report);
         const r = fmtReport(report, download);
         btn.classList.remove('spinning'); btn.textContent = r.label; btn.title = r.detail;
         btn.classList.toggle('is-ok', r.ok); btn.classList.toggle('is-err', !r.ok);
+        syncLatest(btn, report);
       } catch (e) { btn.classList.remove('spinning'); btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err'); }
       syncRouteTestButtons();
     }, disabled: !eligible || S.store.dirty, title: !eligible ? '已停用路由不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : label) }, label);
     btn._eligible = eligible;
     btn._label = label;
+    btn._routeId = routeId;
+    btn._download = download;
+    btn._latest = h('small', { class: 'probe-latest' });
+    syncLatest(btn);
     routeButtons.push(btn);
     return btn;
   }
@@ -176,7 +198,9 @@
           h('td', {}, ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); view.render(root); })),
           h('td', {}, h('strong', {}, route.name || route.id)),
           h('td', {}, chain(intent, route)),
-          h('td', {}, h('div', { class: 'row-actions' }, routeTestButton('链测试', false, route.id, route.enabled !== false), routeTestButton('下载', true, route.id, route.enabled !== false))),
+          h('td', {}, h('div', { class: 'row-actions row-actions--probe' },
+            probeAction(routeTestButton('链测试', false, route.id, route.enabled !== false)),
+            probeAction(routeTestButton('下载', true, route.id, route.enabled !== false)))),
           h('td', {}, h('div', { class: 'row-actions' }, [
             h('button', { class: 'btn btn--sm', onclick: () => openRouteEditor(route) }, '编辑'),
             h('button', { class: 'btn btn--sm btn--danger', onclick: () => {

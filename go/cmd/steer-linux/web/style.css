@@ -98,6 +98,11 @@ body {
 .table-card { padding: 0; overflow: hidden; }
 .row-actions { display: flex; gap: 6px; }
 .row-actions--wrap { flex-wrap: wrap; }
+.row-actions--probe { align-items: flex-start; flex-wrap: wrap; }
+.probe-action { display: flex; flex-direction: column; gap: 4px; min-width: 148px; }
+.probe-latest { color: var(--dim); font: 10.5px/1.35 var(--mono); overflow-wrap: anywhere; }
+.probe-latest.is-stale { color: var(--warn); }
+.probe-latest.is-err { color: var(--err); }
 .field-inline { display: flex; gap: 8px; align-items: center; }
 .dialog-inline-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .editor-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -338,6 +343,7 @@ body {
 .test-result small { color: var(--dim); overflow-wrap: anywhere; font-size: 11px; }
 .test-result.is-ok strong { color: var(--ok); }
 .test-result.is-err strong { color: var(--err); }
+.test-result.is-stale strong { color: var(--warn); }
 
 /* ---------- 6. 节点：分组 / 链路 / 测速 ---------- */
 .node-groups { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }

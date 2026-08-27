@@ -285,6 +285,25 @@ struct ProbeReport: Decodable, Sendable, Identifiable {
         return result.status.map { "HTTP \($0)" } ?? "成功"
     }
 
+    var localizedTestedAt: String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = formatter.date(from: testedAt) ?? ISO8601DateFormatter().date(from: testedAt)
+        guard let date else { return "时间未知" }
+        return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
+    }
+
+    var failureSummary: String {
+        let safeError = error ?? results.first(where: { $0.error?.isEmpty == false })?.error ?? ""
+        return [
+            "probe timed out": "连接超时",
+            "probe was cancelled": "测试已取消",
+            "TLS verification failed": "TLS 校验失败",
+            "probe connection was refused": "连接被拒绝",
+            "probe target could not be resolved": "目标无法解析",
+        ][safeError] ?? "请查看诊断日志"
+    }
+
     func isStale(relativeTo runtime: RuntimeStatus, savedDigest currentSavedDigest: String) -> Bool {
         guard scope == "overview" else { return false }
         guard let savedDigest, !savedDigest.isEmpty,
@@ -299,6 +318,13 @@ struct ProbeReport: Decodable, Sendable, Identifiable {
         return runtime.generationID != reportGeneration
             || runtime.intentDigest != reportDigest
     }
+}
+
+struct ProbeLatestPresentation: Identifiable, Sendable {
+    let id: String
+    let text: String
+    let ok: Bool
+    let stale: Bool
 }
 
 struct ProbeDiagnostics: Decodable, Sendable {
@@ -2218,15 +2244,11 @@ final class AppModel: ObservableObject {
     func overviewProbeDetail(_ kind: String) -> String? {
         guard let report = overviewProbeReports["overview:\(kind)"] else { return nil }
         let stale = report.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) ? " · 已过期" : ""
-        return "测试时间 \(report.testedAt)\(stale)"
+        return "上次 \(report.localizedTestedAt)\(stale)"
     }
 
     func overviewProbeIsStale(_ kind: String) -> Bool {
         overviewProbeReports["overview:\(kind)"]?.isStale(relativeTo: runtime, savedDigest: diagnosticsSavedDigest) == true
-    }
-
-    var diagnosticProbeReports: [ProbeReport] {
-        probeReports.values.sorted { $0.testedAt > $1.testedAt }
     }
 
     func probeReportIsStale(_ report: ProbeReport) -> Bool {
@@ -2240,6 +2262,22 @@ final class AppModel: ObservableObject {
         guard let savedDigest = report.savedDigest, !savedDigest.isEmpty,
               !diagnosticsSavedDigest.isEmpty else { return true }
         return savedDigest != diagnosticsSavedDigest
+    }
+
+    func latestProbePresentation(scope: String, objectID: String, download: Bool) -> ProbeLatestPresentation? {
+        let kind = download ? "download" : "connect"
+        let key = "\(scope):\(objectID):\(kind)"
+        guard let report = probeReports[key] else { return nil }
+        let stale = probeReportIsStale(report)
+        let outcome = report.ok ? "成功" : "失败"
+        let metric = report.ok ? report.summary : report.failureSummary
+        let label = download ? "下载" : "连接"
+        return ProbeLatestPresentation(
+            id: kind,
+            text: "\(label) · 上次 \(report.localizedTestedAt) · \(stale ? "已过期 · " : "")\(outcome) · \(metric)",
+            ok: report.ok,
+            stale: stale
+        )
     }
 
     private func installDiagnostics(_ diagnostics: ProbeDiagnostics) {

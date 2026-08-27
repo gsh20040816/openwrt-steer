@@ -1367,11 +1367,11 @@ return baseclass.extend({
   ],
   "page_responsibilities": {
     "diagnostics": {
-      "summary": "Validation, probes, recent reports, port-53 capture inspection and logs",
+      "summary": "Validation, probes with latest safe results, port-53 capture inspection and logs",
       "facts": [
         "validation",
         "probes",
-        "recent_reports",
+        "latest_results",
         "dns_capture",
         "last_apply",
         "logs"

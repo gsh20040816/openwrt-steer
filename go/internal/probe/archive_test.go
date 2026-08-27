@@ -44,6 +44,29 @@ func TestReportArchiveSanitizesSecretsAndReturnsNewestFirst(t *testing.T) {
 	}
 }
 
+func TestReportArchiveKeepsOnlyLatestScopeObjectKind(t *testing.T) {
+	stateDirectory := t.TempDir()
+	first := Report{
+		Scope: "nodes", ObjectID: "node_a", Kind: "connect", TestedAt: time.Date(2026, 8, 26, 1, 0, 0, 0, time.UTC),
+		Results: []Result{{OK: false, Error: "timeout"}},
+	}
+	latest := first
+	latest.OK = true
+	latest.TestedAt = first.TestedAt.Add(time.Hour)
+	latest.Results = []Result{{OK: true, FirstByteMilliseconds: 42}}
+	if err := SaveReport(stateDirectory, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveReport(stateDirectory, latest); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := ReadDiagnostics(stateDirectory)
+	if len(diagnostics.Reports) != 1 || !diagnostics.Reports[0].OK ||
+		diagnostics.Reports[0].TestedAt != latest.TestedAt || diagnostics.Reports[0].Results[0].FirstByteMilliseconds != 42 {
+		t.Fatalf("scope/object/kind did not retain exactly the latest result: %#v", diagnostics.Reports)
+	}
+}
+
 func TestReportArchiveWarnsAndContinuesPastInvalidState(t *testing.T) {
 	stateDirectory := t.TempDir()
 	if err := SaveReport(stateDirectory, Report{Scope: "overview", Kind: "direct", TestedAt: time.Now(), Results: []Result{}}); err != nil {

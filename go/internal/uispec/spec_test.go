@@ -139,7 +139,7 @@ func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t 
 	contract := ContractValue()
 	expectedPages := map[string][]string{
 		"overview":    {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
-		"diagnostics": {"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+		"diagnostics": {"validation", "probes", "latest_results", "dns_capture", "last_apply", "logs"},
 		"system":      {"versions", "last_apply", "geo", "paths", "platform_components", "access"},
 	}
 	for page, facts := range expectedPages {

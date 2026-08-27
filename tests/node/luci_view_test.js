@@ -410,7 +410,11 @@ function createEnvironment(sections) {
 		},
 		overviewProbe: (kind) => {
 			overviewProbeCalls.push(kind);
-			return Promise.resolve({ ok: true, results: [ { url: 'https://test.example/', ok: true, first_byte_milliseconds: 20 } ] });
+			return Promise.resolve({
+				scope: 'overview', kind, ok: true, tested_at: '2026-08-26T05:00:00Z',
+				saved_digest: 'saved-a', active_generation: 'generation-a', active_digest: 'active-a',
+				results: [ { url: 'https://test.example/', ok: true, first_byte_milliseconds: 20 } ]
+			});
 		},
 		importNodes: (document) => {
 			importNodeCalls.push(document);
@@ -441,7 +445,7 @@ function createEnvironment(sections) {
 		updateSubscriptionResult: { ok: true, subscriptions: [] },
 		statusResult: {},
 		runtimeResult: {},
-		diagnosticsResult: probeDiagnosticsFixtures.diagnostics,
+		diagnosticsResult: JSON.parse(JSON.stringify(probeDiagnosticsFixtures.diagnostics)),
 		lifecycleState: {
 			ok: true, pending: false,
 			desired: { available: true, enabled: true, digest: 'saved-a', counts: {}, validation: { ok: true, errors: [], warnings: [] } },
@@ -727,8 +731,9 @@ async function renderRules(sections, catalog = {}) {
 	return environment;
 }
 
-async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes', pendingChanges = [], permissions = {}) {
+async function renderNodes(sections, search = '', subscriptionStatus, page = 'nodes', pendingChanges = [], permissions = {}, diagnosticsResult) {
 	const environment = createEnvironment(sections);
+	if (diagnosticsResult) environment.diagnosticsResult = diagnosticsResult;
 	environment.permissions = { ...permissions };
 	environment.setPendingChanges(pendingChanges);
 	environment.window.location.pathname = `/cgi-bin/luci/admin/services/steer/${page}`;
@@ -748,6 +753,7 @@ async function renderNodes(sections, search = '', subscriptionStatus, page = 'no
 		}
 	);
 	environment.rendered = await view.render([ null, subscriptionStatus, { steer: pendingChanges },
+		environment.diagnosticsResult,
 		{
 			...Object.fromEntries([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import' ]
 				.map((method) => [ method, environment.permissions[method] !== false ])),
@@ -1513,11 +1519,29 @@ async function main() {
 	const pendingDownload = pendingNodeSection.options.find((option) => option.name == '_download_speedtest');
 	assert.ok([ pendingConnect, pendingDownload ].every((option) => option.dependencies.some((dependency) => dependency[0] == 'enabled' && dependency[1] == '1')),
 		'disabled LuCI Nodes do not render backend-rejected test actions');
+	const persistedNodeProbe = elementText(pendingDownload.renderWidget('node_enabled'));
+	assert.ok(/Tested at.*Outdated.*Succeeded.*16\.0 Mbps/.test(persistedNodeProbe),
+		'LuCI Node restores the persisted latest download result beside its action');
+	for (const forbidden of probeDiagnosticsFixtures.ordinary_ui.forbidden_fragments)
+		assert.ok(!persistedNodeProbe.includes(forbidden), `LuCI Node latest result hides ${forbidden}`);
 	const pendingBatchButtons = findElements(environment.rendered,
 		(node) => node.tag == 'button' && String(node.children?.[0] || '').startsWith('Batch'));
 	assert.equal(pendingBatchButtons.length, 2);
 	assert.ok(pendingBatchButtons.every((button) => button.disabled && button.title.includes('Pending Steer changes')),
 		'pending changes visibly disable every batch Node probe');
+
+	const latestRouteEnvironment = await renderNodes({
+		node: [ { '.name': 'node_enabled', enabled: '1', name: 'Node' } ],
+		route: [ { '.name': 'route_enabled', enabled: '1', name: 'Route', kind: 'single', node: 'node_enabled' } ],
+		subscription: []
+	}, '', undefined, 'routes', [], {}, probeDiagnosticsFixtures.diagnostics);
+	const latestRouteSection = latestRouteEnvironment.maps[0].sections.find((section) => section.sectionType == 'route');
+	const persistedRouteProbe = elementText(latestRouteSection.options
+		.find((option) => option.name == '_route_connect_test').renderWidget('route_enabled'));
+	assert.ok(/Tested at.*Outdated.*Failed.*Probe timed out/.test(persistedRouteProbe),
+		'LuCI Route restores and expires the persisted latest connection result beside its action');
+	for (const forbidden of probeDiagnosticsFixtures.ordinary_ui.forbidden_fragments)
+		assert.ok(!persistedRouteProbe.includes(forbidden), `LuCI Route latest result hides ${forbidden}`);
 	const pendingProbeButton = { disabled: false, textContent: '', title: '', classList: { toggle: () => {}, add: () => {} } };
 	await pendingConnect.onclick({ currentTarget: pendingProbeButton }, 'node_enabled');
 	assert.deepEqual(environment.speedtestCalls, [], 'changed existing and unrelated pending data block a committed Node probe');
@@ -1577,8 +1601,8 @@ async function main() {
 		'Row speed test passes the section ID instead of the click event to RPC');
 	assert.equal(speedtestButton.textContent, '42 ms',
 		'Connection result replaces the row test button label');
-	assert.ok(speedtestButton.title.includes('HTTP 204') && speedtestButton.title.includes('1 attempt'),
-		'Connection result exposes status and attempt diagnostics');
+	assert.equal(speedtestButton.title, 'Succeeded',
+		'Connection result keeps raw stages, URL and attempts out of the ordinary node list');
 	environment.speedtestResult = {
 		ok: false,
 		error: 'temporary sing-box: outbound/hysteria2[steer-node-internal] context deadline exceeded',
@@ -1783,9 +1807,11 @@ async function main() {
 	assert.deepEqual(environment.overviewProbeCalls, [ 'proxy' ],
 		'Overview proxy test remains clickable when no healthy running status was returned');
 	const diagnosticText = elementText(environment.rendered);
-	for (const expected of [ 'Success only means the target was reachable', 'Overview', 'Node', 'Route', 'Tested at', 'Recent logs', 'Recent application result', 'Validation', 'System DNS capture check', 'System DNS capture is configured' ])
+	for (const expected of [ 'Success only means the target was reachable', 'Tested at', '20 ms', 'Recent logs', 'Recent application result', 'Validation', 'System DNS capture check', 'System DNS capture is configured' ])
 		assert.ok(diagnosticText.includes(expected), `LuCI Diagnostics must render ${expected}`);
 	assert.ok(!diagnosticText.includes('nodes/node_enabled') && !diagnosticText.includes('routes/route_enabled'));
+	for (const forbidden of [ 'probe.example', 'Attempts', 'Connect 7', 'TLS 9', 'Recent connectivity reports' ])
+		assert.ok(!diagnosticText.includes(forbidden), `LuCI Diagnostics must not render raw report detail ${forbidden}`);
 	assert.ok(!diagnosticText.includes('proves the Direct path') && !diagnosticText.includes('proves the proxy path'));
 
 	const systemEnvironment = await renderSystem({

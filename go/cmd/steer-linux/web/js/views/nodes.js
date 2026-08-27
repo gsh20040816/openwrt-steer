@@ -3,7 +3,7 @@
 'use strict';
 (function () {
   const S = window.S;
-  const { h, fmtReport, asList } = S;
+  const { h, fmtReport, fmtLatestProbe, asList } = S;
   const ui = S.ui;
 
   const MANUAL = '_manual';
@@ -15,7 +15,25 @@
       if (button.classList.contains('spinning')) return;
       button.disabled = !button._eligible || S.store.dirty;
       button.title = !button._eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : button._label);
+      syncLatest(button);
     }));
+  }
+
+  function latestReport(nodeId, download) {
+    const kind = download ? 'download' : 'connect';
+    return (S.store.diagnostics?.reports || []).find((report) =>
+      report.scope === 'nodes' && report.object_id === nodeId && report.kind === kind);
+  }
+
+  function syncLatest(button, report = latestReport(button._nodeId, button._download)) {
+    if (!button._latest) return;
+    const latest = fmtLatestProbe(report, S.store.diagnostics, S.store.dirty);
+    button._latest.className = `probe-latest ${latest.stale ? 'is-stale' : (latest.ok === false ? 'is-err' : '')}`;
+    button._latest.replaceChildren(latest.text);
+  }
+
+  function probeAction(button) {
+    return h('div', { class: 'probe-action' }, button, button._latest);
   }
 
   const PROTOCOL_LABEL = Object.fromEntries(S.uiSpec.node_types.map((item) => [item.value, item.label]));
@@ -86,12 +104,14 @@
       btn.textContent = '测试中…';
       try {
         const report = await S.api.speedtestNode(nodeId, download);
+        S.store.installProbeReport?.(report);
         const r = fmtReport(report, download);
         btn.classList.remove('spinning');
         btn.textContent = r.label;
         btn.title = r.detail;
         btn.classList.toggle('is-ok', r.ok);
         btn.classList.toggle('is-err', !r.ok);
+        syncLatest(btn, report);
       } catch (e) {
         btn.classList.remove('spinning');
         btn.textContent = '失败';
@@ -102,6 +122,10 @@
     }, disabled: !eligible || S.store.dirty, title: !eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : label) }, label);
     btn._eligible = eligible;
     btn._label = label;
+    btn._nodeId = nodeId;
+    btn._download = download;
+    btn._latest = h('small', { class: 'probe-latest' });
+    syncLatest(btn);
     return btn;
   }
 
@@ -136,12 +160,14 @@
           btn.textContent = '…';
           try {
             const report = await S.api.speedtestNode(id, download);
+            S.store.installProbeReport?.(report);
             const r = fmtReport(report, download);
             btn.textContent = r.label;
             btn.title = r.detail;
             btn.classList.toggle('is-ok', r.ok);
             btn.classList.toggle('is-err', !r.ok);
             if (r.ok) succeeded++;
+            syncLatest(btn, report);
           } catch (e) { btn.textContent = '失败'; btn.title = '详细原因请查看诊断日志'; btn.classList.add('is-err'); }
           btn.classList.remove('spinning');
         }
@@ -388,7 +414,7 @@
             h('td', {}, h('div', {}, h('div', {}, h('strong', {}, node.name || node.id)), node.pinned_stale ? h('span', { class: 'badge badge--stale' }, '已失效') : null)),
             h('td', {}, h('span', { class: `badge protocol-badge protocol--${node.type}` }, PROTOCOL_LABEL[node.type] || node.type)),
             h('td', { class: 'mono' }, nodeEndpoint(node)),
-            h('td', {}, h('div', { class: 'row-actions' }, conn, down)),
+            h('td', {}, h('div', { class: 'row-actions row-actions--probe' }, probeAction(conn), probeAction(down))),
             h('td', {}, h('div', { class: 'row-actions' }, edit, del))
           ]);
         }))

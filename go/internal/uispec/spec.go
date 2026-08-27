@@ -271,8 +271,8 @@ func ContractValue() Contract {
 				Facts:   []string{"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
 			},
 			"diagnostics": {
-				Summary: "Validation, probes, recent reports, port-53 capture inspection and logs",
-				Facts:   []string{"validation", "probes", "recent_reports", "dns_capture", "last_apply", "logs"},
+				Summary: "Validation, probes with latest safe results, port-53 capture inspection and logs",
+				Facts:   []string{"validation", "probes", "latest_results", "dns_capture", "last_apply", "logs"},
 			},
 			"system": {
 				Summary: "Versions, Geo data, platform components, paths and access actions",

@@ -8,12 +8,26 @@ final class ProbeDiagnosticsTests: XCTestCase {
     private struct FixtureDocument: Decodable {
         let schemaVersion: Int
         let capability: [String: String]
+        let ordinaryUI: OrdinaryUIContract
         let objects: FixtureObjects
         let diagnostics: ProbeDiagnostics
 
         enum CodingKeys: String, CodingKey {
             case schemaVersion = "schema_version"
             case capability, objects, diagnostics
+            case ordinaryUI = "ordinary_ui"
+        }
+    }
+
+    private struct OrdinaryUIContract: Decodable {
+        let latestPerScopeObjectKind: Int
+        let requiredFacts: [String]
+        let forbiddenFragments: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case latestPerScopeObjectKind = "latest_per_scope_object_kind"
+            case requiredFacts = "required_facts"
+            case forbiddenFragments = "forbidden_fragments"
         }
     }
 
@@ -28,11 +42,14 @@ final class ProbeDiagnosticsTests: XCTestCase {
         let enabled: Bool
     }
 
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
     private func fixture() throws -> FixtureDocument {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let url = repositoryRoot.appendingPathComponent("ui/probe-diagnostics-fixtures.json")
         return try JSONDecoder().decode(FixtureDocument.self, from: Data(contentsOf: url))
     }
@@ -41,6 +58,9 @@ final class ProbeDiagnosticsTests: XCTestCase {
         let document = try fixture()
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertTrue(document.capability["overview"]?.contains("does not prove a particular outbound") == true)
+        XCTAssertEqual(document.ordinaryUI.latestPerScopeObjectKind, 1)
+        XCTAssertEqual(Set(document.ordinaryUI.requiredFacts), Set(["tested_at", "ok", "core_metric", "stale"]))
+        XCTAssertTrue(document.ordinaryUI.forbiddenFragments.contains("probe.example"))
         XCTAssertEqual(document.objects.nodes.map(\.enabled), [true, false])
         XCTAssertEqual(document.objects.routes.map(\.enabled), [true, false])
         XCTAssertEqual(document.objects.subscriptions.map(\.enabled), [true, false])
@@ -67,6 +87,10 @@ final class ProbeDiagnosticsTests: XCTestCase {
         XCTAssertEqual(download.downloadedBytes, 1_000_000)
         XCTAssertEqual(download.downloadMilliseconds, 500)
         XCTAssertEqual(document.diagnostics.reports[2].error, "probe timed out")
+
+        let contentView = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/ContentView.swift"))
+        XCTAssertFalse(contentView.contains("Section(\"最近测试报告\")"))
+        XCTAssertFalse(contentView.contains("diagnosticProbeReports"))
     }
 }
 

@@ -4,6 +4,11 @@
     "overview": "Overview probes use the Saved URL and the device's current network environment, even while Steer is disabled. Success only proves that the configured URL was reachable at that time; it does not prove a particular outbound, DNS resolver, or absence of DNS leaks.",
     "temporary": "Node and Route probes validate an isolated temporary chain and do not prove which path the current Active rules selected."
   },
+  "ordinary_ui": {
+    "latest_per_scope_object_kind": 1,
+    "required_facts": ["tested_at", "ok", "core_metric", "stale"],
+    "forbidden_fragments": ["probe.example", "REDACTED", "attempts", "generation-a", "saved-a", "active-a"]
+  },
   "objects": {
     "nodes": [
       { "id": "node_enabled", "enabled": true },

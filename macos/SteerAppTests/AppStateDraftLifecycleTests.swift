@@ -53,6 +53,7 @@ private actor DraftLifecycleBackend: BackendClient {
     private var nextSaveGate: DraftOperationGate?
     private var nextApplyGate: DraftOperationGate?
     private var nextInstallGate: DraftOperationGate?
+    private var persistedDiagnostics = ProbeDiagnostics.empty
 
     init(document: String, revision: String = "revision-1", installed: Bool = true, hasInstalledArtifacts: Bool? = nil) {
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
@@ -163,6 +164,7 @@ private actor DraftLifecycleBackend: BackendClient {
     }
 
     func status() async throws -> RuntimeStatus { runtimeStatus }
+    func diagnostics() async throws -> ProbeDiagnostics { persistedDiagnostics }
     func logs() async throws -> String { "" }
     func versions() async throws -> RuntimeVersions { RuntimeVersions() }
     func parseNodes(document: String) async throws -> NodeImportResult { NodeImportResult(nodes: [], skipped: 0) }
@@ -204,6 +206,7 @@ private actor DraftLifecycleBackend: BackendClient {
     func pauseUpcomingSave(with gate: DraftOperationGate) { nextSaveGate = gate }
     func pauseUpcomingApply(with gate: DraftOperationGate) { nextApplyGate = gate }
     func pauseUpcomingInstall(with gate: DraftOperationGate) { nextInstallGate = gate }
+    func seedDiagnostics(_ diagnostics: ProbeDiagnostics) { persistedDiagnostics = diagnostics }
 }
 
 @MainActor
@@ -219,6 +222,43 @@ final class AppStateDraftLifecycleTests: XCTestCase {
     private let newerDocument = """
     {"main":{"schema_version":1,"enabled":false,"log_level":"error"},"nodes":[],"routes":[],"dns_profiles":[],"rules":[],"subscriptions":[],"local_proxies":[]}
     """
+
+    func testPersistedNodeAndRouteLatestResultsRecoverWithoutRawReportDetails() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let node = ProbeReport(
+            ok: true, scope: "nodes", objectID: "node-a", kind: "download",
+            results: [ProbeResult(
+                ok: true, status: 200, firstByteMilliseconds: 24, connectMilliseconds: 8,
+                tlsMilliseconds: 10, downloadedBytes: 1_000_000, downloadMilliseconds: 500,
+                error: nil, url: "https://probe.example/REDACTED", attempts: 1
+            )],
+            error: nil, activeGeneration: nil, activeDigest: nil,
+            savedDigest: "saved-a", testedAt: "2026-08-26T03:00:00.123456789Z"
+        )
+        let route = ProbeReport(
+            ok: false, scope: "routes", objectID: "route-a", kind: "connect", results: [],
+            error: "probe timed out", activeGeneration: nil, activeDigest: nil,
+            savedDigest: "saved-old", testedAt: "2026-08-26T02:00:00Z"
+        )
+        await backend.seedDiagnostics(ProbeDiagnostics(
+            reports: [node, route], savedDigest: "saved-a", activeGeneration: nil,
+            activeDigest: nil, dnsCapture: nil, warnings: []
+        ))
+        let model = AppModel(backend: backend)
+        model.loadInitialState()
+        try await waitUntil { !model.isBusy && model.hasInitializedDraft }
+
+        let nodeLatest = try XCTUnwrap(model.latestProbePresentation(scope: "nodes", objectID: "node-a", download: true))
+        XCTAssertTrue(nodeLatest.text.contains("上次") && nodeLatest.text.contains("成功") && nodeLatest.text.contains("16.0 Mbps"))
+        XCTAssertFalse(nodeLatest.stale)
+        let routeLatest = try XCTUnwrap(model.latestProbePresentation(scope: "routes", objectID: "route-a", download: false))
+        XCTAssertTrue(routeLatest.text.contains("已过期") && routeLatest.text.contains("失败") && routeLatest.text.contains("连接超时"))
+        XCTAssertTrue(routeLatest.stale)
+        for forbidden in ["probe.example", "REDACTED", "attempts", "node-a", "route-a", "saved-a", "saved-old"] {
+            XCTAssertFalse(nodeLatest.text.contains(forbidden))
+            XCTAssertFalse(routeLatest.text.contains(forbidden))
+        }
+    }
 
     func testRefreshStatusAlsoRefreshesSystemComponentFacts() async throws {
         let backend = DraftLifecycleBackend(document: savedDocument)
@@ -605,7 +645,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
             !model.overviewProbeInProgress("proxy") && model.overviewProbeDetail("proxy") != nil
         }
         XCTAssertEqual(model.overviewProbeSummary("proxy"), "12 ms")
-        XCTAssertEqual(model.overviewProbeDetail("proxy"), "测试时间 2026-08-26T01:02:03Z")
+        XCTAssertTrue(model.overviewProbeDetail("proxy")?.hasPrefix("上次 ") == true)
         XCTAssertFalse(model.overviewProbeIsStale("proxy"))
 
         model.rawJSON = editedDocument

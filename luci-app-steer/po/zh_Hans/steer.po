@@ -465,9 +465,6 @@ msgstr "%d 毫秒"
 msgid "Test"
 msgstr "测试"
 
-msgid "%s bytes in %s ms · HTTP %s"
-msgstr "%s 字节，耗时 %s 毫秒 · HTTP %s"
-
 msgid "%s ms"
 msgstr "%s 毫秒"
 
@@ -476,9 +473,6 @@ msgstr "代理链连接测试"
 
 msgid "Chain download test"
 msgstr "代理链下载测速"
-
-msgid "Connect %s ms · TLS %s ms · HTTP %s · %s attempt(s)"
-msgstr "连接 %s 毫秒 · TLS %s 毫秒 · HTTP %s · 尝试 %s 次"
 
 msgid "Detour route"
 msgstr "前置路由"
@@ -651,12 +645,6 @@ msgstr "已停用的订阅不能更新。请先启用并保存该订阅。"
 msgid "Apply or discard pending Steer changes before testing the committed configuration."
 msgstr "测试已提交配置前，请先应用或放弃待处理的 Steer 修改。"
 
-msgid "Attempts"
-msgstr "尝试次数"
-
-msgid "Bytes"
-msgstr "字节"
-
 msgid "Connectivity targets"
 msgstr "连通性目标"
 
@@ -669,9 +657,6 @@ msgstr "下载目标"
 msgid "Error"
 msgstr "错误"
 
-msgid "No saved probe reports."
-msgstr "尚无已保存的探测报告。"
-
 msgid "Pending Steer changes must be applied or discarded before testing committed Nodes or Routes."
 msgstr "测试已提交的节点或路由前，必须先应用或放弃待处理的 Steer 修改。"
 
@@ -680,9 +665,6 @@ msgstr "探测已锁定"
 
 msgid "Proxy target"
 msgstr "代理目标"
-
-msgid "Rate"
-msgstr "速率"
 
 msgid "Refresh diagnostics"
 msgstr "刷新诊断"
@@ -827,9 +809,6 @@ msgstr "配置校验失败。"
 
 msgid "Congestion control"
 msgstr "拥塞控制"
-
-msgid "Connect"
-msgstr "连接"
 
 msgid "DNS"
 msgstr "DNS"
@@ -1008,14 +987,8 @@ msgstr "TCP / Raw"
 msgid "TLS certificate verification is disabled."
 msgstr "TLS 证书校验已关闭。"
 
-msgid "TTFB"
-msgstr "TTFB"
-
 msgid "TUIC"
 msgstr "TUIC"
-
-msgid "Tested at"
-msgstr "测试时间"
 
 msgid "The DNS HTTP path must start with /."
 msgstr "DNS HTTP 路径必须以 / 开头。"
@@ -1142,9 +1115,6 @@ msgstr "UDP over stream"
 
 msgid "UDP relay mode"
 msgstr "UDP 中继模式"
-
-msgid "URL"
-msgstr "URL"
 
 msgid "Update interval"
 msgstr "更新周期"
@@ -1308,18 +1278,6 @@ msgstr "该诊断只验证已发布运行代次中的端口 53 配置产物；�
 msgid "Pending apply"
 msgstr "待应用"
 
-msgid "Probe timed out"
-msgstr "探测超时"
-
-msgid "Probe failed"
-msgstr "探测失败"
-
-msgid "Unable to read Steer logs."
-msgstr "无法读取 Steer 日志。"
-
-msgid "Proxy"
-msgstr "代理"
-
 msgid "Rule"
 msgstr "规则"
 
@@ -1389,9 +1347,6 @@ msgstr "本地代理入口"
 msgid "Normal"
 msgstr "正常"
 
-msgid "Outdated"
-msgstr "已过期"
-
 msgid "Paste one node link per line, or paste a Base64 subscription document. You can preview the parsed nodes before adding them."
 msgstr "每行粘贴一个节点分享链接，也可粘贴 Base64 订阅内容；添加前可以预览解析结果。"
 
@@ -1400,9 +1355,6 @@ msgstr "正在准备并应用配置。"
 
 msgid "Recent application result"
 msgstr "最近应用结果"
-
-msgid "Recent connectivity reports"
-msgstr "最近连通性报告"
 
 msgid "Rule action"
 msgstr "规则效果"
@@ -1484,3 +1436,24 @@ msgstr "工作副本警告：%s"
 
 msgid "Duplicate %d"
 msgstr "同名项 %d"
+
+msgid "Outdated"
+msgstr "已过期"
+
+msgid "Probe timed out"
+msgstr "探测超时"
+
+msgid "Tested at"
+msgstr "上次测试"
+
+msgid "Connection was refused"
+msgstr "连接被拒绝"
+
+msgid "TLS verification failed"
+msgstr "TLS 校验失败"
+
+msgid "Target could not be resolved"
+msgstr "目标无法解析"
+
+msgid "Test was cancelled"
+msgstr "测试已取消"

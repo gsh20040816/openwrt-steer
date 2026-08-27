@@ -80,6 +80,40 @@
     };
   }
 
+  function probeReportIsStale(report, diagnostics, draftDirty = false) {
+    if (!report) return false;
+    if (report.scope === 'overview') {
+      return !report.saved_digest || report.saved_digest !== diagnostics?.saved_digest ||
+        (report.active_generation || '') !== (diagnostics?.active_generation || '') ||
+        (report.active_digest || '') !== (diagnostics?.active_digest || '');
+    }
+    return draftDirty || !report.saved_digest || report.saved_digest !== diagnostics?.saved_digest;
+  }
+
+  function safeProbeError(report) {
+    const error = String(report?.error || report?.results?.find((result) => result?.error)?.error || '');
+    return {
+      'probe timed out': '连接超时',
+      'probe was cancelled': '测试已取消',
+      'TLS verification failed': 'TLS 校验失败',
+      'probe connection was refused': '连接被拒绝',
+      'probe target could not be resolved': '目标无法解析'
+    }[error] || '请查看诊断日志';
+  }
+
+  function fmtLatestProbe(report, diagnostics, draftDirty = false) {
+    if (!report) return { text: '尚未测试', ok: null, stale: false };
+    const stale = probeReportIsStale(report, diagnostics, draftDirty);
+    const download = report.kind === 'download' || report.kind === 'speedtest';
+    const result = fmtReport(report, download);
+    const metric = result.ok ? result.label : safeProbeError(report);
+    return {
+      text: `上次 ${fmtTime(report.tested_at)} · ${stale ? '已过期 · ' : ''}${result.ok ? '成功' : '失败'} · ${metric}`,
+      ok: result.ok,
+      stale
+    };
+  }
+
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const debounce = (fn, ms) => {
     let timer;
@@ -87,5 +121,8 @@
   };
   const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 
-  Object.assign(S, { esc, h, icon, asList, fmtDuration, fmtTime, fmtRevision, fmtReport, sleep, debounce, uid });
+  Object.assign(S, {
+    esc, h, icon, asList, fmtDuration, fmtTime, fmtRevision, fmtReport,
+    probeReportIsStale, fmtLatestProbe, sleep, debounce, uid
+  });
 })();

@@ -23,8 +23,9 @@ const (
 	maxArchivedReports    = 100
 )
 
-// Diagnostics is the shared, sanitized report-history contract. Platform
-// adapters add their own validation, Apply and log facts around this payload.
+// Diagnostics is the shared, sanitized latest-result contract. SaveReport
+// overwrites each scope/object/kind key; platform adapters add validation,
+// Apply and log facts around this payload.
 type Diagnostics struct {
 	Reports          []Report             `json:"reports"`
 	SavedDigest      string               `json:"saved_digest,omitempty"`
