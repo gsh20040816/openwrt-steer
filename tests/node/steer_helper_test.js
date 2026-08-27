@@ -49,14 +49,28 @@ function textContent(value) {
 	return (value.children || []).map(textContent).join(' ');
 }
 
+function findElement(value, predicate) {
+	if (value == null || typeof value != 'object') return null;
+	if (predicate(value)) return value;
+	for (const child of value.children || []) {
+		const found = findElement(child, predicate);
+		if (found) return found;
+	}
+	return null;
+}
+
 function loadHelper(runtime) {
 	const source = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/steer.js'), 'utf8');
 	const baseclass = { extend: (value) => value };
 	const rpc = {
-		declare: ({ method }) => (...args) => {
+		declare: ({ object, method }) => (...args) => {
 			if (method == 'commit')
 				throw new Error('LuCI must validate and commit through one backend transaction');
+			if (method == 'discard_candidate') {
+				runtime.revertedConfigs.push('steer');
+				return Promise.resolve({ ok: true });
+			}
 			if (method == 'status') {
 				runtime.statusCalls++;
 				const status = Object.assign({}, runtime.status, {
@@ -125,14 +139,23 @@ function loadHelper(runtime) {
 	};
 	const document = {
 		head: { appendChild: () => {} },
-		getElementById: (id) => id == 'steer-runtime-status' ? runtime.currentStatusNode : (id == 'maincontent' ? runtime.mainContent : null)
+		getElementById: (id) => id == 'steer-lifecycle-global' ? runtime.lifecycleBar : (id == 'maincontent' ? runtime.mainContent : null)
 	};
 	const translate = (value) => String(value);
 	const uci = {
 		changes: () => Promise.resolve({}),
-		revert: (config) => { runtime.revertedConfigs.push(config); return Promise.resolve(); },
+		save: () => { runtime.sequence.push('save-candidate'); return Promise.resolve(); },
+		unload: (config) => { runtime.unloadedConfigs.push(config); },
 		load: (config) => { runtime.loadedConfigs.push(config); return Promise.resolve(); },
-		get: (config, section, option) => config == 'steer' && section == 'main' && option == 'enabled' ? runtime.enabled : null
+		get: (config, section, option) => config == 'steer' && section == 'main' && option == 'enabled' ? runtime.enabled : null,
+		set: (config, section, option, value) => {
+			if (config == 'steer' && section == 'main' && option == 'enabled') {
+				runtime.enabled = value;
+				runtime.lifecycleState.desired.enabled = value == '1';
+				runtime.lifecycleState.pending = true;
+				runtime.sequence.push('set-enabled');
+			}
+		}
 	};
 	const window = { setTimeout: (callback) => callback(), location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', reload: () => { runtime.reloaded = true; } } };
 
@@ -161,14 +184,13 @@ async function main() {
 		sequence: [],
 		notifications: [],
 		revertedConfigs: [],
+		unloadedConfigs: [],
 		loadedConfigs: [],
-		currentStatusNode: {
-			replaceWith: (value) => { runtime.replacement = value; }
-		},
 		mainContent: { prepend: (value) => { runtime.lifecycleBar = value; } },
 		lifecycleState: {
 			ok: true, pending: true, pending_apply: false,
-			saved: { digest: 'saved-a' }, active: { generation: 'generation-a' }
+			desired: { enabled: true, validation: { ok: true, errors: [], warnings: [] } },
+			saved: { enabled: true, digest: 'saved-a' }, active: { generation: 'generation-a', healthy: true }
 		}
 	};
 	const helper = loadHelper(runtime);
@@ -201,18 +223,63 @@ async function main() {
 	runtime.permissions.write = true;
 	assert.equal(helper.rpcErrorText({ error_code: 'MISSING_NODE_ID', error: 'raw backend detail' }), 'A Node ID is required.',
 		'RPC failures are localized by stable code before raw detail');
-	helper.loadStyle();
+	const currentView = { handleSave: () => { runtime.sequence.push('capture-form'); return Promise.resolve(); } };
+	helper.loadStyle(currentView);
 	await new Promise((resolve) => setImmediate(resolve));
-	assert.ok(textContent(runtime.lifecycleBar).includes('Configuration status'));
+	assert.ok(textContent(runtime.lifecycleBar).includes('Steer status'));
+	assert.ok(textContent(runtime.lifecycleBar).includes('Enable Steer'));
+	assert.ok(textContent(runtime.lifecycleBar).includes('Working copy'));
 	assert.ok(textContent(runtime.lifecycleBar).includes('Save & Apply pending changes'));
+	assert.equal(findElement(runtime.lifecycleBar, (node) => node.attributes?.role == 'switch')?.attributes?.['aria-checked'], 'true',
+		'the global status area exposes the desired Enable state as an accessible switch');
 	runtime.lifecycleState = {
 		ok: true, pending: false, pending_apply: true,
-		saved: { digest: 'saved-b' }, active: { generation: 'generation-old' }
+		desired: { enabled: true, validation: { ok: true, errors: [], warnings: [] } },
+		saved: { enabled: true, digest: 'saved-b' }, active: { generation: 'generation-old', healthy: true }
 	};
-	helper.loadStyle();
+	helper.loadStyle(currentView);
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.ok(textContent(runtime.lifecycleBar).includes('Apply Saved configuration'),
 		'every configuration page exposes Apply Saved when the runtime projection is pending');
+	runtime.sequence = [];
+	runtime.lifecycleState.pending = false;
+	runtime.lifecycleState.pending_apply = false;
+	await helper.setGlobalEnabled(false, currentView);
+	assert.deepEqual(runtime.sequence, [ 'capture-form', 'set-enabled', 'save-candidate', 'validate', 'commit' ],
+		'global Enable captures the current form, writes main.enabled, then validates, commits and applies one complete candidate');
+	assert.equal(runtime.enabled, '0');
+	runtime.lifecycleState = {
+		ok: true, pending: true, pending_apply: false,
+		desired: { enabled: false, validation: { ok: false, errors: [ { code: 'DANGLING_ROUTE' } ], warnings: [] } },
+		saved: { enabled: true }, active: { generation: 'generation-a', healthy: true }
+	};
+	helper.loadStyle(currentView);
+	await new Promise((resolve) => setImmediate(resolve));
+	const invalidToggle = findElement(runtime.lifecycleBar, (node) => node.attributes?.role == 'switch');
+	assert.equal(invalidToggle.attributes.disabled, true);
+	assert.equal(invalidToggle.attributes.title, 'Fix validation errors before changing Steer.',
+		'an invalid candidate blocks global Enable with a stable reason');
+	runtime.lifecycleState = {
+		ok: true, pending: false, pending_apply: true,
+		desired: { enabled: false, validation: { ok: true, errors: [], warnings: [] } },
+		saved: { enabled: false }, active: { generation: 'generation-a', healthy: true }
+	};
+	helper.loadStyle(currentView);
+	await new Promise((resolve) => setImmediate(resolve));
+	const partialText = textContent(runtime.lifecycleBar);
+	assert.ok(partialText.includes('Saved configuration') && partialText.includes('Disabled') &&
+		partialText.includes('Active configuration') && partialText.includes('Running normally'),
+		'the global status area keeps Saved Enable separate from the actual Active runtime');
+	runtime.sequence = [];
+	runtime.commitCalls = 0;
+	runtime.statusCalls = 0;
+	runtime.validationCalls = 0;
+	runtime.enabled = '1';
+	runtime.lifecycleState = {
+		ok: true, pending: false, pending_apply: false,
+		desired: { enabled: true, validation: { ok: true, errors: [], warnings: [] } },
+		saved: { enabled: true }, active: { generation: 'generation-a', healthy: true }
+	};
 	await helper.intentPreview(false);
 	await helper.intentPreview(true);
 	assert.deepEqual(runtime.previewCalls, [ false, true ],
@@ -314,27 +381,10 @@ async function main() {
 		[ 'steer', 'second_rule', 'default', false ]
 	], 'Named rule creation explicitly moves each new UCI section before Default');
 
-	let rendered = helper.renderStatus({ healthy: false }, runtime.validation, false);
-	assert.ok(textContent(rendered).includes('Steer is disabled'),
-		'An intentionally disabled Steer reports a disabled state');
-
-	rendered = helper.renderStatus({ healthy: false }, runtime.validation, true);
-	assert.ok(textContent(rendered).includes('Traffic steering is running abnormally'),
-		'Live component readiness determines unhealthy state');
-
-	rendered = helper.renderStatus({ healthy: false }, {
-		ok: false,
-		errors: [ { code: 'DANGLING_ROUTE', object_type: 'rule', object_id: 'broken', option: 'route', message: 'route is missing' } ],
-		warnings: []
-	}, true);
-	const failedText = textContent(rendered);
-	assert.ok(failedText.includes('The saved configuration is invalid') &&
-		failedText.includes('The referenced Route does not exist.') &&
-		!failedText.includes('DANGLING_ROUTE') && !failedText.includes('broken'),
-		'Invalid saved intent shows a localized repair message without internal codes or IDs');
-
 	runtime.status = { healthy: true };
+	runtime.lifecycleState.active = { generation: 'generation-new', healthy: true };
 	await helper.apply({ handleSave: () => { runtime.sequence.push('save'); return Promise.resolve(); } }, null, '1');
+	await new Promise((resolve) => setImmediate(resolve));
 	assert.deepEqual(runtime.sequence, [ 'save', 'validate', 'commit' ],
 		'LuCI backend validates and commits the pending UCI session in one RPC before leaving Apply to procd');
 	assert.equal(runtime.indicatorRefreshed, true, 'LuCI refreshes the pending change indicator after commit');
@@ -343,8 +393,8 @@ async function main() {
 	assert.equal(runtime.modalHidden, true, 'Apply closes the progress modal after RPC completion');
 	assert.equal(runtime.statusCalls, 2, 'LuCI snapshots the Apply sequence and observes exactly one newer result');
 	assert.equal(runtime.validationCalls, 1, 'LuCI validates the candidate once before commit');
-	assert.ok(textContent(runtime.replacement).includes('Traffic steering is active'),
-		'Apply replaces stale overview status with the final runtime result');
+	assert.ok(textContent(runtime.lifecycleBar).includes('Running normally'),
+		'Apply refreshes the global lifecycle status from the final runtime result');
 	assert.equal(runtime.notifications.at(-1).level, 'info');
 
 	runtime.sequence = [];
@@ -395,6 +445,7 @@ async function main() {
 	assert.equal(runtime.applySavedCalls, 1, 'Apply Saved uses its restricted RPC without touching pending form data');
 	await helper.discardPending();
 	assert.deepEqual(runtime.revertedConfigs, [ 'steer' ]);
+	assert.deepEqual(runtime.unloadedConfigs, [ 'steer' ]);
 	assert.deepEqual(runtime.loadedConfigs, [ 'steer' ]);
 
 	runtime.sequence = [];
@@ -445,9 +496,6 @@ async function main() {
 		!textContent(runtime.notifications.at(-1).content).includes('commit status 4'));
 	runtime.commitStatus = 0;
 
-	rendered = helper.renderStatus({ healthy: true, ignored_detail: true }, runtime.validation, true);
-	assert.ok(!textContent(rendered).includes('ignored_detail'),
-		'Overview status renders only the public health contract');
 	await helper.overviewProbe('direct');
 	await helper.routeSpeedtest('route_a', true);
 	await helper.speedtest('node_a', false);

@@ -50,7 +50,7 @@ return view.extend({
 
 	render: function() {
 		let m, s, o;
-		steer.loadStyle();
+		steer.loadStyle(this);
 		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
 		steer.configureNamedSection(s, steer.creationDefaults('dns_profiles'));

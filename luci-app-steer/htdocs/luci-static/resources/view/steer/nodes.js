@@ -958,7 +958,7 @@ return view.extend({
 		const page = (window.location.pathname || '').split('/').pop();
 		const probeResults = data?.[3] || { latest_results: [] };
 		const permissions = data?.[4] || {};
-		steer.loadStyle();
+		steer.loadStyle(this);
 
 		m = new form.Map('steer', page == 'routes' ? _('Routes') : (page == 'subscriptions' ? _('Node subscriptions') : _('Proxy nodes')));
 

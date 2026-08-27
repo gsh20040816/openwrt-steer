@@ -127,8 +127,11 @@ def main() -> None:
     assert '<key>CFBundleIconFile</key>' in app_info and '<string>SteerAppIcon</string>' in app_info
     assert (ROOT / "macos/SteerAppIcon.png").exists()
     assert 'setEnabledAndApply($0)' not in general and 'setEnabledAndApply($0)' in content
+    assert 'Toggle("Steer"' in content and 'Toggle("启用配置"' not in content
     assert 'func setEnabledAndApply' in state
-    assert 'guard !isDirty else {' in state and '请先保存或丢弃当前工作副本' in state
+    assert 'var canToggleEnabled' in state and 'canSaveAndApplyDraft' in state
+    assert '保存当前工作副本并应用启用状态' in state
+    assert 'guard !isDirty else {' not in state
     assert 'initialStateLoadInProgress' in state
     assert 'guard !hasInitializedDraft, !initialStateLoadInProgress,' in state
     assert '!isBusy, pendingDraftAction == nil else { return }' in state
@@ -143,6 +146,9 @@ def main() -> None:
     assert 'testInitialLoadRunsOnceAndWindowReopenPreservesDirtyDraft' in lifecycle_tests
     assert 'testInitialLoadFailureCanRetryWithoutOverwritingLaterEdits' in lifecycle_tests
     assert 'testFirstInstallCanSaveAndPreserveAnEditedDraft' in lifecycle_tests
+    assert 'testDirtyEnableSavesAndAppliesTheEntireCurrentDraft' in lifecycle_tests
+    assert 'testEnableApplyFailureKeepsSavedToggleSeparateFromActiveState' in lifecycle_tests
+    assert 'testInvalidDraftBlocksEnableAndKeepsExistingEdits' in lifecycle_tests
     assert 'testApplySavedPreservesAnIndependentDirtyDraft' in lifecycle_tests
     assert 'testSaveAndApplyDoesNotMarkNewerInFlightEditsClean' in lifecycle_tests
     assert 'testTerminationGuardCancelAndSaveReplyWithoutApplying' in lifecycle_tests

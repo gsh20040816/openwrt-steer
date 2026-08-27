@@ -1339,7 +1339,16 @@ final class AppModel: ObservableObject {
     var canEditDraft: Bool { !isBusy && pendingDraftAction == nil }
 
     var canToggleEnabled: Bool {
-        canSaveAndApplyDraft && !isDirty
+        canSaveAndApplyDraft && revisionConflict == nil
+    }
+
+    var enableToggleHelp: String {
+        if isBusy { return "保存或应用操作正在进行" }
+        if pendingDraftAction != nil { return "请先完成当前工作副本确认" }
+        if revisionConflict != nil { return "请先处理配置冲突" }
+        if savedRevision.isEmpty { return "尚未加载已保存配置" }
+        if draftSyntaxError != nil { return "请先修复工作副本格式错误" }
+        return isDirty ? "保存当前工作副本并应用启用状态" : "立即保存并应用启用状态"
     }
 
     var hasActiveGeneration: Bool {
@@ -1699,11 +1708,7 @@ final class AppModel: ObservableObject {
     }
 
     func setEnabledAndApply(_ enabled: Bool) {
-        guard !isBusy, pendingDraftAction == nil, enabled != draftEnabled else { return }
-        guard !isDirty else {
-            message = "请先保存或丢弃当前工作副本中的修改"
-            return
-        }
+        guard !isBusy, pendingDraftAction == nil, revisionConflict == nil, enabled != draftEnabled else { return }
         guard savedRevision.isEmpty == false else {
             message = "尚未加载已保存配置，无法切换运行状态"
             return
@@ -1728,6 +1733,8 @@ final class AppModel: ObservableObject {
         draftMutationSequence &+= 1
         let operationDraftSequence = draftMutationSequence
         isDirty = true
+        validation = nil
+        validationFocus = nil
         isBusy = true
         message = enabled ? "正在启用并应用 Steer…" : "正在停用并清理 Steer…"
         Task {
@@ -1761,6 +1768,20 @@ final class AppModel: ObservableObject {
                         : "启用状态已保存但应用失败；操作期间产生的新修改仍未保存"
                 }
             } catch {
+                if let backendError = error as? BackendClientError,
+                   case let .validationFailed(result) = backendError {
+                    if draftMatches(document: updatedDocument, sequence: operationDraftSequence) {
+                        rawJSON = previousDocument
+                        isDirty = previousDirty
+                        validation = result
+                        validationFocus = nil
+                        message = "当前工作副本校验失败：\(result.errors.count) 个错误；启用状态未保存，运行配置未改变"
+                    } else {
+                        isDirty = true
+                        message = "切换时校验失败，但工作副本已变化；旧问题结果已丢弃"
+                    }
+                    return
+                }
                 if recordRevisionConflict(error, operation: .apply) {
                     isDirty = true
                     return

@@ -100,7 +100,7 @@ return view.extend({
 
 	render: function() {
 		let m, s, o, listenOption, usernameOption, passwordOption;
-		steer.loadStyle();
+		steer.loadStyle(this);
 
 		m = new form.Map('steer', _('Local proxies'));
 

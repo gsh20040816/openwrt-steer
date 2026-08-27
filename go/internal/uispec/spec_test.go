@@ -163,6 +163,13 @@ func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t 
 		contract.ProbeResults.FrontendRole == "" {
 		t.Fatalf("latest probe result semantics drifted: %#v", contract.ProbeResults)
 	}
+	global := contract.GlobalStatus
+	if !global.VisibleOnEveryPage || !global.IncludesCurrentDraft || global.EnableAction != "save_and_apply_current_draft" ||
+		!reflect.DeepEqual(global.BlockingConditions, []string{"invalid_draft", "revision_conflict", "write_in_progress"}) ||
+		!reflect.DeepEqual(global.Facts, []string{"draft", "saved_enabled", "active", "pending_apply"}) ||
+		!reflect.DeepEqual(global.Actions, []string{"enable", "save", "apply_saved", "save_and_apply", "discard"}) {
+		t.Fatalf("global status contract drifted: %#v", global)
+	}
 }
 
 func TestHighFrequencyInputFormatsAreShared(t *testing.T) {

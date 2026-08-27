@@ -220,6 +220,23 @@ struct UIProbeResultsContract: Decodable {
     }
 }
 
+struct UIGlobalStatusContract: Decodable {
+    let visibleOnEveryPage: Bool
+    let enableAction: String
+    let includesCurrentDraft: Bool
+    let blockingConditions: [String]
+    let facts: [String]
+    let actions: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case facts, actions
+        case visibleOnEveryPage = "visible_on_every_page"
+        case enableAction = "enable_action"
+        case includesCurrentDraft = "includes_current_draft"
+        case blockingConditions = "blocking_conditions"
+    }
+}
+
 struct UIContract: Decodable {
     let schemaVersion: Int
     let canonicalSchema: Int
@@ -249,6 +266,7 @@ struct UIContract: Decodable {
     let dnsBoundaries: [String: UIDNSBoundary]
     let subscriptionInventory: UISubscriptionInventoryContract
     let probeResults: UIProbeResultsContract
+    let globalStatus: UIGlobalStatusContract
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -279,6 +297,7 @@ struct UIContract: Decodable {
         case dnsBoundaries = "dns_boundaries"
         case subscriptionInventory = "subscription_inventory"
         case probeResults = "probe_results"
+        case globalStatus = "global_status"
     }
 }
 

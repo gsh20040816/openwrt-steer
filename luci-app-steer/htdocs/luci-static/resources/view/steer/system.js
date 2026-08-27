@@ -14,7 +14,7 @@ return view.extend({
 	},
 
 	render: function(data) {
-		steer.loadStyle();
+		steer.loadStyle(this);
 		const runtime = data[0] || {};
 		const status = data[1] || {};
 		const singBox = runtime.sing_box || {};

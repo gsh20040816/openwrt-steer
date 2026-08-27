@@ -169,6 +169,16 @@ if probe_results_contract.get("key_fields") != ["scope", "object_id", "kind"] or
     "scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"
 ]:
     raise SystemExit("check-ui-contract: latest probe result contract drifted")
+global_status = contract.get("global_status", {})
+if (
+    global_status.get("visible_on_every_page") is not True
+    or global_status.get("enable_action") != "save_and_apply_current_draft"
+    or global_status.get("includes_current_draft") is not True
+    or global_status.get("blocking_conditions") != ["invalid_draft", "revision_conflict", "write_in_progress"]
+    or global_status.get("facts") != ["draft", "saved_enabled", "active", "pending_apply"]
+    or global_status.get("actions") != ["enable", "save", "apply_saved", "save_and_apply", "discard"]
+):
+    raise SystemExit("check-ui-contract: global status and Enable contract drifted")
 
 luci_menu = json.loads(
     (ROOT / "luci-app-steer/root/usr/share/luci/menu.d/luci-app-steer.json").read_text()
@@ -264,6 +274,9 @@ require(luci_nodes, "uiSpec.node_fields", "LuCI field matrix")
 require(luci_nodes, "addGeneratedNodeField", "LuCI generated controls")
 require(mac_content, "SteerUISpec.contract.navigation", "macOS navigation")
 require(mac_ui_spec, "pageResponsibilities", "macOS page responsibility contract")
+require(linux_ui, "onToggleEnabled", "Linux global Enable")
+require(luci_helper, "setGlobalEnabled", "LuCI global Enable")
+require(mac_content, 'Toggle("Steer"', "macOS global Enable")
 require(linux_overview, "工作副本、已保存配置与运行状态", "Linux Overview responsibility")
 for content, owner in (
     (linux_diagnostics, "Linux Diagnostics"),

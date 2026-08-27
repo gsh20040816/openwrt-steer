@@ -1719,6 +1719,8 @@ async function main() {
 		'LuCI General must present the default DNS cache capacity as an empty field');
 	const probeOptions = [ 'probe_direct', 'probe_proxy', 'speedtest_proxy' ].map((name) =>
 		allOptions(environment).find((option) => option.name == name));
+	assert.equal(allOptions(environment).find((option) => option.name == 'enabled'), undefined,
+		'General does not duplicate the service Enable control owned by the global status area');
 	assert.ok(probeOptions.every((option) => option?.type == 'Value' && option.rmempty === false),
 		'Schema 7 probe URLs are required scalar fields');
 	const seenProbeFormats = [];
@@ -1951,6 +1953,14 @@ async function main() {
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/overview.js'), 'utf8');
 	assert.ok(!overviewSource.includes('renderPlan') && !overviewSource.includes('renderSubscriptions'),
 		'Overview keeps only runtime status and configuration');
+	for (const relative of [ 'overview.js', 'nodes.js', 'dns.js', 'local-proxies.js', 'rules.js', 'advanced.js', 'system.js' ]) {
+		const source = fs.readFileSync(path.join(root,
+			'luci-app-steer/htdocs/luci-static/resources/view/steer', relative), 'utf8');
+		assert.ok(source.includes('steer.loadStyle(this)'), `${relative} mounts the shared global status area with its current form view`);
+	}
+	assert.equal(uiSpec.global_status.visible_on_every_page, true);
+	assert.equal(uiSpec.global_status.enable_action, 'save_and_apply_current_draft');
+	assert.equal(uiSpec.global_status.includes_current_draft, true);
 	const nodesSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
@@ -1968,6 +1978,10 @@ async function main() {
 	assert.ok(steerSource.includes('section.sectiontitle = function(sectionId)') &&
 		steerSource.includes("return uci.get('steer', sectionId, 'name') || _('Unnamed');"),
 		'all named GridSections share one user-name title policy with a safe unnamed fallback');
+	assert.ok(steerSource.includes('setGlobalEnabled: function(enabled, view)') &&
+		steerSource.indexOf("view.handleSave()") < steerSource.indexOf("uci.set('steer', 'main', 'enabled'") &&
+		steerSource.includes("this.permissions([ 'commit_candidate', 'discard_candidate', 'apply_saved' ], true)"),
+		'the global LuCI Enable action captures the current form before changing and applying the complete UCI candidate');
 	assert.ok(!nodesSource.includes("|| sectionId") &&
 		!nodesSource.includes("|| uci.get('steer', sectionId, 'url')"),
 		'ordinary Node, Route and Subscription rows never expose IDs or URLs as fallback names');
@@ -2013,6 +2027,10 @@ async function main() {
 		rpcSource.includes('call: commit_candidate') &&
 		!rpcSource.includes("'-P'") && !rpcSource.includes("'/sbin/uci'"),
 		'Apply validates the rpcd session candidate and rejects changes observed before standard UCI commit');
+	assert.ok(rpcSource.includes("ubus.defer('uci', 'revert'") &&
+		rpcSource.includes('ubus_rpc_session: session') &&
+		rpcSource.includes('call: discard_candidate'),
+		'Discard reverts only the current rpcd session candidate through the standard UCI RPC');
 	assert.ok(rpcSource.includes("ubus.defer('uci', 'changes'") &&
 		rpcSource.includes("command_json('/usr/sbin/steer _export-intent')") &&
 		rpcSource.includes('available: false') &&
@@ -2031,6 +2049,8 @@ async function main() {
 		'unused service.list and firewall UCI grants are removed from read-only sessions');
 	for (const method of [ 'status', 'overview_state', 'validate', 'runtime', 'diagnostics', 'probe_results', 'subscriptions' ])
 		assert.ok(acl.read.ubus['luci.steer'].includes(method), `read-only sessions retain ${method}`);
+	assert.ok(acl.write.ubus['luci.steer'].includes('discard_candidate'),
+		'discarding a pending candidate remains a write-authorized Steer operation');
 	assert.ok(steerSource.includes("object: 'session', method: 'access'") &&
 		steerSource.includes("callSessionAccess('ubus', 'luci.steer', method)"),
 		'each handwritten action resolves its own ubus write permission');

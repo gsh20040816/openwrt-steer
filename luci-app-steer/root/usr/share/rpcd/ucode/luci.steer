@@ -228,6 +228,22 @@ function commit_candidate(request) {
 	});
 }
 
+function discard_candidate(request) {
+	const session = session_id(request);
+	if (!session)
+		return failure('PENDING_STATE_UNAVAILABLE', 'The LuCI UCI session is unavailable.');
+	return ubus.defer('uci', 'revert', {
+		config: 'steer',
+		ubus_rpc_session: session
+	}, function(code, reply) {
+		request.reply({
+			ok: code == 0,
+			error_code: code == 0 ? null : 'CANDIDATE_REVERT_FAILED',
+			error: code == 0 ? null : 'Unable to discard the pending Steer configuration.'
+		});
+	});
+}
+
 function secret_option(key) {
 	return key == 'uuid' || key == 'private_key' || key == 'url' || key == 'extra_args' || key == 'plugin_options' ||
 		match(key, /(^|_)(password|token)$/) != null;
@@ -388,6 +404,9 @@ const methods = {
 	},
 	commit_candidate: {
 		call: commit_candidate
+	},
+	discard_candidate: {
+		call: discard_candidate
 	},
 	intent_preview: {
 		args: { reveal: false },

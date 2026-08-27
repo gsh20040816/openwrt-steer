@@ -267,7 +267,7 @@ return view.extend({
 		const status = lifecycle.active || {};
 		const validation = data[2];
 		const page = (window.location.pathname || '').split('/').pop();
-		steer.loadStyle();
+		steer.loadStyle(this);
 		if (page == 'overview' || page == 'steer')
 			return renderLifecycleOverview(lifecycle);
 		if (page == 'diagnostics')
@@ -275,10 +275,6 @@ return view.extend({
 
 		m = new form.Map('steer', _('Steer'));
 		s = m.section(form.NamedSection, 'main', 'steer', _('General'));
-
-		o = s.option(form.Flag, 'enabled', _('Enable Steer'));
-		o.rmempty = false;
-		o.description = _('A disabled configuration stops Steer and removes its runtime resources when applied.');
 
 		o = s.option(form.ListValue, 'log_level', _('Log level'));
 		uiSpec.log_levels.forEach((item) => o.value(item.value, steer.uiSpecLabel(item.label)));

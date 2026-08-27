@@ -36,9 +36,6 @@ msgstr "影响 %d 个正在使用的%s"
 msgid "%d. %s"
 msgstr "%d. %s"
 
-msgid "A disabled configuration stops Steer and removes its runtime resources when applied."
-msgstr "应用已禁用的配置会停止 Steer 并删除其运行时资源。"
-
 msgid "Add DNS profile"
 msgstr "添加 DNS 配置"
 
@@ -113,9 +110,6 @@ msgstr "创建拒绝路由"
 
 msgid "Credentials"
 msgstr "凭据"
-
-msgid "Current state"
-msgstr "当前状态"
 
 msgid "DNS continues to the next rule"
 msgstr "DNS 继续匹配下一条规则"
@@ -333,9 +327,6 @@ msgstr "跳过证书验证"
 msgid "Steer"
 msgstr "Steer"
 
-msgid "Steer is disabled"
-msgstr "Steer 已停用"
-
 msgid "System"
 msgstr "系统"
 
@@ -345,17 +336,8 @@ msgstr "TLS"
 msgid "TLS server name"
 msgstr "TLS 服务器名称"
 
-msgid "The saved configuration is invalid"
-msgstr "已保存的配置无效"
-
 msgid "The valid-name catalog is unavailable: %s"
 msgstr "合法名称目录不可用：%s"
-
-msgid "Traffic steering is active"
-msgstr "流量分流已启用"
-
-msgid "Traffic steering is running abnormally"
-msgstr "分流服务运行异常"
 
 msgid "UDP packet encoding"
 msgstr "UDP 数据包编码"
@@ -1359,15 +1341,6 @@ msgstr "运行配置"
 msgid "Running status"
 msgstr "运行状态"
 
-msgid "Service running abnormally"
-msgstr "服务运行异常"
-
-msgid "Service running normally"
-msgstr "服务运行正常"
-
-msgid "Service stopped"
-msgstr "服务已停止"
-
 msgid "Stopped"
 msgstr "已停止"
 
@@ -1469,3 +1442,24 @@ msgstr "路由"
 
 msgid "rule(s)"
 msgstr "规则"
+
+msgid "Active configuration"
+msgstr "运行配置"
+
+msgid "Fix validation errors before changing Steer."
+msgstr "请先修复配置校验错误，再切换 Steer。"
+
+msgid "Running abnormally"
+msgstr "运行异常"
+
+msgid "Running normally"
+msgstr "运行正常"
+
+msgid "Steer status"
+msgstr "Steer 状态"
+
+msgid "You do not have permission to change Steer."
+msgstr "当前会话无权切换 Steer。"
+
+msgid "The pending Steer configuration could not be discarded."
+msgstr "无法丢弃待处理的 Steer 配置。"
