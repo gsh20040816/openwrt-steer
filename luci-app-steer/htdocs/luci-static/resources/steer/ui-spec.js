@@ -1378,15 +1378,104 @@ return baseclass.extend({
       ]
     },
     "overview": {
-      "summary": "Draft, Saved and Active summary with last Apply, object scale, warnings and a few recovery actions",
+      "summary": "Execution model, Draft/Saved/Active lifecycle, Draft object scale and validation, last Apply and recovery actions",
       "facts": [
+        "execution_model",
         "draft",
         "saved",
         "active",
-        "last_apply",
         "object_counts",
+        "validation_summary",
         "warning_summary",
+        "last_apply",
         "quick_actions"
+      ],
+      "regions": [
+        {
+          "key": "execution_model",
+          "facts": [
+            "ordered_rule_match",
+            "dns_profile_resolution",
+            "route_selection",
+            "network_egress"
+          ],
+          "sources": [
+            "shared_ui_spec",
+            "draft"
+          ]
+        },
+        {
+          "key": "configuration_lifecycle",
+          "facts": [
+            "draft_dirty",
+            "saved_enabled",
+            "pending_apply",
+            "active_status",
+            "saved_active_difference"
+          ],
+          "sources": [
+            "draft",
+            "saved",
+            "active"
+          ]
+        },
+        {
+          "key": "object_scale",
+          "facts": [
+            "nodes",
+            "routes",
+            "dns_profiles",
+            "local_proxies",
+            "rules",
+            "subscriptions"
+          ],
+          "sources": [
+            "draft"
+          ]
+        },
+        {
+          "key": "validation_summary",
+          "facts": [
+            "error_count",
+            "warning_group_count",
+            "warning_groups"
+          ],
+          "sources": [
+            "draft_validation"
+          ],
+          "actions": [
+            "view_affected_items"
+          ]
+        },
+        {
+          "key": "last_apply_and_actions",
+          "facts": [
+            "localized_time",
+            "result",
+            "safe_summary"
+          ],
+          "sources": [
+            "active.last_apply"
+          ],
+          "actions": [
+            "refresh",
+            "diagnostics",
+            "system",
+            "save",
+            "apply_saved",
+            "save_and_apply",
+            "discard"
+          ]
+        }
+      ],
+      "object_count_source": "draft",
+      "validation_source": "draft_validation",
+      "forbidden_facts": [
+        "probe_history",
+        "raw_error_chain",
+        "object_ids",
+        "digests",
+        "generation_paths"
       ]
     },
     "system": {

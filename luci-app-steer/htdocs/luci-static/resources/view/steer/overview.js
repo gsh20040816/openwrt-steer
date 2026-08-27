@@ -132,12 +132,6 @@ function renderDiagnostics(status, validation, diagnostics, probeResults, change
 	]);
 }
 
-function lifecycleCounts(counts) {
-	counts = counts || {};
-	return _('Nodes %d · Routes %d · DNS %d · Proxies %d · Rules %d · Subscriptions %d').format(
-		counts.nodes || 0, counts.routes || 0, counts.dns_profiles || 0, counts.local_proxies || 0, counts.rules || 0, counts.subscriptions || 0);
-}
-
 function warningGroupLabel(group) {
 	if (group?.code == 'INSECURE_TLS' && group?.object_type == 'dns_profile') return _('DNS certificate verification is disabled');
 	if (group?.code == 'INSECURE_TLS') return _('TLS certificate verification is disabled');
@@ -160,8 +154,8 @@ function warningGroupDestination(group) {
 function renderWarningGroups(validation, title) {
 	const groups = validation?.warning_groups || [];
 	if (!groups.length) return '';
-	return E('section', { 'class': 'cbi-section steer-warning-summary' }, [
-		E('h3', {}, title),
+	return E('div', { 'class': 'steer-warning-summary' }, [
+		E('h4', {}, title),
 		E('div', { 'class': 'steer-warning-groups' }, groups.map((group) => {
 			const destination = warningGroupDestination(group);
 			return E('article', { 'class': 'steer-warning-group' }, [
@@ -175,6 +169,42 @@ function renderWarningGroups(validation, title) {
 	]);
 }
 
+function localizedApplyTime(record) {
+	let date = record?.timestamp ? new Date(record.timestamp) : null;
+	if ((!date || Number.isNaN(date.getTime())) && /^\d{13,}$/.test(String(record?.sequence || '')))
+		date = new Date(Number(String(record.sequence).slice(0, 13)));
+	return !date || Number.isNaN(date.getTime()) ? _('Time unknown') : date.toLocaleString();
+}
+
+function overviewPipeline(counts) {
+	counts = counts || {};
+	const step = (kind, value, title, detail) => E('div', { 'class': 'steer-overview-step steer-overview-step--' + kind }, [
+		E('strong', {}, title), value == null ? '' : E('span', {}, value), E('small', {}, detail)
+	]);
+	const arrow = () => E('span', { 'class': 'steer-overview-arrow', 'aria-hidden': 'true' }, '→');
+	return E('div', { 'class': 'steer-overview-pipeline' }, [
+		step('match', counts.rules || 0, _('Match rules'), _('First matching Rule wins')),
+		arrow(),
+		step('dns', counts.dns_profiles || 0, _('DNS Profile'), _('Independent resolution path')),
+		arrow(),
+		step('route', counts.routes || 0, _('Routes'), _('Direct, Reject, or Node chain')),
+		arrow(),
+		step('network', null, _('Network egress'), _('Establish the final connection'))
+	]);
+}
+
+function overviewCounts(counts) {
+	counts = counts || {};
+	return E('dl', { 'class': 'steer-overview-metrics' }, [
+		diagnosticFact(_('Nodes'), counts.nodes || 0),
+		diagnosticFact(_('Routes'), counts.routes || 0),
+		diagnosticFact(_('DNS Profiles'), counts.dns_profiles || 0),
+		diagnosticFact(_('Local Proxies'), counts.local_proxies || 0),
+		diagnosticFact(_('Rules'), counts.rules || 0),
+		diagnosticFact(_('Subscriptions'), counts.subscriptions || 0)
+	]);
+}
+
 function renderLifecycleOverview(state) {
 	const desired = state?.desired || {};
 	const saved = state?.saved || {};
@@ -182,74 +212,59 @@ function renderLifecycleOverview(state) {
 	const pending = state?.pending === true;
 	const lastApply = active.last_apply;
 	const lastResult = lastApply?.result;
-	const actionState = E('p', { 'class': 'steer-lifecycle-action' });
-	const runAction = function(button, action, success) {
-		button.disabled = true;
-		action().then((result) => {
-			if (result?.ok === false) throw result;
-			actionState.replaceChildren(success);
-			window.location.reload();
-		}).catch((error) => {
-			button.disabled = false;
-			actionState.replaceChildren(error?.error_code ? steer.rpcErrorText(error) : _('Operation failed.'));
-		});
-	};
-	const actions = [];
-	if (pending) {
-		const apply = E('button', { 'class': 'btn cbi-button-positive' }, _('Save & Apply pending changes'));
-		const discard = E('button', { 'class': 'btn cbi-button-negative' }, _('Discard pending changes'));
-		apply.addEventListener('click', () => runAction(apply, () => steer.applyPending(), _('Pending changes were saved and applied.')));
-		discard.addEventListener('click', () => runAction(discard, () => steer.discardPending(), _('Pending changes were discarded.')));
-		actions.push(apply, ' ', discard, actionState);
-	}
-	else if (state?.pending_apply === true) {
-		const applySaved = E('button', { 'class': 'btn cbi-button-positive' }, _('Apply Saved configuration'));
-		applySaved.addEventListener('click', () => runAction(applySaved, () => steer.applySaved(), _('Saved configuration was applied.')));
-		actions.push(applySaved, actionState);
-	}
-	const desiredWarnings = desired.validation?.warnings || [];
-	const savedWarnings = saved.validation?.warnings || [];
 	const overviewValidation = pending ? desired.validation : saved.validation;
-	return E([], [
-		E('section', { 'class': 'cbi-section steer-lifecycle' }, [
-			E('h3', {}, _('Configuration status')),
-			pending
-				? E('p', { 'class': 'alert-message warning' }, _('The working copy has unsaved changes. The running configuration remains unchanged until they are saved and applied.'))
-				: E('p', {}, _('The working copy is saved.')),
-			E('div', { 'class': 'steer-test-grid' }, [
-				E('article', { 'class': 'steer-test-card' }, [
-					E('h4', {}, _('Working copy')),
-					E('dl', { 'class': 'steer-status__facts' }, [
-						diagnosticFact(_('Unsaved changes'), pending ? _('Yes') : _('No')),
-						diagnosticFact(_('Enabled'), desired.enabled ? _('Enabled') : _('Disabled')),
-						diagnosticFact(_('Objects'), lifecycleCounts(desired.counts)),
-						diagnosticFact(_('Validation'), desired.validation?.ok ? _('Valid') : _('Invalid')),
-						diagnosticFact(_('Warnings'), desiredWarnings.length)
-					])
-				]),
-				E('article', { 'class': 'steer-test-card' }, [
-					E('h4', {}, _('Saved configuration')),
-					E('dl', { 'class': 'steer-status__facts' }, [
-						diagnosticFact(_('Enabled'), saved.enabled ? _('Enabled') : _('Disabled')),
-						diagnosticFact(_('Pending apply'), state?.pending_apply ? _('Yes') : _('No')),
-						diagnosticFact(_('Objects'), lifecycleCounts(saved.counts)),
-						diagnosticFact(_('Validation'), saved.validation?.ok ? _('Valid') : _('Invalid')),
-						diagnosticFact(_('Warnings'), savedWarnings.length)
-					])
-				]),
-				E('article', { 'class': 'steer-test-card' }, [
-					E('h4', {}, _('Running configuration')),
-					E('dl', { 'class': 'steer-status__facts' }, [
-						diagnosticFact(_('Running'), active.generation ? _('Yes') : _('No')),
-						diagnosticFact(_('Status'), active.generation ? (active.healthy ? _('Normal') : _('Abnormal')) : _('Stopped')),
-						diagnosticFact(_('Apply result'), lastResult?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—'))
-					])
-				])
-			]),
-			...actions
+	const activeEnabled = !!active.generation;
+	const lifecycleDifference = state?.pending_apply === true || saved.enabled !== activeEnabled;
+	const validationErrors = overviewValidation?.errors || [];
+	const validationWarnings = overviewValidation?.warnings || [];
+	const validationGroups = overviewValidation?.warning_groups || [];
+	return E('section', { 'class': 'cbi-section steer-overview-shell' }, [
+		E('div', { 'class': 'steer-overview-region', 'data-overview-region': 'execution_model' }, [
+			E('h3', {}, _('Execution model')),
+			overviewPipeline(desired.counts)
 		]),
-		renderWarningGroups(overviewValidation, pending ? _('Working copy warning summary') : _('Saved configuration warning summary')),
-		lastResult?.ok === false ? E('p', { 'class': 'alert-message danger' }, _('The last application failed. The saved configuration is still available; check Diagnostics for details.')) : ''
+		E('div', { 'class': 'steer-overview-region', 'data-overview-region': 'configuration_lifecycle' }, [
+			E('h3', {}, _('Configuration lifecycle')),
+			E('dl', { 'class': 'steer-status__facts' }, [
+				diagnosticFact(_('Working copy'), pending ? _('Unsaved changes') : _('Saved')),
+				diagnosticFact(_('Saved configuration'), saved.enabled ? _('Enabled') : _('Disabled')),
+				diagnosticFact(_('Pending apply'), state?.pending_apply ? _('Yes') : _('No')),
+				diagnosticFact(_('Active status'), activeEnabled ? (active.healthy ? _('Normal') : _('Abnormal')) : _('Stopped')),
+				diagnosticFact(_('Saved / Active'), lifecycleDifference ? _('Different; action required') : _('Consistent'))
+			])
+		]),
+		E('div', { 'class': 'steer-overview-region', 'data-overview-region': 'object_scale' }, [
+			E('h3', {}, _('Working copy scale')),
+			overviewCounts(desired.counts)
+		]),
+		E('div', { 'class': 'steer-overview-region', 'data-overview-region': 'validation_summary' }, [
+			E('h3', {}, _('Validation and warning summary')),
+			E('dl', { 'class': 'steer-status__facts' }, [
+				diagnosticFact(_('Errors'), validationErrors.length),
+				diagnosticFact(_('Warnings'), validationWarnings.length),
+				diagnosticFact(_('Warning groups'), validationGroups.length)
+			]),
+			renderWarningGroups(overviewValidation, pending ? _('Working copy warning summary') : _('Saved configuration warning summary')),
+			!validationErrors.length && !validationWarnings.length ? E('p', {}, _('The current working copy is valid.')) : ''
+		]),
+		E('div', { 'class': 'steer-overview-region', 'data-overview-region': 'last_apply_and_actions' }, [
+			E('h3', {}, _('Recent application and shortcuts')),
+			E('dl', { 'class': 'steer-status__facts' }, [
+				diagnosticFact(_('Time'), lastApply ? localizedApplyTime(lastApply) : '—'),
+				diagnosticFact(_('Result'), lastResult?.ok ? _('Succeeded') : (lastApply ? _('Failed') : '—'))
+			]),
+			lastResult?.ok === false
+				? E('p', { 'class': 'alert-message warning' }, lastResult.activated
+					? _('The running configuration changed but Apply did not finish. Open Diagnostics for recovery steps.')
+					: _('The running configuration did not change. The Saved configuration can be applied again.'))
+				: E('p', {}, lastApply ? _('The Saved configuration was applied successfully.') : _('No application has been recorded yet.')),
+			E('div', { 'class': 'steer-overview-actions' }, [
+				E('button', { 'class': 'btn cbi-button-action', 'click': () => window.location.reload() }, _('Refresh')),
+				E('a', { 'class': 'btn cbi-button-action', 'href': 'diagnostics' }, _('Open Diagnostics')),
+				E('a', { 'class': 'btn cbi-button-action', 'href': 'system' }, _('System information'))
+			]),
+			E('p', { 'class': 'steer-overview-note' }, _('Save, Apply Saved, Save and Apply, and Discard are available in the global status area above.'))
+		])
 	]);
 }
 

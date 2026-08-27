@@ -67,6 +67,7 @@ struct RuntimeStatus: Decodable, Sendable {
     var healthy = false
     var generationID = ""
     var intentDigest = ""
+    var runtimeDigest = ""
     var error = ""
     var lastApply: RuntimeApplyRecord? = nil
 
@@ -77,6 +78,7 @@ struct RuntimeStatus: Decodable, Sendable {
         healthy = try container.decodeIfPresent(Bool.self, forKey: .healthy) ?? false
         generationID = try container.decodeIfPresent(String.self, forKey: .generationID) ?? ""
         intentDigest = try container.decodeIfPresent(String.self, forKey: .intentDigest) ?? ""
+        runtimeDigest = try container.decodeIfPresent(String.self, forKey: .runtimeDigest) ?? ""
         error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
         lastApply = try container.decodeIfPresent(RuntimeApplyRecord.self, forKey: .lastApply)
     }
@@ -85,6 +87,7 @@ struct RuntimeStatus: Decodable, Sendable {
         case healthy
         case generationID = "generation_id"
         case intentDigest = "intent_digest"
+        case runtimeDigest = "runtime_digest"
         case error
         case lastApply = "last_apply"
     }
@@ -92,13 +95,48 @@ struct RuntimeStatus: Decodable, Sendable {
 
 struct RuntimeApplyRecord: Decodable, Sendable {
     let sequence: String
+    let timestamp: String?
     let result: RuntimeApplyResult
 }
 
 struct RuntimeApplyResult: Decodable, Sendable {
     let ok: Bool
     let generation: String?
+    let activated: Bool?
     let error: String?
+}
+
+struct OverviewCounts: Decodable, Sendable {
+    var nodes = 0
+    var subscriptions = 0
+    var routes = 0
+    var dnsProfiles = 0
+    var localProxies = 0
+    var rules = 0
+
+    enum CodingKeys: String, CodingKey {
+        case nodes, subscriptions, routes, rules
+        case dnsProfiles = "dns_profiles"
+        case localProxies = "local_proxies"
+    }
+}
+
+struct OverviewIntentState: Decodable, Sendable {
+    var available = false
+    var enabled = false
+    var counts = OverviewCounts()
+    var validation = ValidationResult(ok: false, errors: [], warnings: [])
+}
+
+struct OverviewLifecycleState: Decodable, Sendable {
+    var saved = OverviewIntentState()
+    var active = RuntimeStatus()
+    var pendingApply = false
+
+    enum CodingKeys: String, CodingKey {
+        case saved, active
+        case pendingApply = "pending_apply"
+    }
 }
 
 struct ValidationIssue: Codable, Identifiable, Sendable, Equatable {
@@ -682,6 +720,7 @@ protocol BackendClient: Sendable {
     func save(document: String, expectedRevision: String) async throws -> SaveOutcome
     func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome
     func status() async throws -> RuntimeStatus
+    func overviewState() async throws -> OverviewLifecycleState
     func logs() async throws -> String
     func versions() async throws -> RuntimeVersions
     func parseNodes(document: String) async throws -> NodeImportResult
@@ -697,6 +736,10 @@ protocol BackendClient: Sendable {
 extension BackendClient {
     func diagnostics() async throws -> ProbeDiagnostics { .empty }
     func probeResults() async throws -> ProbeLatestResults { .empty }
+    func overviewState() async throws -> OverviewLifecycleState {
+        let active = try await status()
+        return OverviewLifecycleState(active: active)
+    }
 }
 
 struct HelperBackendClient: BackendClient {
@@ -907,6 +950,15 @@ struct HelperBackendClient: BackendClient {
             throw result.status == 0 ? BackendClientError.invalidResponse : result.error
         }
         return status
+    }
+
+    func overviewState() async throws -> OverviewLifecycleState {
+        try requireExecutable(validationHelperURL)
+        let result = try await Self.execute(validationHelperURL, ["_state"])
+        guard let state = try? JSONDecoder().decode(OverviewLifecycleState.self, from: result.stdout) else {
+            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        }
+        return state
     }
 
     func logs() async throws -> String {
@@ -1268,6 +1320,7 @@ final class AppModel: ObservableObject {
     @Published var selectedPage: AppPage = .overview
     @Published var rawJSON = "{\n  \"main\": {}\n}"
     @Published var runtime = RuntimeStatus()
+    @Published private(set) var overviewLifecycle = OverviewLifecycleState()
     @Published var validation: ValidationResult?
     @Published private(set) var validationFocus: ValidationIssue?
     @Published var isDirty = false
@@ -1457,7 +1510,18 @@ final class AppModel: ObservableObject {
                     self.replaceDraft(with: snapshot)
                 }
                 self.hasInitializedDraft = true
-                self.runtime = try await self.backend.status()
+                let lifecycle = try await self.backend.overviewState()
+                self.installOverviewLifecycle(lifecycle)
+                if !preservedConcurrentDraft {
+                    self.validation = lifecycle.saved.validation
+                } else {
+                    let document = self.rawJSON
+                    let sequence = self.draftMutationSequence
+                    if let validation = try? await self.backend.validate(document: document),
+                       self.draftMatches(document: document, sequence: sequence) {
+                        self.validation = validation
+                    }
+                }
                 if let diagnostics = try? await self.backend.diagnostics() {
                     self.installDiagnostics(diagnostics)
                 }
@@ -1497,6 +1561,7 @@ final class AppModel: ObservableObject {
                 throw BackendClientError.processFailed("卸载器已结束，但仍检测到 Steer 程序组件。")
             }
             self.runtime = RuntimeStatus()
+            self.overviewLifecycle = OverviewLifecycleState()
             self.versions = RuntimeVersions()
             self.subscriptionRuntime = []
             self.geositeNames = []
@@ -1513,10 +1578,10 @@ final class AppModel: ObservableObject {
 
     func refreshStatus() {
         perform(message: "正在读取运行状态…") {
-            async let runtime = self.backend.status()
+            async let lifecycle = self.backend.overviewState()
             let components = await self.backend.componentStatus()
             self.updateComponentStatus(components)
-            self.runtime = try await runtime
+            self.installOverviewLifecycle(try await lifecycle)
             self.message = self.runtime.healthy
                 ? "Steer 运行正常"
                 : (self.runtime.generationID.isEmpty ? "Steer 当前未运行" : "Steer 运行异常")
@@ -1532,11 +1597,11 @@ final class AppModel: ObservableObject {
 
     func refreshDiagnostics() {
         perform(message: "正在刷新诊断数据…") {
-            async let runtime = self.backend.status()
+            async let lifecycle = self.backend.overviewState()
             async let diagnostics = self.backend.diagnostics()
             async let probeResults = self.backend.probeResults()
             async let logs = self.backend.logs()
-            self.runtime = try await runtime
+            self.installOverviewLifecycle(try await lifecycle)
             self.installDiagnostics(try await diagnostics)
             self.installProbeResults(try await probeResults)
             self.diagnosticsLog = try await logs
@@ -1679,6 +1744,7 @@ final class AppModel: ObservableObject {
             }
 
             self.runtime = outcome.status
+            await self.refreshOverviewLifecycleIfAvailable()
             await self.refreshProbeResultsIfAvailable()
             self.updateComponentStatus(await self.backend.componentStatus())
             guard outcome.saved else {
@@ -1742,6 +1808,7 @@ final class AppModel: ObservableObject {
             do {
                 let outcome = try await backend.apply(document: updatedDocument, expectedRevision: expectedRevision)
                 runtime = outcome.status
+                await refreshOverviewLifecycleIfAvailable()
                 await refreshProbeResultsIfAvailable()
                 updateComponentStatus(await backend.componentStatus())
                 guard outcome.saved else {
@@ -1990,7 +2057,7 @@ final class AppModel: ObservableObject {
             }
 
             self.hasInitializedDraft = true
-            self.runtime = try await self.backend.status()
+            self.installOverviewLifecycle(try await self.backend.overviewState())
             self.versions = try await self.backend.versions()
             self.subscriptionRuntime = try await self.backend.subscriptionStatuses()
             self.geositeNames = try await self.backend.geoCatalog(kind: "geosite")
@@ -2630,6 +2697,17 @@ final class AppModel: ObservableObject {
         systemComponentFacts = components.facts
     }
 
+    private func installOverviewLifecycle(_ lifecycle: OverviewLifecycleState) {
+        overviewLifecycle = lifecycle
+        runtime = lifecycle.active
+    }
+
+    private func refreshOverviewLifecycleIfAvailable() async {
+        if let lifecycle = try? await backend.overviewState() {
+            installOverviewLifecycle(lifecycle)
+        }
+    }
+
     private func draftMatches(document: String, sequence: UInt64) -> Bool {
         draftMutationSequence == sequence && rawJSON == document
     }
@@ -2659,6 +2737,7 @@ final class AppModel: ObservableObject {
             document: document,
             draftSequence: draftSequence
         )
+        await refreshOverviewLifecycleIfAvailable()
         await refreshProbeResultsIfAvailable()
         if draftStayedAtSavedVersion { validation = outcome.validation }
         message = draftStayedAtSavedVersion
@@ -2675,6 +2754,7 @@ final class AppModel: ObservableObject {
     ) async throws -> Bool {
         let outcome = try await backend.apply(document: document, expectedRevision: expectedRevision)
         runtime = outcome.status
+        await refreshOverviewLifecycleIfAvailable()
         await refreshProbeResultsIfAvailable()
         updateComponentStatus(await backend.componentStatus())
         guard outcome.saved else {

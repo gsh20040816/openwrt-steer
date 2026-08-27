@@ -74,6 +74,30 @@ func TestBackendBootsOutRegisteredInactiveLaunchDaemon(t *testing.T) {
 	}
 }
 
+func TestReadStatusReportsActualRuntimeProjectionDigest(t *testing.T) {
+	root := t.TempDir()
+	value := validIntent()
+	runner := &launchdFakeRunner{}
+	backend := NewBackend(runner, value, BackendOptions{
+		RunDirectory: root + "/run", StateDirectory: root + "/state", SingBoxBinary: "/test/sing-box",
+		LaunchctlBinary: "/test/launchctl", LaunchDaemonLabel: DefaultLaunchDaemonLabel,
+		LaunchDaemonPlist: root + "/steer.plist", CheckTUN: func([]string) error { return nil },
+	})
+	compiled := compiler.Compile(value, backend.CompilerOptions())
+	candidate, err := backend.Prepare(context.Background(), value, compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Activate(context.Background(), candidate); err != nil {
+		t.Fatal(err)
+	}
+	status := backend.ReadStatus(context.Background())
+	if status.GenerationID == "" || status.IntentDigest != compiled.IntentDigest ||
+		status.RuntimeDigest != compiled.RuntimeDigest || !status.Healthy {
+		t.Fatalf("macOS Active status omitted the runtime projection: %#v", status)
+	}
+}
+
 func TestBackendUsesLaunchdGenerationLifecycle(t *testing.T) {
 	root := t.TempDir()
 	value := validIntent()

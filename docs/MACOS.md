@@ -28,7 +28,7 @@ Darwin utun + auto_route
 
 `macos/SteerApp` 是 macOS 的正式配置与运维前端，不是代理运行时，也不维护第二份配置语义。它直接面向系统安装的 `steer-macos` helper：
 
-- 总览：Draft/Saved/Active、last Apply、配置规模、按实际可达运行图过滤并聚合的 warnings 和少量快捷操作；普通摘要不显示内部 generation/digest；
+- 总览：固定显示执行模型、Draft/Saved/Active 生命周期、当前 Draft 的六类配置规模与校验/聚合 Warning、最近 Apply 和快捷操作；私有 `_state` 从 Saved 编译投影与实际 Active 投影计算 pending Apply，普通摘要不显示内部 generation/digest 或原始错误链；
 - 基础设置：用原生字段编辑 Main、探测 URL、DNS 缓存和 Bootstrap DNS；
 - 节点、路由、DNS Profile、规则、订阅、本地代理：用原生 Table 与 Form 编辑同一份 draft collection，并支持拖动排序；普通界面只显示名称，不暴露内部 Canonical ID；
 - Canonical JSON · 高级：只作为完整导入、排错和高级字段的兜底入口；

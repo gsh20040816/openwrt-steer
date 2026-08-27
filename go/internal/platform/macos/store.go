@@ -114,6 +114,7 @@ type Status struct {
 	Healthy       bool              `json:"healthy"`
 	GenerationID  string            `json:"generation_id,omitempty"`
 	IntentDigest  string            `json:"intent_digest,omitempty"`
+	RuntimeDigest string            `json:"runtime_digest,omitempty"`
 	LastApply     *coreapply.Record `json:"last_apply,omitempty"`
 	Error         string            `json:"error,omitempty"`
 }

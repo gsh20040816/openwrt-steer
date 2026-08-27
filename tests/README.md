@@ -48,10 +48,10 @@ swift test --disable-sandbox
 - `rule-summary-fixtures.json`：完整 Rule match 摘要与 DNS/连接阶段边界合同；
 - `form-input-fixtures.json`：三端共享的 Probe/Subscription URL、正 duration 与 DNS HTTP path 格式合同；
 - `macos-system-component-fixtures.json`：macOS helper、sing-box、plist、LaunchDaemon、config、Geo seed 与 control socket 的逐组件缺失/版本事实，并区分安装必需事实与 runtime 激活状态；
-- `luci_view_test.js`：表单语义、逐 RPC 权限、Local Proxy 暴露/认证门、detour 可清空、节点/路由/概览测试按钮；
+- `luci_view_test.js`：表单语义、逐 RPC 权限、Local Proxy 暴露/认证门、detour 可清空、节点/路由测试按钮，以及 Overview 五区域与 1024/1280/1920 响应式布局契约；
 - `steer_helper_test.js`：UCI commit 后的 Apply 阶段反馈、结构化错误本地化、独立 validate 与 session access；
-- `linux_web_test.js`：Linux Web 开关/冲突回滚、Rules/Node chips 与 SSH 私钥、Local Proxy 认证 DOM 往返、Advanced JSON 单一 Draft、无效 JSON 导航保护及确认式 Discard；
-- Swift XCTest：共享 Local Proxy、订阅、Probe、状态生命周期 fixture 与 macOS 提交门；
+- `linux_web_test.js`：Linux Web 开关/冲突回滚、Overview 五区域与安全 Apply 摘要、Rules/Node chips 与 SSH 私钥、Local Proxy 认证 DOM 往返、Advanced JSON 单一 Draft、无效 JSON 导航保护及确认式 Discard；
+- Swift XCTest：共享 Local Proxy、订阅、Probe、Overview Saved/Active 生命周期、状态 fixture 与 macOS 提交门；
 - Python 检查：中文覆盖、包所有权/版本/已删除接口、官方 SDK 缓存与 Linux 交付约束。
 
 ## OpenWrt VM

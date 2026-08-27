@@ -98,13 +98,13 @@ bad_placeholders = sorted(
 )
 
 required_localized = {
-    "Configuration status": "配置状态",
+    "Configuration lifecycle": "配置生命周期",
     "Working copy": "工作副本",
     "Unsaved changes": "有未保存修改",
     "Saved configuration": "已保存配置",
-    "Running configuration": "运行配置",
+    "Active status": "运行状态",
     "Running status": "运行状态",
-    "Apply result": "应用结果",
+    "Recent application and shortcuts": "最近应用与快捷操作",
     "Canonical Preview": "规范预览",
     "Single-node routes": "单节点路由",
     "Add single-node route": "添加单节点路由",

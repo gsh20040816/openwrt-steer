@@ -858,14 +858,15 @@ async function testActualGenerationAndPersistentApplyFixture() {
   const recordText = text(environment.S.ui.applyRecord(overview.status));
   assert.match(recordText, /新配置未启用，当前运行配置保持不变/);
   assert.doesNotMatch(recordText, /candidate\.failed-new|candidate\.active-old/);
-  assert.match(recordText, /systemd refused start/);
+  assert.doesNotMatch(recordText, /systemd refused start/, 'Overview Apply summary must not expose the raw backend error chain');
+  assert.match(recordText, /已保存配置仍可重试应用/);
   assert.match(recordText, /2026/, 'persistent Apply record must include its timestamp');
 
   const overviewSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/overview.js'), 'utf8');
   new Function('window', overviewSource)({ S: environment.S });
   const overviewRoot = new Element('main');
   await environment.S.views.overview.render(overviewRoot);
-  assert.match(text(overviewRoot), /运行状态正常运行/);
+  assert.match(text(overviewRoot), /当前运行正常/);
   assert.doesNotMatch(text(overviewRoot), /candidate\.active-old|candidate\.failed-new/);
 
   const diagnosticsSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/views/diagnostics.js'), 'utf8');
@@ -956,7 +957,14 @@ async function testSharedProbeDiagnosticsAndDisabledActions() {
   await environment.S.views.overview.render(overviewRoot);
   assert.strictEqual(findAll(overviewRoot, (element) => element.tag === 'button' && text(element) === '运行测试').length, 0,
     'Overview must not duplicate Diagnostics probes');
-  assert.match(text(overviewRoot), /工作副本、已保存配置与运行状态/);
+  assert.match(text(overviewRoot), /执行模型、配置生命周期与当前工作副本概览/);
+  assert.deepEqual(findAll(overviewRoot, (element) => element.attributes?.['data-overview-region'])
+    .map((element) => element.attributes['data-overview-region']),
+  ['execution_model', 'configuration_lifecycle', 'object_scale', 'validation_summary', 'last_apply_and_actions']);
+  for (const expected of ['节点', '路由', 'DNS Profile', '本地入口', '规则', '订阅', '打开诊断', '系统信息'])
+    assert.match(text(overviewRoot), new RegExp(expected), `Linux Overview must render ${expected}`);
+  assert.doesNotMatch(text(overviewRoot), /systemd refused start|candidate\.failed-new|candidate\.active-old/,
+    'Linux Overview keeps raw errors and internal runtime identities out of ordinary DOM');
 
   loadView(environment, 'dns');
   const dnsRoot = new Element('main');

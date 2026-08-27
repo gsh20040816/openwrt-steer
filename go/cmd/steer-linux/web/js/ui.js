@@ -357,7 +357,7 @@
     return error;
   }
 
-  function applyRecord(status) {
+  function applyRecord(status, includeTechnicalDetail = false) {
     const record = status?.last_apply || null;
     if (!record) return h('p', { class: 'muted' }, '尚无应用记录。');
     const result = record.result || record;
@@ -373,7 +373,11 @@
         : (!result.ok && result.activated
             ? h('p', { class: 'alert alert--err' }, '运行配置已变化，但应用过程未完成；请检查诊断信息。')
             : null),
-      result.error ? h('p', { class: 'apply-record__error' }, result.error) : null
+      !result.ok ? h('p', { class: 'apply-record__error' }, includeTechnicalDetail && result.error
+        ? result.error
+        : (failedBeforeActivation
+            ? '运行配置未切换；已保存配置仍可重试应用。'
+            : '应用未完整成功；请打开诊断查看恢复步骤。')) : null
     ]);
   }
 
@@ -420,7 +424,7 @@
         ]),
         desiredEnabled !== savedEnabled ? h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '已保存开关'), h('span', { class: 'strip__fact-value' }, savedEnabled ? '启用' : '禁用')) : null,
         h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '运行状态'), h('span', { class: 'strip__fact-value' }, active ? (healthy ? '正常运行' : '运行异常') : '已停止')),
-        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次应用'), h('span', { class: 'strip__fact-value', title: lastResult?.error || '' }, lastApply ? `${applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
+        h('div', { class: 'strip__fact' }, h('span', { class: 'strip__fact-label' }, '上次应用'), h('span', { class: 'strip__fact-value', title: lastResult?.ok === false ? '应用未完整成功；请打开诊断。' : '' }, lastApply ? `${applyTime(lastApply)} ${lastResult?.ok ? '✓' : '✗'}` : '—')),
         dirty ? h('span', { class: 'badge badge--warn', title: '工作副本有未保存修改' }, '工作副本已修改') : null,
         !draftValid ? h('span', { class: 'badge badge--err', title: S.store.draftError }, '配置格式有误') : null,
         pendingApply ? h('span', { class: 'badge badge--warn', title: '已保存配置尚未应用到运行环境' }, '待应用') : null,

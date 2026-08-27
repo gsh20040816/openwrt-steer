@@ -142,7 +142,7 @@ if actual_navigation != expected_navigation:
     raise SystemExit(f"check-ui-contract: navigation drift: {actual_navigation!r}")
 
 expected_page_facts = {
-    "overview": {"draft", "saved", "active", "last_apply", "object_counts", "warning_summary", "quick_actions"},
+    "overview": {"execution_model", "draft", "saved", "active", "object_counts", "validation_summary", "warning_summary", "last_apply", "quick_actions"},
     "diagnostics": {"validation", "probes", "latest_results", "dns_capture", "last_apply", "logs"},
     "system": {"versions", "last_apply", "geo", "paths", "platform_components", "access"},
 }
@@ -152,6 +152,19 @@ if set(page_responsibilities) != set(expected_page_facts):
 for page, facts in expected_page_facts.items():
     if set(page_responsibilities[page].get("facts", [])) != facts:
         raise SystemExit(f"check-ui-contract: {page} responsibility drifted")
+overview_contract = page_responsibilities["overview"]
+if overview_contract.get("object_count_source") != "draft" or overview_contract.get("validation_source") != "draft_validation":
+    raise SystemExit("check-ui-contract: Overview counts and validation must use the current Draft")
+if [region.get("key") for region in overview_contract.get("regions", [])] != [
+    "execution_model", "configuration_lifecycle", "object_scale", "validation_summary", "last_apply_and_actions"
+]:
+    raise SystemExit("check-ui-contract: Overview five-region contract drifted")
+if overview_contract["regions"][2].get("facts") != ["nodes", "routes", "dns_profiles", "local_proxies", "rules", "subscriptions"]:
+    raise SystemExit("check-ui-contract: Overview Draft scale is incomplete")
+if overview_contract["regions"][4].get("actions") != ["refresh", "diagnostics", "system", "save", "apply_saved", "save_and_apply", "discard"]:
+    raise SystemExit("check-ui-contract: Overview lifecycle actions drifted")
+if overview_contract.get("forbidden_facts") != ["probe_history", "raw_error_chain", "object_ids", "digests", "generation_paths"]:
+    raise SystemExit("check-ui-contract: Overview forbidden technical facts drifted")
 dns_boundaries = contract.get("dns_boundaries", {})
 if set(dns_boundaries) != {"linux", "openwrt", "macos"}:
     raise SystemExit("check-ui-contract: DNS platform boundaries are incomplete")
@@ -277,7 +290,7 @@ require(mac_ui_spec, "pageResponsibilities", "macOS page responsibility contract
 require(linux_ui, "onToggleEnabled", "Linux global Enable")
 require(luci_helper, "setGlobalEnabled", "LuCI global Enable")
 require(mac_content, 'Toggle("Steer"', "macOS global Enable")
-require(linux_overview, "工作副本、已保存配置与运行状态", "Linux Overview responsibility")
+require(linux_overview, "执行模型、配置生命周期与当前工作副本概览", "Linux Overview responsibility")
 for content, owner in (
     (linux_diagnostics, "Linux Diagnostics"),
     (linux_system, "Linux System"),
@@ -407,8 +420,10 @@ if "defaultValue:" in mac_editors or "defaultValue:" in mac_configuration:
 require(linux_ui, "配置开关", "Linux working-copy state")
 require(linux_ui, "已保存开关", "Linux saved state")
 require(linux_ui, "重新载入", "Linux external revision reload")
-require(luci_overview, "Configuration status", "LuCI lifecycle model")
-require(luci_overview, "Save & Apply pending changes", "LuCI pending Apply action")
+for region in ("execution_model", "configuration_lifecycle", "object_scale", "validation_summary", "last_apply_and_actions"):
+    require(luci_overview, f"'data-overview-region': '{region}'", f"LuCI Overview {region} region")
+    require(linux_overview, f"'data-overview-region': '{region}'", f"Linux Overview {region} region")
+require(luci_overview, "Save, Apply Saved, Save and Apply, and Discard are available in the global status area above.", "LuCI global Overview actions")
 require(luci_helper, "steer-lifecycle-global", "LuCI global lifecycle actions")
 require(luci_helper, "applySaved", "LuCI Apply Saved action")
 require(mac_content, "DraftActionButtons", "macOS lifecycle actions")

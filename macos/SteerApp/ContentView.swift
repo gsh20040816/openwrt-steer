@@ -250,70 +250,35 @@ struct OverviewView: View {
     var body: some View {
         List {
             Section {
-                statusContent
-            } header: {
-                Label("运行状态", systemImage: "shield.lefthalf.filled")
-            }
-            Section {
                 executionContent
             } header: {
                 Label("执行模型", systemImage: "point.3.filled.connected.trianglepath.dotted")
             }
             Section {
-                metricGrid
+                lifecycleContent
             } header: {
-                Label("配置规模", systemImage: "chart.bar.xaxis")
-            }
-            if let validation = model.validation, !validation.warningGroups.isEmpty {
-                Section {
-                    warningGroups(validation.warningGroups)
-                } header: {
-                    Label("警告摘要", systemImage: "exclamationmark.triangle")
-                }
+                Label("配置生命周期", systemImage: "arrow.triangle.2.circlepath")
             }
             Section {
-                configurationContent
+                metricGrid
             } header: {
-                Label("配置摘要", systemImage: "doc.text")
+                Label("工作副本规模", systemImage: "chart.bar.xaxis")
+            }
+            Section {
+                validationContent
+            } header: {
+                Label("校验与警告摘要", systemImage: "checkmark.shield")
+            }
+            Section {
+                lastApplyContent
+            } header: {
+                Label("最近应用与快捷操作", systemImage: "clock.arrow.circlepath")
             }
         }
         .listStyle(.inset)
-    }
-
-    private var statusContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(
-                        model.runtime.healthy ? "服务运行正常" : (model.runtime.generationID.isEmpty ? "服务未运行" : "服务运行异常"),
-                        systemImage: model.runtime.healthy ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty ? "pause.circle" : "exclamationmark.triangle.fill")
-                    )
-                        .font(.title.weight(.semibold))
-                        .foregroundStyle(model.runtime.healthy ? .green : (model.runtime.generationID.isEmpty ? .secondary : .orange))
-                    Text("系统 TUN 模式")
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 20)
-                VStack(alignment: .trailing, spacing: 12) {
-                    ControlGroup {
-                        Button("校验") { model.validate() }
-                            .disabled(model.draftSyntaxError != nil)
-                        DraftActionButtons(model: model)
-                        Button { model.refreshStatus() } label: {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        .help("刷新状态")
-                    }
-                    .disabled(model.isBusy)
-                }
-            }
-            if !model.message.isEmpty {
-                Divider()
-                    .padding(.vertical, 4)
-                Label(model.message, systemImage: "info.circle")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+        .onAppear {
+            if model.validation == nil, model.draftSyntaxError == nil, !model.isBusy {
+                model.validate()
             }
         }
     }
@@ -326,39 +291,118 @@ struct OverviewView: View {
             pipelineArrow
             pipelineStep(value: model.itemCount(for: "routes"), title: "路由", subtitle: "直连 / 拒绝 / 节点链", symbol: "arrow.triangle.branch")
             pipelineArrow
-            pipelineStep(value: 1, title: "网络出口", subtitle: "本地出口", symbol: "globe")
+            pipelineStep(value: nil, title: "网络出口", subtitle: "最终建立连接", symbol: "globe")
         }
+    }
+
+    private var lifecycleContent: some View {
+        let saved = model.overviewLifecycle.saved
+        let active = model.overviewLifecycle.active
+        return Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 12) {
+            GridRow {
+                lifecycleFact("工作副本", model.isDirty ? "有未保存修改" : "已同步")
+                lifecycleFact("已保存配置", saved.available ? (saved.enabled ? "启用" : "禁用") : "不可用")
+            }
+            GridRow {
+                lifecycleFact("等待应用", model.overviewLifecycle.pendingApply ? "是" : "否")
+                lifecycleFact("当前运行", active.generationID.isEmpty ? "已停止" : (active.healthy ? "正常" : "异常"))
+            }
+            GridRow {
+                lifecycleFact("Saved / Active", lifecycleDifference)
+                lifecycleFact("状态来源", "Draft · Saved · Active")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var lifecycleDifference: String {
+        let saved = model.overviewLifecycle.saved
+        let activeEnabled = !model.overviewLifecycle.active.generationID.isEmpty
+        if !saved.available { return "Saved 不可用" }
+        if model.overviewLifecycle.pendingApply || saved.enabled != activeEnabled { return "不一致，等待处理" }
+        return "一致"
+    }
+
+    private func lifecycleFact(_ label: String, _ value: String) -> some View {
+        LabeledContent(label, value: value)
     }
 
     private var metricGrid: some View {
         Grid(horizontalSpacing: 12, verticalSpacing: 12) {
             GridRow {
-                metric(value: model.itemCount(for: "nodes"), label: "节点", footnote: "\(model.enabledItemCount(for: "nodes")) 已启用", symbol: "point.3.connected.trianglepath.dotted")
-                metric(value: model.itemCount(for: "routes"), label: "路由", footnote: "\(model.enabledItemCount(for: "routes")) 已启用", symbol: "arrow.triangle.branch")
-                metric(value: model.itemCount(for: "dns_profiles"), label: "DNS Profile", footnote: "\(model.enabledItemCount(for: "dns_profiles")) 已启用", symbol: "network")
-                metric(value: model.itemCount(for: "rules"), label: "规则", footnote: "\(model.enabledItemCount(for: "rules")) 已启用", symbol: "list.number")
+                metric(value: model.itemCount(for: "nodes"), label: "节点", footnote: "当前工作副本", symbol: "point.3.connected.trianglepath.dotted")
+                metric(value: model.itemCount(for: "routes"), label: "路由", footnote: "当前工作副本", symbol: "arrow.triangle.branch")
+                metric(value: model.itemCount(for: "dns_profiles"), label: "DNS Profile", footnote: "当前工作副本", symbol: "network")
             }
             GridRow {
-                metric(value: model.itemCount(for: "local_proxies"), label: "本地入口", footnote: "\(model.enabledItemCount(for: "local_proxies")) 已启用", symbol: "rectangle.connected.to.line.below")
-                metric(value: model.itemCount(for: "subscriptions"), label: "订阅", footnote: "\(model.enabledItemCount(for: "subscriptions")) 已启用", symbol: "arrow.down.circle")
-                metric(value: model.validation?.warnings.count ?? 0, label: "警告", footnote: model.validation == nil ? "尚未校验" : "当前工作副本", symbol: "exclamationmark.triangle")
-                metric(value: model.validation?.errors.count ?? 0, label: "错误", footnote: model.validation == nil ? "尚未校验" : "当前工作副本", symbol: "xmark.octagon")
+                metric(value: model.itemCount(for: "local_proxies"), label: "本地入口", footnote: "当前工作副本", symbol: "rectangle.connected.to.line.below")
+                metric(value: model.itemCount(for: "rules"), label: "规则", footnote: "当前工作副本", symbol: "list.number")
+                metric(value: model.itemCount(for: "subscriptions"), label: "订阅", footnote: "当前工作副本", symbol: "arrow.down.circle")
             }
         }
     }
 
-    private var configurationContent: some View {
-        Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
-            GridRow {
-                LabeledContent("日志级别", value: model.draftLogLevel)
-                LabeledContent("DNS 缓存", value: model.draftDNSCacheCapacityLabel)
+    @ViewBuilder
+    private var validationContent: some View {
+        if let validation = model.validation {
+            HStack(spacing: 28) {
+                Label("\(validation.errors.count) 个错误", systemImage: validation.errors.isEmpty ? "checkmark.circle" : "xmark.octagon")
+                Label("\(validation.warnings.count) 个警告", systemImage: "exclamationmark.triangle")
+                Text("当前工作副本")
+                    .foregroundStyle(.secondary)
             }
-            GridRow {
-                LabeledContent("工作副本", value: model.isDirty ? "有未保存修改" : "已同步")
-                LabeledContent("配置开关", value: model.draftEnabled ? "启用" : "禁用")
+            if validation.warningGroups.isEmpty {
+                Text(validation.errors.isEmpty ? "当前工作副本没有聚合警告。" : "请使用工具栏“校验”定位并修复错误。")
+                    .foregroundStyle(.secondary)
+            } else {
+                warningGroups(validation.warningGroups)
+            }
+        } else {
+            Text(model.draftSyntaxError == nil ? "尚未完成当前工作副本校验。" : "请先修复工作副本格式错误。")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var lastApplyContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
+                GridRow {
+                    LabeledContent("时间", value: localizedLastApplyTime)
+                    LabeledContent("结果", value: model.runtime.lastApply?.result.ok == true ? "成功" : (model.runtime.lastApply == nil ? "—" : "失败"))
+                }
+            }
+            Text(safeLastApplySummary)
+                .foregroundStyle(model.runtime.lastApply?.result.ok == false ? Color.orange : Color.secondary)
+            ControlGroup {
+                Button("刷新") { model.refreshStatus() }
+                Button("打开诊断") { model.selectedPage = .diagnostics }
+                Button("系统信息") { model.selectedPage = .settings }
+            }
+            .disabled(model.isBusy)
+        }
+    }
+
+    private var safeLastApplySummary: String {
+        guard let result = model.runtime.lastApply?.result else { return "尚无应用记录。" }
+        if result.ok { return "已保存配置已成功切换到运行环境。" }
+        if result.activated == true { return "运行配置已变化，但应用未完成；请打开诊断查看恢复步骤。" }
+        return "运行配置未切换；已保存配置仍可重试应用。"
+    }
+
+    private var localizedLastApplyTime: String {
+        guard let record = model.runtime.lastApply else { return "—" }
+        if let timestamp = record.timestamp {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let date = formatter.date(from: timestamp) ?? ISO8601DateFormatter().date(from: timestamp)
+            if let date {
+                return date.formatted(date: .abbreviated, time: .standard)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        if let milliseconds = Double(record.sequence), record.sequence.count >= 13 {
+            return Date(timeIntervalSince1970: milliseconds / 1000).formatted(date: .abbreviated, time: .standard)
+        }
+        return "时间未知"
     }
 
     private func warningGroups(_ groups: [ValidationWarningGroup]) -> some View {
@@ -398,12 +442,14 @@ struct OverviewView: View {
          "rules": .rules, "subscriptions": .subscriptions, "general": .general][group.destination ?? ""]
     }
 
-    private func pipelineStep(value: Int, title: String, subtitle: String, symbol: String) -> some View {
+    private func pipelineStep(value: Int?, title: String, subtitle: String, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(title, systemImage: symbol)
                 .font(.headline)
-            Text(value, format: .number)
-                .font(.title2.monospacedDigit().weight(.semibold))
+            if let value {
+                Text(value, format: .number)
+                    .font(.title2.monospacedDigit().weight(.semibold))
+            }
             Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -91,7 +91,7 @@
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '应用记录'), h('div', { class: 'card__title' }, '最近应用结果'))),
           h('div', { class: 'facts' }, [fact('运行状态', status.healthy ? '正常' : (status.generation ? '异常' : '已停止'))]),
-          ui.applyRecord(status)
+          ui.applyRecord(status, true)
         ]),
         h('section', { class: 'card' }, [
           h('div', { class: 'card__head' }, h('div', {}, h('span', { class: 'eyebrow' }, '系统日志'), h('div', { class: 'card__title' }, 'Steer 服务日志'))),
