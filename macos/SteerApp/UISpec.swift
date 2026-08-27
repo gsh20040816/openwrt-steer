@@ -284,6 +284,30 @@ enum SteerUISpec {
         }
     }
 
+    static func effectiveNodeFieldValue(
+        _ field: UIFieldSpec,
+        in object: [String: JSONValue]
+    ) -> JSONValue? {
+        if let value = object[field.key] {
+            if value.stringValue == "", let defaultValue = field.defaultValue {
+                return defaultValue
+            }
+            return value
+        }
+        return field.defaultValue
+    }
+
+    static func effectiveNodeFieldValue(
+        key: String,
+        nodeType: String,
+        in object: [String: JSONValue]
+    ) -> JSONValue? {
+        guard let field = nodeFields(for: nodeType).first(where: { $0.key == key }) else {
+            return object[key]
+        }
+        return effectiveNodeFieldValue(field, in: object)
+    }
+
     static func creationObject(
         for collection: String,
         id: String? = nil,

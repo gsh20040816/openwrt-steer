@@ -1358,6 +1358,9 @@ async function main() {
 		'The default node group shows only manually added nodes');
 	assert.equal(groupedNodes.tabs.length, 0,
 		'Node editing uses one continuous LuCI form instead of hiding fields behind modal tabs');
+	const transport = groupedNodes.options.find((option) => option.name == 'transport');
+	assert.equal(transport?.default, 'tcp',
+		'LuCI node transport consumes the shared TCP / Raw default for existing omitted values');
 	const hysteriaPassword = groupedNodes.options.find((option) => option.name == 'password');
 	assert.ok(hysteriaPassword?.password === true && hysteriaPassword.dependencies.some((dependency) =>
 		dependency[0] == 'type' && dependency[1] == 'hysteria2'),

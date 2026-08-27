@@ -572,6 +572,31 @@ func TestCompileVLESSRealityDoesNotSilentlyDowngrade(t *testing.T) {
 	}
 }
 
+func TestCompileDefaultVLESSTransportsAreEquivalent(t *testing.T) {
+	node := model.Node{
+		ID: "vless", Enabled: true, Type: "vless", Server: "proxy.example", ServerPort: 443,
+		NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeTransport:   model.NodeTransport{Flow: "xtls-rprx-vision"},
+		NodeTLS: model.NodeTLS{
+			TLSServerName: "proxy.example", RealityPublicKey: "public-key",
+			RealityShortID: "0123456789abcdef", UTLSFingerprint: "chrome",
+		},
+	}
+	var expected map[string]any
+	for _, transport := range []string{"", "tcp", "raw"} {
+		node.Transport = transport
+		outbound := CompileNodeOutbound(node)
+		if _, exists := outbound["transport"]; exists {
+			t.Fatalf("%q must compile without a V2Ray transport object: %#v", transport, outbound)
+		}
+		if expected == nil {
+			expected = outbound
+		} else if !reflect.DeepEqual(outbound, expected) {
+			t.Fatalf("%q transport changed outbound semantics: got %#v, want %#v", transport, outbound, expected)
+		}
+	}
+}
+
 func hasString(values []string, expected string) bool {
 	for _, value := range values {
 		if value == expected {

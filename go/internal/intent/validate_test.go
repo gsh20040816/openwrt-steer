@@ -413,6 +413,40 @@ func TestValidateVLESSRealityRequiresCompleteFields(t *testing.T) {
 	}
 }
 
+func TestValidateDefaultVLESSTransportSemantics(t *testing.T) {
+	for _, transport := range []string{"", "tcp", "raw"} {
+		t.Run("transport_"+transport, func(t *testing.T) {
+			node := validIntent().Nodes[0]
+			node.Transport = transport
+			node.NodeTLS = NodeTLS{
+				TLSServerName: "proxy.example", RealityPublicKey: "public-key",
+				RealityShortID: "0123456789abcdef",
+			}
+			if validation := ValidateNode(node); !validation.OK {
+				t.Fatalf("default TCP / Raw transport was rejected: %#v", validation.Errors)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		transport string
+		path      string
+		service   string
+		code      string
+	}{
+		{transport: "unsupported", code: "UNSUPPORTED_TRANSPORT"},
+		{transport: "ws", code: "REQUIRED"},
+		{transport: "grpc", code: "REQUIRED"},
+	} {
+		node := validIntent().Nodes[0]
+		node.Transport, node.TransportPath, node.ServiceName = test.transport, test.path, test.service
+		validation := ValidateNode(node)
+		if validation.OK || !hasIssue(validation, test.code) {
+			t.Fatalf("%s transport lost its validation guard: %#v", test.transport, validation.Errors)
+		}
+	}
+}
+
 func TestPinnedStaleSubscriptionNodeWarns(t *testing.T) {
 	intent := validIntent()
 	intent.Nodes[0].PinnedStale = true

@@ -234,6 +234,36 @@ final class UISafetyContractTests: XCTestCase {
         }
     }
 
+    func testNodeFieldDefaultsAreEffectiveWithoutMutatingExistingDrafts() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var omitted: [String: JSONValue] = ["type": .string("vless")]
+        let omittedBefore = try encoder.encode(JSONValue.object(omitted))
+        XCTAssertEqual(
+            SteerUISpec.effectiveNodeFieldValue(key: "transport", nodeType: "vless", in: omitted)?.stringValue,
+            "tcp"
+        )
+        XCTAssertEqual(try encoder.encode(JSONValue.object(omitted)), omittedBefore)
+        XCTAssertNil(omitted["transport"], "reading an editor default must not materialize it")
+
+        omitted["transport"] = .string("")
+        let emptyBefore = try encoder.encode(JSONValue.object(omitted))
+        XCTAssertEqual(
+            SteerUISpec.effectiveNodeFieldValue(key: "transport", nodeType: "vless", in: omitted)?.stringValue,
+            "tcp"
+        )
+        XCTAssertEqual(try encoder.encode(JSONValue.object(omitted)), emptyBefore)
+
+        for explicit in ["tcp", "raw", "ws"] {
+            let object: [String: JSONValue] = ["transport": .string(explicit)]
+            XCTAssertEqual(
+                SteerUISpec.effectiveNodeFieldValue(key: "transport", nodeType: "vless", in: object)?.stringValue,
+                explicit,
+                "an explicit transport must override the shared default"
+            )
+        }
+    }
+
     @MainActor
     func testMacOSNewDraftItemsMaterializeTheSharedCanonicalFixture() throws {
         let document = try decode(CreationDocument.self, "ui/creation-policy-fixtures.json")
