@@ -48,6 +48,7 @@ private actor DraftLifecycleBackend: BackendClient {
     private var componentStatusCount = 0
     private var failNextApply = false
     private var nextSaveValidationFailure: ValidationResult?
+    private var nextApplyValidationFailure: ValidationResult?
     private var loadFailuresRemaining = 0
     private var nextLoadGate: DraftOperationGate?
     private var nextSaveGate: DraftOperationGate?
@@ -139,6 +140,10 @@ private actor DraftLifecycleBackend: BackendClient {
         guard expectedRevision == snapshot.revision else {
             throw BackendClientError.revisionConflict(currentRevision: snapshot.revision)
         }
+        if let validation = nextApplyValidationFailure {
+            nextApplyValidationFailure = nil
+            throw BackendClientError.validationFailed(validation)
+        }
         applyCount += 1
         let revision = "revision-applied-\(applyCount)"
         snapshot = ConfigurationSnapshot(document: document, revision: revision)
@@ -197,12 +202,14 @@ private actor DraftLifecycleBackend: BackendClient {
 
     func savedSnapshot() -> ConfigurationSnapshot { snapshot }
     func failUpcomingApply() { failNextApply = true }
+    func failUpcomingApplyValidation(_ validation: ValidationResult) { nextApplyValidationFailure = validation }
     func failUpcomingSave(validation: ValidationResult) { nextSaveValidationFailure = validation }
     func failUpcomingLoad() { loadFailuresRemaining += 1 }
     func pauseUpcomingLoad(with gate: DraftOperationGate) { nextLoadGate = gate }
     func pauseUpcomingSave(with gate: DraftOperationGate) { nextSaveGate = gate }
     func pauseUpcomingApply(with gate: DraftOperationGate) { nextApplyGate = gate }
     func pauseUpcomingInstall(with gate: DraftOperationGate) { nextInstallGate = gate }
+    func advanceSavedRevision() { snapshot = ConfigurationSnapshot(document: snapshot.document, revision: "revision-external") }
     func seedDiagnostics(_ diagnostics: ProbeDiagnostics) { persistedDiagnostics = diagnostics }
     func seedProbeResults(_ results: ProbeLatestResults) { persistedProbeResults = results }
 
@@ -544,7 +551,7 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         XCTAssertTrue(model.isDirty)
     }
 
-    func testDirtyEnableNeverDeploysTheRestOfTheDraft() async throws {
+    func testDirtyEnableSavesAndAppliesTheEntireCurrentDraft() async throws {
         let backend = DraftLifecycleBackend(document: savedDocument)
         let model = AppModel(backend: backend)
         model.loadDraft()
@@ -553,13 +560,87 @@ final class AppStateDraftLifecycleTests: XCTestCase {
         model.markDirty()
 
         model.setEnabledAndApply(true)
+        try await waitUntil { !model.isBusy }
 
         let counts = await backend.counts()
         XCTAssertEqual(counts.saves, 0)
-        XCTAssertEqual(counts.applies, 0)
+        XCTAssertEqual(counts.applies, 1)
+        let saved = await backend.savedSnapshot()
+        XCTAssertTrue(saved.document.contains(#""enabled" : true"#))
+        XCTAssertTrue(saved.document.contains(#""log_level" : "debug""#))
+        XCTAssertEqual(model.rawJSON, saved.document)
+        XCTAssertFalse(model.isDirty)
+        XCTAssertTrue(model.message.contains("已启用并应用"))
+    }
+
+    func testEnableApplyFailureKeepsSavedToggleSeparateFromActiveState() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadDraft()
+        try await waitUntil { !model.isBusy && model.savedRevision == "revision-1" }
+        model.rawJSON = editedDocument
+        model.markDirty()
+        await backend.failUpcomingApply()
+
+        model.setEnabledAndApply(true)
+        try await waitUntil { !model.isBusy }
+
+        XCTAssertTrue(model.draftEnabled)
+        XCTAssertFalse(model.isDirty)
+        XCTAssertEqual(model.runtime.generationID, "active-original")
+        XCTAssertTrue(model.message.contains("已保存，但应用失败"))
+        let saved = await backend.savedSnapshot()
+        XCTAssertTrue(saved.document.contains(#""enabled" : true"#))
+        XCTAssertTrue(saved.document.contains(#""log_level" : "debug""#))
+    }
+
+    func testInvalidDraftBlocksEnableAndKeepsExistingEdits() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadDraft()
+        try await waitUntil { !model.isBusy && model.savedRevision == "revision-1" }
+        model.rawJSON = editedDocument
+        model.markDirty()
+        let validation = ValidationResult(ok: false, errors: [ValidationIssue(
+            code: "DANGLING_ROUTE", objectType: "rule", objectID: "broken",
+            option: "route", message: "missing route"
+        )], warnings: [])
+        await backend.failUpcomingApplyValidation(validation)
+
+        model.setEnabledAndApply(true)
+        try await waitUntil { !model.isBusy }
+
         XCTAssertEqual(model.rawJSON, editedDocument)
         XCTAssertTrue(model.isDirty)
-        XCTAssertTrue(model.message.contains("请先保存或丢弃当前工作副本"))
+        XCTAssertEqual(model.validation, validation)
+        XCTAssertFalse(model.draftEnabled)
+        XCTAssertTrue(model.message.contains("启用状态未保存"))
+        let counts = await backend.counts()
+        XCTAssertEqual(counts.applies, 0)
+    }
+
+    func testEnableRevisionConflictPreservesTheCompleteLocalDraft() async throws {
+        let backend = DraftLifecycleBackend(document: savedDocument)
+        let model = AppModel(backend: backend)
+        model.loadDraft()
+        try await waitUntil { !model.isBusy && model.savedRevision == "revision-1" }
+        model.rawJSON = editedDocument
+        model.markDirty()
+        await backend.advanceSavedRevision()
+        let activeBefore = model.runtime.generationID
+
+        model.setEnabledAndApply(true)
+        try await waitUntil { !model.isBusy }
+
+        XCTAssertEqual(model.revisionConflict?.operation, .apply)
+        XCTAssertFalse(model.canToggleEnabled)
+        XCTAssertTrue(model.rawJSON.contains(#""enabled" : true"#))
+        XCTAssertTrue(model.rawJSON.contains(#""log_level" : "debug""#))
+        XCTAssertTrue(model.isDirty)
+        XCTAssertEqual(model.runtime.generationID, activeBefore)
+        let saved = await backend.savedSnapshot()
+        XCTAssertEqual(saved.revision, "revision-external")
+        XCTAssertEqual(saved.document, savedDocument)
     }
 
     func testSaveApplySavedAndSaveAndApplyRemainSeparateActions() async throws {

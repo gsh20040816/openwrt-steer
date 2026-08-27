@@ -9,7 +9,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.steer": [ "commit_candidate", "apply_saved", "subscription_update", "subscription_clean", "node_speedtest", "route_speedtest", "overview_probe", "node_import" ]
+				"luci.steer": [ "commit_candidate", "discard_candidate", "apply_saved", "subscription_update", "subscription_clean", "node_speedtest", "route_speedtest", "overview_probe", "node_import" ]
 			},
 			"uci": [ "steer" ]
 		}

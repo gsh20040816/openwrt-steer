@@ -394,6 +394,35 @@ async function testFailedToggleRestoresDraft() {
   assert.strictEqual(environment.touchCount, 0, 'immediate toggle must not manufacture a dirty draft before saving');
 }
 
+async function testGlobalEnableContractUsesTheCompleteDirtyDraft() {
+  assert.strictEqual(uiSpec.global_status.visible_on_every_page, true);
+  assert.strictEqual(uiSpec.global_status.enable_action, 'save_and_apply_current_draft');
+  assert.strictEqual(uiSpec.global_status.includes_current_draft, true);
+  const intent = draftLifecycleIntent();
+  intent.main.log_level = 'debug';
+  let captured;
+  const environment = createEnvironment(async (apply) => {
+    captured = JSON.parse(JSON.stringify(intent));
+    return { ok: true, res: { applied: apply } };
+  }, intent);
+  environment.S.store.dirty = true;
+
+  await environment.S.ui.onToggleEnabled(false);
+
+  assert.strictEqual(captured.main.enabled, false);
+  assert.strictEqual(captured.main.log_level, 'debug');
+  assert.strictEqual(captured.nodes.length, intent.nodes.length);
+  assert.strictEqual(captured.rules.length, intent.rules.length);
+
+  let invalidCalls = 0;
+  const invalid = createEnvironment(async () => { invalidCalls++; return { ok: true }; }, draftLifecycleIntent());
+  invalid.S.store.draftValid = false;
+  invalid.S.store.draftError = 'invalid JSON';
+  await invalid.S.ui.onToggleEnabled(false);
+  assert.strictEqual(invalidCalls, 0, 'an invalid Draft blocks the global Enable action');
+  assert.strictEqual(invalid.S.store.intent.main.enabled, true);
+}
+
 async function testConflictRestoresUntilOverwriteIsChosen() {
   const calls = [];
   const environment = createEnvironment(async (apply, force) => {
@@ -1963,6 +1992,7 @@ async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
 Promise.resolve()
   .then(testDNSProtocolSwitchUsesSharedMatrix)
   .then(testFailedToggleRestoresDraft)
+  .then(testGlobalEnableContractUsesTheCompleteDirtyDraft)
   .then(testConflictRestoresUntilOverwriteIsChosen)
   .then(testConflictOverwritePreservesEverySaveIntent)
   .then(testApplyFailureNotificationsTakePrecedenceOverStaleDraft)

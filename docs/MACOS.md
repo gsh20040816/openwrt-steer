@@ -36,6 +36,7 @@ Darwin utun + auto_route
 - 系统：逐项显示 helper、sing-box 版本/build tags、generation、last Apply、Geo seed version/rule count、三个 plist/LaunchDaemon、DNS capture boundary、配置与 control socket 的安装事实；缺失或版本不一致时可用固定 embedded payload Repair，并提供受控卸载。
 
 所有页面的 toolbar 和菜单栏固定提供 Save、Apply Saved、Save and Apply 与全局 Enable，文案直接反映是否写入 Saved。Apply Saved 从磁盘读取当前 Saved 后再执行 revision-guarded Apply，即使本地 Draft dirty 也不会夹带或覆盖它；Apply 失败时 candidate 不会冒充 Active。切换 Enable 时把当前合法 Draft 连同新开关状态一起 Save and Apply，不因 dirty 而忽略其他修改；失败时分别显示 Saved 开关与后端真实 Active 状态。
+全局 Enable 只在 Draft 语法无效、revision conflict、Draft guard 或写操作进行中时禁用，并通过原生 help 说明原因；Overview 不再维护第二个 Enable。合法 dirty Draft 切换成功后采用新的 Saved revision，若 Apply 部分失败，toolbar 开关仍表达已保存的期望状态，运行徽标继续表达真实 Active 状态。
 
 读取系统配置、Status、Validate、探测和 Geo catalog 不弹出管理员授权。配置保持 `root:admin 0640`，不含密钥的 `current.json` generation 摘要可由 GUI 读取。概览探测通过同一个受限 Unix socket 交给 root daemon：请求只含固定的 kind/对象 ID/download 字段，不接受 URL、路径或命令；daemon 从 Saved 配置选择目标并直接使用 Mac 当前网络环境访问，因此没有 Active generation 时仍可测试。正式 App 首次安装内置系统组件时使用一次 macOS 标准管理员授权；之后 Save、Apply、探测和订阅更新/清理通过常驻 `com.steer.steer.control` root LaunchDaemon 完成，不再重复请求密码。
 

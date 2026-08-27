@@ -1460,5 +1460,28 @@ return baseclass.extend({
       "error_summary"
     ],
     "frontend_role": "Localize tested_at and render native style only; stale, metric and error summaries are backend facts"
+  },
+  "global_status": {
+    "visible_on_every_page": true,
+    "enable_action": "save_and_apply_current_draft",
+    "includes_current_draft": true,
+    "blocking_conditions": [
+      "invalid_draft",
+      "revision_conflict",
+      "write_in_progress"
+    ],
+    "facts": [
+      "draft",
+      "saved_enabled",
+      "active",
+      "pending_apply"
+    ],
+    "actions": [
+      "enable",
+      "save",
+      "apply_saved",
+      "save_and_apply",
+      "discard"
+    ]
   }
 });

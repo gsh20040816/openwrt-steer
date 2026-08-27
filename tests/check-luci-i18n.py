@@ -114,6 +114,10 @@ required_localized = {
     "DNS certificate verification is disabled": "DNS 证书校验已关闭",
     "DNS continues matching later rules": "DNS 将继续匹配后续规则",
     "View affected items": "查看受影响项",
+    "Steer status": "Steer 状态",
+    "Enable Steer": "启用 Steer",
+    "Active configuration": "运行配置",
+    "Running normally": "运行正常",
 }
 unlocalized_required = sorted(
     key for key, expected in required_localized.items()

@@ -119,6 +119,15 @@ type ProbeResultsContract struct {
 	FrontendRole string   `json:"frontend_role"`
 }
 
+type GlobalStatusContract struct {
+	VisibleOnEveryPage   bool     `json:"visible_on_every_page"`
+	EnableAction         string   `json:"enable_action"`
+	IncludesCurrentDraft bool     `json:"includes_current_draft"`
+	BlockingConditions   []string `json:"blocking_conditions"`
+	Facts                []string `json:"facts"`
+	Actions              []string `json:"actions"`
+}
+
 type Contract struct {
 	SchemaVersion                     int                               `json:"schema_version"`
 	CanonicalSchema                   int                               `json:"canonical_schema"`
@@ -148,6 +157,7 @@ type Contract struct {
 	DNSBoundaries                     map[string]DNSBoundary            `json:"dns_boundaries"`
 	SubscriptionInventory             SubscriptionInventoryContract     `json:"subscription_inventory"`
 	ProbeResults                      ProbeResultsContract              `json:"probe_results"`
+	GlobalStatus                      GlobalStatusContract              `json:"global_status"`
 }
 
 func choices(values ...string) []Choice {
@@ -312,6 +322,14 @@ func ContractValue() Contract {
 			KeyFields:    []string{"scope", "object_id", "kind"},
 			ResultFields: []string{"scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"},
 			FrontendRole: "Localize tested_at and render native style only; stale, metric and error summaries are backend facts",
+		},
+		GlobalStatus: GlobalStatusContract{
+			VisibleOnEveryPage:   true,
+			EnableAction:         "save_and_apply_current_draft",
+			IncludesCurrentDraft: true,
+			BlockingConditions:   []string{"invalid_draft", "revision_conflict", "write_in_progress"},
+			Facts:                []string{"draft", "saved_enabled", "active", "pending_apply"},
+			Actions:              []string{"enable", "save", "apply_saved", "save_and_apply", "discard"},
 		},
 	}
 

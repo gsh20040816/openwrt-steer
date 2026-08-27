@@ -49,6 +49,13 @@ struct ContentView: View {
                     systemImage: model.runtime.healthy ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty ? "circle" : "exclamationmark.triangle.fill")
                 )
                 .foregroundStyle(model.runtime.healthy ? .green : (model.runtime.generationID.isEmpty ? .secondary : .orange))
+                Toggle("Steer", isOn: Binding(
+                    get: { model.draftEnabled },
+                    set: { model.setEnabledAndApply($0) }
+                ))
+                .toggleStyle(.switch)
+                .disabled(!model.canToggleEnabled)
+                .help(model.enableToggleHelp)
                 Button { model.refreshStatus() } label: {
                     Label("刷新状态", systemImage: "arrow.clockwise")
                 }
@@ -288,13 +295,6 @@ struct OverviewView: View {
                 }
                 Spacer(minLength: 20)
                 VStack(alignment: .trailing, spacing: 12) {
-                    Toggle("启用配置", isOn: Binding(
-                        get: { model.draftEnabled },
-                        set: { model.setEnabledAndApply($0) }
-                    ))
-                    .toggleStyle(.switch)
-                    .disabled(!model.canToggleEnabled)
-                    .help(model.isDirty ? "请先保存或丢弃工作副本中的修改" : "立即保存并应用启用状态")
                     ControlGroup {
                         Button("校验") { model.validate() }
                             .disabled(model.draftSyntaxError != nil)

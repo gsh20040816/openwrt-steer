@@ -262,7 +262,7 @@ return view.extend({
 	render: function(data) {
 		let m, s, o;
 		const catalog = data[1] || {};
-		steer.loadStyle();
+		steer.loadStyle(this);
 		const rules = uci.sections('steer', 'rule');
 		const dnsProfiles = uci.sections('steer', 'dns_profile');
 		const routes = uci.sections('steer', 'route');

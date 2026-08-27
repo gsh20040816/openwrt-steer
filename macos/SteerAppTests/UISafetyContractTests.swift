@@ -216,6 +216,25 @@ final class UISafetyContractTests: XCTestCase {
         XCTAssertFalse(overviewSource.contains("objectID"), "Overview must not render Warning object IDs")
     }
 
+    func testGlobalEnableUsesTheSharedToolbarAndOneAppModelAction() throws {
+        XCTAssertTrue(SteerUISpec.contract.globalStatus.visibleOnEveryPage)
+        XCTAssertTrue(SteerUISpec.contract.globalStatus.includesCurrentDraft)
+        XCTAssertEqual(SteerUISpec.contract.globalStatus.enableAction, "save_and_apply_current_draft")
+        XCTAssertEqual(SteerUISpec.contract.globalStatus.blockingConditions,
+                       ["invalid_draft", "revision_conflict", "write_in_progress"])
+        let content = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/ContentView.swift"))
+        let overviewStart = try XCTUnwrap(content.range(of: "struct OverviewView: View")).lowerBound
+        let overviewEnd = try XCTUnwrap(content.range(of: "struct ConfigurationView: View")).lowerBound
+        let shell = String(content[..<overviewStart])
+        let overview = String(content[overviewStart..<overviewEnd])
+        XCTAssertTrue(shell.contains("Toggle(\"Steer\"") && shell.contains("model.setEnabledAndApply($0)"))
+        XCTAssertFalse(overview.contains("Toggle(\"启用配置\""), "Overview must not own a duplicate service toggle")
+
+        let app = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/SteerApp.swift"))
+        XCTAssertTrue(app.contains("model.setEnabledAndApply(!model.draftEnabled)"),
+                      "the menu bar must use the same global Enable action")
+    }
+
     func testSharedHighFrequencyFormFormatsAreAvailableToEveryFrontend() throws {
         let document = try decode(FormInputDocument.self, "ui/form-input-fixtures.json")
         XCTAssertEqual(document.schemaVersion, 1)

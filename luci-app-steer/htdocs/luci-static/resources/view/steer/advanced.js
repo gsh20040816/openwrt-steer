@@ -28,7 +28,7 @@ return view.extend({
 	},
 
 	render: function(preview) {
-		steer.loadStyle();
+		steer.loadStyle(this);
 		if (preview?.ok !== true) {
 			return E('section', { 'class': 'cbi-section' }, [
 				E('h3', {}, _('Canonical Preview unavailable')),

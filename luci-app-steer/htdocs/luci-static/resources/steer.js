@@ -12,6 +12,7 @@ const callOverviewState = rpc.declare({ object: 'luci.steer', method: 'overview_
 const callApplySaved = rpc.declare({ object: 'luci.steer', method: 'apply_saved', expect: { '': {} } });
 const callValidate = rpc.declare({ object: 'luci.steer', method: 'validate', expect: { '': {} } });
 const callCommitCandidate = rpc.declare({ object: 'luci.steer', method: 'commit_candidate', expect: { '': {} } });
+const callDiscardCandidate = rpc.declare({ object: 'luci.steer', method: 'discard_candidate', expect: { '': {} } });
 const callIntentPreview = rpc.declare({ object: 'luci.steer', method: 'intent_preview', params: [ 'reveal' ], expect: { '': {} } });
 const callRuntime = rpc.declare({ object: 'luci.steer', method: 'runtime', expect: { '': {} } });
 const callLogs = rpc.declare({ object: 'luci.steer', method: 'logs', expect: { '': {} } });
@@ -123,6 +124,7 @@ const rpcErrorMessages = {
 	CANDIDATE_READ_FAILED: _('The pending Steer configuration could not be read.'),
 	CANDIDATE_CHANGED: _('The pending Steer configuration changed during validation. Review it and retry.'),
 	CANDIDATE_COMMIT_FAILED: _('The validated Steer configuration could not be committed.'),
+	CANDIDATE_REVERT_FAILED: _('The pending Steer configuration could not be discarded.'),
 	LIFECYCLE_PENDING_READ_FAILED: _('The pending lifecycle state could not be read.'),
 	LIFECYCLE_STATE_FAILED: _('The Steer lifecycle state could not be read.'),
 	LIFECYCLE_CHANGED: _('The pending Steer configuration changed while lifecycle state was read. Retry.'),
@@ -295,54 +297,128 @@ function finishCommittedApply(owner, result, status, validation, previousGenerat
 }
 
 return baseclass.extend({
-	loadStyle: function() {
+	loadStyle: function(view) {
 		if (!document.getElementById('steer-stylesheet'))
 			document.head.appendChild(E('link', { id: 'steer-stylesheet', rel: 'stylesheet', href: L.resource('steer/steer.css') }));
-		this.mountLifecycleBar();
+		if (view) {
+			this._lifecycleView = view;
+			if (typeof(view.handleSave) == 'function' && view._steerLifecycleSaveWrapped !== true) {
+				const owner = this;
+				const handleSave = view.handleSave;
+				view.handleSave = function() {
+					return Promise.resolve(handleSave.apply(this, arguments)).then((result) =>
+						owner.mountLifecycleBar(view).then(() => result));
+				};
+				view._steerLifecycleSaveWrapped = true;
+			}
+		}
+		this.mountLifecycleBar(this._lifecycleView);
 	},
 
-	mountLifecycleBar: function() {
+	mountLifecycleBar: function(view) {
+		if (view) this._lifecycleView = view;
+		const mountSequence = this._lifecycleMountSequence = (this._lifecycleMountSequence || 0) + 1;
 		const existing = document.getElementById('steer-lifecycle-global');
 		existing?.remove();
-		const page = (window.location.pathname || '').split('/').pop();
-		if ([ 'overview', 'steer', 'diagnostics', 'system' ].includes(page)) return;
 		const host = document.getElementById('maincontent');
 		if (!host?.prepend) return;
-		this.overviewState().then((state) => {
+		return Promise.all([
+			this.overviewState(),
+			this.permissions([ 'commit_candidate', 'discard_candidate', 'apply_saved' ], true)
+		]).then(([ state, permissions ]) => {
+			if (mountSequence != this._lifecycleMountSequence) return;
 			if (state?.ok !== true) return;
+			const desired = state.desired || {};
+			const saved = state.saved || {};
 			const active = state.active || {};
+			const desiredEnabled = desired.enabled === true;
+			const desiredValid = desired.validation?.ok === true;
+			const canApplyPending = permissions.commit_candidate === true && permissions.uci_write === true;
+			const canApplySaved = permissions.apply_saved === true;
+			const operationBusy = this._lifecycleOperationBusy === true;
+			const toggleAllowed = canApplyPending && desiredValid && !operationBusy && this._globalEnableBusy !== true;
 			const actions = [];
+			const controls = [];
 			const run = (button, operation) => {
-				button.disabled = true;
-				operation().then((result) => {
-					if (result?.ok === false) throw result;
-					window.location.reload();
+				if (this._lifecycleOperationBusy === true) return Promise.resolve({ busy: true });
+				this._lifecycleOperationBusy = true;
+				controls.forEach((control) => { control.disabled = true; });
+				return Promise.resolve().then(operation).then((result) => {
+					this._lifecycleOperationBusy = false;
+					return this.mountLifecycleBar(this._lifecycleView).then(() => result);
 				}).catch((error) => {
-					button.disabled = false;
+					this._lifecycleOperationBusy = false;
 					ui.addNotification(_('Operation failed'), E('p', {}, error?.error_code ? rpcErrorText(error) : _('Operation failed.')), 'danger');
+					return this.mountLifecycleBar(this._lifecycleView).then(() => ({ ok: false, error }));
 				});
 			};
 			if (state.pending) {
-				const apply = E('button', { 'class': 'btn cbi-button-positive' }, _('Save & Apply pending changes'));
-				const discard = E('button', { 'class': 'btn cbi-button-negative' }, _('Discard pending changes'));
+				const apply = E('button', { 'class': 'btn cbi-button-positive', 'disabled': canApplyPending && !operationBusy ? null : true }, _('Save & Apply pending changes'));
+				const discard = E('button', { 'class': 'btn cbi-button-negative', 'disabled': permissions.discard_candidate === true && permissions.uci_write === true && !operationBusy ? null : true }, _('Discard pending changes'));
 				apply.addEventListener('click', () => run(apply, () => this.applyPending()));
 				discard.addEventListener('click', () => run(discard, () => this.discardPending()));
-				actions.push(apply, ' ', discard);
+				actions.push(apply, discard);
+				controls.push(apply, discard);
 			}
 			else if (state.pending_apply) {
-				const applySaved = E('button', { 'class': 'btn cbi-button-positive' }, _('Apply Saved configuration'));
-				applySaved.addEventListener('click', () => run(applySaved, () => this.applySaved()));
+				const applySaved = E('button', { 'class': 'btn cbi-button-positive', 'disabled': canApplySaved && !operationBusy ? null : true }, _('Apply Saved configuration'));
+				applySaved.addEventListener('click', () => run(applySaved, () => this.applySaved().then((result) => {
+					if (result?.ok === false) throw result;
+					return result;
+				})));
 				actions.push(applySaved);
+				controls.push(applySaved);
 			}
-			const bar = E('section', { id: 'steer-lifecycle-global', 'class': 'cbi-section' }, [
-				E('strong', {}, _('Configuration status')),
-				E('span', {}, ' · ' + (state.pending ? _('Unsaved changes') : _('All changes saved'))),
-				E('span', {}, ' · ' + (active.generation ? (active.healthy ? _('Service running normally') : _('Service running abnormally')) : _('Service stopped'))),
-				state.pending_apply ? E('span', { 'class': 'label warning' }, ' ' + _('Pending apply')) : '',
-				...actions
+			const toggle = E('button', {
+				'class': 'btn steer-global-status__toggle',
+				'role': 'switch',
+				'aria-checked': desiredEnabled ? 'true' : 'false',
+				'disabled': toggleAllowed ? null : true,
+				'title': !canApplyPending ? _('You do not have permission to change Steer.')
+					: (!desiredValid ? _('Fix validation errors before changing Steer.') : '')
+			}, desiredEnabled ? _('Enabled') : _('Disabled'));
+			controls.push(toggle);
+			toggle.addEventListener('click', () => run(toggle, () => this.setGlobalEnabled(!desiredEnabled, this._lifecycleView)));
+			const actualState = active.generation
+				? (active.healthy ? _('Running normally') : _('Running abnormally'))
+				: _('Stopped');
+			const fact = (label, value) => E('div', {}, [ E('dt', {}, label), E('dd', {}, value) ]);
+			const bar = E('section', { id: 'steer-lifecycle-global', 'class': 'steer-global-status' }, [
+				E('div', { 'class': 'steer-global-status__lead' }, [
+					E('span', { 'class': 'steer-status__eyebrow' }, _('Steer status')),
+					E('strong', { 'class': active.healthy ? 'is-running' : (active.generation ? 'is-starting' : 'is-stopped') }, actualState)
+				]),
+				E('div', { 'class': 'steer-global-status__enable' }, [ E('span', {}, _('Enable Steer')), toggle ]),
+				E('dl', { 'class': 'steer-global-status__facts' }, [
+					fact(_('Working copy'), state.pending ? _('Unsaved changes') : _('All changes saved')),
+					fact(_('Saved configuration'), saved.enabled ? _('Enabled') : _('Disabled')),
+					fact(_('Active configuration'), actualState),
+					fact(_('Pending apply'), state.pending_apply ? _('Yes') : _('No'))
+				]),
+				actions.length ? E('div', { 'class': 'steer-global-status__actions' }, actions) : ''
 			]);
 			host.prepend(bar);
 		});
+	},
+
+	setGlobalEnabled: function(enabled, view) {
+		if (this._globalEnableBusy === true) return Promise.resolve({ busy: true });
+		this._globalEnableBusy = true;
+		const current = uci.get('steer', 'main', 'enabled');
+		let candidateSaved = false;
+		const capture = typeof(view?.handleSave) == 'function' ? view.handleSave() : Promise.resolve();
+		return Promise.resolve(capture)
+			.then(() => {
+				uci.set('steer', 'main', 'enabled', enabled ? '1' : '0');
+				return uci.save();
+			})
+			.then(() => { candidateSaved = true; })
+			.then(() => this.applyPending())
+			.catch((error) => {
+				if (!candidateSaved) uci.set('steer', 'main', 'enabled', current);
+				throw error;
+			})
+			.finally(() => { this._globalEnableBusy = false; });
 	},
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },
@@ -534,7 +610,12 @@ return baseclass.extend({
 	},
 
 	discardPending: function() {
-		return uci.revert('steer')
+		return L.resolveDefault(callDiscardCandidate(), {})
+			.then((result) => {
+				if (result?.ok !== true) throw result;
+				return result;
+			})
+			.then(() => uci.unload('steer'))
 			.then(() => uci.load('steer'))
 			.then(() => uci.changes())
 			.then((changes) => ui.changes.renderChangeIndicator(changes))
@@ -542,34 +623,6 @@ return baseclass.extend({
 	},
 
 	refreshStatus: function(status, validation) {
-		const current = document.getElementById('steer-runtime-status');
-		if (current)
-			current.replaceWith(this.renderStatus(status, validation, uci.get('steer', 'main', 'enabled') == '1'));
-	},
-
-	renderStatus: function(status, validation, desiredEnabled) {
-		const valid = validation?.ok === true;
-		let headline = _('Steer is disabled');
-		let stateClass = 'is-stopped';
-		let panelClass = '';
-		if (!valid) {
-			headline = _('The saved configuration is invalid');
-			panelClass = ' steer-status--error';
-		}
-		else if (!desiredEnabled) {
-			headline = _('Steer is disabled');
-		}
-		else if (status?.healthy) {
-			headline = _('Traffic steering is active');
-			stateClass = 'is-running';
-		}
-		else {
-			headline = _('Traffic steering is running abnormally');
-			panelClass = ' steer-status--error';
-		}
-		return E('div', { 'id': 'steer-runtime-status' }, E('div', { 'class': 'steer-status' + panelClass }, [
-			E('div', { 'class': 'steer-status__lead' }, [ E('span', { 'class': 'steer-status__eyebrow' }, _('Current state')), E('strong', { 'class': stateClass }, headline) ]),
-			!valid && validation?.errors?.length ? E('ul', {}, validation.errors.map((issue) => E('li', {}, issueText(issue)))) : ''
-		]));
+		this.mountLifecycleBar(this._lifecycleView);
 	}
 });
