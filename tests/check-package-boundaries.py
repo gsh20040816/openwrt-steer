@@ -15,6 +15,7 @@ def fail(message: str) -> None:
 
 makefile = (ROOT / "steer/Makefile").read_text()
 luci_makefile = (ROOT / "luci-app-steer/Makefile").read_text()
+init_script = (ROOT / "steer/files/etc/init.d/steer").read_text()
 rpc = (ROOT / "luci-app-steer/root/usr/share/rpcd/ucode/luci.steer").read_text()
 acl = (ROOT / "luci-app-steer/root/usr/share/rpcd/acl.d/luci-app-steer.json").read_text()
 
@@ -79,6 +80,8 @@ if "PKG_VERSION:=0.9.1\n" not in makefile or "PKG_RELEASE:=1\n" not in makefile:
 	fail("steer package version must be 0.9.1-r1")
 if "PKG_VERSION:=0.9.1\n" not in luci_makefile or "PKG_RELEASE:=1\n" not in luci_makefile:
 	fail("LuCI packages must use 0.9.1-r1")
+if 'extra_command "stop_runtime"' not in init_script or 'ubus call service state \'{"name":"steer","spawn":false}\'' not in init_script:
+	fail("OpenWrt disable path must preserve the procd config trigger")
 if "github.com/gsh20040816/steer/go" not in makefile or "$(CURDIR)/../go/." not in makefile:
     fail("steer must build the repository-level Go module")
 for stale_repair in ("repaired_subscription_network", "uci -q delete steer.$$section.network"):

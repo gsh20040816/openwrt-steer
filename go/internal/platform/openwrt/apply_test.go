@@ -26,7 +26,7 @@ func (runner *applyRunner) Output(_ context.Context, name string, args ...string
 		return []byte("sing-box version 1.14.0-rc.1\nTags: with_quic,with_utls\n"), nil
 	case strings.Contains(call, "sing-box check -c"), strings.Contains(call, "nft -c -f"):
 		return nil, nil
-	case call == "/test/init stop", call == "/usr/bin/env STEER_USE_CURRENT=1 /test/init start":
+	case call == "/test/init stop_runtime", call == "/test/init stop", call == "/usr/bin/env STEER_USE_CURRENT=1 /test/init start":
 		return nil, nil
 	case call == "/test/nft -j list tables":
 		return []byte(`{"nftables":[]}`), nil
@@ -114,6 +114,15 @@ func TestDisableStopsAndRemovesRuntimeState(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(runDirectory, "generations")); !os.IsNotExist(err) {
 		t.Fatalf("disabled generations remain: %v", err)
+	}
+	calls := strings.Join(runner.calls, "\n")
+	if !strings.Contains(calls, "/test/init stop_runtime") {
+		t.Fatalf("disable did not use the trigger-preserving runtime stop: %v", runner.calls)
+	}
+	for _, call := range runner.calls {
+		if call == "/test/init stop" {
+			t.Fatalf("disable removed the procd service object: %v", runner.calls)
+		}
 	}
 }
 
