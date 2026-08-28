@@ -492,10 +492,12 @@ function probeOperationGate(initialChanges, allowed) {
 	let pending = hasPendingSteerChanges(initialChanges);
 	const buttons = [];
 	const updateButtons = function() {
-		buttons.forEach((button) => {
-			button.disabled = !allowed || pending;
-			button.title = !allowed ? _('Your session does not have permission to test committed Nodes or Routes.')
-				: (pending ? _('Pending Steer changes must be applied or discarded before testing committed Nodes or Routes.') : (button._steerTitle || ''));
+		buttons.forEach((entry) => {
+			const reason = !allowed ? _('Your session does not have permission to test committed Nodes or Routes.')
+				: (pending ? _('Pending Steer changes must be applied or discarded before testing committed Nodes or Routes.')
+					: entry.disabledReason);
+			entry.button.disabled = reason != '';
+			entry.button.title = reason || entry.title;
 		});
 	};
 	const refresh = function() {
@@ -509,18 +511,18 @@ function probeOperationGate(initialChanges, allowed) {
 	window.addEventListener?.('steer-uci-state-changed', stateChanged);
 	window.addEventListener?.('focus', stateChanged);
 	return {
-		bind: function(button, title) {
+		bind: function(button, title, disabledReason) {
 			if (!button) return button;
-			button._steerTitle = title || button.title || '';
-			buttons.push(button);
+			buttons.push({ button, title: title || button.title || '', disabledReason: disabledReason || '' });
 			updateButtons();
 			return button;
 		},
 		bindForm: function(formNode) {
 			const selector = 'output[for$="._connect_speedtest"] button, output[for$="._download_speedtest"] button, output[for$="._route_connect_test"] button, output[for$="._route_download_test"] button';
-			Array.from(formNode?.querySelectorAll?.(selector) || []).forEach((button) => this.bind(button, button.title));
+			Array.from(formNode?.querySelectorAll?.(selector) || []).forEach((button) =>
+				this.bind(button, button.title, button._steerProbeDisabledReason));
 		},
-		allow: function() {
+		allow: function(disabledReason) {
 			if (!allowed) {
 				ui.addNotification(_('Probe is not permitted'), E('p', {}, _('Your session does not have permission to test committed Nodes or Routes.')), 'warning');
 				return Promise.resolve(false);
@@ -528,7 +530,9 @@ function probeOperationGate(initialChanges, allowed) {
 			return refresh().then((allowed) => {
 				if (!allowed)
 					ui.addNotification(_('Probe is locked'), E('p', {}, _('Apply or discard pending Steer changes before testing the committed configuration.')), 'warning');
-				return allowed;
+				else if (disabledReason)
+					ui.addNotification(_('Probe is unavailable'), E('p', {}, disabledReason), 'warning');
+				return allowed && !disabledReason;
 			});
 		},
 		refresh
@@ -750,7 +754,7 @@ function renderLatestProbe(output, result) {
 	output.replaceChildren(latest.text);
 }
 
-function decorateProbeOption(option, scope, kind, probeResults) {
+function decorateProbeOption(option, scope, kind, probeResults, disabledReasonFor) {
 	const renderWidget = option.renderWidget;
 	option.renderWidget = function(sectionId, optionIndex, cfgvalue) {
 		const widget = typeof(renderWidget) == 'function'
@@ -761,10 +765,16 @@ function decorateProbeOption(option, scope, kind, probeResults) {
 		const result = findLatestProbe(probeResults, scope, sectionId, kind);
 		renderLatestProbe(output, result);
 		if (button) {
+			const disabledReason = disabledReasonFor?.(sectionId) || '';
 			button._steerProbeOutput = output;
 			button._steerProbeScope = scope;
 			button._steerProbeObjectID = sectionId;
 			button._steerProbeKind = kind;
+			button._steerProbeDisabledReason = disabledReason;
+			if (disabledReason) {
+				button.disabled = true;
+				button.title = disabledReason;
+			}
 		}
 		return E('div', { 'class': 'steer-probe-action' }, [ widget, output ]);
 	};
@@ -779,8 +789,13 @@ function refreshLatestProbe(button) {
 	});
 }
 
+function nodeProbeDisabledReason(sectionId) {
+	return uci.get('steer', sectionId, 'enabled') == '0'
+		? _('Disabled Nodes cannot be tested. Enable and apply this Node first.') : '';
+}
+
 function runSpeedtest(sectionId, download, button, gate, refreshAfter = true) {
-	return gate.allow().then((allowed) => {
+	return gate.allow(nodeProbeDisabledReason(sectionId)).then((allowed) => {
 	if (!allowed) return false;
 	setSpeedtestButton(button, 'testing', _('Testing…'));
 	return steer.speedtest(sectionId, download).then((result) => {
@@ -1078,6 +1093,8 @@ return view.extend({
 		s.addremove = activeNodeGroup == manualNodeGroup;
 		/* Subscription nodes are generated data; avoid building editable widgets for every row. */
 		s.readonly = summaryOnly;
+		if (summaryOnly)
+			s.renderRowActions = function() { return E([]); };
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add proxy node');
 		s.filter = function(sectionId) {
@@ -1088,24 +1105,22 @@ return view.extend({
 		o.editable = !summaryOnly;
 
 		o = s.option(form.Button, '_connect_speedtest', _('Connection test'));
-		o.depends('enabled', '1');
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
 		o.write = function() {};
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, false, ev.currentTarget, probeGate); };
-		decorateProbeOption(o, 'nodes', 'connect', probeResults);
+		decorateProbeOption(o, 'nodes', 'connect', probeResults, nodeProbeDisabledReason);
 
 		o = s.option(form.Button, '_download_speedtest', _('Download test'));
-		o.depends('enabled', '1');
 		o.editable = true;
 		o.inputtitle = _('Test');
 		o.inputstyle = 'action';
 		o.write = function() {};
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget, probeGate); };
-		decorateProbeOption(o, 'nodes', 'download', probeResults);
+		decorateProbeOption(o, 'nodes', 'download', probeResults, nodeProbeDisabledReason);
 
 		o = s.option(form.Value, 'name', _('Name'));
 		o.rmempty = true;
