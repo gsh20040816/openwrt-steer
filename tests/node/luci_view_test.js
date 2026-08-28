@@ -1614,8 +1614,8 @@ async function main() {
 	const pendingNodeSection = environment.maps[0].sections.find((section) => section.sectionType == 'node');
 	const pendingConnect = pendingNodeSection.options.find((option) => option.name == '_connect_speedtest');
 	const pendingDownload = pendingNodeSection.options.find((option) => option.name == '_download_speedtest');
-	assert.ok([ pendingConnect, pendingDownload ].every((option) => option.dependencies.some((dependency) => dependency[0] == 'enabled' && dependency[1] == '1')),
-		'disabled LuCI Nodes do not render backend-rejected test actions');
+	assert.ok([ pendingConnect, pendingDownload ].every((option) => option.dependencies.length == 0),
+		'Node test actions do not depend on an enabled widget that subscription summaries omit');
 	const persistedNodeProbe = elementText(pendingDownload.renderWidget('node_enabled'));
 	assert.ok(/Tested at.*Succeeded.*16\.0 Mbps/.test(persistedNodeProbe) && !persistedNodeProbe.includes('Outdated'),
 		'LuCI Node restores the persisted latest download result beside its action');
@@ -1650,6 +1650,13 @@ async function main() {
 	assert.deepEqual(environment.speedtestCalls, [ { node: 'node_enabled', download: false } ],
 		'Node probes resume from committed data after Apply or Discard without a page reload');
 	assert.ok(pendingBatchButtons.every((button) => !button.disabled));
+	const disabledProbeWidget = pendingConnect.renderWidget('node_disabled');
+	const disabledProbeButton = findElements(disabledProbeWidget, (node) => node.tag == 'button')[0];
+	assert.ok(disabledProbeButton.disabled && disabledProbeButton.title.includes('Disabled Nodes'),
+		'disabled Nodes retain a visible test action with an explicit unavailable reason');
+	await pendingConnect.onclick({ currentTarget: disabledProbeButton }, 'node_disabled');
+	assert.deepEqual(environment.speedtestCalls, [ { node: 'node_enabled', download: false } ],
+		'disabled Node actions never reach the backend even when invoked programmatically');
 
 	environment = await renderNodes({
 		node: [ { '.name': 'node_enabled', enabled: '1', name: 'Enabled' } ],
@@ -1673,6 +1680,8 @@ async function main() {
 		'A subscription group renders only that subscription and cannot create manual nodes inside it');
 	assert.equal(subscriptionNodes.readonly, true,
 		'Subscription nodes render as a compact read-only summary');
+	assert.equal(elementText(subscriptionNodes.renderRowActions('jdub_0123456789ab')), '',
+		'Subscription rows do not expose an editor for generated node fields');
 	[ 'enabled', 'type', 'server', 'server_port' ].forEach((name) => {
 		const option = subscriptionNodes.options.find((candidate) => candidate.name == name);
 		assert.equal(option && option.editable, false,
@@ -1690,6 +1699,11 @@ async function main() {
 			`Speed-test action ${name} ignores form removal`);
 		assert.equal(environment.uci.get('steer', 'jdub_0123456789ab', name), undefined,
 			`Speed-test action ${name} never enters the UCI node model`);
+		assert.deepEqual(option.dependencies, [],
+			`Subscription node ${name} is not hidden by a dependency on its read-only enabled summary`);
+		const action = findElements(option.renderWidget('jdub_0123456789ab'), (node) => node.tag == 'button')[0];
+		assert.ok(action && !action.disabled,
+			`Subscription node ${name} renders a visible enabled action in the row DOM`);
 	});
 	const speedtestButton = { disabled: false, textContent: '', title: '', classList: { toggle: () => {} } };
 	const connectSpeedtest = subscriptionNodes.options.find((candidate) => candidate.name == '_connect_speedtest');

@@ -615,6 +615,9 @@ msgstr "解析并预览"
 msgid "Disabled subscriptions cannot be updated. Enable and save this subscription first."
 msgstr "已停用的订阅不能更新。请先启用并保存该订阅。"
 
+msgid "Disabled Nodes cannot be tested. Enable and apply this Node first."
+msgstr "已停用的节点不能测速。请先启用并应用该节点。"
+
 msgid "Apply or discard pending Steer changes before testing the committed configuration."
 msgstr "测试已提交配置前，请先应用或放弃待处理的 Steer 修改。"
 
@@ -635,6 +638,9 @@ msgstr "测试已提交的节点或路由前，必须先应用或放弃待处理
 
 msgid "Probe is locked"
 msgstr "探测已锁定"
+
+msgid "Probe is unavailable"
+msgstr "探测不可用"
 
 msgid "Proxy target"
 msgstr "代理目标"
