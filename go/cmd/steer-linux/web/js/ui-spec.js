@@ -1286,6 +1286,56 @@
       "multiple": true
     }
   ],
+  "collection_ordering": {
+    "dns_profiles": {
+      "stable_id_field": "id",
+      "move_actions": [
+        "up",
+        "down"
+      ]
+    },
+    "local_proxies": {
+      "stable_id_field": "id",
+      "move_actions": [
+        "up",
+        "down"
+      ]
+    },
+    "nodes": {
+      "stable_id_field": "id",
+      "move_actions": [
+        "up",
+        "down"
+      ],
+      "group_field": "source_subscription",
+      "source_owned_refresh": "subscription_refresh_may_rebuild_source_order"
+    },
+    "routes": {
+      "stable_id_field": "id",
+      "move_actions": [
+        "up",
+        "down"
+      ],
+      "movable_kinds": [
+        "single"
+      ]
+    },
+    "rules": {
+      "stable_id_field": "id",
+      "move_actions": [
+        "up",
+        "down"
+      ],
+      "pinned_last_boolean_field": "default"
+    },
+    "subscriptions": {
+      "stable_id_field": "id",
+      "move_actions": [
+        "up",
+        "down"
+      ]
+    }
+  },
   "domain_prefixes": [
     "full:",
     "domain:",

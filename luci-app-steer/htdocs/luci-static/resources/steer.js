@@ -521,6 +521,77 @@ return baseclass.extend({
 		return section;
 	},
 
+	configureOrdering: function(section, collection, options) {
+		const policy = uiSpec.collection_ordering?.[collection];
+		if (!policy) return section;
+		section.sortable = true;
+		const renderRowActions = section.renderRowActions;
+		const movable = function(sectionId) {
+			const object = uci.get('steer', sectionId) || {};
+			if (policy.movable_kinds?.length && !policy.movable_kinds.includes(object.kind)) return false;
+			return !policy.pinned_last_boolean_field || object[policy.pinned_last_boolean_field] != '1';
+		};
+		const peers = function(sectionId) {
+			const source = uci.get('steer', sectionId) || {};
+			const group = policy.group_field ? (source[policy.group_field] || '') : '';
+			return section.cfgsections().filter((candidateId) => {
+				const candidate = uci.get('steer', candidateId) || {};
+				return movable(candidateId) && (!policy.group_field || (candidate[policy.group_field] || '') == group);
+			});
+		};
+		const refreshButtons = function(table) {
+			Array.from(table?.querySelectorAll?.('tr[data-sid]') || []).forEach((row) => {
+				const sectionId = row.getAttribute('data-sid');
+				const ids = peers(sectionId);
+				const position = ids.indexOf(sectionId);
+				const up = row.querySelector('[data-steer-order="up"]');
+				const down = row.querySelector('[data-steer-order="down"]');
+				if (up) up.disabled = section.map?.readonly === true || position <= 0;
+				if (down) down.disabled = section.map?.readonly === true || position < 0 || position >= ids.length - 1;
+			});
+		};
+		section.renderRowActions = function(sectionId) {
+			let cell = options?.baseActions === false ? null : renderRowActions.call(this, sectionId);
+			let container = cell?.querySelector?.('div');
+			if (!container) {
+				container = E('div');
+				cell = E('td', { 'class': 'td cbi-section-table-cell nowrap cbi-section-actions' }, container);
+			}
+			const ids = peers(sectionId);
+			const position = ids.indexOf(sectionId);
+			const move = (offset, ev) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				const current = peers(sectionId);
+				const index = current.indexOf(sectionId);
+				const targetId = current[index + offset];
+				if (!targetId || !movable(sectionId)) return;
+				this.map.data.move(this.uciconfig || this.map.config, sectionId, targetId, offset > 0);
+				const row = document.getElementById('cbi-%s-%s'.format(this.uciconfig || this.map.config, sectionId));
+				const target = document.getElementById('cbi-%s-%s'.format(this.uciconfig || this.map.config, targetId));
+				if (row && target)
+					target.parentNode.insertBefore(row, offset < 0 ? target : target.nextElementSibling);
+				row?.classList?.add('flash');
+				refreshButtons(row?.closest?.('table'));
+				window.dispatchEvent?.(new Event('steer-uci-state-changed'));
+			};
+			container.prepend(E('span', { 'class': 'steer-order-buttons' }, [
+				E('button', {
+					'class': 'btn cbi-button-neutral', 'type': 'button', 'data-steer-order': 'up',
+					'title': _('Move up'), 'aria-label': _('Move up'),
+					'disabled': this.map?.readonly === true || position <= 0, 'click': (ev) => move(-1, ev)
+				}, '↑'),
+				E('button', {
+					'class': 'btn cbi-button-neutral', 'type': 'button', 'data-steer-order': 'down',
+					'title': _('Move down'), 'aria-label': _('Move down'),
+					'disabled': this.map?.readonly === true || position < 0 || position >= ids.length - 1, 'click': (ev) => move(1, ev)
+				}, '↓')
+			]));
+			return cell;
+		};
+		return section;
+	},
+
 	configureRemovalGuard: function(section, referencesFor, title) {
 		const handleRemove = section.handleRemove;
 		section.handleRemove = function(sectionId, ev) {

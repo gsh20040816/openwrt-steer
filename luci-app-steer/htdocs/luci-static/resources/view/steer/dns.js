@@ -54,6 +54,7 @@ return view.extend({
 		m = new form.Map('steer', _('DNS profiles'));
 		s = m.section(form.GridSection, 'dns_profile', _('DNS profiles'));
 		steer.configureNamedSection(s, steer.creationDefaults('dns_profiles'));
+		steer.configureOrdering(s, 'dns_profiles');
 		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('dns_profiles', sectionId),
 			_('DNS profile is still referenced'));
 		s.addremove = true;

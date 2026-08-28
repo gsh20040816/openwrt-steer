@@ -134,7 +134,9 @@
       const intent = S.store.intent;
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '监听', '规则引用', '操作'].map((t) => h('th', {}, t)))),
-        h('tbody', {}, intent.local_proxies.map((p) => h('tr', { class: p.enabled === false ? 'is-disabled' : null }, [
+        h('tbody', {}, intent.local_proxies.map((p) => h('tr', ui.collectionRowAttributes(
+          'local_proxies', p, intent.local_proxies, () => view.render(root), p.enabled === false ? 'is-disabled' : ''
+        ), [
           h('td', {}, ui.toggle(p.enabled, (v) => { p.enabled = v; S.store.touch(); })),
           h('td', {}, h('strong', {}, p.name || p.id)),
           h('td', {}, h('span', { class: 'badge badge--match' }, PROTOCOL_LABEL[p.protocol] || p.protocol)),
@@ -155,6 +157,7 @@
 
       root.append(
         ui.viewHead('本地代理', '设置本机 SOCKS5、HTTP 与 Mixed 代理入口', [
+          ui.collectionOrderToolbar('local_proxies', intent.local_proxies, () => view.render(root)),
           h('button', { class: 'btn btn--primary', onclick: () => openEditor(ui.creationDraft('local_proxies')) }, '添加端点')
         ]),
         intent.local_proxies.length

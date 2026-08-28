@@ -75,6 +75,18 @@ type CollectionReference struct {
 	Multiple         bool   `json:"multiple,omitempty"`
 }
 
+// CollectionOrderingPolicy defines the shared user-visible ordering boundary.
+// Frontends may use native controls, but every move is draft-only, identifies
+// objects by stable ID and must stay within the declared group/filter.
+type CollectionOrderingPolicy struct {
+	StableIDField          string   `json:"stable_id_field"`
+	MoveActions            []string `json:"move_actions"`
+	GroupField             string   `json:"group_field,omitempty"`
+	MovableKinds           []string `json:"movable_kinds,omitempty"`
+	PinnedLastBooleanField string   `json:"pinned_last_boolean_field,omitempty"`
+	SourceOwnedRefresh     string   `json:"source_owned_refresh,omitempty"`
+}
+
 type NavigationItem struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
@@ -140,35 +152,36 @@ type GlobalStatusContract struct {
 }
 
 type Contract struct {
-	SchemaVersion                     int                               `json:"schema_version"`
-	CanonicalSchema                   int                               `json:"canonical_schema"`
-	SubscriptionUpdateIntervalDefault string                            `json:"subscription_update_interval_default"`
-	IDPolicy                          IDPolicy                          `json:"id_policy"`
-	CreationDefaults                  map[string]map[string]interface{} `json:"creation_defaults"`
-	CreationRequiredFields            map[string][]string               `json:"creation_required_fields"`
-	InputFormats                      map[string]InputFormat            `json:"input_formats"`
-	NodeTypes                         []Choice                          `json:"node_types"`
-	NodeFields                        []Field                           `json:"node_fields"`
-	LogLevels                         []Choice                          `json:"log_levels"`
-	BootstrapProtocols                []Choice                          `json:"bootstrap_protocols"`
-	BootstrapStrategies               []Choice                          `json:"bootstrap_strategies"`
-	RouteKinds                        []Choice                          `json:"route_kinds"`
-	DNSProtocols                      []DNSProtocol                     `json:"dns_protocols"`
-	LocalProxyProtocols               []Choice                          `json:"local_proxy_protocols"`
-	RuleNetworks                      []Choice                          `json:"rule_networks"`
-	RuleProtocols                     []Choice                          `json:"rule_protocols"`
-	RuleMatchFields                   []string                          `json:"rule_match_fields"`
-	RuleConnectionOnlyFields          []string                          `json:"rule_connection_only_fields"`
-	CollectionReferences              []CollectionReference             `json:"collection_references"`
-	DomainPrefixes                    []string                          `json:"domain_prefixes"`
-	IPPrefixes                        []string                          `json:"ip_prefixes"`
-	PlatformCapabilities              map[string]PlatformCapabilities   `json:"platform_capabilities"`
-	Navigation                        []NavigationGroup                 `json:"navigation"`
-	PageResponsibilities              map[string]PageResponsibility     `json:"page_responsibilities"`
-	DNSBoundaries                     map[string]DNSBoundary            `json:"dns_boundaries"`
-	SubscriptionInventory             SubscriptionInventoryContract     `json:"subscription_inventory"`
-	ProbeResults                      ProbeResultsContract              `json:"probe_results"`
-	GlobalStatus                      GlobalStatusContract              `json:"global_status"`
+	SchemaVersion                     int                                 `json:"schema_version"`
+	CanonicalSchema                   int                                 `json:"canonical_schema"`
+	SubscriptionUpdateIntervalDefault string                              `json:"subscription_update_interval_default"`
+	IDPolicy                          IDPolicy                            `json:"id_policy"`
+	CreationDefaults                  map[string]map[string]interface{}   `json:"creation_defaults"`
+	CreationRequiredFields            map[string][]string                 `json:"creation_required_fields"`
+	InputFormats                      map[string]InputFormat              `json:"input_formats"`
+	NodeTypes                         []Choice                            `json:"node_types"`
+	NodeFields                        []Field                             `json:"node_fields"`
+	LogLevels                         []Choice                            `json:"log_levels"`
+	BootstrapProtocols                []Choice                            `json:"bootstrap_protocols"`
+	BootstrapStrategies               []Choice                            `json:"bootstrap_strategies"`
+	RouteKinds                        []Choice                            `json:"route_kinds"`
+	DNSProtocols                      []DNSProtocol                       `json:"dns_protocols"`
+	LocalProxyProtocols               []Choice                            `json:"local_proxy_protocols"`
+	RuleNetworks                      []Choice                            `json:"rule_networks"`
+	RuleProtocols                     []Choice                            `json:"rule_protocols"`
+	RuleMatchFields                   []string                            `json:"rule_match_fields"`
+	RuleConnectionOnlyFields          []string                            `json:"rule_connection_only_fields"`
+	CollectionReferences              []CollectionReference               `json:"collection_references"`
+	CollectionOrdering                map[string]CollectionOrderingPolicy `json:"collection_ordering"`
+	DomainPrefixes                    []string                            `json:"domain_prefixes"`
+	IPPrefixes                        []string                            `json:"ip_prefixes"`
+	PlatformCapabilities              map[string]PlatformCapabilities     `json:"platform_capabilities"`
+	Navigation                        []NavigationGroup                   `json:"navigation"`
+	PageResponsibilities              map[string]PageResponsibility       `json:"page_responsibilities"`
+	DNSBoundaries                     map[string]DNSBoundary              `json:"dns_boundaries"`
+	SubscriptionInventory             SubscriptionInventoryContract       `json:"subscription_inventory"`
+	ProbeResults                      ProbeResultsContract                `json:"probe_results"`
+	GlobalStatus                      GlobalStatusContract                `json:"global_status"`
 }
 
 func choices(values ...string) []Choice {
@@ -235,6 +248,19 @@ func ContractValue() Contract {
 			"local_proxies": {"id", "enabled", "protocol", "listen", "listen_port"},
 			"rules":         {"id", "enabled", "default", "dns_profile", "route"},
 			"subscriptions": {"id", "enabled", "url", "update_interval"},
+		},
+		CollectionOrdering: map[string]CollectionOrderingPolicy{
+			"nodes": {
+				StableIDField: "id", MoveActions: []string{"up", "down"}, GroupField: "source_subscription",
+				SourceOwnedRefresh: "subscription_refresh_may_rebuild_source_order",
+			},
+			"routes":        {StableIDField: "id", MoveActions: []string{"up", "down"}, MovableKinds: []string{"single"}},
+			"dns_profiles":  {StableIDField: "id", MoveActions: []string{"up", "down"}},
+			"local_proxies": {StableIDField: "id", MoveActions: []string{"up", "down"}},
+			"rules": {
+				StableIDField: "id", MoveActions: []string{"up", "down"}, PinnedLastBooleanField: "default",
+			},
+			"subscriptions": {StableIDField: "id", MoveActions: []string{"up", "down"}},
 		},
 		InputFormats: map[string]InputFormat{
 			"probe_url":         {Kind: "url", Schemes: []string{"https"}, Absolute: true, ForbidCredentials: true, ForbidFragment: true},

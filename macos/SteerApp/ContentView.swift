@@ -530,14 +530,14 @@ struct DraftCollectionDescriptor {
     let emptyMessage: String
     let addLabel: String
     let symbol: String
-    let ordered: Bool
+    var ordered: Bool { SteerUISpec.orderingPolicy(for: key) != nil }
 
-    static let nodes = Self(key: "nodes", title: "节点库", emptyMessage: "尚未添加节点", addLabel: "添加节点", symbol: "point.3.connected.trianglepath.dotted", ordered: false)
-    static let routes = Self(key: "routes", title: "路由", emptyMessage: "尚未添加路由", addLabel: "添加路由", symbol: "arrow.triangle.branch", ordered: false)
-    static let dns = Self(key: "dns_profiles", title: "DNS Profile", emptyMessage: "尚未添加 DNS Profile", addLabel: "添加 Profile", symbol: "network", ordered: false)
-    static let rules = Self(key: "rules", title: "顺序规则", emptyMessage: "尚未添加规则", addLabel: "添加规则", symbol: "list.number", ordered: true)
-    static let subscriptions = Self(key: "subscriptions", title: "订阅", emptyMessage: "尚未添加订阅", addLabel: "添加订阅", symbol: "arrow.down.circle", ordered: false)
-    static let proxies = Self(key: "local_proxies", title: "本地代理", emptyMessage: "尚未添加本地代理", addLabel: "添加入口", symbol: "rectangle.connected.to.line.below", ordered: false)
+    static let nodes = Self(key: "nodes", title: "节点库", emptyMessage: "尚未添加节点", addLabel: "添加节点", symbol: "point.3.connected.trianglepath.dotted")
+    static let routes = Self(key: "routes", title: "路由", emptyMessage: "尚未添加路由", addLabel: "添加路由", symbol: "arrow.triangle.branch")
+    static let dns = Self(key: "dns_profiles", title: "DNS Profile", emptyMessage: "尚未添加 DNS Profile", addLabel: "添加 Profile", symbol: "network")
+    static let rules = Self(key: "rules", title: "顺序规则", emptyMessage: "尚未添加规则", addLabel: "添加规则", symbol: "list.number")
+    static let subscriptions = Self(key: "subscriptions", title: "订阅", emptyMessage: "尚未添加订阅", addLabel: "添加订阅", symbol: "arrow.down.circle")
+    static let proxies = Self(key: "local_proxies", title: "本地代理", emptyMessage: "尚未添加本地代理", addLabel: "添加入口", symbol: "rectangle.connected.to.line.below")
 }
 
 private struct NodeCollectionGroup: Identifiable {
@@ -721,6 +721,14 @@ struct DraftCollectionView: View {
                 }
                 .disabled(model.isBusy || model.draftSyntaxError != nil
                           || selectedItem == nil || selectedItem?.subscriptionOwned == true)
+                Button { moveSelected(offset: -1) } label: {
+                    Label("上移", systemImage: "arrow.up")
+                }
+                .disabled(model.isBusy || model.draftSyntaxError != nil || !canMoveSelected(offset: -1))
+                Button { moveSelected(offset: 1) } label: {
+                    Label("下移", systemImage: "arrow.down")
+                }
+                .disabled(model.isBusy || model.draftSyntaxError != nil || !canMoveSelected(offset: 1))
                 if descriptor.key == "nodes" {
                     Button {
                         selectedNodeGroup = "_manual"
@@ -876,12 +884,12 @@ struct DraftCollectionView: View {
                             Text(item.index + 1, format: .number)
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
-                            Image(systemName: isPinned(item) ? "pin.fill" : "line.3.horizontal")
+                            Image(systemName: isMovable(item) ? "line.3.horizontal" : "pin.fill")
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity)
-                        .help(isPinned(item) ? "Default 固定在最后" : "拖动调整顺序")
-                        .accessibilityLabel(isPinned(item) ? "\(item.title) 固定在最后" : "拖动 \(item.title) 调整顺序")
+                        .help(isMovable(item) ? "拖动或使用上移/下移调整工作副本顺序" : orderingRestriction(item))
+                        .accessibilityLabel(isMovable(item) ? "拖动 \(item.title) 调整顺序" : "\(item.title) \(orderingRestriction(item))")
                     }
                 }
                 .width(descriptor.ordered ? 78 : 1)
@@ -889,7 +897,7 @@ struct DraftCollectionView: View {
                 ForEach(items) { item in
                     TableRow(item)
                         .itemProvider {
-                            descriptor.ordered && !isPinned(item) ? NSItemProvider(object: item.id as NSString) : nil
+                            descriptor.ordered && isMovable(item) ? NSItemProvider(object: item.id as NSString) : nil
                         }
                 }
                 .dropDestination(for: String.self) { destination, identifiers in
@@ -931,10 +939,10 @@ struct DraftCollectionView: View {
             .contextMenu(forSelectionType: DraftItem.ID.self) { selected in
                 if let id = selected.first, let item = items.first(where: { $0.id == id }) {
                     if descriptor.ordered {
-                        Button("上移") { model.moveDraftItem(in: descriptor.key, at: item.index, offset: -1) }
-                            .disabled(item.index == 0 || isPinned(item))
-                        Button("下移") { model.moveDraftItem(in: descriptor.key, at: item.index, offset: 1) }
-                            .disabled(!canMoveDown(item))
+                        Button("上移") { move(item, offset: -1) }
+                            .disabled(!canMove(item, offset: -1))
+                        Button("下移") { move(item, offset: 1) }
+                            .disabled(!canMove(item, offset: 1))
                         Divider()
                     }
                     Button("编辑") { edit(item) }
@@ -1038,6 +1046,43 @@ struct DraftCollectionView: View {
         return items.first { $0.id == selection }
     }
 
+    private var movableItems: [DraftItem] { items.filter(isMovable) }
+
+    private func isMovable(_ item: DraftItem) -> Bool {
+        guard let object = model.draftItemObject(for: descriptor.key, at: item.index) else { return false }
+        return SteerUISpec.isMovable(collection: descriptor.key, object: object)
+    }
+
+    private func canMove(_ item: DraftItem, offset: Int) -> Bool {
+        guard isMovable(item),
+              let position = movableItems.firstIndex(where: { $0.id == item.id }) else { return false }
+        return movableItems.indices.contains(position + offset)
+    }
+
+    private func canMoveSelected(offset: Int) -> Bool {
+        selectedItem.map { canMove($0, offset: offset) } ?? false
+    }
+
+    private func moveSelected(offset: Int) {
+        guard let selectedItem else { return }
+        move(selectedItem, offset: offset)
+    }
+
+    private func move(_ item: DraftItem, offset: Int) {
+        _ = model.moveDraftItem(
+            in: descriptor.key,
+            identifiedBy: item.identifier,
+            offset: offset,
+            visibleIDs: movableItems.map(\.identifier)
+        )
+    }
+
+    private func orderingRestriction(_ item: DraftItem) -> String {
+        if isDefaultRule(item) { return "Default 固定在最后" }
+        if isSystemRoute(item) { return "系统路由顺序固定" }
+        return "此项目不可移动"
+    }
+
     private func addItem() {
         if descriptor.key == "nodes" { selectedNodeGroup = "_manual" }
         guard let object = model.newDraftItemObject(for: descriptor.key) else { return }
@@ -1095,23 +1140,15 @@ struct DraftCollectionView: View {
     }
 
     private func moveItems(_ identifiers: [String], to destination: Int) {
-        let sources = IndexSet(identifiers.compactMap { identifier in
-            items.first(where: { $0.id == identifier })?.index
-        })
-        guard !sources.isEmpty, !sources.contains(where: { index in
-            allItems.indices.contains(index) && isPinned(allItems[index])
-        }) else { return }
-        let resolvedDestination: Int
-        if descriptor.key == "rules", let defaultIndex = allItems.firstIndex(where: isPinned) {
-            resolvedDestination = min(destination, defaultIndex)
-        } else {
-            resolvedDestination = destination
-        }
-        model.moveDraftItem(in: descriptor.key, from: sources, to: resolvedDestination)
-    }
-
-    private func isPinned(_ item: DraftItem) -> Bool {
-        descriptor.key == "rules" && item.kind.caseInsensitiveCompare("default") == .orderedSame
+        guard let identifier = identifiers.first,
+              let source = items.first(where: { $0.id == identifier }), isMovable(source) else { return }
+        let candidates = Array(items.dropFirst(min(destination, items.count)))
+        let target = candidates.first(where: { $0.id != source.id && isMovable($0) })
+        _ = model.moveDraftItem(
+            in: descriptor.key,
+            identifiedBy: source.identifier,
+            before: target?.identifier
+        )
     }
 
     private func isRequiredDirect(_ item: DraftItem) -> Bool {
@@ -1131,13 +1168,6 @@ struct DraftCollectionView: View {
 
     private func isDefaultRule(_ item: DraftItem) -> Bool {
         descriptor.key == "rules" && item.kind.caseInsensitiveCompare("default") == .orderedSame
-    }
-
-    private func canMoveDown(_ item: DraftItem) -> Bool {
-        guard !isPinned(item),
-              let position = items.firstIndex(where: { $0.id == item.id }),
-              position < items.count - 1 else { return false }
-        return !isPinned(items[position + 1])
     }
 
     private func probePresentations(_ item: DraftItem) -> [ProbeLatestPresentation] {

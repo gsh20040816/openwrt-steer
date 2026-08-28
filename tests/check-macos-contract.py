@@ -101,7 +101,10 @@ def main() -> None:
     assert 'requiredForInstallation: false' in state
     assert 'let installationFacts = facts.filter(\\.requiredForInstallation)' in state
     assert '运行服务未激活不影响系统组件安装完整性' in content
-    assert 'descriptor.ordered && !isPinned(item) ? NSItemProvider(object: item.id as NSString) : nil' in content
+    assert 'var ordered: Bool { SteerUISpec.orderingPolicy(for: key) != nil }' in content
+    assert 'descriptor.ordered && isMovable(item) ? NSItemProvider(object: item.id as NSString) : nil' in content
+    assert 'visibleIDs: movableItems.map(\\.identifier)' in content
+    assert 'SteerUISpec.isMovable(collection: descriptor.key, object: object)' in content
     assert '.dropDestination(for: String.self)' in content
     assert '"line.3.horizontal"' in content and '"pin.fill"' in content
     assert 'List {' in content and 'Section {' in content

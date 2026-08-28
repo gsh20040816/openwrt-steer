@@ -984,6 +984,7 @@ return view.extend({
 		if (page == 'subscriptions') {
 			s = m.section(form.GridSection, 'subscription', _('Node subscriptions'));
 			steer.configureNamedSection(s, steer.creationDefaults('subscriptions'));
+			steer.configureOrdering(s, 'subscriptions');
 			configureSubscriptionRemoval(s, nodes);
 			s.addremove = true;
 			s.nodescriptions = true;
@@ -1010,6 +1011,7 @@ return view.extend({
 
 			s = m.section(form.GridSection, 'route', _('Single-node routes'));
 			steer.configureNamedSection(s, steer.creationDefaults('routes', { node: enabledNodeIds[0] || '' }));
+			steer.configureOrdering(s, 'routes');
 			steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('routes', sectionId),
 				_('Route is still referenced'));
 			configureSingleRouteCreation(s);
@@ -1095,6 +1097,7 @@ return view.extend({
 		s.readonly = summaryOnly;
 		if (summaryOnly)
 			s.renderRowActions = function() { return E([]); };
+		steer.configureOrdering(s, 'nodes', { baseActions: !summaryOnly });
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add proxy node');
 		s.filter = function(sectionId) {

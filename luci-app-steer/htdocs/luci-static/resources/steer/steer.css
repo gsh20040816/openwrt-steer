@@ -517,6 +517,17 @@
 .steer-probe-latest.is-stale { color: #8a5a00; }
 .steer-probe-latest.is-error { color: #b42318; }
 
+.steer-order-buttons {
+	display: inline-flex;
+	gap: .25rem;
+	margin-inline-end: .35rem;
+}
+
+.steer-order-buttons .cbi-button-neutral {
+	min-width: 2rem;
+	padding-inline: .45rem;
+}
+
 @media (max-width: 1100px) {
 	.steer-global-status { grid-template-columns: minmax(10rem, 1fr) auto; }
 	.steer-global-status__facts { grid-column: 1 / -1; }

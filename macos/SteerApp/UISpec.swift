@@ -138,6 +138,34 @@ struct UICollectionReference: Decodable {
     }
 }
 
+struct UICollectionOrderingPolicy: Decodable {
+    let stableIDField: String
+    let moveActions: [String]
+    let groupField: String?
+    let movableKinds: [String]
+    let pinnedLastBooleanField: String?
+    let sourceOwnedRefresh: String?
+
+    enum CodingKeys: String, CodingKey {
+        case stableIDField = "stable_id_field"
+        case moveActions = "move_actions"
+        case groupField = "group_field"
+        case movableKinds = "movable_kinds"
+        case pinnedLastBooleanField = "pinned_last_boolean_field"
+        case sourceOwnedRefresh = "source_owned_refresh"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stableIDField = try container.decode(String.self, forKey: .stableIDField)
+        moveActions = try container.decode([String].self, forKey: .moveActions)
+        groupField = try container.decodeIfPresent(String.self, forKey: .groupField)
+        movableKinds = try container.decodeIfPresent([String].self, forKey: .movableKinds) ?? []
+        pinnedLastBooleanField = try container.decodeIfPresent(String.self, forKey: .pinnedLastBooleanField)
+        sourceOwnedRefresh = try container.decodeIfPresent(String.self, forKey: .sourceOwnedRefresh)
+    }
+}
+
 struct UIObjectReference: Equatable {
     let sourceCollection: String
     let sourceObjectType: String
@@ -277,6 +305,7 @@ struct UIContract: Decodable {
     let ruleMatchFields: [String]
     let ruleConnectionOnlyFields: [String]
     let collectionReferences: [UICollectionReference]
+    let collectionOrdering: [String: UICollectionOrderingPolicy]
     let domainPrefixes: [String]
     let ipPrefixes: [String]
     let platformCapabilities: [String: UIPlatformCapabilities]
@@ -308,6 +337,7 @@ struct UIContract: Decodable {
         case ruleMatchFields = "rule_match_fields"
         case ruleConnectionOnlyFields = "rule_connection_only_fields"
         case collectionReferences = "collection_references"
+        case collectionOrdering = "collection_ordering"
         case domainPrefixes = "domain_prefixes"
         case ipPrefixes = "ip_prefixes"
         case platformCapabilities = "platform_capabilities"
@@ -329,6 +359,27 @@ enum SteerUISpec {
         }
         return contract
     }()
+
+    static func orderingPolicy(for collection: String) -> UICollectionOrderingPolicy? {
+        contract.collectionOrdering[collection]
+    }
+
+    static func isMovable(collection: String, object: [String: JSONValue]) -> Bool {
+        guard let policy = orderingPolicy(for: collection),
+              object[policy.stableIDField]?.stringValue?.isEmpty == false else { return false }
+        if !policy.movableKinds.isEmpty {
+            guard let kind = object["kind"]?.stringValue,
+                  policy.movableKinds.contains(kind) else { return false }
+        }
+        if let pinnedField = policy.pinnedLastBooleanField,
+           object[pinnedField]?.boolValue == true { return false }
+        return true
+    }
+
+    static func orderingGroup(collection: String, object: [String: JSONValue]) -> String {
+        guard let field = orderingPolicy(for: collection)?.groupField else { return "" }
+        return object[field]?.stringValue ?? ""
+    }
 
     static func nodeFields(for nodeType: String, section: String? = nil) -> [UIFieldSpec] {
         contract.nodeFields.filter { field in

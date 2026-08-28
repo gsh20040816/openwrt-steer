@@ -17,6 +17,7 @@ const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, '
 const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
 const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
 const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
+const collectionOrderingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-ordering-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -300,6 +301,12 @@ function createRulesEnvironment(intent) {
   const ui = {
     beginRender: (root) => root.replaceChildren(),
     viewHead: (title, subtitle, actions) => h('header', {}, title, subtitle, actions),
+    collectionRowAttributes: (_collection, item, _items, _rerender, baseClass) => ({
+      class: `${baseClass || ''} entity-row`, dataset: { ruleId: item.id }
+    }),
+    collectionOrderToolbar: () => h('div', {}, [
+      h('button', { disabled: true }, '上移'), h('button', { disabled: true }, '下移')
+    ]),
     input: ({ value }) => Object.assign(new Element('input'), { value }),
     toggle: () => new Element('button'),
     selectWithMissing: (options) => options,
@@ -820,6 +827,55 @@ async function testStoreTracksSavedPendingApply() {
   const succeeded = await S.store.applySaved();
   assert.strictEqual(succeeded.ok, true);
   assert.strictEqual(S.store.pendingApply, false, 'successful Apply must clear pending state');
+}
+
+async function testSharedCollectionOrderingMovesOnlyTheDraft() {
+  assert.strictEqual(collectionOrderingFixtures.schema_version, 1);
+  assert.deepEqual(new Set(Object.keys(uiSpec.collection_ordering)), new Set(collectionOrderingFixtures.collections));
+  for (const fixture of collectionOrderingFixtures.cases) {
+    const intent = runtimeTestIntent();
+    intent[fixture.collection] = JSON.parse(JSON.stringify(fixture.objects));
+    const S = {
+      uiSpec,
+      api: {
+        async config() { return { intent, revision: 'revision-ordering' }; },
+        async overview() { return { pending_apply: false, status: {} }; },
+        async runtime() { return {}; }
+      }
+    };
+    const window = { S };
+    const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/store.js'), 'utf8');
+    new Function('window', source)(window);
+    await S.store.init();
+
+    assert.strictEqual(S.store.moveCollectionItem(
+      fixture.collection, fixture.move_id, fixture.offset, fixture.visible_ids
+    ), true, fixture.name);
+    assert.deepEqual(S.store.intent[fixture.collection].map((item) => item.id), fixture.expected_ids, fixture.name);
+    assert.strictEqual(S.store.dirty, true, `${fixture.name} changes only the Draft`);
+    assert.deepEqual(
+      new Set(S.store.intent[fixture.collection].map((item) => item.id)),
+      new Set(fixture.objects.map((item) => item.id)),
+      `${fixture.name} preserves stable identities`
+    );
+  }
+
+  const rules = collectionOrderingFixtures.cases.find((fixture) => fixture.collection === 'rules');
+  const intent = runtimeTestIntent();
+  intent.rules = JSON.parse(JSON.stringify(rules.objects));
+  const S = {
+    uiSpec,
+    api: {
+      async config() { return { intent, revision: 'revision-pinned' }; },
+      async overview() { return {}; },
+      async runtime() { return {}; }
+    }
+  };
+  new Function('window', fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/store.js'), 'utf8'))({ S });
+  await S.store.init();
+  assert.strictEqual(S.store.moveCollectionItem('rules', 'default', -1, rules.visible_ids), false);
+  assert.strictEqual(S.store.moveCollectionItem('rules', 'rule_a', -1, rules.visible_ids), false);
+  assert.strictEqual(S.store.dirty, false, 'pinned and boundary moves do not dirty the Draft');
 }
 
 function runtimeTestIntent(enabled = true) {
@@ -2013,6 +2069,7 @@ Promise.resolve()
   .then(testSharedCreationDefaultsAutomaticIDsAndReferenceLabels)
   .then(testApplySavedAPIKeepsStructuredFailure)
   .then(testStoreTracksSavedPendingApply)
+  .then(testSharedCollectionOrderingMovesOnlyTheDraft)
   .then(testActualGenerationAndPersistentApplyFixture)
   .then(testSharedProbeDiagnosticsAndDisabledActions)
   .then(testOverviewUsesBoundedBackendWarningGroups)

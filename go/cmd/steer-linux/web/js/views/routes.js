@@ -197,7 +197,9 @@
 
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, ['状态', '路由', '链路（出口 ← 前置）', '测试', '操作'].map((t) => h('th', {}, t)))),
-        h('tbody', {}, singles.map((route) => h('tr', { class: route.enabled === false ? 'is-disabled' : null }, [
+        h('tbody', {}, singles.map((route) => h('tr', ui.collectionRowAttributes(
+          'routes', route, singles, () => view.render(root), route.enabled === false ? 'is-disabled' : ''
+        ), [
           h('td', {}, ui.toggle(route.enabled, (v) => { route.enabled = v; S.store.touch(); view.render(root); })),
           h('td', {}, h('strong', {}, route.name || route.id)),
           h('td', {}, chain(intent, route)),
@@ -225,6 +227,7 @@
 
       root.append(
         ui.viewHead('路由', '管理网络出站路由与前置代理链路', [
+          ui.collectionOrderToolbar('routes', singles, () => view.render(root)),
           h('button', {
             class: 'btn btn--primary',
             disabled: intent.nodes.length === 0,

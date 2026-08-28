@@ -2620,6 +2620,72 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
+    func moveDraftItem(in key: String, identifiedBy identifier: String, offset: Int, visibleIDs: [String]) -> Bool {
+        guard offset == -1 || offset == 1,
+              let root = parseDraft()?.objectValue,
+              case let .array(values)? = root[key],
+              let policy = SteerUISpec.orderingPolicy(for: key) else { return false }
+        let idField = policy.stableIDField
+        let objects = values.compactMap(\.objectValue)
+        guard let source = objects.first(where: { $0[idField]?.stringValue == identifier }),
+              SteerUISpec.isMovable(collection: key, object: source) else { return false }
+        let sourceGroup = SteerUISpec.orderingGroup(collection: key, object: source)
+        let peers = visibleIDs.compactMap { visibleID in
+            objects.first(where: { $0[idField]?.stringValue == visibleID })
+        }.filter {
+            SteerUISpec.isMovable(collection: key, object: $0) &&
+                SteerUISpec.orderingGroup(collection: key, object: $0) == sourceGroup
+        }
+        guard let position = peers.firstIndex(where: { $0[idField]?.stringValue == identifier }),
+              peers.indices.contains(position + offset),
+              let targetID = peers[position + offset][idField]?.stringValue else { return false }
+        mutateCollection(key) { collection in
+            guard let sourceIndex = collection.firstIndex(where: { $0.objectValue?[idField]?.stringValue == identifier }),
+                  var targetIndex = collection.firstIndex(where: { $0.objectValue?[idField]?.stringValue == targetID }) else { return }
+            let moved = collection.remove(at: sourceIndex)
+            if sourceIndex < targetIndex { targetIndex -= 1 }
+            collection.insert(moved, at: offset < 0 ? targetIndex : targetIndex + 1)
+        }
+        return true
+    }
+
+    @discardableResult
+    func moveDraftItem(in key: String, identifiedBy identifier: String, before targetIdentifier: String?) -> Bool {
+        guard let root = parseDraft()?.objectValue,
+              case let .array(values)? = root[key],
+              let policy = SteerUISpec.orderingPolicy(for: key) else { return false }
+        let idField = policy.stableIDField
+        let objects = values.compactMap(\.objectValue)
+        guard let source = objects.first(where: { $0[idField]?.stringValue == identifier }),
+              SteerUISpec.isMovable(collection: key, object: source) else { return false }
+        let sourceGroup = SteerUISpec.orderingGroup(collection: key, object: source)
+        let target = targetIdentifier.flatMap { targetID in
+            objects.first(where: { $0[idField]?.stringValue == targetID })
+        }
+        if let target {
+            guard SteerUISpec.isMovable(collection: key, object: target),
+                  SteerUISpec.orderingGroup(collection: key, object: target) == sourceGroup,
+                  target[idField]?.stringValue != identifier else { return false }
+        }
+        mutateCollection(key) { collection in
+            guard let sourceIndex = collection.firstIndex(where: { $0.objectValue?[idField]?.stringValue == identifier }) else { return }
+            let moved = collection.remove(at: sourceIndex)
+            if let targetIdentifier,
+               let targetIndex = collection.firstIndex(where: { $0.objectValue?[idField]?.stringValue == targetIdentifier }) {
+                collection.insert(moved, at: targetIndex)
+                return
+            }
+            let lastPeer = collection.lastIndex(where: { value in
+                guard let object = value.objectValue else { return false }
+                return SteerUISpec.isMovable(collection: key, object: object) &&
+                    SteerUISpec.orderingGroup(collection: key, object: object) == sourceGroup
+            })
+            collection.insert(moved, at: lastPeer.map { $0 + 1 } ?? collection.endIndex)
+        }
+        return true
+    }
+
+    @discardableResult
     func appendDraftItem(to key: String, object: [String: JSONValue]) -> Bool {
         if key == "rules", RuleDraftPolicy.isDefault(object) { return false }
         var appended = false

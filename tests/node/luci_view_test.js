@@ -26,6 +26,7 @@ const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-in
 const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-reference-fixtures.json'), 'utf8'));
 const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
 const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
+const collectionOrderingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-ordering-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -357,6 +358,42 @@ function createEnvironment(sections) {
 			section.handleAdd = function() {};
 			section.addDefaults = defaults || {};
 			section.addBeforeSectionId = beforeSectionId;
+			return section;
+		},
+		configureOrdering: (section, collection, options) => {
+			const policy = uiSpec.collection_ordering[collection];
+			section.sortable = true;
+			section.orderingPolicy = policy;
+			section.moveItem = (sectionId, offset) => {
+				const values = sections[section.sectionType] || [];
+				const source = values.find((item) => item['.name'] == sectionId);
+				const movable = (item) => item &&
+					(!policy.movable_kinds?.length || policy.movable_kinds.includes(item.kind)) &&
+					(!policy.pinned_last_boolean_field || item[policy.pinned_last_boolean_field] != '1');
+				if (!movable(source)) return false;
+				const group = policy.group_field ? (source[policy.group_field] || '') : '';
+				const peers = values.filter((item) => (!section.filter || section.filter(item['.name'])) && movable(item) &&
+					(!policy.group_field || (item[policy.group_field] || '') == group));
+				const position = peers.indexOf(source);
+				const target = peers[position + offset];
+				if (position < 0 || !target) return false;
+				const sourceIndex = values.indexOf(source);
+				let targetIndex = values.indexOf(target);
+				values.splice(sourceIndex, 1);
+				if (sourceIndex < targetIndex) targetIndex--;
+				values.splice(offset < 0 ? targetIndex : targetIndex + 1, 0, source);
+				return true;
+			};
+			section.renderRowActions = (sectionId) => {
+				const values = sections[section.sectionType] || [];
+				const visible = values.filter((item) => !section.filter || section.filter(item['.name']));
+				const position = visible.findIndex((item) => item['.name'] == sectionId);
+				return element('td', {}, [
+					element('button', { disabled: position <= 0 }, 'Move up'),
+					element('button', { disabled: position < 0 || position >= visible.length - 1 }, 'Move down'),
+					options?.baseActions === false ? '' : element('button', {}, 'Edit')
+				]);
+			};
 			return section;
 		},
 		configureRemovalGuard: (section, referencesFor) => {
@@ -985,6 +1022,7 @@ async function main() {
 		'machine-readable import input uses the shared monospace stack');
 	assert.equal(formInputFixtures.schema_version, 1);
 	assert.equal(creationPolicyFixtures.schema_version, 1);
+	assert.equal(collectionOrderingFixtures.schema_version, 1);
 	assert.equal(uiSpec.id_policy.auto_generate, true);
 	for (const fixture of creationPolicyFixtures.cases) {
 		const actual = environmentForCreationDefaults(fixture.collection, fixture.overrides);
@@ -997,6 +1035,34 @@ async function main() {
 	}
 	assert.ok(formInputFixtures.cases.every((fixture) => uiSpec.input_formats[fixture.format]),
 		'LuCI loads the shared form input fixtures and generated format metadata');
+	for (const fixture of collectionOrderingFixtures.cases) {
+		const sections = canonicalFixtureSections({ [fixture.collection]: fixture.objects });
+		if (fixture.collection == 'nodes')
+			sections.subscription = [ { '.name': 'feed', name: 'Feed' } ];
+		let orderingEnvironment;
+		switch (fixture.collection) {
+		case 'nodes': orderingEnvironment = await renderNodes(sections, '?node_group=_manual'); break;
+		case 'routes': orderingEnvironment = await renderNodes(sections, '', undefined, 'routes'); break;
+		case 'dns_profiles': orderingEnvironment = await renderDns(sections); break;
+		case 'local_proxies': orderingEnvironment = await renderLocalProxies(sections); break;
+		case 'rules': orderingEnvironment = await renderRules(sections); break;
+		case 'subscriptions': orderingEnvironment = await renderNodes(sections, '', { subscriptions: [] }, 'subscriptions'); break;
+		default: throw new Error(`unknown ordering fixture ${fixture.collection}`);
+		}
+		const sectionType = {
+			nodes: 'node', routes: 'route', dns_profiles: 'dns_profile', local_proxies: 'local_proxy',
+			rules: 'rule', subscriptions: 'subscription'
+		}[fixture.collection];
+		const ordered = orderingEnvironment.maps[0].sections.find((section) =>
+			section.type == 'GridSection' && section.sectionType == sectionType);
+		assert.ok(ordered?.sortable && ordered.orderingPolicy?.stable_id_field == 'id',
+			`${fixture.collection} consumes the shared stable-ID ordering policy`);
+		assert.ok(elementText(ordered.renderRowActions(fixture.move_id)).includes('Move up') &&
+			elementText(ordered.renderRowActions(fixture.move_id)).includes('Move down'),
+			`${fixture.collection} exposes explicit up/down controls`);
+		assert.equal(ordered.moveItem(fixture.move_id, fixture.offset), true, fixture.name);
+		assert.deepEqual((sections[sectionType] || []).map((item) => item['.name']), fixture.expected_ids, fixture.name);
+	}
 	testCommittedUcodePreviewAndObservedCandidateGuard();
 	testOverviewStateSeparatesPendingSavedAndActiveFacts();
 	testSubscriptionRPCRejectsPendingSession();
@@ -1680,8 +1746,9 @@ async function main() {
 		'A subscription group renders only that subscription and cannot create manual nodes inside it');
 	assert.equal(subscriptionNodes.readonly, true,
 		'Subscription nodes render as a compact read-only summary');
-	assert.equal(elementText(subscriptionNodes.renderRowActions('jdub_0123456789ab')), '',
-		'Subscription rows do not expose an editor for generated node fields');
+	const subscriptionRowActions = elementText(subscriptionNodes.renderRowActions('jdub_0123456789ab'));
+	assert.ok(!subscriptionRowActions.includes('Edit') && subscriptionRowActions.includes('Move up') && subscriptionRowActions.includes('Move down'),
+		'Subscription rows expose ordering controls without an editor for generated node fields');
 	[ 'enabled', 'type', 'server', 'server_port' ].forEach((name) => {
 		const option = subscriptionNodes.options.find((candidate) => candidate.name == name);
 		assert.equal(option && option.editable, false,
