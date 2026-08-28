@@ -606,6 +606,12 @@ msgstr "添加单节点路由"
 msgid "Import nodes"
 msgstr "导入节点"
 
+msgid "Move up"
+msgstr "上移"
+
+msgid "Move down"
+msgstr "下移"
+
 msgid "Import into pending configuration"
 msgstr "导入到待保存配置"
 

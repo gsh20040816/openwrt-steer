@@ -62,6 +62,9 @@ form_input_fixtures = json.loads(
 creation_policy_fixtures = json.loads(
     (ROOT / "ui/creation-policy-fixtures.json").read_text()
 )
+collection_ordering_fixtures = json.loads(
+    (ROOT / "ui/collection-ordering-fixtures.json").read_text()
+)
 for name, fixture in {
     "validation issue": validation_issue_fixtures,
     "collection reference": collection_reference_fixtures,
@@ -79,6 +82,25 @@ if set(contract.get("input_formats", {})) != {"probe_url", "subscription_url", "
     raise SystemExit("check-ui-contract: shared input format metadata drifted")
 if creation_policy_fixtures.get("schema_version") != 1:
     raise SystemExit("check-ui-contract: invalid creation policy fixture schema")
+ordered_collections = {
+    "nodes", "routes", "dns_profiles", "local_proxies", "rules", "subscriptions"
+}
+if collection_ordering_fixtures.get("schema_version") != 1 or set(
+    collection_ordering_fixtures.get("collections", [])
+) != ordered_collections:
+    raise SystemExit("check-ui-contract: invalid collection ordering fixture schema")
+ordering = contract.get("collection_ordering", {})
+if set(ordering) != ordered_collections or any(
+    policy.get("stable_id_field") != "id" or policy.get("move_actions") != ["up", "down"]
+    for policy in ordering.values()
+):
+    raise SystemExit("check-ui-contract: collection ordering policy drift")
+if ordering["nodes"].get("group_field") != "source_subscription":
+    raise SystemExit("check-ui-contract: Node ordering must stay inside source groups")
+if ordering["routes"].get("movable_kinds") != ["single"]:
+    raise SystemExit("check-ui-contract: system Route ordering boundary drift")
+if ordering["rules"].get("pinned_last_boolean_field") != "default":
+    raise SystemExit("check-ui-contract: Default ordering boundary drift")
 id_policy = contract.get("id_policy", {})
 if not id_policy.get("auto_generate") or id_policy.get("max_length") != 32:
     raise SystemExit("check-ui-contract: automatic ID policy is missing")
@@ -407,6 +429,31 @@ creation_fixture_consumers = (
 )
 for consumer in creation_fixture_consumers:
     require((ROOT / consumer).read_text(), "creation-policy-fixtures.json", consumer)
+
+ordering_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/CollectionOrderingTests.swift",
+)
+for consumer in ordering_fixture_consumers:
+    require((ROOT / consumer).read_text(), "collection-ordering-fixtures.json", consumer)
+
+require((ROOT / "go/cmd/steer-linux/web/js/store.js").read_text(), "collection_ordering", "Linux ordering store")
+for view in ("nodes", "routes", "dns", "proxies", "rules", "subscriptions"):
+    source = (ROOT / f"go/cmd/steer-linux/web/js/views/{view}.js").read_text()
+    require(source, "collectionOrderToolbar", f"Linux {view} ordering controls")
+    require(source, "collectionRowAttributes", f"Linux {view} row selection")
+
+require(luci_helper, "uiSpec.collection_ordering", "LuCI ordering helper")
+for view in ("dns", "local-proxies", "nodes", "rules"):
+    require(
+        (ROOT / f"luci-app-steer/htdocs/luci-static/resources/view/steer/{view}.js").read_text(),
+        "configureOrdering", f"LuCI {view} ordering controls"
+    )
+
+macos_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
+require(macos_content, "orderingPolicy", "macOS shared ordering policy")
+require(macos_content, "moveSelected", "macOS ordering controls")
 
 require(linux_ui, "creationDraft", "Linux automatic creation policy")
 require(linux_ui, "referenceOptions", "Linux disambiguated references")

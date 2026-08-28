@@ -37,6 +37,10 @@ function element(tag, attributes, children) {
 		attributes: attributes || {},
 		children: children == null ? [] : (Array.isArray(children) ? children : [ children ]),
 		addEventListener(name, listener) { this.listeners = this.listeners || {}; this.listeners[name] = listener; },
+		prepend(child) { this.children.unshift(child); },
+		querySelector(selector) {
+			return findElement(this, (candidate) => selector == 'div' && candidate.tag == 'div');
+		},
 		remove() { this.removed = true; }
 	};
 }
@@ -147,7 +151,12 @@ function loadHelper(runtime) {
 		save: () => { runtime.sequence.push('save-candidate'); return Promise.resolve(); },
 		unload: (config) => { runtime.unloadedConfigs.push(config); },
 		load: (config) => { runtime.loadedConfigs.push(config); return Promise.resolve(); },
-		get: (config, section, option) => config == 'steer' && section == 'main' && option == 'enabled' ? runtime.enabled : null,
+		get: (config, section, option) => {
+			if (config != 'steer') return null;
+			if (section == 'main' && option == 'enabled') return runtime.enabled;
+			const value = runtime.uciSections?.[section];
+			return option == null ? value : value?.[option];
+		},
 		set: (config, section, option, value) => {
 			if (config == 'steer' && section == 'main' && option == 'enabled') {
 				runtime.enabled = value;
@@ -382,6 +391,44 @@ async function main() {
 		[ 'steer', 'first_rule', 'default', false ],
 		[ 'steer', 'second_rule', 'default', false ]
 	], 'Named rule creation explicitly moves each new UCI section before Default');
+
+	runtime.uciSections = {
+		node_a: { '.name': 'node_a', source_subscription: '' },
+		feed_a: { '.name': 'feed_a', source_subscription: 'feed' },
+		node_b: { '.name': 'node_b', source_subscription: '' }
+	};
+	const nodeOrder = [ 'node_a', 'feed_a', 'node_b' ];
+	const orderingMoves = [];
+	const orderedNodeSection = {
+		sectiontype: 'node',
+		map: {
+			config: 'steer',
+			data: {
+				move: (config, sectionId, targetId, after) => {
+					orderingMoves.push([ config, sectionId, targetId, after ]);
+					const sourceIndex = nodeOrder.indexOf(sectionId);
+				nodeOrder.splice(sourceIndex, 1);
+				const targetIndex = nodeOrder.indexOf(targetId);
+				nodeOrder.splice(targetIndex + (after ? 1 : 0), 0, sectionId);
+			}
+			}
+		},
+		cfgsections: () => nodeOrder.filter((sectionId) => runtime.uciSections[sectionId].source_subscription == ''),
+		renderRowActions: () => element('td', {}, element('div'))
+	};
+	helper.configureOrdering(orderedNodeSection, 'nodes');
+	const nodeBActions = orderedNodeSection.renderRowActions('node_b');
+	const moveUp = findElement(nodeBActions, (candidate) => candidate.attributes?.['data-steer-order'] == 'up');
+	assert.equal(moveUp.attributes.disabled, false, 'a movable non-boundary row exposes an enabled Move up action');
+	moveUp.attributes.click({ preventDefault() {}, stopPropagation() {} });
+	assert.deepEqual(orderingMoves, [ [ 'steer', 'node_b', 'node_a', false ] ],
+		'the real LuCI ordering helper writes exactly one pending UCI move by stable section ID');
+	assert.deepEqual(nodeOrder, [ 'node_b', 'node_a', 'feed_a' ],
+		'Node moves stay within the visible source group without changing source ownership');
+	const firstActions = orderedNodeSection.renderRowActions('node_b');
+	assert.equal(findElement(firstActions, (candidate) => candidate.attributes?.['data-steer-order'] == 'up').attributes.disabled, true,
+		'the real LuCI ordering helper disables a move at the visible group boundary');
+	delete runtime.uciSections;
 
 	runtime.status = { healthy: true };
 	runtime.lifecycleState.active = { generation: 'generation-new', healthy: true };

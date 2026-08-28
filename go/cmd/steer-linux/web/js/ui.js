@@ -10,6 +10,7 @@
   const routeTokens = new WeakMap();
   let routeSequence = 0;
   let enabledToggleBusy = false;
+  const collectionSelections = new Map();
 
   function disposeRender(root) {
     const lifecycle = renderLifecycles.get(root);
@@ -869,6 +870,61 @@
     ]);
   }
 
+  function collectionItemMovable(collection, item) {
+    const policy = S.uiSpec.collection_ordering?.[collection];
+    if (!policy || !item?.[policy.stable_id_field || 'id']) return false;
+    if (policy.movable_kinds?.length && !policy.movable_kinds.includes(item.kind)) return false;
+    return !policy.pinned_last_boolean_field || item[policy.pinned_last_boolean_field] !== true;
+  }
+
+  function selectedCollectionID(collection, items) {
+    const selected = collectionSelections.get(collection) || '';
+    return asList(items).some((item) => item?.id === selected) ? selected : '';
+  }
+
+  function selectCollectionItem(collection, itemID) {
+    if (itemID) collectionSelections.set(collection, itemID);
+    else collectionSelections.delete(collection);
+  }
+
+  function collectionRowAttributes(collection, item, items, rerender, baseClass = '') {
+    const selected = selectedCollectionID(collection, items) === item.id;
+    return {
+      class: [baseClass, 'entity-row', selected ? 'is-selected' : ''].filter(Boolean).join(' '),
+      'aria-selected': String(selected),
+      onclick: (event) => {
+        if (event.target?.closest?.('button, input, select, textarea, a')) return;
+        selectCollectionItem(collection, item.id);
+        rerender();
+      }
+    };
+  }
+
+  function collectionOrderToolbar(collection, items, rerender) {
+    const values = asList(items);
+    const selectedID = selectedCollectionID(collection, values);
+    const selected = values.find((item) => item.id === selectedID);
+    const peers = values.filter((item) => collectionItemMovable(collection, item));
+    const position = peers.findIndex((item) => item.id === selectedID);
+    const move = (offset) => {
+      if (!selected || !S.store.moveCollectionItem(collection, selected.id, offset, values.map((item) => item.id))) return;
+      rerender();
+    };
+    return h('div', { class: 'collection-order', role: 'group', 'aria-label': '调整当前工作副本顺序' }, [
+      h('span', { class: 'collection-order__selection' }, selected ? `已选：${selected.name || selected.id}` : '选择一项后调整顺序'),
+      h('button', {
+        class: 'btn btn--sm', disabled: !selected || position <= 0,
+        title: selected && position <= 0 ? '已到当前列表顶部' : '上移一项',
+        onclick: () => move(-1)
+      }, '上移'),
+      h('button', {
+        class: 'btn btn--sm', disabled: !selected || position < 0 || position >= peers.length - 1,
+        title: selected && position >= peers.length - 1 ? '已到当前列表底部' : '下移一项',
+        onclick: () => move(1)
+      }, '下移')
+    ]);
+  }
+
   /* 下拉补全：把悬空引用保留为可修复选项（与 LuCI 版一致的修复语义） */
   function selectWithMissing(options, current, label) {
     const values = options.slice();
@@ -918,5 +974,5 @@
     });
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, multiChoice, toggle, toggleRow, chips, matchEditor, issueList, viewHead, selectWithMissing, creationDraft, referenceOptions, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject, takeObjectFocus, focusDrawerOption, collectionReferences, guardCollectionDeletion } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, multiChoice, toggle, toggleRow, chips, matchEditor, issueList, viewHead, collectionItemMovable, selectedCollectionID, selectCollectionItem, collectionRowAttributes, collectionOrderToolbar, selectWithMissing, creationDraft, referenceOptions, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject, takeObjectFocus, focusDrawerOption, collectionReferences, guardCollectionDeletion } });
 })();

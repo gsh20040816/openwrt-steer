@@ -281,9 +281,9 @@ return view.extend({
 		steer.configureNamedSection(s, steer.creationDefaults('rules', {
 			dns_profile: initialDNS?.['.name'] || '', route: directRoute?.['.name'] || ''
 		}), defaultRule?.['.name']);
+		steer.configureOrdering(s, 'rules');
 		const orderedSection = s;
 		s.addremove = true;
-		s.sortable = true;
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add steering rule');
 		s.filter = function(sectionId) {

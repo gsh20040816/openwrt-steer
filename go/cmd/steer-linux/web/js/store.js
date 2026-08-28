@@ -115,6 +115,31 @@
       dirty = true;
       emit();
     },
+    moveCollectionItem(collection, itemID, offset, visibleIDs) {
+      const policy = S.uiSpec.collection_ordering?.[collection];
+      const values = intent?.[collection];
+      if (!policy || !Array.isArray(values) || ![-1, 1].includes(offset)) return false;
+      const idField = policy.stable_id_field || 'id';
+      const source = values.find((item) => item?.[idField] === itemID);
+      const movable = (item) => item &&
+        (!policy.movable_kinds?.length || policy.movable_kinds.includes(item.kind)) &&
+        (!policy.pinned_last_boolean_field || item[policy.pinned_last_boolean_field] !== true);
+      if (!movable(source)) return false;
+      const sourceGroup = policy.group_field ? (source[policy.group_field] || '') : '';
+      const peers = (Array.isArray(visibleIDs) ? visibleIDs : values.map((item) => item?.[idField]))
+        .map((id) => values.find((item) => item?.[idField] === id))
+        .filter((item) => movable(item) && (!policy.group_field || (item[policy.group_field] || '') === sourceGroup));
+      const position = peers.findIndex((item) => item[idField] === itemID);
+      const target = peers[position + offset];
+      if (position < 0 || !target) return false;
+      const sourceIndex = values.indexOf(source);
+      let targetIndex = values.indexOf(target);
+      values.splice(sourceIndex, 1);
+      if (sourceIndex < targetIndex) targetIndex--;
+      values.splice(offset < 0 ? targetIndex : targetIndex + 1, 0, source);
+      store.touch();
+      return true;
+    },
     editJSON(text) {
       draftText = String(text ?? '');
       try {

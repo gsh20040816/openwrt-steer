@@ -137,7 +137,9 @@
       const intent = S.store.intent;
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '服务器', '规则引用', '操作'].map((t) => h('th', {}, t)))),
-        h('tbody', {}, intent.dns_profiles.map((p) => h('tr', { class: p.enabled === false ? 'is-disabled' : null }, [
+        h('tbody', {}, intent.dns_profiles.map((p) => h('tr', ui.collectionRowAttributes(
+          'dns_profiles', p, intent.dns_profiles, () => view.render(root), p.enabled === false ? 'is-disabled' : ''
+        ), [
           h('td', {}, ui.toggle(p.enabled, (v) => { p.enabled = v; S.store.touch(); })),
           h('td', {}, h('strong', {}, p.name || p.id)),
           h('td', {}, h('span', { class: 'badge badge--dns' }, PROTOCOL_LABEL[p.protocol] || p.protocol)),
@@ -158,6 +160,7 @@
 
       root.append(
         ui.viewHead('DNS Profile', '配置上游 DNS 解析器；支持 UDP、TCP、TLS、HTTPS (DoH)、QUIC (DoQ) 与 HTTP/3', [
+		  ui.collectionOrderToolbar('dns_profiles', intent.dns_profiles, () => view.render(root)),
 		  h('button', { class: 'btn btn--primary', onclick: () => openEditor(ui.creationDraft('dns_profiles')) }, '添加 Profile')
 		]),
         intent.dns_profiles.length

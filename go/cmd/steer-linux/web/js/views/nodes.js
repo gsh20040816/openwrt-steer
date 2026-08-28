@@ -406,7 +406,9 @@
             ui.toast(`已删除 ${node.name} · 未保存`, 'warn');
             view.render(root);
           } }, '删除') : null;
-          return h('tr', { class: node.enabled === false ? 'is-disabled' : null }, [
+          return h('tr', ui.collectionRowAttributes(
+            'nodes', node, nodes, () => view.render(root), node.enabled === false ? 'is-disabled' : ''
+          ), [
             h('td', {}, (() => {
               const enabled = ui.toggle(node.enabled, (v) => { node.enabled = v; S.store.touch(); view.render(root); });
               enabled.disabled = !editable;
@@ -430,6 +432,7 @@
 	  }
       root.append(
         ui.viewHead('节点', editable ? '手动添加与维护的节点列表' : '订阅节点列表（只读）', [
+          ui.collectionOrderToolbar('nodes', nodes, () => view.render(root)),
           h('button', { class: 'btn', onclick: openImport }, '导入节点'),
           editable ? h('button', { class: 'btn btn--primary', onclick: () => openNodeEditor(ui.creationDraft('nodes')) }, '添加节点') : null
         ]),

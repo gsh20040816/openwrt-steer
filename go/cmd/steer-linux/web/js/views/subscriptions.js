@@ -154,11 +154,15 @@
     async render(root) {
       const isCurrent = ui.beginRender(root);
       const intent = S.store.intent;
-      statuses = (await S.api.subscriptions()).subscriptions;
+      const statusByID = new Map((await S.api.subscriptions()).subscriptions.map((status) => [status.id, status]));
+      statuses = intent.subscriptions.map((subscription) => statusByID.get(subscription.id) || {
+        ...subscription, never_fetched: true, node_count: 0, current: 0, added: 0, skipped: 0, stale: []
+      });
 
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, ['状态', '订阅', 'URL', '间隔', '最近成功', '最近失败', '节点', '跳过 / 失效', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, statuses.map((s) => {
+          const subscription = intent.subscriptions.find((item) => item.id === s.id) || s;
           const state = statusLabel(s);
           const updateBtn = h('button', { class: 'btn btn--sm', onclick: async () => {
             if (!s.enabled) {
@@ -203,7 +207,9 @@
               }, `清理失效节点 ×${s.stale.length}`)
             : null;
           const failure = s.last_failure;
-          return h('tr', { class: s.enabled === false ? 'is-disabled' : null }, [
+          return h('tr', ui.collectionRowAttributes(
+            'subscriptions', subscription, intent.subscriptions, () => view.render(root), s.enabled === false ? 'is-disabled' : ''
+          ), [
             h('td', {}, h('div', { class: 'row-actions' }, [
               ui.toggle(s.enabled, (v) => { const sub = S.store.intent.subscriptions.find((x) => x.id === s.id); sub.enabled = v; S.store.touch(); }),
               h('span', { class: `badge ${state[1]}` }, state[0])
@@ -231,6 +237,7 @@
       if (!isCurrent()) return;
       root.append(
         ui.viewHead('订阅', '管理远程节点订阅与定时更新', [
+          ui.collectionOrderToolbar('subscriptions', intent.subscriptions, () => view.render(root)),
           h('button', { class: 'btn btn--primary', onclick: () => openEditor(null) }, '添加订阅')
         ]),
         statuses.length

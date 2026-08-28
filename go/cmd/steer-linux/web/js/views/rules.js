@@ -143,9 +143,14 @@
     return opened;
   }
 
-  function renderRow(rule, index) {
+  function renderRow(rule, index, ordered, root) {
     const intent = S.store.intent;
-    const row = h('div', { class: `rule-row ${rule.enabled === false ? 'is-disabled' : ''}`, draggable: 'true', dataset: { ruleId: rule.id } }, [
+    const rowAttributes = ui.collectionRowAttributes(
+      'rules', rule, ordered, () => view.render(root), `rule-row ${rule.enabled === false ? 'is-disabled' : ''}`
+    );
+    rowAttributes.draggable = 'true';
+    rowAttributes.dataset = { ruleId: rule.id };
+    const row = h('div', rowAttributes, [
       h('span', { class: 'grip', title: '拖拽排序' }, '⠿'),
       h('span', { class: 'rule-row__order' }, String(index + 1).padStart(2, '0')),
       h('div', { class: 'rule-row__name' }, h('strong', {}, rule.name || (rule.default ? 'Default' : rule.id)), h('span', { class: 'rule-row__summary' }, summary(rule))),
@@ -201,7 +206,7 @@
       const ordered = intent.rules.filter((r) => !r.default);
       const defaultRule = intent.rules.find((r) => r.default);
 
-      const list = h('div', { class: 'rule-list' }, ordered.map((rule, i) => renderRow(rule, i)));
+      const list = h('div', { class: 'rule-list' }, ordered.map((rule, i) => renderRow(rule, i, ordered, root)));
       if (!ordered.length) list.append(h('div', { class: 'empty' }, '还没有普通规则；Default 规则兜底'));
 
       const defaultCard = h('section', { class: 'card default-card' }, [
@@ -217,6 +222,7 @@
 
       root.append(
         ui.viewHead('规则', '按列表顺序自上而下首条命中即停；支持拖拽调整顺序', [
+          ui.collectionOrderToolbar('rules', ordered, () => view.render(root)),
           h('button', { class: 'btn btn--primary', onclick: () => {
             const direct = intent.routes.find((route) => route.kind === 'direct' && route.enabled !== false)
               || intent.routes.find((route) => route.enabled !== false);
