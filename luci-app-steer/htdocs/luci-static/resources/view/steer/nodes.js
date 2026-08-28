@@ -1018,7 +1018,7 @@ return view.extend({
 
 			if (nodeReferences.length) {
 				o = s.option(form.RichListValue, 'node', _('Node'));
-				o.depends('kind', 'single');
+				/* This GridSection already filters to kind=single; no kind widget is rendered. */
 				o.editable = true;
 				o.rmempty = false;
 				addNodeValues(o, nodeReferences);
@@ -1029,7 +1029,7 @@ return view.extend({
 
 			if (routeReferences.length) {
 				o = s.option(form.RichListValue, 'detour', _('Detour route'));
-				o.depends('kind', 'single');
+				/* This GridSection already filters to kind=single; no kind widget is rendered. */
 				o.editable = true;
 				o.optional = true;
 				o.rmempty = true;
