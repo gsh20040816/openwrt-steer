@@ -1,9 +1,9 @@
 # Maintainer: Shenghan Gao <gsh20040816 at gmail dot com>
 
 pkgname=steer
-pkgver=0.9.3
+pkgver=0.9.4
 pkgrel=1
-_commit=800d96c3cdb1b5f75a36422188fdf9ea59e5012a
+_commit=e5870c64536bf49284922ef02e110e434507a0c6
 pkgdesc='Transparent proxy policy compiler and Linux systemd adapter'
 arch=('x86_64' 'aarch64')
 url='https://github.com/gsh20040816/steer'
