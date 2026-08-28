@@ -8,7 +8,76 @@
 
   const MANUAL = '_manual';
   let activeGroup = MANUAL;
+  let displaySortMode = 'default';
+  let displaySortDirection = S.uiSpec.node_display_sorting?.default_direction || 'best_first';
   const rowButtons = new Map(); /* nodeId -> {conn, down} */
+
+  function probeMetric(result, mode) {
+    if (!result || result.scope !== 'nodes' || result.kind !== mode || result.ok !== true || result.stale === true)
+      return null;
+    const contract = S.uiSpec.node_display_sorting || {};
+    const suffix = mode === 'connect' ? contract.connect_metric_suffix : contract.download_metric_suffix;
+    const escaped = String(suffix || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = String(result.summary || '').trim().match(new RegExp(`^([0-9]+(?:\\.[0-9]+)?)\\s*${escaped}$`, 'i'));
+    if (!match) return null;
+    const value = Number(match[1]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function sortNodesForDisplay(nodes, mode, direction, probeResults) {
+    const values = asList(nodes);
+    if (mode === 'default') return values.slice();
+    const latest = asList(probeResults?.latest_results);
+    const decorated = values.map((node, index) => {
+      const result = latest.find((candidate) =>
+        candidate.scope === 'nodes' && candidate.object_id === node.id && candidate.kind === mode);
+      const metric = probeMetric(result, mode);
+      return { node, index, metric, ranked: metric != null };
+    });
+    const contract = S.uiSpec.node_display_sorting || {};
+    const goodDirection = mode === 'connect' ? contract.connect_direction : contract.download_direction;
+    const metricDirection = direction === 'worst_first'
+      ? (goodDirection === 'ascending' ? 'descending' : 'ascending')
+      : goodDirection;
+    decorated.sort((left, right) => {
+      if (left.ranked !== right.ranked) return left.ranked ? -1 : 1;
+      if (!left.ranked) return left.index - right.index;
+      const compared = metricDirection === 'ascending'
+        ? left.metric - right.metric
+        : right.metric - left.metric;
+      return compared || left.index - right.index;
+    });
+    return decorated.map((entry) => entry.node);
+  }
+
+  function sortHeader(label, mode, root) {
+    const active = displaySortMode === mode;
+    const metricMode = mode !== 'default';
+    const directionLabel = displaySortDirection === 'best_first' ? '好 → 坏' : '坏 → 好';
+    const title = mode === 'default'
+      ? '恢复工作副本中的节点顺序'
+      : `${label}排序${active ? ` · 当前 ${directionLabel}；再次点击切换方向` : ' · 点击后默认好 → 坏'}`;
+    return h('button', {
+      class: `table-sort ${active ? 'is-active' : ''}`,
+      type: 'button', title, 'aria-pressed': String(active),
+      'aria-label': active && metricMode ? `${label}，${directionLabel}，再次点击切换方向` : title,
+      onclick: () => {
+        if (mode === 'default') {
+          displaySortMode = 'default';
+          displaySortDirection = S.uiSpec.node_display_sorting?.default_direction || 'best_first';
+        } else if (active) {
+          displaySortDirection = displaySortDirection === 'best_first' ? 'worst_first' : 'best_first';
+        } else {
+          displaySortMode = mode;
+          displaySortDirection = S.uiSpec.node_display_sorting?.default_direction || 'best_first';
+        }
+        view.render(root);
+      }
+    }, [
+      h('span', {}, label),
+      active ? h('span', { class: 'table-sort__direction' }, metricMode ? directionLabel : '原始') : null
+    ]);
+  }
 
   function syncTestButtons() {
     rowButtons.forEach((pair) => [pair.conn, pair.down].forEach((button) => {
@@ -119,6 +188,7 @@
         try { await S.store.refreshProbeResults(); syncLatest(btn); } catch (_) { /* keep explicit request failure */ }
       }
       syncTestButtons();
+      if (displaySortMode !== 'default') view.render(document.querySelector('#view'));
     }, disabled: !eligible || S.store.dirty, title: !eligible ? '已停用节点不能测试' : (S.store.dirty ? '请先保存或放弃工作副本修改' : label) }, label);
     btn._eligible = eligible;
     btn._label = label;
@@ -179,6 +249,7 @@
     await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
     button.textContent = `${title} · 成功 ${succeeded}/${ids.length}`;
     rows.forEach((pair) => { pair.conn.disabled = false; pair.down.disabled = false; });
+    if (displaySortMode !== 'default') view.render(document.querySelector('#view'));
   }
 
   /* ---------- 分享链接导入 ---------- */
@@ -383,7 +454,9 @@
       const groupList = groups(intent);
       if (!groupList.some((g) => g.id === activeGroup)) activeGroup = MANUAL;
       const active = groupList.find((g) => g.id === activeGroup);
-      const nodes = intent.nodes.filter((n) => groupOf(n) === activeGroup);
+      const sourceNodes = intent.nodes.filter((n) => groupOf(n) === activeGroup);
+      const nodes = sortNodesForDisplay(sourceNodes, displaySortMode, displaySortDirection, S.store.probeResults);
+      const orderingDisabledReason = displaySortMode === 'default' ? '' : '测速显示排序中；点击“顺序”列后可调整工作副本顺序';
       const editable = activeGroup === MANUAL;
 
       const groupNav = h('div', { class: 'node-groups' }, groupList.map((g) => h('button', {
@@ -392,7 +465,13 @@
       }, h('span', {}, g.label), h('span', { class: 'count' }, String(g.count)))));
 
       const table = h('table', { class: 'table' }, [
-        h('thead', {}, h('tr', {}, ['顺序', '状态', '节点', '协议', '端点', '测试', '操作'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, [
+          h('th', { class: 'is-sortable' }, sortHeader('顺序', 'default', root)),
+          h('th', {}, '状态'), h('th', {}, '节点'), h('th', {}, '协议'), h('th', {}, '端点'),
+          h('th', { class: 'is-sortable' }, sortHeader('连接测速', 'connect', root)),
+          h('th', { class: 'is-sortable' }, sortHeader('下载测速', 'download', root)),
+          h('th', {}, '操作')
+        ])),
         h('tbody', {}, nodes.map((node) => {
           const eligible = node.enabled !== false;
           const conn = testButton('连接', false, node.id, eligible);
@@ -409,7 +488,9 @@
           return h('tr', ui.collectionRowAttributes(
             'nodes', node, nodes, () => view.render(root), node.enabled === false ? 'is-disabled' : ''
           ), [
-            h('td', { class: 'collection-drag-column' }, ui.collectionDragHandle('nodes', node, nodes, () => view.render(root))),
+            h('td', { class: 'collection-drag-column' }, ui.collectionDragHandle(
+              'nodes', node, sourceNodes, () => view.render(root), { disabledReason: orderingDisabledReason }
+            )),
             h('td', {}, (() => {
               const enabled = ui.toggle(node.enabled, (v) => { node.enabled = v; S.store.touch(); view.render(root); });
               enabled.disabled = !editable;
@@ -419,13 +500,14 @@
             h('td', {}, h('div', {}, h('div', {}, h('strong', {}, node.name || node.id)), node.pinned_stale ? h('span', { class: 'badge badge--stale' }, '已失效') : null)),
             h('td', {}, h('span', { class: `badge protocol-badge protocol--${node.type}` }, PROTOCOL_LABEL[node.type] || node.type)),
             h('td', { class: 'mono' }, nodeEndpoint(node)),
-            h('td', {}, h('div', { class: 'row-actions row-actions--probe' }, probeAction(conn), probeAction(down))),
+            h('td', { class: 'probe-sort-cell' }, probeAction(conn)),
+            h('td', { class: 'probe-sort-cell' }, probeAction(down)),
             h('td', {}, h('div', { class: 'row-actions' }, edit, del))
           ]);
         }))
       ]);
 
-      const batch = renderBatch(nodes.filter((node) => node.enabled !== false).map((node) => node.id));
+      const batch = renderBatch(sourceNodes.filter((node) => node.enabled !== false).map((node) => node.id));
 	  syncTestButtons();
 	  if (typeof S.store.subscribe === 'function') {
 		const unsubscribe = S.store.subscribe(syncTestButtons);
@@ -433,7 +515,7 @@
 	  }
       root.append(
         ui.viewHead('节点', editable ? '手动添加与维护的节点列表' : '订阅节点列表（只读）', [
-          ui.collectionOrderToolbar('nodes', nodes, () => view.render(root)),
+          ui.collectionOrderToolbar('nodes', sourceNodes, () => view.render(root), { disabledReason: orderingDisabledReason }),
           h('button', { class: 'btn', onclick: openImport }, '导入节点'),
           editable ? h('button', { class: 'btn btn--primary', onclick: () => openNodeEditor(ui.creationDraft('nodes')) }, '添加节点') : null
         ]),
@@ -450,6 +532,9 @@
       else if (focusedNode) ui.toast(`已定位订阅节点 ${focusedNode.name || focusedNode.id}；该对象只读，请修改订阅源或高级配置`, 'warn');
     }
   };
+
+  view.probeMetric = probeMetric;
+  view.sortNodesForDisplay = sortNodesForDisplay;
 
   S.views = S.views || {};
   S.views.nodes = view;

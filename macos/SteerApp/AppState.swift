@@ -311,6 +311,48 @@ struct ProbeLatestResult: Decodable, Sendable, Identifiable {
 
 }
 
+enum NodeDisplaySorting {
+    static func metric(_ result: ProbeLatestResult?, mode: String) -> Double? {
+        guard let result, result.scope == "nodes", result.kind == mode,
+              result.ok, !result.stale else { return nil }
+        let contract = SteerUISpec.contract.nodeDisplaySorting
+        let suffix = mode == "connect" ? contract.connectMetricSuffix : contract.downloadMetricSuffix
+        let summary = result.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard summary.lowercased().hasSuffix(suffix.lowercased()) else { return nil }
+        let number = String(summary.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard number.range(of: #"^[0-9]+(?:\.[0-9]+)?$"#, options: .regularExpression) != nil else { return nil }
+        return Double(number)
+    }
+
+    static func sortedIDs(
+        _ originalIDs: [String], mode: String, direction: String,
+        latestResults: [ProbeLatestResult]
+    ) -> [String] {
+        guard mode != "default" else { return originalIDs }
+        var results: [String: ProbeLatestResult] = [:]
+        for result in latestResults where result.scope == "nodes" && result.kind == mode {
+            if let objectID = result.objectID { results[objectID] = result }
+        }
+        let contract = SteerUISpec.contract.nodeDisplaySorting
+        let goodDirection = mode == "connect" ? contract.connectDirection : contract.downloadDirection
+        let metricDirection = direction == "worst_first"
+            ? (goodDirection == "ascending" ? "descending" : "ascending")
+            : goodDirection
+        return originalIDs.enumerated().map { index, id in
+            (id: id, index: index, metric: metric(results[id], mode: mode))
+        }.sorted { left, right in
+            switch (left.metric, right.metric) {
+            case (.some, .none): return true
+            case (.none, .some): return false
+            case (.none, .none): return left.index < right.index
+            case let (.some(leftMetric), .some(rightMetric)):
+                if leftMetric == rightMetric { return left.index < right.index }
+                return metricDirection == "ascending" ? leftMetric < rightMetric : leftMetric > rightMetric
+            }
+        }.map(\.id)
+    }
+}
+
 struct ProbeLatestPresentation: Identifiable, Sendable {
     let id: String
     let text: String
@@ -2343,6 +2385,15 @@ final class AppModel: ObservableObject {
             ok: result.ok,
             stale: result.stale
         )
+    }
+
+    func nodeItemsSortedForDisplay(_ items: [DraftItem], mode: String, direction: String) -> [DraftItem] {
+        let orderedIDs = NodeDisplaySorting.sortedIDs(
+            items.map(\.identifier), mode: mode, direction: direction,
+            latestResults: Array(latestProbeResults.values)
+        )
+        let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.identifier, $0) })
+        return orderedIDs.compactMap { byID[$0] }
     }
 
     private func installDiagnostics(_ diagnostics: ProbeDiagnostics) {

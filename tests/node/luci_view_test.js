@@ -28,6 +28,7 @@ const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-
 const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
 const collectionOrderingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-ordering-fixtures.json'), 'utf8'));
 const collectionDragFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-drag-fixtures.json'), 'utf8'));
+const nodeDisplaySortingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/node-display-sorting-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -104,6 +105,7 @@ function element(tag, attributes, children) {
 		},
 		setAttribute: function(name, value) { this.attributes[name] = String(value); },
 		getAttribute: function(name) { return this.attributes[name]; },
+		hasAttribute: function(name) { return Object.hasOwn(this.attributes, name); },
 		focus: function() { this.focused = true; },
 		matches: function(selector) { return selector == this.tag; },
 		querySelector: function(selector) {
@@ -112,6 +114,10 @@ function element(tag, attributes, children) {
 				return findElements(this, (candidate) => String(candidate.attributes?.class || '').split(/\s+/).includes(className))[0] || null;
 			}
 			return findElements(this, (candidate) => candidate !== this && candidate.tag == selector)[0] || null;
+		},
+		querySelectorAll: function(selector) {
+			if (selector == 'thead th') return findElements(this, (candidate) => candidate.tag == 'th');
+			return findElements(this, (candidate) => candidate !== this && candidate.tag == selector);
 		}
 	};
 	node.classList = {
@@ -363,9 +369,14 @@ function createEnvironment(sections) {
 		},
 		configureOrdering: (section, collection, options) => {
 			const policy = uiSpec.collection_ordering[collection];
-			section.sortable = true;
+			const disabledReason = options?.disabledReason || '';
+			section.sortable = !disabledReason;
+			section.orderingDisabledReason = disabledReason;
 			section.orderingPolicy = policy;
 			section.dragFeedback = uiSpec.collection_drag.feedback;
+			section.cfgsections = () => (sections[section.sectionType] || [])
+				.filter((item) => !section.filter || section.filter(item['.name']))
+				.map((item) => item['.name']);
 			section.dropItem = (sectionId, targetId, after, cancel = false) => {
 				if (cancel) return false;
 				const values = sections[section.sectionType] || [];
@@ -374,7 +385,7 @@ function createEnvironment(sections) {
 				const movable = (item) => item &&
 					(!policy.movable_kinds?.length || policy.movable_kinds.includes(item.kind)) &&
 					(!policy.pinned_last_boolean_field || item[policy.pinned_last_boolean_field] != '1');
-				if (!movable(source) || !movable(target) || source == target) return false;
+				if (disabledReason || !movable(source) || !movable(target) || source == target) return false;
 				const group = policy.group_field ? (source[policy.group_field] || '') : '';
 				const peers = values.filter((item) => (!section.filter || section.filter(item['.name'])) && movable(item) &&
 					(!policy.group_field || (item[policy.group_field] || '') == group));
@@ -408,8 +419,8 @@ function createEnvironment(sections) {
 				const visible = values.filter((item) => !section.filter || section.filter(item['.name']));
 				const position = visible.findIndex((item) => item['.name'] == sectionId);
 				return element('td', {}, [
-					element('button', { disabled: position <= 0 }, 'Move up'),
-					element('button', { disabled: position < 0 || position >= visible.length - 1 }, 'Move down'),
+						element('button', { disabled: !!disabledReason || position <= 0 }, 'Move up'),
+						element('button', { disabled: !!disabledReason || position < 0 || position >= visible.length - 1 }, 'Move down'),
 					options?.baseActions === false ? '' : element('button', {}, 'Edit')
 				]);
 			};
@@ -885,6 +896,7 @@ async function renderNodes(sections, search = '', subscriptionStatus, page = 'no
 			_: environment.translate
 		}
 	);
+	environment.nodeView = view;
 	environment.rendered = await view.render([ null, subscriptionStatus, { steer: pendingChanges },
 		environment.probeResultsResult,
 		{
@@ -1109,6 +1121,49 @@ async function main() {
 		), fixture.expected_mutations == 1, fixture.name);
 		assert.deepEqual((sections[sectionType] || []).map((item) => item['.name']), fixture.expected_ids, fixture.name);
 	}
+	assert.deepEqual(uiSpec.node_display_sorting.modes, nodeDisplaySortingFixtures.modes);
+	assert.deepEqual(uiSpec.node_display_sorting.direction_modes, nodeDisplaySortingFixtures.direction_modes);
+	for (const fixture of nodeDisplaySortingFixtures.cases) {
+		const sections = canonicalFixtureSections({ nodes: nodeDisplaySortingFixtures.nodes });
+		sections.subscription = [ { '.name': 'feed', name: 'Feed' } ];
+		const originalIDs = sections.node.map((item) => item['.name']);
+		const query = new URLSearchParams({
+			node_group: fixture.group || '_manual', node_sort: fixture.mode,
+			node_sort_direction: fixture.direction
+		});
+		const sortingEnvironment = await renderNodes(
+			sections, '?' + query.toString(), undefined, 'nodes', [], {},
+			{ latest_results: nodeDisplaySortingFixtures.latest_results, warnings: [] }
+		);
+		const nodeSection = sortingEnvironment.maps[0].sections.find((section) =>
+			section.type == 'GridSection' && section.sectionType == 'node');
+		assert.deepEqual(nodeSection.cfgsections(), fixture.expected_ids, fixture.name);
+		assert.equal(nodeSection.sortable, fixture.mode == 'default',
+			`${fixture.name} disables configured reordering only while display sorting`);
+		assert.equal(!!nodeSection.orderingDisabledReason, fixture.mode != 'default');
+		assert.deepEqual(sections.node.map((item) => item['.name']), originalIDs,
+			`${fixture.name} never mutates UCI section order`);
+	}
+	const headerSections = canonicalFixtureSections({ nodes: nodeDisplaySortingFixtures.nodes.slice(0, 2) });
+	const headerEnvironment = await renderNodes(
+		headerSections, '?node_group=_manual&node_sort=connect&node_sort_direction=best_first',
+		undefined, 'nodes', [], {}, { latest_results: nodeDisplaySortingFixtures.latest_results, warnings: [] }
+	);
+	const orderHeader = element('th', { 'data-sortable-row': '' }, 'Name');
+	const connectHeader = element('th', { 'data-widget': '_connect_speedtest' }, 'Connection test');
+	const downloadHeader = element('th', { 'data-widget': '_download_speedtest' }, 'Download test');
+	const actionsHeader = element('th', { 'class': 'cbi-section-actions' });
+	const sortForm = element('form', {}, element('table', {}, element('thead', {},
+		element('tr', {}, [ orderHeader, connectHeader, downloadHeader, actionsHeader ]))));
+	headerEnvironment.nodeView.decorateNodeSortHeaders(sortForm);
+	assert.ok(elementText(connectHeader).includes('Best to worst'),
+		'active LuCI metric header shows its current direction');
+	const connectButton = findElements(connectHeader, (node) => node.tag == 'button')[0];
+	connectButton.attributes.click({ preventDefault() {}, stopPropagation() {} });
+	assert.ok(headerEnvironment.window.location.href.includes('node_sort=connect') &&
+		headerEnvironment.window.location.href.includes('node_sort_direction=worst_first'),
+		'repeated LuCI header click reverses display direction without a UCI move');
+	assert.deepEqual(headerSections.node.map((item) => item['.name']), [ 'slow', 'stale' ]);
 	testCommittedUcodePreviewAndObservedCandidateGuard();
 	testOverviewStateSeparatesPendingSavedAndActiveFacts();
 	testSubscriptionRPCRejectsPendingSession();

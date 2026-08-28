@@ -185,6 +185,45 @@ struct UICollectionDragContract: Decodable {
     }
 }
 
+struct UINodeDisplaySortingContract: Decodable {
+    let modes: [String]
+    let headerColumns: [String]
+    let directionModes: [String]
+    let defaultDirection: String
+    let repeatClick: String
+    let resultSource: String
+    let metricField: String
+    let connectMetricSuffix: String
+    let downloadMetricSuffix: String
+    let connectDirection: String
+    let downloadDirection: String
+    let unrankedStates: [String]
+    let unrankedPlacement: String
+    let tieBreaker: String
+    let scope: String
+    let orderingActionsMode: String
+    let mutatesDraft: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case modes, scope
+        case headerColumns = "header_columns"
+        case directionModes = "direction_modes"
+        case defaultDirection = "default_direction"
+        case repeatClick = "repeat_click"
+        case resultSource = "result_source"
+        case metricField = "metric_field"
+        case connectMetricSuffix = "connect_metric_suffix"
+        case downloadMetricSuffix = "download_metric_suffix"
+        case connectDirection = "connect_direction"
+        case downloadDirection = "download_direction"
+        case unrankedStates = "unranked_states"
+        case unrankedPlacement = "unranked_placement"
+        case tieBreaker = "tie_breaker"
+        case orderingActionsMode = "ordering_actions_mode"
+        case mutatesDraft = "mutates_draft"
+    }
+}
+
 struct UIObjectReference: Equatable {
     let sourceCollection: String
     let sourceObjectType: String
@@ -326,6 +365,7 @@ struct UIContract: Decodable {
     let collectionReferences: [UICollectionReference]
     let collectionOrdering: [String: UICollectionOrderingPolicy]
     let collectionDrag: UICollectionDragContract
+    let nodeDisplaySorting: UINodeDisplaySortingContract
     let domainPrefixes: [String]
     let ipPrefixes: [String]
     let platformCapabilities: [String: UIPlatformCapabilities]
@@ -359,6 +399,7 @@ struct UIContract: Decodable {
         case collectionReferences = "collection_references"
         case collectionOrdering = "collection_ordering"
         case collectionDrag = "collection_drag"
+        case nodeDisplaySorting = "node_display_sorting"
         case domainPrefixes = "domain_prefixes"
         case ipPrefixes = "ip_prefixes"
         case platformCapabilities = "platform_capabilities"

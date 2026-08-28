@@ -1007,14 +1007,15 @@
     return true;
   }
 
-  function collectionDragHandle(collection, item, items, rerender) {
-    const movable = collectionItemMovable(collection, item);
+  function collectionDragHandle(collection, item, items, rerender, options = {}) {
+    const disabledReason = options.disabledReason || '';
+    const movable = !disabledReason && collectionItemMovable(collection, item);
     const label = item.name || item.id;
     return h('button', {
       class: 'collection-drag-handle', type: 'button',
       disabled: !movable,
-      title: movable ? '拖动整行调整工作副本顺序' : '此项目顺序固定',
-      'aria-label': movable ? `拖动 ${label} 调整顺序` : `${label} 顺序固定`,
+      title: movable ? '拖动整行调整工作副本顺序' : (disabledReason || '此项目顺序固定'),
+      'aria-label': movable ? `拖动 ${label} 调整顺序` : `${label} ${disabledReason || '顺序固定'}`,
       'aria-grabbed': 'false',
       onclick: (event) => { event.preventDefault(); event.stopPropagation(); },
       onpointerdown: (event) => {
@@ -1069,26 +1070,28 @@
     };
   }
 
-  function collectionOrderToolbar(collection, items, rerender) {
+  function collectionOrderToolbar(collection, items, rerender, options = {}) {
     const values = asList(items);
+    const disabledReason = options.disabledReason || '';
     const selectedID = selectedCollectionID(collection, values);
     const selected = values.find((item) => item.id === selectedID);
     const peers = values.filter((item) => collectionItemMovable(collection, item));
     const position = peers.findIndex((item) => item.id === selectedID);
     const move = (offset) => {
-      if (!selected || !S.store.moveCollectionItem(collection, selected.id, offset, values.map((item) => item.id))) return;
+      if (disabledReason || !selected || !S.store.moveCollectionItem(collection, selected.id, offset, values.map((item) => item.id))) return;
       rerender();
     };
     return h('div', { class: 'collection-order', role: 'group', 'aria-label': '调整当前工作副本顺序' }, [
-      h('span', { class: 'collection-order__selection' }, selected ? `已选：${selected.name || selected.id}` : '选择一项后调整顺序'),
+      h('span', { class: 'collection-order__selection', title: disabledReason || null },
+        disabledReason || (selected ? `已选：${selected.name || selected.id}` : '选择一项后调整顺序')),
       h('button', {
-        class: 'btn btn--sm', disabled: !selected || position <= 0,
-        title: selected && position <= 0 ? '已到当前列表顶部' : '上移一项',
+        class: 'btn btn--sm', disabled: !!disabledReason || !selected || position <= 0,
+        title: disabledReason || (selected && position <= 0 ? '已到当前列表顶部' : '上移一项'),
         onclick: () => move(-1)
       }, '上移'),
       h('button', {
-        class: 'btn btn--sm', disabled: !selected || position < 0 || position >= peers.length - 1,
-        title: selected && position >= peers.length - 1 ? '已到当前列表底部' : '下移一项',
+        class: 'btn btn--sm', disabled: !!disabledReason || !selected || position < 0 || position >= peers.length - 1,
+        title: disabledReason || (selected && position >= peers.length - 1 ? '已到当前列表底部' : '下移一项'),
         onclick: () => move(1)
       }, '下移')
     ]);

@@ -465,6 +465,19 @@ async function main() {
 	orderedNodeSection.handleDragStart({ dataTransfer, clientX: 10, clientY: 10, preventDefault() {} }, rowB);
 	orderedNodeSection.handleDragEnd({}, rowB);
 	assert.equal(orderingMoves.length, movesBeforeCancel, 'a cancelled LuCI drag never mutates pending UCI');
+	const sortedNodeSection = {
+		sectiontype: 'node', map: orderedNodeSection.map,
+		cfgsections: orderedNodeSection.cfgsections,
+		renderRowActions: () => element('td', {}, element('div'))
+	};
+	helper.configureOrdering(sortedNodeSection, 'nodes', {
+		disabledReason: 'Click the Order header before changing configured order.'
+	});
+	const sortedActions = sortedNodeSection.renderRowActions('node_a');
+	assert.equal(sortedNodeSection.sortable, false, 'display sorting disables native persistent header/drag sorting');
+	assert.ok(findElement(sortedActions, (candidate) => candidate.attributes?.['data-steer-order'] == 'up').attributes.disabled);
+	assert.equal(findElement(sortedActions, (candidate) => candidate.attributes?.class?.includes('drag-handle')).attributes.disabled, true,
+		'display sorting disables drag and explicit moves with one clear reason');
 	delete runtime.uciSections;
 
 	runtime.status = { healthy: true };

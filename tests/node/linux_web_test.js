@@ -19,6 +19,7 @@ const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-in
 const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
 const collectionOrderingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-ordering-fixtures.json'), 'utf8'));
 const collectionDragFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-drag-fixtures.json'), 'utf8'));
+const nodeDisplaySortingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/node-display-sorting-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -1000,6 +1001,53 @@ async function testCollectionDragInteractionCommitsOnDropOnly() {
   });
   assert.equal(moveCalls.length, 2, 'touch release commits exactly one shared stable-ID move');
   assert.equal(rerenders, 2);
+}
+
+function testNodeDisplaySortingHeadersNeverMutateTheDraft() {
+  const intent = runtimeTestIntent();
+  intent.nodes = JSON.parse(JSON.stringify(nodeDisplaySortingFixtures.nodes));
+  intent.subscriptions = [ { id: 'feed', name: 'Feed', enabled: true, url: 'https://feed.example/sub', update_interval: '24h' } ];
+  const originalIDs = intent.nodes.map((node) => node.id);
+  const environment = createEnvironment(async () => ({ ok: true }), intent, {
+    probeResults: { latest_results: nodeDisplaySortingFixtures.latest_results, warnings: [] }
+  });
+  loadView(environment, 'nodes');
+  const view = environment.S.views.nodes;
+
+  for (const fixture of nodeDisplaySortingFixtures.cases) {
+    const group = intent.nodes.filter((node) => (node.source_subscription || '') === fixture.group);
+    assert.deepEqual(
+      view.sortNodesForDisplay(group, fixture.mode, fixture.direction, environment.S.store.probeResults).map((node) => node.id),
+      fixture.expected_ids,
+      fixture.name
+    );
+  }
+
+  view.render(environment.view);
+  const button = (label) => find(environment.view, (element) =>
+    element.tag === 'button' && classSet(element).has('table-sort') && text(element).includes(label));
+  const renderedIDs = () => findAll(environment.view, (element) =>
+    element.tag === 'tr' && !!element.dataset.collectionId).map((element) => element.dataset.collectionId);
+
+  button('连接测速').listeners.click();
+  assert.deepEqual(renderedIDs(), [ 'fast', 'tie', 'slow', 'stale', 'failed', 'missing', 'invalid' ],
+    'first Connection header click defaults to good-to-bad latency');
+  assert.ok(text(button('连接测速')).includes('好 → 坏'));
+  assert.equal(environment.view.querySelector('.collection-drag-handle').disabled, true,
+    'manual ordering is disabled while a display-only sort is active');
+
+  button('连接测速').listeners.click();
+  assert.deepEqual(renderedIDs(), [ 'slow', 'fast', 'tie', 'stale', 'failed', 'missing', 'invalid' ],
+    'second Connection header click reverses ranked metrics only');
+  assert.ok(text(button('连接测速')).includes('坏 → 好'));
+
+  button('下载测速').listeners.click();
+  assert.deepEqual(renderedIDs(), [ 'slow', 'fast', 'tie', 'stale', 'failed', 'missing', 'invalid' ],
+    'switching to Download resets its direction to good-to-bad throughput');
+  button('顺序').listeners.click();
+  assert.deepEqual(renderedIDs(), [ 'slow', 'stale', 'fast', 'failed', 'tie', 'missing', 'invalid' ]);
+  assert.deepEqual(intent.nodes.map((node) => node.id), originalIDs, 'header sorting never reorders Intent nodes');
+  assert.equal(environment.touchCount, 0, 'header sorting never marks the Draft dirty');
 }
 
 function runtimeTestIntent(enabled = true) {
@@ -2196,6 +2244,7 @@ Promise.resolve()
   .then(testSharedCollectionOrderingMovesOnlyTheDraft)
   .then(testSharedCollectionDragCommitsOnceAndCancellationDoesNotMutate)
   .then(testCollectionDragInteractionCommitsOnDropOnly)
+  .then(testNodeDisplaySortingHeadersNeverMutateTheDraft)
   .then(testActualGenerationAndPersistentApplyFixture)
   .then(testSharedProbeDiagnosticsAndDisabledActions)
   .then(testOverviewUsesBoundedBackendWarningGroups)
