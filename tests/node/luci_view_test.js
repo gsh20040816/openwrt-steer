@@ -1559,10 +1559,14 @@ async function main() {
 		.find((option) => option.name == 'node');
 	assert.ok(groupedPicker && groupedPicker.type == 'RichListValue' && groupedPicker.values.some((value) => value[2]?.includes('Jdub')),
 		'Node selectors expose the source subscription as a visual group');
+	assert.equal(groupedPicker.editable, true,
+		'Existing single-node routes render an editable Node selector in GridSection cells');
 	assert.equal(groupedPicker.textvalue('route_proxy'), 'Subscribed',
 		'Route summaries show the node name instead of its internal UCI ID');
 	const routeSection = environment.maps[0].sections.find((section) => section.type == 'GridSection' && section.sectionType == 'route');
 	const detourPicker = routeSection.options.find((option) => option.name == 'detour');
+	assert.equal(detourPicker.editable, true,
+		'Existing single-node routes render an editable Detour selector in GridSection cells');
 	assert.deepEqual(detourPicker.values[0], [ '', 'Direct connection' ],
 		'Detour picker can clear an existing detour and dial the node directly');
 	assert.ok(detourPicker.values.some((value) => value[0] == 'route_proxy' && value[1] == 'route_proxy') &&
