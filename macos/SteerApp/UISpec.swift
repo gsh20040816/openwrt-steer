@@ -166,6 +166,25 @@ struct UICollectionOrderingPolicy: Decodable {
     }
 }
 
+struct UICollectionDragContract: Decodable {
+    let states: [String]
+    let feedback: String
+    let commit: String
+    let cancel: String
+    let fallbackActions: [String]
+    let pointerInputs: [String]
+    let orderingPolicySource: String
+    let singleMutationPerDrop: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case states, feedback, commit, cancel
+        case fallbackActions = "fallback_actions"
+        case pointerInputs = "pointer_inputs"
+        case orderingPolicySource = "ordering_policy_source"
+        case singleMutationPerDrop = "single_mutation_per_drop"
+    }
+}
+
 struct UIObjectReference: Equatable {
     let sourceCollection: String
     let sourceObjectType: String
@@ -306,6 +325,7 @@ struct UIContract: Decodable {
     let ruleConnectionOnlyFields: [String]
     let collectionReferences: [UICollectionReference]
     let collectionOrdering: [String: UICollectionOrderingPolicy]
+    let collectionDrag: UICollectionDragContract
     let domainPrefixes: [String]
     let ipPrefixes: [String]
     let platformCapabilities: [String: UIPlatformCapabilities]
@@ -338,6 +358,7 @@ struct UIContract: Decodable {
         case ruleConnectionOnlyFields = "rule_connection_only_fields"
         case collectionReferences = "collection_references"
         case collectionOrdering = "collection_ordering"
+        case collectionDrag = "collection_drag"
         case domainPrefixes = "domain_prefixes"
         case ipPrefixes = "ip_prefixes"
         case platformCapabilities = "platform_capabilities"

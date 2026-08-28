@@ -528,6 +528,56 @@
 	padding-inline: .45rem;
 }
 
+[data-page^="admin-services-steer-"] .cbi-section-table-row {
+	transition: transform .16s ease, opacity .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+
+[data-page^="admin-services-steer-"] .steer-order-dragging {
+	position: relative;
+	z-index: 3;
+	box-shadow: 0 .6rem 1.5rem color-mix(in srgb, black 24%, transparent);
+}
+
+[data-page^="admin-services-steer-"] .steer-order-placeholder {
+	opacity: .26;
+	outline: 1px dashed var(--steer-route);
+	outline-offset: -2px;
+}
+
+[data-page^="admin-services-steer-"] .steer-order-over-before,
+[data-page^="admin-services-steer-"] .drag-over-above {
+	transform: translateY(.3rem);
+	box-shadow: inset 0 .2rem 0 var(--steer-route);
+}
+
+[data-page^="admin-services-steer-"] .steer-order-over-after,
+[data-page^="admin-services-steer-"] .drag-over-below {
+	transform: translateY(-.3rem);
+	box-shadow: inset 0 -.2rem 0 var(--steer-route);
+}
+
+.touchsort-element.steer-touchsort-whole-row {
+	z-index: 10000;
+	overflow: hidden;
+	box-sizing: border-box;
+	border: 1px solid var(--steer-route);
+	border-radius: .35rem;
+	pointer-events: none;
+}
+
+.touchsort-element.steer-touchsort-whole-row > .cbi-section-table-row {
+	display: table;
+	width: 100%;
+	height: 100%;
+	table-layout: fixed;
+	background: inherit;
+}
+
+.touchsort-element.steer-touchsort-whole-row .steer-order-buttons,
+.touchsort-element.steer-touchsort-whole-row .drag-handle {
+	pointer-events: none;
+}
+
 @media (max-width: 1100px) {
 	.steer-global-status { grid-template-columns: minmax(10rem, 1fr) auto; }
 	.steer-global-status__facts { grid-column: 1 / -1; }

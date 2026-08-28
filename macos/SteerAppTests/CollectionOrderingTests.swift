@@ -34,6 +34,36 @@ final class CollectionOrderingTests: XCTestCase {
         }
     }
 
+    private struct DragDocument: Decodable {
+        let schemaVersion: Int
+        let states: [String]
+        let cases: [DragCase]
+
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion = "schema_version"
+            case states, cases
+        }
+    }
+
+    private struct DragCase: Decodable {
+        let name: String
+        let collection: String
+        let objects: [JSONValue]
+        let sourceID: String
+        let targetID: String
+        let cancel: Bool
+        let expectedIDs: [String]
+        let expectedMutations: Int
+
+        enum CodingKeys: String, CodingKey {
+            case name, collection, objects, cancel
+            case sourceID = "source_id"
+            case targetID = "target_id"
+            case expectedIDs = "expected_ids"
+            case expectedMutations = "expected_mutations"
+        }
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -44,6 +74,11 @@ final class CollectionOrderingTests: XCTestCase {
     private func fixture() throws -> Document {
         let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("ui/collection-ordering-fixtures.json"))
         return try JSONDecoder().decode(Document.self, from: data)
+    }
+
+    private func dragFixture() throws -> DragDocument {
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("ui/collection-drag-fixtures.json"))
+        return try JSONDecoder().decode(DragDocument.self, from: data)
     }
 
     func testSharedCollectionOrderingPoliciesDecode() throws {
@@ -97,5 +132,33 @@ final class CollectionOrderingTests: XCTestCase {
         XCTAssertFalse(model.moveDraftItem(in: "rules", identifiedBy: "default", offset: -1, visibleIDs: testCase.visibleIDs))
         XCTAssertFalse(model.moveDraftItem(in: "rules", identifiedBy: "rule_a", offset: -1, visibleIDs: testCase.visibleIDs))
         XCTAssertFalse(model.isDirty)
+    }
+
+    func testSharedDragContractCommitsOnceAndCancellationDoesNotMutate() throws {
+        let document = try dragFixture()
+        XCTAssertEqual(document.schemaVersion, 1)
+        XCTAssertEqual(document.states, SteerUISpec.contract.collectionDrag.states)
+        XCTAssertEqual(SteerUISpec.contract.collectionDrag.feedback, "whole_row_placeholder")
+        XCTAssertTrue(SteerUISpec.contract.collectionDrag.singleMutationPerDrop)
+
+        for testCase in document.cases {
+            let model = AppModel()
+            var root: [String: JSONValue] = [
+                "main": .object(["schema_version": .number(9), "enabled": .bool(false)]),
+                "bootstrap": .object(["protocol": .string("udp"), "server": .string("1.1.1.1"), "server_port": .number(53)]),
+            ]
+            root[testCase.collection] = .array(testCase.objects)
+            model.rawJSON = String(decoding: try JSONEncoder().encode(JSONValue.object(root)), as: UTF8.self)
+            model.isDirty = false
+
+            let moved = testCase.cancel ? false : model.moveDraftItem(
+                in: testCase.collection,
+                identifiedBy: testCase.sourceID,
+                before: testCase.targetID
+            )
+            XCTAssertEqual(moved, testCase.expectedMutations == 1, testCase.name)
+            XCTAssertEqual(model.draftItems(for: testCase.collection).map(\.identifier), testCase.expectedIDs, testCase.name)
+            XCTAssertEqual(model.isDirty, testCase.expectedMutations == 1, testCase.name)
+        }
     }
 }

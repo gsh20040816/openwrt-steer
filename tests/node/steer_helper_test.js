@@ -37,9 +37,13 @@ function element(tag, attributes, children) {
 		attributes: attributes || {},
 		children: children == null ? [] : (Array.isArray(children) ? children : [ children ]),
 		addEventListener(name, listener) { this.listeners = this.listeners || {}; this.listeners[name] = listener; },
+		append(child) { this.children.push(child); },
 		prepend(child) { this.children.unshift(child); },
 		querySelector(selector) {
-			return findElement(this, (candidate) => selector == 'div' && candidate.tag == 'div');
+			return findElement(this, (candidate) =>
+				(selector == 'div' && candidate.tag == 'div') ||
+				(selector.startsWith('.') && String(candidate.attributes?.class || '').split(/\s+/).includes(selector.slice(1)))
+			);
 		},
 		remove() { this.removed = true; }
 	};
@@ -166,7 +170,11 @@ function loadHelper(runtime) {
 			}
 		}
 	};
-	const window = { setTimeout: (callback) => callback(), location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', reload: () => { runtime.reloaded = true; } } };
+	const window = {
+		setTimeout: (callback) => callback(),
+		requestAnimationFrame: (callback) => callback(),
+		location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', reload: () => { runtime.reloaded = true; } }
+	};
 
 	return new Function('baseclass', 'rpc', 'uci', 'ui', 'uiSpec', 'E', '_', 'L', 'document', 'window', source)(
 		baseclass, rpc, uci, ui, uiSpec, element, translate, L, document, window);
@@ -428,6 +436,35 @@ async function main() {
 	const firstActions = orderedNodeSection.renderRowActions('node_b');
 	assert.equal(findElement(firstActions, (candidate) => candidate.attributes?.['data-steer-order'] == 'up').attributes.disabled, true,
 		'the real LuCI ordering helper disables a move at the visible group boundary');
+	const dragRow = (sectionId, top) => {
+		const classes = new Set();
+		return {
+			getAttribute: (name) => name == 'data-sid' ? sectionId : null,
+			getBoundingClientRect: () => ({ top, left: 0, width: 600, height: 40 }),
+			closest: () => null,
+			contains: () => false,
+			classList: {
+				add: (...names) => names.forEach((name) => classes.add(name)),
+				remove: (...names) => names.forEach((name) => classes.delete(name)),
+				contains: (name) => classes.has(name)
+			}
+		};
+	};
+	const rowA = dragRow('node_a', 40);
+	const rowB = dragRow('node_b', 0);
+	const dataTransfer = { setData() {}, setDragImage() {}, effectAllowed: '', dropEffect: '' };
+	orderedNodeSection.handleDragStart({ dataTransfer, clientX: 10, clientY: 50, preventDefault() {} }, rowA);
+	orderedNodeSection.handleDragOver({
+		currentTarget: rowB, clientY: 5, dataTransfer, preventDefault() {}
+	});
+	orderedNodeSection.handleDrop({ preventDefault() {}, stopPropagation() {} });
+	assert.deepEqual(orderingMoves.at(-1), [ 'steer', 'node_a', 'node_b', false ],
+		'desktop drag and explicit buttons share the same stable-ID UCI move path');
+	assert.deepEqual(nodeOrder, [ 'node_a', 'node_b', 'feed_a' ]);
+	const movesBeforeCancel = orderingMoves.length;
+	orderedNodeSection.handleDragStart({ dataTransfer, clientX: 10, clientY: 10, preventDefault() {} }, rowB);
+	orderedNodeSection.handleDragEnd({}, rowB);
+	assert.equal(orderingMoves.length, movesBeforeCancel, 'a cancelled LuCI drag never mutates pending UCI');
 	delete runtime.uciSections;
 
 	runtime.status = { healthy: true };

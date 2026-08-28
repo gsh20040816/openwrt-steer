@@ -526,10 +526,19 @@ return baseclass.extend({
 		if (!policy) return section;
 		section.sortable = true;
 		const renderRowActions = section.renderRowActions;
+		const nativeTouchMove = section.handleTouchMove;
 		const movable = function(sectionId) {
+			if (section.map?.readonly === true) return false;
 			const object = uci.get('steer', sectionId) || {};
 			if (policy.movable_kinds?.length && !policy.movable_kinds.includes(object.kind)) return false;
 			return !policy.pinned_last_boolean_field || object[policy.pinned_last_boolean_field] != '1';
+		};
+		const compatible = function(sourceId, targetId) {
+			if (!movable(sourceId) || !movable(targetId) || sourceId == targetId) return false;
+			if (!policy.group_field) return true;
+			const source = uci.get('steer', sourceId) || {};
+			const target = uci.get('steer', targetId) || {};
+			return (source[policy.group_field] || '') == (target[policy.group_field] || '');
 		};
 		const peers = function(sectionId) {
 			const source = uci.get('steer', sectionId) || {};
@@ -550,6 +559,128 @@ return baseclass.extend({
 				if (down) down.disabled = section.map?.readonly === true || position < 0 || position >= ids.length - 1;
 			});
 		};
+		const clearDragVisuals = function(table) {
+			Array.from((table || document)?.querySelectorAll?.(
+				'.steer-order-dragging, .steer-order-placeholder, .steer-order-over-before, .steer-order-over-after, .drag-over-above, .drag-over-below'
+			) || []).forEach((row) => row.classList.remove(
+				'steer-order-dragging', 'steer-order-placeholder', 'steer-order-over-before', 'steer-order-over-after',
+				'drag-over-above', 'drag-over-below'
+			));
+		};
+		const moveSection = function(sectionId, targetId, after) {
+			if (!compatible(sectionId, targetId)) return false;
+			const ordered = peers(sectionId);
+			const sourcePosition = ordered.indexOf(sectionId);
+			const targetPosition = ordered.indexOf(targetId);
+			if (sourcePosition < 0 || targetPosition < 0 ||
+				(!after && targetPosition == sourcePosition + 1) ||
+				(after && targetPosition == sourcePosition - 1)) return false;
+			section.map.data.move(section.uciconfig || section.map.config, sectionId, targetId, after === true);
+			const row = document.getElementById('cbi-%s-%s'.format(section.uciconfig || section.map.config, sectionId));
+			const target = document.getElementById('cbi-%s-%s'.format(section.uciconfig || section.map.config, targetId));
+			if (row && target)
+				target.parentNode.insertBefore(row, after ? target.nextElementSibling : target);
+			row?.classList?.add('flash');
+			refreshButtons(row?.closest?.('table'));
+			window.dispatchEvent?.(new Event('steer-uci-state-changed'));
+			return true;
+		};
+
+		let desktopDrag = null;
+		section.handleDragStart = function(ev, row) {
+			const sectionId = row?.getAttribute?.('data-sid');
+			if (!sectionId || !movable(sectionId)) {
+				ev.preventDefault();
+				return false;
+			}
+			desktopDrag = { sectionId: sectionId, row: row, targetRow: null, targetId: '', after: false };
+			ev.dataTransfer.effectAllowed = 'move';
+			ev.dataTransfer.setData('text/plain', sectionId);
+			const rect = row.getBoundingClientRect();
+			ev.dataTransfer.setDragImage?.(row,
+				Math.max(0, Math.min(rect.width, ev.clientX - rect.left)),
+				Math.max(0, Math.min(rect.height, ev.clientY - rect.top)));
+			row.classList.add('steer-order-dragging');
+			window.requestAnimationFrame(() => {
+				if (desktopDrag?.row == row) row.classList.add('steer-order-placeholder');
+			});
+		};
+		section.handleDragEnter = function(ev) {
+			const row = ev.currentTarget;
+			const targetId = row?.getAttribute?.('data-sid');
+			if (!desktopDrag || !compatible(desktopDrag.sectionId, targetId)) return false;
+			desktopDrag.targetRow = row;
+			desktopDrag.targetId = targetId;
+		};
+		section.handleDragOver = function(ev) {
+			const row = ev.currentTarget;
+			const targetId = row?.getAttribute?.('data-sid');
+			if (!desktopDrag || !compatible(desktopDrag.sectionId, targetId)) return false;
+			const rect = row.getBoundingClientRect();
+			const after = ev.clientY >= rect.top + rect.height / 2;
+			desktopDrag.targetRow?.classList?.remove('steer-order-over-before', 'steer-order-over-after');
+			row.classList.add(after ? 'steer-order-over-after' : 'steer-order-over-before');
+			desktopDrag.targetRow = row;
+			desktopDrag.targetId = targetId;
+			desktopDrag.after = after;
+			ev.dataTransfer.dropEffect = 'move';
+			ev.preventDefault();
+			return false;
+		};
+		section.handleDragLeave = function(ev) {
+			if (ev.currentTarget?.contains?.(ev.relatedTarget)) return;
+			ev.currentTarget?.classList?.remove('steer-order-over-before', 'steer-order-over-after');
+		};
+		section.handleDrop = function(ev) {
+			if (!desktopDrag) return false;
+			moveSection(desktopDrag.sectionId, desktopDrag.targetId, desktopDrag.after);
+			clearDragVisuals(desktopDrag.row?.closest?.('table'));
+			desktopDrag = null;
+			ev.stopPropagation();
+			ev.preventDefault();
+			return false;
+		};
+		section.handleDragEnd = function(_ev, row) {
+			clearDragVisuals(row?.closest?.('table'));
+			desktopDrag = null;
+		};
+		section.handleTouchMove = function(ev) {
+			const row = ev.target?.closest?.('.tr');
+			const sectionId = row?.getAttribute?.('data-sid');
+			if (!sectionId || !movable(sectionId)) return;
+			const result = nativeTouchMove.call(this, ev);
+			const preview = document.querySelector('.touchsort-element');
+			if (preview && !preview.classList.contains('steer-touchsort-whole-row')) {
+				const clone = row.cloneNode(true);
+				clone.removeAttribute('id');
+				clone.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+				clone.querySelectorAll('button, input, select, textarea, a').forEach((element) => {
+					element.disabled = true;
+					element.removeAttribute('href');
+				});
+				preview.replaceChildren(clone);
+				preview.classList.add('steer-touchsort-whole-row');
+				preview.style.height = `${row.getBoundingClientRect().height}px`;
+				row.classList.add('steer-order-placeholder');
+			}
+			return result;
+		};
+		section.handleTouchEnd = function(ev) {
+			const row = ev.target?.closest?.('.tr');
+			const table = row?.closest?.('table');
+			const target = table?.querySelector?.('.drag-over-above, .drag-over-below');
+			if (row && target)
+				moveSection(row.getAttribute('data-sid'), target.getAttribute('data-sid'), target.classList.contains('drag-over-below'));
+			document.querySelector('.touchsort-element')?.remove();
+			clearDragVisuals(table);
+			ev.stopPropagation();
+			ev.preventDefault();
+		};
+		section.handleTouchCancel = function(ev) {
+			const row = ev.target?.closest?.('.tr');
+			document.querySelector('.touchsort-element')?.remove();
+			clearDragVisuals(row?.closest?.('table'));
+		};
 		section.renderRowActions = function(sectionId) {
 			let cell = options?.baseActions === false ? null : renderRowActions.call(this, sectionId);
 			let container = cell?.querySelector?.('div');
@@ -566,15 +697,27 @@ return baseclass.extend({
 				const index = current.indexOf(sectionId);
 				const targetId = current[index + offset];
 				if (!targetId || !movable(sectionId)) return;
-				this.map.data.move(this.uciconfig || this.map.config, sectionId, targetId, offset > 0);
-				const row = document.getElementById('cbi-%s-%s'.format(this.uciconfig || this.map.config, sectionId));
-				const target = document.getElementById('cbi-%s-%s'.format(this.uciconfig || this.map.config, targetId));
-				if (row && target)
-					target.parentNode.insertBefore(row, offset < 0 ? target : target.nextElementSibling);
-				row?.classList?.add('flash');
-				refreshButtons(row?.closest?.('table'));
-				window.dispatchEvent?.(new Event('steer-uci-state-changed'));
+				moveSection(sectionId, targetId, offset > 0);
 			};
+			if (!container.querySelector('.drag-handle')) {
+				const touchSort = 'ontouchstart' in window;
+				container.append(E('button', {
+					'class': 'cbi-button drag-handle center', 'type': 'button', 'title': _('Drag to reorder'),
+					'disabled': this.map?.readonly === true,
+					'draggable': !touchSort && this.map?.readonly !== true,
+					'dragstart': !touchSort ? (ev) => this.handleDragStart(ev, ev.currentTarget.closest('.tr')) : null,
+					'dragend': !touchSort ? (ev) => this.handleDragEnd(ev, ev.currentTarget.closest('.tr')) : null,
+					'touchmove': touchSort ? (ev) => this.handleTouchMove(ev) : null,
+					'touchend': touchSort ? (ev) => this.handleTouchEnd(ev) : null,
+					'touchcancel': touchSort ? (ev) => this.handleTouchCancel(ev) : null
+				}, '☰'));
+			}
+			else {
+				const dragHandle = container.querySelector('.drag-handle');
+				dragHandle.disabled = this.map?.readonly === true;
+				if (this.map?.readonly === true) dragHandle.draggable = false;
+				dragHandle.addEventListener('touchcancel', (ev) => this.handleTouchCancel(ev));
+			}
 			container.prepend(E('span', { 'class': 'steer-order-buttons' }, [
 				E('button', {
 					'class': 'btn cbi-button-neutral', 'type': 'button', 'data-steer-order': 'up',

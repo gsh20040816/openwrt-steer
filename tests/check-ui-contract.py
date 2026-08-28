@@ -65,6 +65,9 @@ creation_policy_fixtures = json.loads(
 collection_ordering_fixtures = json.loads(
     (ROOT / "ui/collection-ordering-fixtures.json").read_text()
 )
+collection_drag_fixtures = json.loads(
+    (ROOT / "ui/collection-drag-fixtures.json").read_text()
+)
 for name, fixture in {
     "validation issue": validation_issue_fixtures,
     "collection reference": collection_reference_fixtures,
@@ -101,6 +104,19 @@ if ordering["routes"].get("movable_kinds") != ["single"]:
     raise SystemExit("check-ui-contract: system Route ordering boundary drift")
 if ordering["rules"].get("pinned_last_boolean_field") != "default":
     raise SystemExit("check-ui-contract: Default ordering boundary drift")
+drag = contract.get("collection_drag", {})
+if (
+    collection_drag_fixtures.get("schema_version") != 1
+    or drag.get("states") != collection_drag_fixtures.get("states")
+    or drag.get("feedback") != "whole_row_placeholder"
+    or drag.get("commit") != "draft_move_on_drop"
+    or drag.get("cancel") != "restore_without_mutation"
+    or drag.get("fallback_actions") != ["up", "down"]
+    or set(drag.get("pointer_inputs", [])) != {"mouse", "touch", "pen"}
+    or drag.get("ordering_policy_source") != "collection_ordering"
+    or drag.get("single_mutation_per_drop") is not True
+):
+    raise SystemExit("check-ui-contract: collection drag lifecycle drift")
 id_policy = contract.get("id_policy", {})
 if not id_policy.get("auto_generate") or id_policy.get("max_length") != 32:
     raise SystemExit("check-ui-contract: automatic ID policy is missing")
@@ -438,6 +454,14 @@ ordering_fixture_consumers = (
 for consumer in ordering_fixture_consumers:
     require((ROOT / consumer).read_text(), "collection-ordering-fixtures.json", consumer)
 
+drag_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/CollectionOrderingTests.swift",
+)
+for consumer in drag_fixture_consumers:
+    require((ROOT / consumer).read_text(), "collection-drag-fixtures.json", consumer)
+
 require((ROOT / "go/cmd/steer-linux/web/js/store.js").read_text(), "collection_ordering", "Linux ordering store")
 for view in ("nodes", "routes", "dns", "proxies", "rules", "subscriptions"):
     source = (ROOT / f"go/cmd/steer-linux/web/js/views/{view}.js").read_text()
@@ -454,6 +478,12 @@ for view in ("dns", "local-proxies", "nodes", "rules"):
 macos_content = (ROOT / "macos/SteerApp/ContentView.swift").read_text()
 require(macos_content, "orderingPolicy", "macOS shared ordering policy")
 require(macos_content, "moveSelected", "macOS ordering controls")
+require(linux_ui, "collectionDragHandle", "Linux whole-row drag controls")
+require((ROOT / "go/cmd/steer-linux/web/js/store.js").read_text(), "moveCollectionItemTo", "Linux shared drop mutation")
+require(luci_helper, "steer-touchsort-whole-row", "LuCI whole-row touch preview")
+require(luci_helper, "handleTouchCancel", "LuCI touch cancellation")
+require(macos_content, "dragProvider", "macOS native row drag")
+require(macos_content, ".snappy(duration: 0.16)", "macOS native move animation")
 
 require(linux_ui, "creationDraft", "Linux automatic creation policy")
 require(linux_ui, "referenceOptions", "Linux disambiguated references")

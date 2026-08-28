@@ -392,7 +392,7 @@
       }, h('span', {}, g.label), h('span', { class: 'count' }, String(g.count)))));
 
       const table = h('table', { class: 'table' }, [
-        h('thead', {}, h('tr', {}, ['状态', '节点', '协议', '端点', '测试', '操作'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['顺序', '状态', '节点', '协议', '端点', '测试', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, nodes.map((node) => {
           const eligible = node.enabled !== false;
           const conn = testButton('连接', false, node.id, eligible);
@@ -409,6 +409,7 @@
           return h('tr', ui.collectionRowAttributes(
             'nodes', node, nodes, () => view.render(root), node.enabled === false ? 'is-disabled' : ''
           ), [
+            h('td', { class: 'collection-drag-column' }, ui.collectionDragHandle('nodes', node, nodes, () => view.render(root))),
             h('td', {}, (() => {
               const enabled = ui.toggle(node.enabled, (v) => { node.enabled = v; S.store.touch(); view.render(root); });
               enabled.disabled = !editable;

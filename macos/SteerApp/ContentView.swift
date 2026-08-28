@@ -897,7 +897,7 @@ struct DraftCollectionView: View {
                 ForEach(items) { item in
                     TableRow(item)
                         .itemProvider {
-                            descriptor.ordered && isMovable(item) ? NSItemProvider(object: item.id as NSString) : nil
+                            dragProvider(for: item)
                         }
                 }
                 .dropDestination(for: String.self) { destination, identifiers in
@@ -905,6 +905,7 @@ struct DraftCollectionView: View {
                 }
             }
             .disabled(!model.canEditDraft || model.draftSyntaxError != nil)
+            .animation(.snappy(duration: 0.16), value: items.map(\.id))
             .overlay {
                 if let syntaxError = model.draftSyntaxError {
                     VStack(spacing: 9) {
@@ -1083,6 +1084,15 @@ struct DraftCollectionView: View {
         return "此项目不可移动"
     }
 
+    private func dragProvider(for item: DraftItem) -> NSItemProvider? {
+        let contract = SteerUISpec.contract.collectionDrag
+        guard descriptor.ordered, isMovable(item),
+              contract.feedback == "whole_row_placeholder",
+              contract.singleMutationPerDrop,
+              contract.orderingPolicySource == "collection_ordering" else { return nil }
+        return NSItemProvider(object: item.id as NSString)
+    }
+
     private func addItem() {
         if descriptor.key == "nodes" { selectedNodeGroup = "_manual" }
         guard let object = model.newDraftItemObject(for: descriptor.key) else { return }
@@ -1144,11 +1154,14 @@ struct DraftCollectionView: View {
               let source = items.first(where: { $0.id == identifier }), isMovable(source) else { return }
         let candidates = Array(items.dropFirst(min(destination, items.count)))
         let target = candidates.first(where: { $0.id != source.id && isMovable($0) })
-        _ = model.moveDraftItem(
-            in: descriptor.key,
-            identifiedBy: source.identifier,
-            before: target?.identifier
-        )
+        withAnimation(.snappy(duration: 0.16)) {
+            _ = model.moveDraftItem(
+                in: descriptor.key,
+                identifiedBy: source.identifier,
+                before: target?.identifier
+            )
+            selection = source.id
+        }
     }
 
     private func isRequiredDirect(_ item: DraftItem) -> Bool {

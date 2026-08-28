@@ -132,11 +132,33 @@
       const position = peers.findIndex((item) => item[idField] === itemID);
       const target = peers[position + offset];
       if (position < 0 || !target) return false;
+      return store.moveCollectionItemTo(collection, itemID, target[idField], offset > 0, visibleIDs);
+    },
+    moveCollectionItemTo(collection, itemID, targetID, after, visibleIDs) {
+      const policy = S.uiSpec.collection_ordering?.[collection];
+      const values = intent?.[collection];
+      if (!policy || !Array.isArray(values) || !itemID || !targetID || itemID === targetID) return false;
+      const idField = policy.stable_id_field || 'id';
+      const source = values.find((item) => item?.[idField] === itemID);
+      const target = values.find((item) => item?.[idField] === targetID);
+      const movable = (item) => item &&
+        (!policy.movable_kinds?.length || policy.movable_kinds.includes(item.kind)) &&
+        (!policy.pinned_last_boolean_field || item[policy.pinned_last_boolean_field] !== true);
+      if (!movable(source) || !movable(target)) return false;
+      const sourceGroup = policy.group_field ? (source[policy.group_field] || '') : '';
+      if (policy.group_field && (target[policy.group_field] || '') !== sourceGroup) return false;
+      const allowedIDs = new Set(Array.isArray(visibleIDs) ? visibleIDs : values.map((item) => item?.[idField]));
+      if (!allowedIDs.has(itemID) || !allowedIDs.has(targetID)) return false;
       const sourceIndex = values.indexOf(source);
       let targetIndex = values.indexOf(target);
       values.splice(sourceIndex, 1);
       if (sourceIndex < targetIndex) targetIndex--;
-      values.splice(offset < 0 ? targetIndex : targetIndex + 1, 0, source);
+      const insertIndex = targetIndex + (after ? 1 : 0);
+      if (insertIndex === sourceIndex) {
+        values.splice(sourceIndex, 0, source);
+        return false;
+      }
+      values.splice(insertIndex, 0, source);
       store.touch();
       return true;
     },

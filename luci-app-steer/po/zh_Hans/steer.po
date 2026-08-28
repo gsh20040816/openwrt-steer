@@ -612,6 +612,9 @@ msgstr "上移"
 msgid "Move down"
 msgstr "下移"
 
+msgid "Drag to reorder"
+msgstr "拖动整行调整顺序"
+
 msgid "Import into pending configuration"
 msgstr "导入到待保存配置"
 
