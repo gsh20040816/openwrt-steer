@@ -148,10 +148,9 @@
     const rowAttributes = ui.collectionRowAttributes(
       'rules', rule, ordered, () => view.render(root), `rule-row ${rule.enabled === false ? 'is-disabled' : ''}`
     );
-    rowAttributes.draggable = 'true';
-    rowAttributes.dataset = { ruleId: rule.id };
+    rowAttributes.dataset = { ...rowAttributes.dataset, ruleId: rule.id };
     const row = h('div', rowAttributes, [
-      h('span', { class: 'grip', title: '拖拽排序' }, '⠿'),
+      ui.collectionDragHandle('rules', rule, ordered, () => view.render(root)),
       h('span', { class: 'rule-row__order' }, String(index + 1).padStart(2, '0')),
       h('div', { class: 'rule-row__name' }, h('strong', {}, rule.name || (rule.default ? 'Default' : rule.id)), h('span', { class: 'rule-row__summary' }, summary(rule))),
       h('div', { class: 'rule-row__intent' }, [
@@ -169,32 +168,6 @@
         } }, '删除')
       ])
     ]);
-    row.addEventListener('dragstart', (e) => {
-      row.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', rule.id);
-    });
-    row.addEventListener('dragend', () => { row.classList.remove('dragging'); document.querySelectorAll('.rule-row').forEach((r) => r.classList.remove('drag-over')); });
-    row.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      row.classList.add('drag-over');
-    });
-    row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
-    row.addEventListener('drop', (e) => {
-      e.preventDefault();
-      row.classList.remove('drag-over');
-      const fromId = e.dataTransfer.getData('text/plain');
-      if (!fromId || fromId === rule.id) return;
-      const rules = S.store.intent.rules;
-      const from = rules.findIndex((r) => r.id === fromId);
-      const to = rules.findIndex((r) => r.id === rule.id);
-      if (from < 0 || to < 0 || rules[from].default || rules[to].default) return;
-      const [moved] = rules.splice(from, 1);
-      rules.splice(to, 0, moved);
-      S.store.touch();
-      ui.toast('规则顺序已调整 · 未保存', 'info');
-      view.render(document.querySelector('#view'));
-    });
     return row;
   }
 

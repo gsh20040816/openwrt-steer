@@ -87,6 +87,21 @@ type CollectionOrderingPolicy struct {
 	SourceOwnedRefresh     string   `json:"source_owned_refresh,omitempty"`
 }
 
+// CollectionDragContract defines the shared lifecycle for native row drag
+// interactions. Platform frontends own gesture and animation details, while
+// every completed drop reuses CollectionOrdering and every cancellation is a
+// no-op against the current working copy.
+type CollectionDragContract struct {
+	States                []string `json:"states"`
+	Feedback              string   `json:"feedback"`
+	Commit                string   `json:"commit"`
+	Cancel                string   `json:"cancel"`
+	FallbackActions       []string `json:"fallback_actions"`
+	PointerInputs         []string `json:"pointer_inputs"`
+	OrderingPolicySource  string   `json:"ordering_policy_source"`
+	SingleMutationPerDrop bool     `json:"single_mutation_per_drop"`
+}
+
 type NavigationItem struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
@@ -173,6 +188,7 @@ type Contract struct {
 	RuleConnectionOnlyFields          []string                            `json:"rule_connection_only_fields"`
 	CollectionReferences              []CollectionReference               `json:"collection_references"`
 	CollectionOrdering                map[string]CollectionOrderingPolicy `json:"collection_ordering"`
+	CollectionDrag                    CollectionDragContract              `json:"collection_drag"`
 	DomainPrefixes                    []string                            `json:"domain_prefixes"`
 	IPPrefixes                        []string                            `json:"ip_prefixes"`
 	PlatformCapabilities              map[string]PlatformCapabilities     `json:"platform_capabilities"`
@@ -261,6 +277,16 @@ func ContractValue() Contract {
 				StableIDField: "id", MoveActions: []string{"up", "down"}, PinnedLastBooleanField: "default",
 			},
 			"subscriptions": {StableIDField: "id", MoveActions: []string{"up", "down"}},
+		},
+		CollectionDrag: CollectionDragContract{
+			States:                []string{"idle", "dragging", "over", "cancelled", "committed"},
+			Feedback:              "whole_row_placeholder",
+			Commit:                "draft_move_on_drop",
+			Cancel:                "restore_without_mutation",
+			FallbackActions:       []string{"up", "down"},
+			PointerInputs:         []string{"mouse", "touch", "pen"},
+			OrderingPolicySource:  "collection_ordering",
+			SingleMutationPerDrop: true,
 		},
 		InputFormats: map[string]InputFormat{
 			"probe_url":         {Kind: "url", Schemes: []string{"https"}, Absolute: true, ForbidCredentials: true, ForbidFragment: true},

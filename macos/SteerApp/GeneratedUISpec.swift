@@ -1339,6 +1339,29 @@ enum GeneratedUISpec {
       ]
     }
   },
+  "collection_drag": {
+    "states": [
+      "idle",
+      "dragging",
+      "over",
+      "cancelled",
+      "committed"
+    ],
+    "feedback": "whole_row_placeholder",
+    "commit": "draft_move_on_drop",
+    "cancel": "restore_without_mutation",
+    "fallback_actions": [
+      "up",
+      "down"
+    ],
+    "pointer_inputs": [
+      "mouse",
+      "touch",
+      "pen"
+    ],
+    "ordering_policy_source": "collection_ordering",
+    "single_mutation_per_drop": true
+  },
   "domain_prefixes": [
     "full:",
     "domain:",

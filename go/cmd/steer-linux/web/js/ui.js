@@ -11,6 +11,19 @@
   let routeSequence = 0;
   let enabledToggleBusy = false;
   const collectionSelections = new Map();
+  let collectionDragState = null;
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !collectionDragState) return;
+    event.preventDefault();
+    cancelCollectionDrag();
+  });
+  document.addEventListener('mouseup', (event) => {
+    if (collectionDragState?.input !== 'mouse') return;
+    updateCollectionDropTargetFromPoint(collectionDragState, event);
+    commitCollectionDrag();
+  });
+  window.addEventListener('blur', () => cancelCollectionDrag());
 
   function disposeRender(root) {
     const lifecycle = renderLifecycles.get(root);
@@ -887,13 +900,169 @@
     else collectionSelections.delete(collection);
   }
 
+  function collectionDragCompatible(state, item) {
+    if (!state || !collectionItemMovable(state.collection, item)) return false;
+    const policy = S.uiSpec.collection_ordering?.[state.collection];
+    if (!policy?.group_field) return true;
+    const source = state.items.find((candidate) => candidate.id === state.itemID);
+    return (source?.[policy.group_field] || '') === (item?.[policy.group_field] || '');
+  }
+
+  function clearCollectionDragVisuals(state = collectionDragState) {
+    const scope = state?.sourceRow?.parentElement || document;
+    Array.from(scope?.querySelectorAll?.('.is-dragging, .is-placeholder, .is-drop-before, .is-drop-after') || [])
+      .forEach((row) => row.classList.remove('is-dragging', 'is-placeholder', 'is-drop-before', 'is-drop-after'));
+    state?.sourceRow?.classList?.remove('is-dragging', 'is-placeholder');
+    state?.handle?.setAttribute?.('aria-grabbed', 'false');
+    state?.preview?.remove?.();
+  }
+
+  function cancelCollectionDrag() {
+    clearCollectionDragVisuals();
+    collectionDragState = null;
+  }
+
+  function markCollectionDropTarget(state, row, item, after) {
+    if (!collectionDragCompatible(state, item) || item.id === state.itemID) {
+      state.targetRow?.classList?.remove('is-drop-before', 'is-drop-after');
+      state.targetRow = null;
+      state.targetID = '';
+      return false;
+    }
+    if (state.targetRow !== row)
+      state.targetRow?.classList?.remove('is-drop-before', 'is-drop-after');
+    row.classList.remove('is-drop-before', 'is-drop-after');
+    row.classList.add(after ? 'is-drop-after' : 'is-drop-before');
+    state.targetRow = row;
+    state.targetID = item.id;
+    state.after = after;
+    return true;
+  }
+
+  function updateCollectionDropTargetFromPoint(state, event) {
+    const row = document.elementFromPoint?.(event.clientX, event.clientY)?.closest?.('[data-collection-id]');
+    const target = row && state.items.find((candidate) => candidate.id === row.dataset.collectionId);
+    if (target) {
+      const rect = row.getBoundingClientRect();
+      markCollectionDropTarget(state, row, target, event.clientY >= rect.top + rect.height / 2);
+      return;
+    }
+    state.targetRow?.classList?.remove('is-drop-before', 'is-drop-after');
+    state.targetRow = null;
+    state.targetID = '';
+  }
+
+  function orderingToast(collection) {
+    const labels = {
+      nodes: '节点', routes: '路由', dns_profiles: 'DNS Profile', local_proxies: '本地代理',
+      rules: '规则', subscriptions: '订阅'
+    };
+    toast(`${labels[collection] || '项目'}顺序已调整 · 未保存`, 'info');
+  }
+
+  function commitCollectionDrag() {
+    const state = collectionDragState;
+    if (!state?.targetID) {
+      cancelCollectionDrag();
+      return false;
+    }
+    const moved = S.store.moveCollectionItemTo(
+      state.collection, state.itemID, state.targetID, state.after, state.visibleIDs
+    );
+    clearCollectionDragVisuals(state);
+    collectionDragState = null;
+    if (!moved) return false;
+    selectCollectionItem(state.collection, state.itemID);
+    orderingToast(state.collection);
+    state.rerender();
+    return true;
+  }
+
+  function startCollectionDrag(collection, item, items, rerender, row, handle, event) {
+    if (!collectionItemMovable(collection, item) || !row) return false;
+    cancelCollectionDrag();
+    selectCollectionItem(collection, item.id);
+    row.classList.add('is-selected', 'is-dragging');
+    row.setAttribute?.('aria-selected', 'true');
+    handle?.setAttribute?.('aria-grabbed', 'true');
+    const rect = row.getBoundingClientRect();
+    const previewRow = row.cloneNode(true);
+    previewRow.removeAttribute('draggable');
+    previewRow.querySelectorAll?.('[id]').forEach((element) => element.removeAttribute('id'));
+    const preview = h('div', { class: 'collection-drag-preview', 'aria-hidden': 'true' }, previewRow);
+    Object.assign(preview.style, {
+      left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`
+    });
+    document.body.append(preview);
+    collectionDragState = {
+      collection, itemID: item.id, items: asList(items),
+      visibleIDs: asList(items).map((candidate) => candidate.id),
+      rerender, sourceRow: row, handle, input: event.pointerType || 'mouse', preview,
+      grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top,
+      targetRow: null, targetID: '', after: false
+    };
+    requestAnimationFrame(() => {
+      if (collectionDragState?.sourceRow === row) row.classList.add('is-placeholder');
+    });
+    return true;
+  }
+
+  function collectionDragHandle(collection, item, items, rerender) {
+    const movable = collectionItemMovable(collection, item);
+    const label = item.name || item.id;
+    return h('button', {
+      class: 'collection-drag-handle', type: 'button',
+      disabled: !movable,
+      title: movable ? '拖动整行调整工作副本顺序' : '此项目顺序固定',
+      'aria-label': movable ? `拖动 ${label} 调整顺序` : `${label} 顺序固定`,
+      'aria-grabbed': 'false',
+      onclick: (event) => { event.preventDefault(); event.stopPropagation(); },
+      onpointerdown: (event) => {
+        if (!movable || event.button > 0) return;
+        const row = event.currentTarget.closest?.('[data-collection-id]');
+        if (!startCollectionDrag(collection, item, items, rerender, row, event.currentTarget, event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      },
+      onpointermove: (event) => {
+        const state = collectionDragState;
+        if (!state || state.handle !== event.currentTarget) return;
+        event.preventDefault();
+        if (state.preview) {
+          state.preview.style.left = `${event.clientX - state.grabOffsetX}px`;
+          state.preview.style.top = `${event.clientY - state.grabOffsetY}px`;
+        }
+        updateCollectionDropTargetFromPoint(state, event);
+        const edge = 48;
+        if (event.clientY < edge) window.scrollBy?.({ top: -18, behavior: 'auto' });
+        else if (event.clientY > (window.innerHeight || 0) - edge) window.scrollBy?.({ top: 18, behavior: 'auto' });
+      },
+      onpointerup: (event) => {
+        const state = collectionDragState;
+        if (!state || state.handle !== event.currentTarget) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+        updateCollectionDropTargetFromPoint(state, event);
+        commitCollectionDrag();
+      },
+      onpointercancel: (event) => {
+        if (collectionDragState?.handle !== event.currentTarget) return;
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+        cancelCollectionDrag();
+      }
+    }, '⠿');
+  }
+
   function collectionRowAttributes(collection, item, items, rerender, baseClass = '') {
     const selected = selectedCollectionID(collection, items) === item.id;
     return {
       class: [baseClass, 'entity-row', selected ? 'is-selected' : ''].filter(Boolean).join(' '),
+      dataset: { collection, collectionId: item.id },
       'aria-selected': String(selected),
       onclick: (event) => {
-        if (event.target?.closest?.('button, input, select, textarea, a')) return;
+        if (event.target?.closest?.('button, input, select, textarea, a') || collectionDragState) return;
         selectCollectionItem(collection, item.id);
         rerender();
       }
@@ -974,5 +1143,5 @@
     });
   }
 
-  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, multiChoice, toggle, toggleRow, chips, matchEditor, issueList, viewHead, collectionItemMovable, selectedCollectionID, selectCollectionItem, collectionRowAttributes, collectionOrderToolbar, selectWithMissing, creationDraft, referenceOptions, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject, takeObjectFocus, focusDrawerOption, collectionReferences, guardCollectionDeletion } });
+  Object.assign(S, { ui: { beginRender, beginRoute, isCurrentRoute, renderShell, renderStatusStrip, toast, dialog, conflictDialog, drawer, field, input, textarea, select, multiChoice, toggle, toggleRow, chips, matchEditor, issueList, viewHead, collectionItemMovable, selectedCollectionID, selectCollectionItem, collectionDragHandle, collectionRowAttributes, collectionOrderToolbar, selectWithMissing, creationDraft, referenceOptions, classifyLocalProxyListen, applyRecord, applyTime, generationLabel, onValidate, onSave, onDiscard, onToggleEnabled, onRefreshState, jumpToObject, takeObjectFocus, focusDrawerOption, collectionReferences, guardCollectionDeletion } });
 })();

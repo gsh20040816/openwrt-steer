@@ -18,6 +18,7 @@ const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-
 const formInputFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/form-input-fixtures.json'), 'utf8'));
 const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
 const collectionOrderingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-ordering-fixtures.json'), 'utf8'));
+const collectionDragFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-drag-fixtures.json'), 'utf8'));
 
 class Element {
   constructor(tag) {
@@ -25,6 +26,7 @@ class Element {
     this.children = [];
     this.attributes = {};
     this.dataset = {};
+    this.style = {};
     this.listeners = {};
     this.className = '';
     this.value = '';
@@ -44,11 +46,15 @@ class Element {
 
   setClasses(names) { this.className = [...new Set(names.filter(Boolean))].join(' '); }
   append(...children) {
-    this.children.push(...children.flat(Infinity).filter((child) => child != null));
+    const values = children.flat(Infinity).filter((child) => child != null);
+    values.forEach((child) => { if (child instanceof Element) child.parentElement = this; });
+    this.children.push(...values);
     this.syncSelectValue();
   }
   replaceChildren(...children) {
+    this.children.forEach((child) => { if (child instanceof Element) child.parentElement = null; });
     this.children = children.flat(Infinity).filter((child) => child != null);
+    this.children.forEach((child) => { if (child instanceof Element) child.parentElement = this; });
     this.syncSelectValue();
   }
   setAttribute(name, value) {
@@ -60,11 +66,31 @@ class Element {
     if (name === 'hidden') this.hidden = true;
   }
   getAttribute(name) { return this.attributes[name]; }
+  removeAttribute(name) { delete this.attributes[name]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   removeEventListener() {}
   remove() { this.removed = true; }
   focus() {}
   setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
+  contains(candidate) {
+    for (let current = candidate; current; current = current.parentElement) if (current === this) return true;
+    return false;
+  }
+  closest(selector) {
+    for (let current = this; current; current = current.parentElement) if (matches(current, selector)) return current;
+    return null;
+  }
+  getBoundingClientRect() { return this.rect || { top: 0, left: 0, width: 600, height: 40, bottom: 40, right: 600 }; }
+  cloneNode(deep = false) {
+    const clone = new Element(this.tag);
+    clone.attributes = { ...this.attributes };
+    clone.dataset = { ...this.dataset };
+    clone.style = { ...this.style };
+    clone.className = this.className;
+    clone.value = this.value;
+    if (deep) clone.append(...this.children.map((child) => child instanceof Element ? child.cloneNode(true) : child));
+    return clone;
+  }
 
   syncSelectValue() {
     if (this.tag !== 'select') return;
@@ -85,9 +111,11 @@ function classSet(element) {
 }
 
 function matches(element, selector) {
+  if (selector.includes(',')) return selector.split(',').some((part) => matches(element, part.trim()));
   const simple = selector.trim().split(/\s+/).pop();
   if (simple.startsWith('.')) return simple.slice(1).split('.').every((name) => classSet(element).has(name));
   if (simple.startsWith('#')) return element.attributes.id === simple.slice(1);
+  if (simple === '[data-collection-id]') return !!element.dataset.collectionId;
   return element.tag === simple;
 }
 
@@ -304,6 +332,7 @@ function createRulesEnvironment(intent) {
     collectionRowAttributes: (_collection, item, _items, _rerender, baseClass) => ({
       class: `${baseClass || ''} entity-row`, dataset: { ruleId: item.id }
     }),
+    collectionDragHandle: () => h('button', { class: 'collection-drag-handle' }, '⠿'),
     collectionOrderToolbar: () => h('div', {}, [
       h('button', { disabled: true }, '上移'), h('button', { disabled: true }, '下移')
     ]),
@@ -876,6 +905,101 @@ async function testSharedCollectionOrderingMovesOnlyTheDraft() {
   assert.strictEqual(S.store.moveCollectionItem('rules', 'default', -1, rules.visible_ids), false);
   assert.strictEqual(S.store.moveCollectionItem('rules', 'rule_a', -1, rules.visible_ids), false);
   assert.strictEqual(S.store.dirty, false, 'pinned and boundary moves do not dirty the Draft');
+}
+
+async function testSharedCollectionDragCommitsOnceAndCancellationDoesNotMutate() {
+  assert.deepEqual(uiSpec.collection_drag.states, collectionDragFixtures.states);
+  assert.equal(uiSpec.collection_drag.feedback, 'whole_row_placeholder');
+  for (const fixture of collectionDragFixtures.cases) {
+    const intent = runtimeTestIntent();
+    intent[fixture.collection] = JSON.parse(JSON.stringify(fixture.objects));
+    const S = {
+      uiSpec,
+      api: {
+        async config() { return { intent, revision: 'revision-drag' }; },
+        async overview() { return {}; },
+        async runtime() { return {}; }
+      }
+    };
+    new Function('window', fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/store.js'), 'utf8'))({ S });
+    await S.store.init();
+    const beforeEpoch = S.store.draftEpoch;
+    const moved = fixture.cancel ? false : S.store.moveCollectionItemTo(
+      fixture.collection, fixture.source_id, fixture.target_id, fixture.after, fixture.visible_ids
+    );
+    assert.equal(moved, fixture.expected_mutations === 1, fixture.name);
+    assert.deepEqual(S.store.intent[fixture.collection].map((item) => item.id), fixture.expected_ids, fixture.name);
+    assert.equal(S.store.draftEpoch - beforeEpoch, fixture.expected_mutations,
+      `${fixture.name} must commit at most one Draft mutation`);
+  }
+}
+
+async function testCollectionDragInteractionCommitsOnDropOnly() {
+  const environment = createEnvironment(async () => ({ ok: true }), runtimeTestIntent());
+  const items = [ { id: 'node_a', name: 'Node A' }, { id: 'node_b', name: 'Node B' } ];
+  const moveCalls = [];
+  let rerenders = 0;
+  environment.S.store.moveCollectionItemTo = (...args) => { moveCalls.push(args); return true; };
+  const rerender = () => { rerenders++; };
+  const makeRow = (item, top) => {
+    const row = environment.S.h('tr', environment.S.ui.collectionRowAttributes('nodes', item, items, rerender), [
+      environment.S.h('td', {}, environment.S.ui.collectionDragHandle('nodes', item, items, rerender))
+    ]);
+    row.rect = { top, left: 0, width: 600, height: 40, bottom: top + 40, right: 600 };
+    return row;
+  };
+  const rowA = makeRow(items[0], 0);
+  const rowB = makeRow(items[1], 40);
+  environment.view.append(rowA, rowB);
+  const handleB = rowB.querySelector('.collection-drag-handle');
+  const preventDefault = () => {};
+  const stopPropagation = () => {};
+  environment.document.elementFromPoint = () => rowA;
+
+  handleB.listeners.pointerdown({
+    button: 0, pointerType: 'mouse', pointerId: 1, currentTarget: handleB,
+    clientX: 10, clientY: 50, preventDefault, stopPropagation
+  });
+  assert.ok(classSet(rowB).has('is-placeholder'), 'desktop drag keeps a full-row placeholder');
+  handleB.listeners.pointermove({
+    pointerType: 'mouse', pointerId: 1, currentTarget: handleB, clientX: 20, clientY: 5, preventDefault
+  });
+  assert.ok(classSet(rowA).has('is-drop-before'), 'desktop drag exposes the target insertion edge');
+  handleB.listeners.pointerup({
+    pointerType: 'mouse', pointerId: 1, currentTarget: handleB, preventDefault, stopPropagation
+  });
+  assert.deepEqual(moveCalls, [ [ 'nodes', 'node_b', 'node_a', false, [ 'node_a', 'node_b' ] ] ]);
+  assert.equal(rerenders, 1, 'desktop drop rerenders exactly once after one Draft mutation');
+
+  handleB.listeners.pointerdown({
+    button: 0, pointerType: 'mouse', pointerId: 2, currentTarget: handleB,
+    clientX: 10, clientY: 50, preventDefault, stopPropagation
+  });
+  await environment.dispatchDocument('keydown', { key: 'Escape', preventDefault });
+  assert.equal(moveCalls.length, 1, 'desktop Escape cancellation does not mutate the Draft');
+
+  handleB.listeners.pointerdown({
+    button: 0, pointerType: 'touch', pointerId: 7, currentTarget: handleB,
+    clientX: 10, clientY: 50, preventDefault, stopPropagation
+  });
+  handleB.listeners.pointermove({
+    pointerType: 'touch', pointerId: 7, currentTarget: handleB, clientX: 20, clientY: 5, preventDefault
+  });
+  handleB.listeners.pointercancel({ pointerId: 7, currentTarget: handleB });
+  assert.equal(moveCalls.length, 1, 'touch cancellation restores the row without a Draft mutation');
+
+  handleB.listeners.pointerdown({
+    button: 0, pointerType: 'touch', pointerId: 8, currentTarget: handleB,
+    clientX: 10, clientY: 50, preventDefault, stopPropagation
+  });
+  handleB.listeners.pointermove({
+    pointerType: 'touch', pointerId: 8, currentTarget: handleB, clientX: 20, clientY: 5, preventDefault
+  });
+  handleB.listeners.pointerup({
+    pointerType: 'touch', pointerId: 8, currentTarget: handleB, preventDefault, stopPropagation
+  });
+  assert.equal(moveCalls.length, 2, 'touch release commits exactly one shared stable-ID move');
+  assert.equal(rerenders, 2);
 }
 
 function runtimeTestIntent(enabled = true) {
@@ -2070,6 +2194,8 @@ Promise.resolve()
   .then(testApplySavedAPIKeepsStructuredFailure)
   .then(testStoreTracksSavedPendingApply)
   .then(testSharedCollectionOrderingMovesOnlyTheDraft)
+  .then(testSharedCollectionDragCommitsOnceAndCancellationDoesNotMutate)
+  .then(testCollectionDragInteractionCommitsOnDropOnly)
   .then(testActualGenerationAndPersistentApplyFixture)
   .then(testSharedProbeDiagnosticsAndDisabledActions)
   .then(testOverviewUsesBoundedBackendWarningGroups)

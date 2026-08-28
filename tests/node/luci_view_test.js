@@ -27,6 +27,7 @@ const collectionReferenceFixtures = JSON.parse(fs.readFileSync(path.join(root, '
 const ruleSummaryFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/rule-summary-fixtures.json'), 'utf8'));
 const creationPolicyFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/creation-policy-fixtures.json'), 'utf8'));
 const collectionOrderingFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-ordering-fixtures.json'), 'utf8'));
+const collectionDragFixtures = JSON.parse(fs.readFileSync(path.join(root, 'ui/collection-drag-fixtures.json'), 'utf8'));
 
 function parseUCIConfig(content) {
 	const sections = {};
@@ -364,25 +365,43 @@ function createEnvironment(sections) {
 			const policy = uiSpec.collection_ordering[collection];
 			section.sortable = true;
 			section.orderingPolicy = policy;
-			section.moveItem = (sectionId, offset) => {
+			section.dragFeedback = uiSpec.collection_drag.feedback;
+			section.dropItem = (sectionId, targetId, after, cancel = false) => {
+				if (cancel) return false;
 				const values = sections[section.sectionType] || [];
 				const source = values.find((item) => item['.name'] == sectionId);
+				const target = values.find((item) => item['.name'] == targetId);
 				const movable = (item) => item &&
 					(!policy.movable_kinds?.length || policy.movable_kinds.includes(item.kind)) &&
 					(!policy.pinned_last_boolean_field || item[policy.pinned_last_boolean_field] != '1');
-				if (!movable(source)) return false;
+				if (!movable(source) || !movable(target) || source == target) return false;
 				const group = policy.group_field ? (source[policy.group_field] || '') : '';
 				const peers = values.filter((item) => (!section.filter || section.filter(item['.name'])) && movable(item) &&
 					(!policy.group_field || (item[policy.group_field] || '') == group));
-				const position = peers.indexOf(source);
-				const target = peers[position + offset];
-				if (position < 0 || !target) return false;
+				if (!peers.includes(source) || !peers.includes(target)) return false;
 				const sourceIndex = values.indexOf(source);
 				let targetIndex = values.indexOf(target);
 				values.splice(sourceIndex, 1);
 				if (sourceIndex < targetIndex) targetIndex--;
-				values.splice(offset < 0 ? targetIndex : targetIndex + 1, 0, source);
+				const insertIndex = targetIndex + (after ? 1 : 0);
+				if (insertIndex == sourceIndex) {
+					values.splice(sourceIndex, 0, source);
+					return false;
+				}
+				values.splice(insertIndex, 0, source);
 				return true;
+			};
+			section.moveItem = (sectionId, offset) => {
+				const values = sections[section.sectionType] || [];
+				const source = values.find((item) => item['.name'] == sectionId);
+				const group = policy.group_field ? (source?.[policy.group_field] || '') : '';
+				const peers = values.filter((item) => (!section.filter || section.filter(item['.name'])) &&
+					(!policy.movable_kinds?.length || policy.movable_kinds.includes(item.kind)) &&
+					(!policy.pinned_last_boolean_field || item[policy.pinned_last_boolean_field] != '1') &&
+					(!policy.group_field || (item[policy.group_field] || '') == group));
+				const position = peers.indexOf(source);
+				const target = peers[position + offset];
+				return !!target && section.dropItem(sectionId, target['.name'], offset > 0);
 			};
 			section.renderRowActions = (sectionId) => {
 				const values = sections[section.sectionType] || [];
@@ -1061,6 +1080,33 @@ async function main() {
 			elementText(ordered.renderRowActions(fixture.move_id)).includes('Move down'),
 			`${fixture.collection} exposes explicit up/down controls`);
 		assert.equal(ordered.moveItem(fixture.move_id, fixture.offset), true, fixture.name);
+		assert.deepEqual((sections[sectionType] || []).map((item) => item['.name']), fixture.expected_ids, fixture.name);
+	}
+	assert.deepEqual(uiSpec.collection_drag.states, collectionDragFixtures.states);
+	for (const fixture of collectionDragFixtures.cases) {
+		const sections = canonicalFixtureSections({ [fixture.collection]: fixture.objects });
+		if (fixture.collection == 'nodes')
+			sections.subscription = [ { '.name': 'feed', name: 'Feed' } ];
+		let dragEnvironment;
+		switch (fixture.collection) {
+		case 'nodes': dragEnvironment = await renderNodes(sections, '?node_group=_manual'); break;
+		case 'routes': dragEnvironment = await renderNodes(sections, '', undefined, 'routes'); break;
+		case 'dns_profiles': dragEnvironment = await renderDns(sections); break;
+		case 'local_proxies': dragEnvironment = await renderLocalProxies(sections); break;
+		case 'rules': dragEnvironment = await renderRules(sections); break;
+		case 'subscriptions': dragEnvironment = await renderNodes(sections, '', { subscriptions: [] }, 'subscriptions'); break;
+		default: throw new Error(`unknown drag fixture ${fixture.collection}`);
+		}
+		const sectionType = {
+			nodes: 'node', routes: 'route', dns_profiles: 'dns_profile', local_proxies: 'local_proxy',
+			rules: 'rule', subscriptions: 'subscription'
+		}[fixture.collection];
+		const ordered = dragEnvironment.maps[0].sections.find((section) =>
+			section.type == 'GridSection' && section.sectionType == sectionType);
+		assert.equal(ordered.dragFeedback, 'whole_row_placeholder', `${fixture.collection} uses whole-row drag feedback`);
+		assert.equal(ordered.dropItem(
+			fixture.source_id, fixture.target_id, fixture.after, fixture.cancel
+		), fixture.expected_mutations == 1, fixture.name);
 		assert.deepEqual((sections[sectionType] || []).map((item) => item['.name']), fixture.expected_ids, fixture.name);
 	}
 	testCommittedUcodePreviewAndObservedCandidateGuard();

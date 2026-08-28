@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "states": ["idle", "dragging", "over", "cancelled", "committed"],
+  "cases": [
+    {
+      "name": "mouse commits one Node move inside the manual group",
+      "collection": "nodes",
+      "input": "mouse",
+      "objects": [
+        {"id": "manual_a"},
+        {"id": "feed_a", "source_subscription": "feed"},
+        {"id": "manual_b"}
+      ],
+      "visible_ids": ["manual_a", "manual_b"],
+      "source_id": "manual_b",
+      "target_id": "manual_a",
+      "after": false,
+      "cancel": false,
+      "expected_ids": ["manual_b", "manual_a", "feed_a"],
+      "expected_mutations": 1
+    },
+    {
+      "name": "touch commits one single Route move",
+      "collection": "routes",
+      "input": "touch",
+      "objects": [
+        {"id": "direct", "kind": "direct"},
+        {"id": "single_a", "kind": "single"},
+        {"id": "block", "kind": "block"},
+        {"id": "single_b", "kind": "single"}
+      ],
+      "visible_ids": ["single_a", "single_b"],
+      "source_id": "single_b",
+      "target_id": "single_a",
+      "after": false,
+      "cancel": false,
+      "expected_ids": ["direct", "single_b", "single_a", "block"],
+      "expected_mutations": 1
+    },
+    {
+      "name": "pen commits one DNS Profile move",
+      "collection": "dns_profiles",
+      "input": "pen",
+      "objects": [{"id": "dns_a"}, {"id": "dns_b"}],
+      "visible_ids": ["dns_a", "dns_b"],
+      "source_id": "dns_b",
+      "target_id": "dns_a",
+      "after": false,
+      "cancel": false,
+      "expected_ids": ["dns_b", "dns_a"],
+      "expected_mutations": 1
+    },
+    {
+      "name": "mouse commits one Local Proxy move",
+      "collection": "local_proxies",
+      "input": "mouse",
+      "objects": [{"id": "proxy_a"}, {"id": "proxy_b"}],
+      "visible_ids": ["proxy_a", "proxy_b"],
+      "source_id": "proxy_b",
+      "target_id": "proxy_a",
+      "after": false,
+      "cancel": false,
+      "expected_ids": ["proxy_b", "proxy_a"],
+      "expected_mutations": 1
+    },
+    {
+      "name": "touch commits one Rule move without moving Default",
+      "collection": "rules",
+      "input": "touch",
+      "objects": [
+        {"id": "rule_a", "default": false},
+        {"id": "rule_b", "default": false},
+        {"id": "default", "default": true}
+      ],
+      "visible_ids": ["rule_a", "rule_b"],
+      "source_id": "rule_b",
+      "target_id": "rule_a",
+      "after": false,
+      "cancel": false,
+      "expected_ids": ["rule_b", "rule_a", "default"],
+      "expected_mutations": 1
+    },
+    {
+      "name": "mouse commits one Subscription move",
+      "collection": "subscriptions",
+      "input": "mouse",
+      "objects": [{"id": "feed_a"}, {"id": "feed_b"}],
+      "visible_ids": ["feed_a", "feed_b"],
+      "source_id": "feed_b",
+      "target_id": "feed_a",
+      "after": false,
+      "cancel": false,
+      "expected_ids": ["feed_b", "feed_a"],
+      "expected_mutations": 1
+    },
+    {
+      "name": "Escape cancellation restores the original Rule order",
+      "collection": "rules",
+      "input": "mouse",
+      "objects": [
+        {"id": "rule_a", "default": false},
+        {"id": "rule_b", "default": false},
+        {"id": "default", "default": true}
+      ],
+      "visible_ids": ["rule_a", "rule_b"],
+      "source_id": "rule_b",
+      "target_id": "rule_a",
+      "after": false,
+      "cancel": true,
+      "expected_ids": ["rule_a", "rule_b", "default"],
+      "expected_mutations": 0
+    },
+    {
+      "name": "a Node drop cannot cross source groups",
+      "collection": "nodes",
+      "input": "touch",
+      "objects": [
+        {"id": "manual_a"},
+        {"id": "feed_a", "source_subscription": "feed"}
+      ],
+      "visible_ids": ["manual_a", "feed_a"],
+      "source_id": "manual_a",
+      "target_id": "feed_a",
+      "after": true,
+      "cancel": false,
+      "expected_ids": ["manual_a", "feed_a"],
+      "expected_mutations": 0
+    },
+    {
+      "name": "Default is never a Rule drop target",
+      "collection": "rules",
+      "input": "pen",
+      "objects": [
+        {"id": "rule_a", "default": false},
+        {"id": "default", "default": true}
+      ],
+      "visible_ids": ["rule_a", "default"],
+      "source_id": "rule_a",
+      "target_id": "default",
+      "after": true,
+      "cancel": false,
+      "expected_ids": ["rule_a", "default"],
+      "expected_mutations": 0
+    }
+  ]
+}

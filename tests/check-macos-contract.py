@@ -102,7 +102,9 @@ def main() -> None:
     assert 'let installationFacts = facts.filter(\\.requiredForInstallation)' in state
     assert '运行服务未激活不影响系统组件安装完整性' in content
     assert 'var ordered: Bool { SteerUISpec.orderingPolicy(for: key) != nil }' in content
-    assert 'descriptor.ordered && isMovable(item) ? NSItemProvider(object: item.id as NSString) : nil' in content
+    assert 'dragProvider(for: item)' in content
+    assert 'contract.feedback == "whole_row_placeholder"' in content
+    assert 'contract.singleMutationPerDrop' in content
     assert 'visibleIDs: movableItems.map(\\.identifier)' in content
     assert 'SteerUISpec.isMovable(collection: descriptor.key, object: object)' in content
     assert '.dropDestination(for: String.self)' in content

@@ -133,10 +133,11 @@
       ui.beginRender(root);
       const intent = S.store.intent;
       const table = h('table', { class: 'table' }, [
-        h('thead', {}, h('tr', {}, ['状态', '名称', '协议', '监听', '规则引用', '操作'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['顺序', '状态', '名称', '协议', '监听', '规则引用', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, intent.local_proxies.map((p) => h('tr', ui.collectionRowAttributes(
           'local_proxies', p, intent.local_proxies, () => view.render(root), p.enabled === false ? 'is-disabled' : ''
         ), [
+          h('td', { class: 'collection-drag-column' }, ui.collectionDragHandle('local_proxies', p, intent.local_proxies, () => view.render(root))),
           h('td', {}, ui.toggle(p.enabled, (v) => { p.enabled = v; S.store.touch(); })),
           h('td', {}, h('strong', {}, p.name || p.id)),
           h('td', {}, h('span', { class: 'badge badge--match' }, PROTOCOL_LABEL[p.protocol] || p.protocol)),

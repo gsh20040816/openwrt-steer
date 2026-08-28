@@ -160,7 +160,7 @@
       });
 
       const table = h('table', { class: 'table' }, [
-        h('thead', {}, h('tr', {}, ['状态', '订阅', 'URL', '间隔', '最近成功', '最近失败', '节点', '跳过 / 失效', '操作'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['顺序', '状态', '订阅', 'URL', '间隔', '最近成功', '最近失败', '节点', '跳过 / 失效', '操作'].map((t) => h('th', {}, t)))),
         h('tbody', {}, statuses.map((s) => {
           const subscription = intent.subscriptions.find((item) => item.id === s.id) || s;
           const state = statusLabel(s);
@@ -210,6 +210,7 @@
           return h('tr', ui.collectionRowAttributes(
             'subscriptions', subscription, intent.subscriptions, () => view.render(root), s.enabled === false ? 'is-disabled' : ''
           ), [
+            h('td', { class: 'collection-drag-column' }, ui.collectionDragHandle('subscriptions', subscription, intent.subscriptions, () => view.render(root))),
             h('td', {}, h('div', { class: 'row-actions' }, [
               ui.toggle(s.enabled, (v) => { const sub = S.store.intent.subscriptions.find((x) => x.id === s.id); sub.enabled = v; S.store.touch(); }),
               h('span', { class: `badge ${state[1]}` }, state[0])
