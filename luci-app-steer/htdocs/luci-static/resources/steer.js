@@ -524,11 +524,12 @@ return baseclass.extend({
 	configureOrdering: function(section, collection, options) {
 		const policy = uiSpec.collection_ordering?.[collection];
 		if (!policy) return section;
-		section.sortable = true;
+		const disabledReason = options?.disabledReason || '';
+		section.sortable = !disabledReason;
 		const renderRowActions = section.renderRowActions;
 		const nativeTouchMove = section.handleTouchMove;
 		const movable = function(sectionId) {
-			if (section.map?.readonly === true) return false;
+			if (disabledReason || section.map?.readonly === true) return false;
 			const object = uci.get('steer', sectionId) || {};
 			if (policy.movable_kinds?.length && !policy.movable_kinds.includes(object.kind)) return false;
 			return !policy.pinned_last_boolean_field || object[policy.pinned_last_boolean_field] != '1';
@@ -702,9 +703,10 @@ return baseclass.extend({
 			if (!container.querySelector('.drag-handle')) {
 				const touchSort = 'ontouchstart' in window;
 				container.append(E('button', {
-					'class': 'cbi-button drag-handle center', 'type': 'button', 'title': _('Drag to reorder'),
-					'disabled': this.map?.readonly === true,
-					'draggable': !touchSort && this.map?.readonly !== true,
+					'class': 'cbi-button drag-handle center', 'type': 'button',
+					'title': disabledReason || _('Drag to reorder'),
+					'disabled': !!disabledReason || this.map?.readonly === true,
+					'draggable': !touchSort && !disabledReason && this.map?.readonly !== true,
 					'dragstart': !touchSort ? (ev) => this.handleDragStart(ev, ev.currentTarget.closest('.tr')) : null,
 					'dragend': !touchSort ? (ev) => this.handleDragEnd(ev, ev.currentTarget.closest('.tr')) : null,
 					'touchmove': touchSort ? (ev) => this.handleTouchMove(ev) : null,
@@ -714,20 +716,21 @@ return baseclass.extend({
 			}
 			else {
 				const dragHandle = container.querySelector('.drag-handle');
-				dragHandle.disabled = this.map?.readonly === true;
-				if (this.map?.readonly === true) dragHandle.draggable = false;
+				dragHandle.title = disabledReason || _('Drag to reorder');
+				dragHandle.disabled = !!disabledReason || this.map?.readonly === true;
+				if (disabledReason || this.map?.readonly === true) dragHandle.draggable = false;
 				dragHandle.addEventListener('touchcancel', (ev) => this.handleTouchCancel(ev));
 			}
 			container.prepend(E('span', { 'class': 'steer-order-buttons' }, [
 				E('button', {
 					'class': 'btn cbi-button-neutral', 'type': 'button', 'data-steer-order': 'up',
-					'title': _('Move up'), 'aria-label': _('Move up'),
-					'disabled': this.map?.readonly === true || position <= 0, 'click': (ev) => move(-1, ev)
+					'title': disabledReason || _('Move up'), 'aria-label': disabledReason || _('Move up'),
+					'disabled': !!disabledReason || this.map?.readonly === true || position <= 0, 'click': (ev) => move(-1, ev)
 				}, '↑'),
 				E('button', {
 					'class': 'btn cbi-button-neutral', 'type': 'button', 'data-steer-order': 'down',
-					'title': _('Move down'), 'aria-label': _('Move down'),
-					'disabled': this.map?.readonly === true || position < 0 || position >= ids.length - 1, 'click': (ev) => move(1, ev)
+					'title': disabledReason || _('Move down'), 'aria-label': disabledReason || _('Move down'),
+					'disabled': !!disabledReason || this.map?.readonly === true || position < 0 || position >= ids.length - 1, 'click': (ev) => move(1, ev)
 				}, '↓')
 			]));
 			return cell;

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "modes": ["default", "connect", "download"],
+  "direction_modes": ["best_first", "worst_first"],
+  "nodes": [
+    {"id": "slow", "source_subscription": ""},
+    {"id": "stale", "source_subscription": ""},
+    {"id": "fast", "source_subscription": ""},
+    {"id": "failed", "source_subscription": ""},
+    {"id": "tie", "source_subscription": ""},
+    {"id": "missing", "source_subscription": ""},
+    {"id": "invalid", "source_subscription": ""},
+    {"id": "feed_slow", "source_subscription": "feed"},
+    {"id": "feed_fast", "source_subscription": "feed"}
+  ],
+  "latest_results": [
+    {"scope":"nodes","object_id":"slow","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"88 ms","error_summary":""},
+    {"scope":"nodes","object_id":"slow","kind":"download","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"32.0 Mbps","error_summary":""},
+    {"scope":"nodes","object_id":"stale","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":true,"summary":"5 ms","error_summary":""},
+    {"scope":"nodes","object_id":"stale","kind":"download","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":true,"summary":"99.0 Mbps","error_summary":""},
+    {"scope":"nodes","object_id":"fast","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"21 ms","error_summary":""},
+    {"scope":"nodes","object_id":"fast","kind":"download","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"16.0 Mbps","error_summary":""},
+    {"scope":"nodes","object_id":"failed","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":false,"stale":false,"summary":"","error_summary":"Connection failed"},
+    {"scope":"nodes","object_id":"failed","kind":"download","tested_at":"2026-08-28T01:00:00Z","ok":false,"stale":false,"summary":"","error_summary":"Download failed"},
+    {"scope":"nodes","object_id":"tie","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"21 ms","error_summary":""},
+    {"scope":"nodes","object_id":"tie","kind":"download","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"16.0 Mbps","error_summary":""},
+    {"scope":"nodes","object_id":"invalid","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"fast","error_summary":""},
+    {"scope":"nodes","object_id":"invalid","kind":"download","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"unknown","error_summary":""},
+    {"scope":"nodes","object_id":"feed_slow","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"70 ms","error_summary":""},
+    {"scope":"nodes","object_id":"feed_fast","kind":"connect","tested_at":"2026-08-28T01:00:00Z","ok":true,"stale":false,"summary":"12 ms","error_summary":""}
+  ],
+  "cases": [
+    {"name":"default preserves the manual group order","group":"","mode":"default","direction":"best_first","expected_ids":["slow","stale","fast","failed","tie","missing","invalid"]},
+    {"name":"connection best first uses ascending latency","group":"","mode":"connect","direction":"best_first","expected_ids":["fast","tie","slow","stale","failed","missing","invalid"]},
+    {"name":"connection worst first reverses ranked latency only","group":"","mode":"connect","direction":"worst_first","expected_ids":["slow","fast","tie","stale","failed","missing","invalid"]},
+    {"name":"download best first uses descending throughput","group":"","mode":"download","direction":"best_first","expected_ids":["slow","fast","tie","stale","failed","missing","invalid"]},
+    {"name":"download worst first reverses ranked throughput only","group":"","mode":"download","direction":"worst_first","expected_ids":["fast","tie","slow","stale","failed","missing","invalid"]},
+    {"name":"sorting remains inside the selected subscription group","group":"feed","mode":"connect","direction":"best_first","expected_ids":["feed_fast","feed_slow"]}
+  ]
+}

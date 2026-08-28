@@ -157,6 +157,26 @@ type ProbeResultsContract struct {
 	FrontendRole string   `json:"frontend_role"`
 }
 
+type NodeDisplaySortingContract struct {
+	Modes                []string `json:"modes"`
+	HeaderColumns        []string `json:"header_columns"`
+	DirectionModes       []string `json:"direction_modes"`
+	DefaultDirection     string   `json:"default_direction"`
+	RepeatClick          string   `json:"repeat_click"`
+	ResultSource         string   `json:"result_source"`
+	MetricField          string   `json:"metric_field"`
+	ConnectMetricSuffix  string   `json:"connect_metric_suffix"`
+	DownloadMetricSuffix string   `json:"download_metric_suffix"`
+	ConnectDirection     string   `json:"connect_direction"`
+	DownloadDirection    string   `json:"download_direction"`
+	UnrankedStates       []string `json:"unranked_states"`
+	UnrankedPlacement    string   `json:"unranked_placement"`
+	TieBreaker           string   `json:"tie_breaker"`
+	Scope                string   `json:"scope"`
+	OrderingActionsMode  string   `json:"ordering_actions_mode"`
+	MutatesDraft         bool     `json:"mutates_draft"`
+}
+
 type GlobalStatusContract struct {
 	VisibleOnEveryPage   bool     `json:"visible_on_every_page"`
 	EnableAction         string   `json:"enable_action"`
@@ -197,6 +217,7 @@ type Contract struct {
 	DNSBoundaries                     map[string]DNSBoundary              `json:"dns_boundaries"`
 	SubscriptionInventory             SubscriptionInventoryContract       `json:"subscription_inventory"`
 	ProbeResults                      ProbeResultsContract                `json:"probe_results"`
+	NodeDisplaySorting                NodeDisplaySortingContract          `json:"node_display_sorting"`
 	GlobalStatus                      GlobalStatusContract                `json:"global_status"`
 }
 
@@ -398,6 +419,25 @@ func ContractValue() Contract {
 			KeyFields:    []string{"scope", "object_id", "kind"},
 			ResultFields: []string{"scope", "object_id", "kind", "tested_at", "ok", "stale", "summary", "error_summary"},
 			FrontendRole: "Localize tested_at and render native style only; stale, metric and error summaries are backend facts",
+		},
+		NodeDisplaySorting: NodeDisplaySortingContract{
+			Modes:                []string{"default", "connect", "download"},
+			HeaderColumns:        []string{"order", "connect", "download"},
+			DirectionModes:       []string{"best_first", "worst_first"},
+			DefaultDirection:     "best_first",
+			RepeatClick:          "toggle_direction",
+			ResultSource:         "probe_results.latest_results",
+			MetricField:          "summary",
+			ConnectMetricSuffix:  "ms",
+			DownloadMetricSuffix: "Mbps",
+			ConnectDirection:     "ascending",
+			DownloadDirection:    "descending",
+			UnrankedStates:       []string{"missing", "failed", "stale", "invalid_metric"},
+			UnrankedPlacement:    "last_stable",
+			TieBreaker:           "original_index",
+			Scope:                "visible_group",
+			OrderingActionsMode:  "default_only",
+			MutatesDraft:         false,
 		},
 		GlobalStatus: GlobalStatusContract{
 			VisibleOnEveryPage:   true,

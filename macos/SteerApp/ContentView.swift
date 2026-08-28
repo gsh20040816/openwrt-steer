@@ -644,6 +644,28 @@ private struct DefaultRuleCard: View {
     }
 }
 
+private struct NodeTableSortComparator: SortComparator {
+    var mode: String
+    var order: SortOrder = .forward
+
+    func compare(_ left: DraftItem, _ right: DraftItem) -> ComparisonResult {
+        let comparison: ComparisonResult
+        if left.index < right.index {
+            comparison = .orderedAscending
+        } else if left.index > right.index {
+            comparison = .orderedDescending
+        } else {
+            comparison = .orderedSame
+        }
+        guard order == .reverse else { return comparison }
+        switch comparison {
+        case .orderedAscending: return .orderedDescending
+        case .orderedDescending: return .orderedAscending
+        case .orderedSame: return .orderedSame
+        }
+    }
+}
+
 struct DraftCollectionView: View {
     @ObservedObject var model: AppModel
     let descriptor: DraftCollectionDescriptor
@@ -654,6 +676,7 @@ struct DraftCollectionView: View {
     @State private var blockedReferences: [UIObjectReference] = []
     @State private var nodeImportPresented = false
     @State private var selectedNodeGroup = "_manual"
+    @State private var nodeSortOrder = [NodeTableSortComparator(mode: "default")]
 
     private var allItems: [DraftItem] { model.draftItems(for: descriptor.key) }
     private var activeNodeGroup: String {
@@ -661,7 +684,8 @@ struct DraftCollectionView: View {
     }
     private var items: [DraftItem] {
         if descriptor.key == "nodes" {
-            return allItems.filter { ($0.sourceSubscription ?? "_manual") == activeNodeGroup }
+            let visible = allItems.filter { ($0.sourceSubscription ?? "_manual") == activeNodeGroup }
+            return model.nodeItemsSortedForDisplay(visible, mode: nodeSortMode, direction: nodeSortDirection)
         }
         if descriptor.key == "rules" {
             return allItems.filter { !isDefaultRule($0) }
@@ -669,6 +693,11 @@ struct DraftCollectionView: View {
         return allItems
     }
     private var defaultRule: DraftItem? { allItems.first(where: isDefaultRule) }
+    private var nodeSortMode: String { nodeSortOrder.first?.mode ?? "default" }
+    private var nodeSortDirection: String {
+        nodeSortOrder.first?.order == .reverse ? "worst_first" : "best_first"
+    }
+    private var orderingEnabled: Bool { descriptor.key != "nodes" || nodeSortMode == "default" }
     private var enabledVisibleNodeIDs: [String] { items.filter(\.enabled).map(\.identifier) }
 
     private var nodeGroups: [NodeCollectionGroup] {
@@ -769,143 +798,28 @@ struct DraftCollectionView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Table(of: DraftItem.self, selection: $selection) {
-                TableColumn("状态") { item in
-                    if item.subscriptionOwned || isRequiredDirect(item) {
-                        Label(item.enabled ? "启用" : "停用", systemImage: "lock.fill")
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(item.enabled ? .green : .secondary)
-                            .help(item.subscriptionOwned ? "订阅节点状态由订阅管理" : "系统直连路由始终启用")
-                    } else {
-                        Toggle("", isOn: Binding(
-                            get: {
-                                model.draftItemEnabled(
-                                    in: descriptor.key,
-                                    identifiedBy: item.identifier
-                                ) ?? item.enabled
-                            },
-                            set: {
-                                model.setDraftItemEnabled(
-                                    in: descriptor.key,
-                                    identifiedBy: item.identifier,
-                                    enabled: $0
-                                )
-                            }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .id("\(item.id):enabled")
-                    }
-                }
-                .width(58)
-                TableColumn("名称") { item in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(item.title).fontWeight(.medium)
-                                if descriptor.key == "nodes", item.pinnedStale {
-                                    Label("已失效", systemImage: "pin.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(.orange)
-                                        .help("原订阅中已不再包含此节点；因仍在使用而暂时保留")
-                                }
-                            }
-                        }
-                        Spacer(minLength: 0)
-                    }
-                }
-                TableColumn("类型") { item in
-                    Text(kindLabel(item))
-                        .font(.caption.weight(.medium))
-                }
-                .width(min: 80, ideal: 110)
-                TableColumn("操作") { item in
-                    HStack(spacing: 8) {
-                        if descriptor.key == "nodes" {
-                            probeButton(item: item, scope: "nodes", download: false)
-                            probeButton(item: item, scope: "nodes", download: true)
-                        } else if descriptor.key == "routes", item.kind == "single" {
-                            probeButton(item: item, scope: "routes", download: false)
-                            probeButton(item: item, scope: "routes", download: true)
-                        } else if descriptor.key == "subscriptions" {
-                            Button { model.updateSubscription(item.identifier) } label: {
-                                if model.subscriptionOperationInProgress(item.identifier) {
-                                    ProgressView().controlSize(.small)
-                                } else {
-                                    Image(systemName: "arrow.clockwise")
-                                }
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(model.isDirty || model.subscriptionOperationInProgress(item.identifier)
-                                      || model.subscriptionStatus(item.identifier)?.enabled == false)
-                            .help(model.subscriptionStatus(item.identifier)?.enabled == false
-                                  ? "已停用的订阅不能更新"
-                                  : "更新已保存的节点列表，不改变当前运行配置")
-                        }
-                        if item.subscriptionOwned {
-                            Image(systemName: "lock.fill")
-                                .foregroundStyle(.secondary)
-                                .help("订阅节点只读")
-                        } else {
-                            Button { edit(item) } label: {
-                                Image(systemName: "square.and.pencil")
-                            }
-                            .buttonStyle(.borderless)
-                            if !isSystemRoute(item) && !isDefaultRule(item) {
-                                Button(role: .destructive) {
-                                    requestDeletion(item)
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                        }
-                    }
-                }
-                .width(min: 190, ideal: 230)
-                TableColumn("详情") { item in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(runtimeDetail(item))
-                            .font(.callout.monospaced())
-                            .lineLimit(descriptor.key == "rules" ? 3 : 1)
-                            .foregroundStyle(.secondary)
-                            .help(runtimeDetail(item))
-                        ForEach(probePresentations(item)) { result in
-                            Text(result.text)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(result.stale ? Color.orange : (result.ok ? Color.green : Color.red))
-                        }
-                    }
-                }
-                TableColumn(descriptor.ordered ? "顺序" : "") { item in
-                    if descriptor.ordered {
-                        HStack(spacing: 7) {
-                            Text(item.index + 1, format: .number)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            Image(systemName: isMovable(item) ? "line.3.horizontal" : "pin.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .help(isMovable(item) ? "拖动或使用上移/下移调整工作副本顺序" : orderingRestriction(item))
-                        .accessibilityLabel(isMovable(item) ? "拖动 \(item.title) 调整顺序" : "\(item.title) \(orderingRestriction(item))")
-                    }
-                }
-                .width(descriptor.ordered ? 78 : 1)
-            } rows: {
-                ForEach(items) { item in
-                    TableRow(item)
-                        .itemProvider {
-                            dragProvider(for: item)
-                        }
-                }
-                .dropDestination(for: String.self) { destination, identifiers in
-                    if descriptor.ordered { moveItems(identifiers, to: destination) }
+            Group {
+                if descriptor.key == "nodes" {
+                    nodeTable
+                } else {
+                    standardTable
                 }
             }
             .disabled(!model.canEditDraft || model.draftSyntaxError != nil)
             .animation(.snappy(duration: 0.16), value: items.map(\.id))
+            .onChange(of: nodeSortOrder) { requested in
+                guard descriptor.key == "nodes" else { return }
+                guard var primary = requested.first else {
+                    nodeSortOrder = [NodeTableSortComparator(mode: "default")]
+                    return
+                }
+                if primary.mode == "default" {
+                    primary.order = .forward
+                }
+                if requested.count != 1 || requested.first != primary {
+                    nodeSortOrder = [primary]
+                }
+            }
             .overlay {
                 if let syntaxError = model.draftSyntaxError {
                     VStack(spacing: 9) {
@@ -1042,6 +956,96 @@ struct DraftCollectionView: View {
         }
     }
 
+    private var nodeTable: some View {
+        Table(of: DraftItem.self, selection: $selection, sortOrder: $nodeSortOrder) {
+            TableColumn("状态") { item in
+                statusCell(item)
+            }
+            .width(58)
+            TableColumn("名称") { item in
+                nameCell(item)
+            }
+            TableColumn("类型") { item in
+                Text(kindLabel(item))
+                    .font(.caption.weight(.medium))
+            }
+            .width(min: 80, ideal: 110)
+            TableColumn(
+                nodeSortColumnTitle("连接测速", mode: "connect"),
+                sortUsing: NodeTableSortComparator(mode: "connect")
+            ) { item in
+                nodeProbeCell(item, download: false)
+            }
+            .width(min: 155, ideal: 195)
+            TableColumn(
+                nodeSortColumnTitle("下载测速", mode: "download"),
+                sortUsing: NodeTableSortComparator(mode: "download")
+            ) { item in
+                nodeProbeCell(item, download: true)
+            }
+            .width(min: 155, ideal: 195)
+            TableColumn("操作") { item in
+                collectionActions(item)
+            }
+            .width(min: 80, ideal: 110)
+            TableColumn("详情") { item in
+                detailCell(item)
+            }
+            TableColumn(
+                nodeSortColumnTitle("顺序", mode: "default"),
+                sortUsing: NodeTableSortComparator(mode: "default")
+            ) { item in
+                orderingCell(item)
+            }
+            .width(92)
+        } rows: {
+            collectionTableRows
+        }
+    }
+
+    private var standardTable: some View {
+        Table(of: DraftItem.self, selection: $selection) {
+            TableColumn("状态") { item in
+                statusCell(item)
+            }
+            .width(58)
+            TableColumn("名称") { item in
+                nameCell(item)
+            }
+            TableColumn("类型") { item in
+                Text(kindLabel(item))
+                    .font(.caption.weight(.medium))
+            }
+            .width(min: 80, ideal: 110)
+            TableColumn("操作") { item in
+                collectionActions(item)
+            }
+            .width(min: 190, ideal: 230)
+            TableColumn("详情") { item in
+                detailCell(item)
+            }
+            TableColumn(descriptor.ordered ? "顺序" : "") { item in
+                orderingCell(item)
+            }
+            .width(descriptor.ordered ? 78 : 1)
+        } rows: {
+            collectionTableRows
+        }
+    }
+
+    @TableRowBuilder<DraftItem>
+    private var collectionTableRows: some TableRowContent<DraftItem> {
+        ForEach(items) { item in
+            TableRow(item)
+                .itemProvider {
+                    dragProvider(for: item)
+                }
+        }
+        .dropDestination(for: String.self) { destination, identifiers in
+            if descriptor.ordered { moveItems(identifiers, to: destination) }
+        }
+    }
+
     private var selectedItem: DraftItem? {
         guard let selection else { return nil }
         return items.first { $0.id == selection }
@@ -1055,7 +1059,7 @@ struct DraftCollectionView: View {
     }
 
     private func canMove(_ item: DraftItem, offset: Int) -> Bool {
-        guard isMovable(item),
+        guard orderingEnabled, isMovable(item),
               let position = movableItems.firstIndex(where: { $0.id == item.id }) else { return false }
         return movableItems.indices.contains(position + offset)
     }
@@ -1079,6 +1083,7 @@ struct DraftCollectionView: View {
     }
 
     private func orderingRestriction(_ item: DraftItem) -> String {
+        if descriptor.key == "nodes", !orderingEnabled { return "点击“顺序”列后可调整工作副本顺序" }
         if isDefaultRule(item) { return "Default 固定在最后" }
         if isSystemRoute(item) { return "系统路由顺序固定" }
         return "此项目不可移动"
@@ -1086,7 +1091,7 @@ struct DraftCollectionView: View {
 
     private func dragProvider(for item: DraftItem) -> NSItemProvider? {
         let contract = SteerUISpec.contract.collectionDrag
-        guard descriptor.ordered, isMovable(item),
+        guard descriptor.ordered, orderingEnabled, isMovable(item),
               contract.feedback == "whole_row_placeholder",
               contract.singleMutationPerDrop,
               contract.orderingPolicySource == "collection_ordering" else { return nil }
@@ -1150,7 +1155,7 @@ struct DraftCollectionView: View {
     }
 
     private func moveItems(_ identifiers: [String], to destination: Int) {
-        guard let identifier = identifiers.first,
+        guard orderingEnabled, let identifier = identifiers.first,
               let source = items.first(where: { $0.id == identifier }), isMovable(source) else { return }
         let candidates = Array(items.dropFirst(min(destination, items.count)))
         let target = candidates.first(where: { $0.id != source.id && isMovable($0) })
@@ -1181,6 +1186,157 @@ struct DraftCollectionView: View {
 
     private func isDefaultRule(_ item: DraftItem) -> Bool {
         descriptor.key == "rules" && item.kind.caseInsensitiveCompare("default") == .orderedSame
+    }
+
+    private func nodeSortColumnTitle(_ title: String, mode: String) -> String {
+        guard nodeSortMode == mode else { return title }
+        return mode == "default"
+            ? "\(title) · 原始"
+            : "\(title) · \(nodeSortDirection == "best_first" ? "好 → 坏" : "坏 → 好")"
+    }
+
+    private func statusCell(_ item: DraftItem) -> AnyView {
+        if item.subscriptionOwned || isRequiredDirect(item) {
+            return AnyView(
+                Label(item.enabled ? "启用" : "停用", systemImage: "lock.fill")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(item.enabled ? Color.green : Color.secondary)
+                    .help(item.subscriptionOwned ? "订阅节点状态由订阅管理" : "系统直连路由始终启用")
+            )
+        }
+        let enabled = Binding(
+            get: {
+                model.draftItemEnabled(in: descriptor.key, identifiedBy: item.identifier) ?? item.enabled
+            },
+            set: {
+                model.setDraftItemEnabled(in: descriptor.key, identifiedBy: item.identifier, enabled: $0)
+            }
+        )
+        return AnyView(
+            Toggle("", isOn: enabled)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .id("\(item.id):enabled")
+        )
+    }
+
+    private func nameCell(_ item: DraftItem) -> AnyView {
+        AnyView(
+            HStack {
+                HStack(spacing: 6) {
+                    Text(item.title).fontWeight(.medium)
+                    if descriptor.key == "nodes", item.pinnedStale {
+                        Label("已失效", systemImage: "pin.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .help("原订阅中已不再包含此节点；因仍在使用而暂时保留")
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        )
+    }
+
+    private func detailCell(_ item: DraftItem) -> AnyView {
+        AnyView(
+            VStack(alignment: .leading, spacing: 2) {
+                Text(runtimeDetail(item))
+                    .font(.callout.monospaced())
+                    .lineLimit(descriptor.key == "rules" ? 3 : 1)
+                    .foregroundStyle(.secondary)
+                    .help(runtimeDetail(item))
+                if descriptor.key != "nodes" {
+                    ForEach(probePresentations(item)) { result in
+                        Text(result.text)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(result.stale ? Color.orange : (result.ok ? Color.green : Color.red))
+                    }
+                }
+            }
+        )
+    }
+
+    private func orderingCell(_ item: DraftItem) -> AnyView {
+        guard descriptor.ordered else { return AnyView(EmptyView()) }
+        let movable = orderingEnabled && isMovable(item)
+        let help = movable ? "拖动或使用上移/下移调整工作副本顺序" : orderingRestriction(item)
+        return AnyView(
+            HStack(spacing: 7) {
+                Text(item.index + 1, format: .number)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Image(systemName: movable ? "line.3.horizontal" : "pin.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .help(help)
+            .accessibilityLabel(movable ? "拖动 \(item.title) 调整顺序" : "\(item.title) \(help)")
+        )
+    }
+
+    private func collectionActions(_ item: DraftItem) -> AnyView {
+        AnyView(HStack(spacing: 8) {
+            if descriptor.key == "routes", item.kind == "single" {
+                probeButton(item: item, scope: "routes", download: false)
+                probeButton(item: item, scope: "routes", download: true)
+            } else if descriptor.key == "subscriptions" {
+                Button { model.updateSubscription(item.identifier) } label: {
+                    if model.subscriptionOperationInProgress(item.identifier) {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isDirty || model.subscriptionOperationInProgress(item.identifier)
+                          || model.subscriptionStatus(item.identifier)?.enabled == false)
+                .help(model.subscriptionStatus(item.identifier)?.enabled == false
+                      ? "已停用的订阅不能更新"
+                      : "更新已保存的节点列表，不改变当前运行配置")
+            }
+            if item.subscriptionOwned {
+                Image(systemName: "lock.fill")
+                    .foregroundStyle(.secondary)
+                    .help("订阅节点只读")
+            } else {
+                Button { edit(item) } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .buttonStyle(.borderless)
+                if !isSystemRoute(item) && !isDefaultRule(item) {
+                    Button(role: .destructive) {
+                        requestDeletion(item)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        })
+    }
+
+    private func nodeProbeCell(_ item: DraftItem, download: Bool) -> AnyView {
+        let presentation = model.latestProbePresentation(
+            scope: "nodes", objectID: item.identifier, download: download
+        )
+        let prefix = download ? "下载 · " : "连接 · "
+        return AnyView(
+            VStack(alignment: .leading, spacing: 3) {
+                probeButton(item: item, scope: "nodes", download: download)
+                if let presentation {
+                    Text(presentation.text.hasPrefix(prefix)
+                         ? String(presentation.text.dropFirst(prefix.count))
+                         : presentation.text)
+                        .font(.caption2.monospaced())
+                        .lineLimit(2)
+                        .foregroundStyle(
+                            presentation.stale ? Color.orange : (presentation.ok ? Color.green : Color.red)
+                        )
+                        .help(presentation.text)
+                }
+            }
+        )
     }
 
     private func probePresentations(_ item: DraftItem) -> [ProbeLatestPresentation] {

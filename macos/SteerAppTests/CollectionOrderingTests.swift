@@ -64,6 +64,44 @@ final class CollectionOrderingTests: XCTestCase {
         }
     }
 
+    private struct NodeSortingDocument: Decodable {
+        struct Node: Decodable {
+            let id: String
+            let sourceSubscription: String?
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case sourceSubscription = "source_subscription"
+            }
+        }
+        struct SortingCase: Decodable {
+            let name: String
+            let group: String
+            let mode: String
+            let direction: String
+            let expectedIDs: [String]
+
+            enum CodingKeys: String, CodingKey {
+                case name, group, mode, direction
+                case expectedIDs = "expected_ids"
+            }
+        }
+
+        let schemaVersion: Int
+        let modes: [String]
+        let directionModes: [String]
+        let nodes: [Node]
+        let latestResults: [ProbeLatestResult]
+        let cases: [SortingCase]
+
+        enum CodingKeys: String, CodingKey {
+            case schemaVersion = "schema_version"
+            case directionModes = "direction_modes"
+            case latestResults = "latest_results"
+            case modes, nodes, cases
+        }
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -79,6 +117,11 @@ final class CollectionOrderingTests: XCTestCase {
     private func dragFixture() throws -> DragDocument {
         let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("ui/collection-drag-fixtures.json"))
         return try JSONDecoder().decode(DragDocument.self, from: data)
+    }
+
+    private func nodeSortingFixture() throws -> NodeSortingDocument {
+        let data = try Data(contentsOf: repositoryRoot.appendingPathComponent("ui/node-display-sorting-fixtures.json"))
+        return try JSONDecoder().decode(NodeSortingDocument.self, from: data)
     }
 
     func testSharedCollectionOrderingPoliciesDecode() throws {
@@ -159,6 +202,30 @@ final class CollectionOrderingTests: XCTestCase {
             XCTAssertEqual(moved, testCase.expectedMutations == 1, testCase.name)
             XCTAssertEqual(model.draftItems(for: testCase.collection).map(\.identifier), testCase.expectedIDs, testCase.name)
             XCTAssertEqual(model.isDirty, testCase.expectedMutations == 1, testCase.name)
+        }
+    }
+
+    func testNodeDisplaySortingUsesStableBackendLatestResultsOnly() throws {
+        let document = try nodeSortingFixture()
+        let contract = SteerUISpec.contract.nodeDisplaySorting
+        XCTAssertEqual(document.schemaVersion, 1)
+        XCTAssertEqual(document.modes, contract.modes)
+        XCTAssertEqual(document.directionModes, contract.directionModes)
+        XCTAssertEqual(contract.defaultDirection, "best_first")
+        XCTAssertEqual(contract.headerColumns, ["order", "connect", "download"])
+        XCTAssertEqual(contract.unrankedPlacement, "last_stable")
+        XCTAssertFalse(contract.mutatesDraft)
+
+        for testCase in document.cases {
+            let ids = document.nodes.filter { ($0.sourceSubscription ?? "") == testCase.group }.map(\.id)
+            XCTAssertEqual(
+                NodeDisplaySorting.sortedIDs(
+                    ids, mode: testCase.mode, direction: testCase.direction,
+                    latestResults: document.latestResults
+                ),
+                testCase.expectedIDs,
+                testCase.name
+            )
         }
     }
 }

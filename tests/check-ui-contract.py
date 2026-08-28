@@ -68,6 +68,9 @@ collection_ordering_fixtures = json.loads(
 collection_drag_fixtures = json.loads(
     (ROOT / "ui/collection-drag-fixtures.json").read_text()
 )
+node_display_sorting_fixtures = json.loads(
+    (ROOT / "ui/node-display-sorting-fixtures.json").read_text()
+)
 for name, fixture in {
     "validation issue": validation_issue_fixtures,
     "collection reference": collection_reference_fixtures,
@@ -117,6 +120,25 @@ if (
     or drag.get("single_mutation_per_drop") is not True
 ):
     raise SystemExit("check-ui-contract: collection drag lifecycle drift")
+node_sorting = contract.get("node_display_sorting", {})
+if (
+    node_display_sorting_fixtures.get("schema_version") != 1
+    or node_sorting.get("modes") != node_display_sorting_fixtures.get("modes")
+    or node_sorting.get("header_columns") != ["order", "connect", "download"]
+    or node_sorting.get("direction_modes") != node_display_sorting_fixtures.get("direction_modes")
+    or node_sorting.get("default_direction") != "best_first"
+    or node_sorting.get("repeat_click") != "toggle_direction"
+    or node_sorting.get("result_source") != "probe_results.latest_results"
+    or node_sorting.get("metric_field") != "summary"
+    or node_sorting.get("connect_direction") != "ascending"
+    or node_sorting.get("download_direction") != "descending"
+    or node_sorting.get("unranked_placement") != "last_stable"
+    or node_sorting.get("tie_breaker") != "original_index"
+    or node_sorting.get("scope") != "visible_group"
+    or node_sorting.get("ordering_actions_mode") != "default_only"
+    or node_sorting.get("mutates_draft") is not False
+):
+    raise SystemExit("check-ui-contract: Node display sorting contract drift")
 id_policy = contract.get("id_policy", {})
 if not id_policy.get("auto_generate") or id_policy.get("max_length") != 32:
     raise SystemExit("check-ui-contract: automatic ID policy is missing")
@@ -462,6 +484,14 @@ drag_fixture_consumers = (
 for consumer in drag_fixture_consumers:
     require((ROOT / consumer).read_text(), "collection-drag-fixtures.json", consumer)
 
+node_sorting_fixture_consumers = (
+    "tests/node/linux_web_test.js",
+    "tests/node/luci_view_test.js",
+    "macos/SteerAppTests/CollectionOrderingTests.swift",
+)
+for consumer in node_sorting_fixture_consumers:
+    require((ROOT / consumer).read_text(), "node-display-sorting-fixtures.json", consumer)
+
 require((ROOT / "go/cmd/steer-linux/web/js/store.js").read_text(), "collection_ordering", "Linux ordering store")
 for view in ("nodes", "routes", "dns", "proxies", "rules", "subscriptions"):
     source = (ROOT / f"go/cmd/steer-linux/web/js/views/{view}.js").read_text()
@@ -484,6 +514,19 @@ require(luci_helper, "steer-touchsort-whole-row", "LuCI whole-row touch preview"
 require(luci_helper, "handleTouchCancel", "LuCI touch cancellation")
 require(macos_content, "dragProvider", "macOS native row drag")
 require(macos_content, ".snappy(duration: 0.16)", "macOS native move animation")
+require(linux_nodes, "sortNodesForDisplay", "Linux Node display sorting")
+require(linux_nodes, "table-sort__direction", "Linux clickable sort headers")
+require(luci_nodes, "sortNodeSectionIDs", "LuCI Node display sorting")
+require(luci_nodes, "decorateNodeSortHeaders", "LuCI clickable sort headers")
+require(luci_nodes, "s.handleSort = function() {}", "LuCI display-only header sorting")
+require(macos_content, "sortOrder: $nodeSortOrder", "macOS clickable native Node table headers")
+require(macos_content, "sortUsing: NodeTableSortComparator", "macOS per-column Node sorting")
+if "nodeSortBar" in macos_content:
+    raise SystemExit("check-ui-contract: macOS Node sorting must use actual table headers, not an adjacent sort bar")
+require((ROOT / "macos/SteerApp/AppState.swift").read_text(), "NodeDisplaySorting.sortedIDs", "macOS Node display sorting")
+for source, label in ((linux_nodes, "Linux Node sorting"), (luci_nodes, "LuCI Node sorting"), (macos_content, "macOS Node sorting")):
+    if "diagnostics.reports" in source:
+        raise SystemExit(f"check-ui-contract: {label} must consume backend latest_results only")
 
 require(linux_ui, "creationDraft", "Linux automatic creation policy")
 require(linux_ui, "referenceOptions", "Linux disambiguated references")
@@ -575,7 +618,7 @@ require(luci_nodes, "steer.importNodes", "LuCI multi-node import")
 require(mac_state, "parseNodes(document:", "macOS multi-node import")
 require(linux_nodes, "testButton('下载', true", "Linux node download test")
 require(luci_nodes, "_download_speedtest", "LuCI node download test")
-require(mac_content, "probeButton(item: item, scope: \"nodes\", download: true)", "macOS node download test")
+require(mac_content, "nodeProbeCell(item, download: true)", "macOS node download test column")
 require(linux_routes, "draft.kind = 'single'", "Linux fixed system routes")
 require(luci_nodes, "addSystemRouteSection", "LuCI fixed system routes")
 require(mac_content, "isSystemRoute(item)", "macOS fixed system routes")

@@ -1639,6 +1639,41 @@
     ],
     "frontend_role": "Localize tested_at and render native style only; stale, metric and error summaries are backend facts"
   },
+  "node_display_sorting": {
+    "modes": [
+      "default",
+      "connect",
+      "download"
+    ],
+    "header_columns": [
+      "order",
+      "connect",
+      "download"
+    ],
+    "direction_modes": [
+      "best_first",
+      "worst_first"
+    ],
+    "default_direction": "best_first",
+    "repeat_click": "toggle_direction",
+    "result_source": "probe_results.latest_results",
+    "metric_field": "summary",
+    "connect_metric_suffix": "ms",
+    "download_metric_suffix": "Mbps",
+    "connect_direction": "ascending",
+    "download_direction": "descending",
+    "unranked_states": [
+      "missing",
+      "failed",
+      "stale",
+      "invalid_metric"
+    ],
+    "unranked_placement": "last_stable",
+    "tie_breaker": "original_index",
+    "scope": "visible_group",
+    "ordering_actions_mode": "default_only",
+    "mutates_draft": false
+  },
   "global_status": {
     "visible_on_every_page": true,
     "enable_action": "save_and_apply_current_draft",

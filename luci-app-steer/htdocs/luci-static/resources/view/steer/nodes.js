@@ -747,6 +747,108 @@ function findLatestProbe(probeResults, scope, objectId, kind) {
 		result.scope == scope && result.object_id == objectId && result.kind == kind);
 }
 
+function nodeProbeMetric(result, mode) {
+	if (!result || result.scope != 'nodes' || result.kind != mode || result.ok !== true || result.stale === true)
+		return null;
+	const contract = uiSpec.node_display_sorting || {};
+	const suffix = mode == 'connect' ? contract.connect_metric_suffix : contract.download_metric_suffix;
+	const escaped = String(suffix || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const match = String(result.summary || '').trim().match(new RegExp('^([0-9]+(?:\\.[0-9]+)?)\\s*' + escaped + '$', 'i'));
+	if (!match) return null;
+	const value = Number(match[1]);
+	return Number.isFinite(value) ? value : null;
+}
+
+function nodeDisplaySortState() {
+	const contract = uiSpec.node_display_sorting || {};
+	const query = new URLSearchParams(window.location.search || '');
+	const requestedMode = query.get('node_sort') || 'default';
+	const requestedDirection = query.get('node_sort_direction') || contract.default_direction || 'best_first';
+	return {
+		mode: (contract.modes || []).includes(requestedMode) ? requestedMode : 'default',
+		direction: (contract.direction_modes || []).includes(requestedDirection)
+			? requestedDirection : (contract.default_direction || 'best_first')
+	};
+}
+
+function sortNodeSectionIDs(sectionIds, mode, direction, probeResults) {
+	const ids = (sectionIds || []).slice();
+	if (mode == 'default') return ids;
+	const latest = probeResults?.latest_results || [];
+	const decorated = ids.map((sectionId, index) => {
+		const result = latest.find((candidate) =>
+			candidate.scope == 'nodes' && candidate.object_id == sectionId && candidate.kind == mode);
+		const metric = nodeProbeMetric(result, mode);
+		return { sectionId: sectionId, index: index, metric: metric, ranked: metric != null };
+	});
+	const contract = uiSpec.node_display_sorting || {};
+	const goodDirection = mode == 'connect' ? contract.connect_direction : contract.download_direction;
+	const metricDirection = direction == 'worst_first'
+		? (goodDirection == 'ascending' ? 'descending' : 'ascending')
+		: goodDirection;
+	decorated.sort((left, right) => {
+		if (left.ranked != right.ranked) return left.ranked ? -1 : 1;
+		if (!left.ranked) return left.index - right.index;
+		const compared = metricDirection == 'ascending'
+			? left.metric - right.metric : right.metric - left.metric;
+		return compared || left.index - right.index;
+	});
+	return decorated.map((entry) => entry.sectionId);
+}
+
+function nextNodeDisplaySort(mode) {
+	const current = nodeDisplaySortState();
+	const contract = uiSpec.node_display_sorting || {};
+	if (mode == 'default') return { mode: 'default', direction: contract.default_direction || 'best_first' };
+	return {
+		mode: mode,
+		direction: current.mode == mode
+			? (current.direction == 'best_first' ? 'worst_first' : 'best_first')
+			: (contract.default_direction || 'best_first')
+	};
+}
+
+function navigateNodeDisplaySort(mode) {
+	const next = nextNodeDisplaySort(mode);
+	const query = new URLSearchParams(window.location.search || '');
+	if (next.mode == 'default') {
+		query.delete('node_sort');
+		query.delete('node_sort_direction');
+	}
+	else {
+		query.set('node_sort', next.mode);
+		query.set('node_sort_direction', next.direction);
+	}
+	window.location.href = (window.location.pathname || '') + (query.toString() ? '?' + query.toString() : '');
+}
+
+function decorateNodeSortHeaders(formNode) {
+	const state = nodeDisplaySortState();
+	const table = formNode?.querySelector?.('#cbi-steer-node table') || formNode?.querySelector?.('table');
+	if (!table) return;
+	const headers = Array.from(table.querySelectorAll('thead th'));
+	const byWidgetSuffix = (suffix) => headers.find((header) =>
+		String(header.getAttribute('data-widget') || '').endsWith(suffix));
+	const orderHeader = headers.find((header) => !header.hasAttribute('data-widget') && !header.classList.contains('cbi-section-actions'));
+	const install = (header, label, mode) => {
+		if (!header) return;
+		const active = state.mode == mode;
+		const metricMode = mode != 'default';
+		const direction = state.direction == 'best_first' ? _('Best to worst') : _('Worst to best');
+		header.replaceChildren(E('button', {
+			'class': 'steer-node-sort-header' + (active ? ' is-active' : ''),
+			'type': 'button', 'aria-pressed': active ? 'true' : 'false',
+			'title': metricMode
+				? (active ? _('%s; click again to reverse direction.').format(direction) : _('Click to sort best to worst.'))
+				: _('Restore configured order.'),
+			'click': (ev) => { ev.preventDefault(); ev.stopPropagation(); navigateNodeDisplaySort(mode); }
+		}, [ E('span', {}, label), active ? E('small', {}, metricMode ? direction : _('Configured')) : '' ]));
+	};
+	install(orderHeader, _('Order'), 'default');
+	install(byWidgetSuffix('_connect_speedtest'), _('Connection test'), 'connect');
+	install(byWidgetSuffix('_download_speedtest'), _('Download test'), 'download');
+}
+
 function renderLatestProbe(output, result) {
 	if (!output) return;
 	const latest = latestProbePresentation(result);
@@ -807,7 +909,10 @@ function runSpeedtest(sectionId, download, button, gate, refreshAfter = true) {
 		setSpeedtestButton(button, 'error', _('Failed'), _('See diagnostic logs for details.'));
 		return refreshLatestProbe(button).then((latest) => latest?.ok === true).catch(() => false);
 	});
-	}).then((result) => refreshAfter ? gate.refresh().then(() => result) : result);
+	}).then((result) => refreshAfter ? gate.refresh().then(() => {
+		if (nodeDisplaySortState().mode == (download ? 'download' : 'connect')) window.location.reload();
+		return result;
+	}) : result);
 }
 
 function runRouteSpeedtest(sectionId, download, button, gate) {
@@ -861,7 +966,10 @@ function runBatchSpeedtest(sectionIds, download, button, gate) {
 		button.title = _('%d/%d succeeded; click to test again.').format(succeeded, sectionIds.length);
 		buttons.forEach((candidate) => { candidate.disabled = false; });
 	});
-	}).then((result) => gate.refresh().then(() => result));
+	}).then((result) => gate.refresh().then(() => {
+		if (nodeDisplaySortState().mode == (download ? 'download' : 'connect')) window.location.reload();
+		return result;
+	}));
 }
 
 function renderBatchSpeedtests(sectionIds, gate) {
@@ -953,7 +1061,7 @@ function showImportDialog() {
 	input.focus();
 }
 
-return view.extend({
+const nodesView = view.extend({
 	load: function() {
 		return Promise.all([
 			uci.load('steer'), steer.subscriptions(), uci.changes(), steer.probeResults(),
@@ -976,6 +1084,7 @@ return view.extend({
 		const summaryOnly = activeNodeGroup != manualNodeGroup;
 		const page = (window.location.pathname || '').split('/').pop();
 		const probeResults = data?.[3] || { latest_results: [] };
+		const displaySort = nodeDisplaySortState();
 		const permissions = data?.[4] || {};
 		steer.loadStyle(this);
 
@@ -1097,12 +1206,20 @@ return view.extend({
 		s.readonly = summaryOnly;
 		if (summaryOnly)
 			s.renderRowActions = function() { return E([]); };
-		steer.configureOrdering(s, 'nodes', { baseActions: !summaryOnly });
+		const orderingDisabledReason = displaySort.mode == 'default' ? ''
+			: _('Speed-test display sorting is active. Click the Order header before changing configured order.');
+		steer.configureOrdering(s, 'nodes', { baseActions: !summaryOnly, disabledReason: orderingDisabledReason });
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add proxy node');
 		s.filter = function(sectionId) {
 			return nodeGroupID(uci.get('steer', sectionId)) == activeNodeGroup;
 		};
+		const configuredSections = s.cfgsections;
+		s.cfgsections = function() {
+			return sortNodeSectionIDs(configuredSections.call(this), displaySort.mode, displaySort.direction, probeResults);
+		};
+		/* Header sorting is display-only; never call the native UCI reordering sorter. */
+		s.handleSort = function() {};
 		o = s.option(form.Flag, 'enabled', _('Enabled'));
 		o.default = '1';
 		o.editable = !summaryOnly;
@@ -1156,6 +1273,7 @@ return view.extend({
 		const nodeSection = s;
 		return m.render().then((formNode) => steer.focusSection(nodeSection, 'node').then(() => {
 			const contents = [ renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
+			decorateNodeSortHeaders(formNode);
 			probeGate.bindForm(formNode);
 			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds, probeGate);
 			if (batchSpeedtests)
@@ -1167,7 +1285,14 @@ return view.extend({
 		}));
 	},
 
-	handleSaveApply: function(ev, mode) {
+		handleSaveApply: function(ev, mode) {
 		return steer.apply(this, ev, mode);
 	}
 });
+
+nodesView.nodeProbeMetric = nodeProbeMetric;
+nodesView.sortNodeSectionIDs = sortNodeSectionIDs;
+nodesView.nextNodeDisplaySort = nextNodeDisplaySort;
+nodesView.decorateNodeSortHeaders = decorateNodeSortHeaders;
+
+return nodesView;
