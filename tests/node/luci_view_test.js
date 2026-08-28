@@ -98,6 +98,8 @@ function element(tag, attributes, children) {
 		value: attributes?.value || '',
 		placeholder: attributes?.placeholder || '',
 		listeners: {},
+		get textContent() { return this._textContent ?? this.children.map((child) => typeof child == 'string' ? child : (child?.textContent || '')).join(' '); },
+		set textContent(value) { this._textContent = String(value); },
 		replaceChildren: function(...replacement) { this.children = replacement; },
 		appendChild: function(child) { this.children.push(child); return child; },
 		addEventListener: function(name, listener) {
@@ -1150,8 +1152,8 @@ async function main() {
 		undefined, 'nodes', [], {}, { latest_results: nodeDisplaySortingFixtures.latest_results, warnings: [] }
 	);
 	const orderHeader = element('th', { 'data-sortable-row': '' }, 'Name');
-	const connectHeader = element('th', { 'data-widget': '_connect_speedtest' }, 'Connection test');
-	const downloadHeader = element('th', { 'data-widget': '_download_speedtest' }, 'Download test');
+	const connectHeader = element('th', { 'data-widget': 'CBI.ButtonValue' }, 'Connection test');
+	const downloadHeader = element('th', { 'data-widget': 'CBI.ButtonValue' }, 'Download test');
 	const actionsHeader = element('th', { 'class': 'cbi-section-actions' });
 	const sortForm = element('form', {}, element('table', {}, element('thead', {},
 		element('tr', {}, [ orderHeader, connectHeader, downloadHeader, actionsHeader ]))));

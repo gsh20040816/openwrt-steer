@@ -829,6 +829,11 @@ function decorateNodeSortHeaders(formNode) {
 	const headers = Array.from(table.querySelectorAll('thead th'));
 	const byWidgetSuffix = (suffix) => headers.find((header) =>
 		String(header.getAttribute('data-widget') || '').endsWith(suffix));
+	const byLabel = (label, suffix) => {
+		const normalized = String(label || '').replace(/\s+/g, '');
+		return headers.find((header) => String(header.textContent || '').replace(/\s+/g, '').includes(normalized))
+			|| byWidgetSuffix(suffix);
+	};
 	const orderHeader = headers.find((header) => !header.hasAttribute('data-widget') && !header.classList.contains('cbi-section-actions'));
 	const install = (header, label, mode) => {
 		if (!header) return;
@@ -845,8 +850,8 @@ function decorateNodeSortHeaders(formNode) {
 		}, [ E('span', {}, label), active ? E('small', {}, metricMode ? direction : _('Configured')) : '' ]));
 	};
 	install(orderHeader, _('Order'), 'default');
-	install(byWidgetSuffix('_connect_speedtest'), _('Connection test'), 'connect');
-	install(byWidgetSuffix('_download_speedtest'), _('Download test'), 'download');
+	install(byLabel(_('Connection test'), '_connect_speedtest'), _('Connection test'), 'connect');
+	install(byLabel(_('Download test'), '_download_speedtest'), _('Download test'), 'download');
 }
 
 function renderLatestProbe(output, result) {
