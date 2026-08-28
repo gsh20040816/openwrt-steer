@@ -38,19 +38,20 @@ type StaleNode struct {
 // LastSuccess and LastFailure are independent so a failed refresh never
 // destroys the last known-good inventory facts.
 type Status struct {
-	ID             string      `json:"id"`
-	Name           string      `json:"name,omitempty"`
-	URL            string      `json:"url"`
-	Enabled        bool        `json:"enabled"`
-	UpdateInterval string      `json:"update_interval,omitempty"`
-	NeverFetched   bool        `json:"never_fetched"`
-	LastSuccess    *time.Time  `json:"last_success"`
-	LastFailure    *Failure    `json:"last_failure"`
-	NodeCount      int         `json:"node_count"`
-	Current        int         `json:"current"`
-	Added          int         `json:"added"`
-	Skipped        int         `json:"skipped"`
-	Stale          []StaleNode `json:"stale"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name,omitempty"`
+	URL            string          `json:"url"`
+	Enabled        bool            `json:"enabled"`
+	UpdateInterval string          `json:"update_interval,omitempty"`
+	NeverFetched   bool            `json:"never_fetched"`
+	LastSuccess    *time.Time      `json:"last_success"`
+	LastFailure    *Failure        `json:"last_failure"`
+	NodeCount      int             `json:"node_count"`
+	Current        int             `json:"current"`
+	Added          int             `json:"added"`
+	Skipped        int             `json:"skipped"`
+	SkippedReasons []SkippedReason `json:"skipped_reasons,omitempty"`
+	Stale          []StaleNode     `json:"stale"`
 }
 
 type UpdateError struct {
@@ -80,6 +81,7 @@ func BuildStatus(configured model.Subscription, nodes []model.Node, routes []mod
 		status.LastFailure = snapshot.LastFailure
 		status.Added = snapshot.Added
 		status.Skipped = snapshot.Skipped
+		status.SkippedReasons = append([]SkippedReason(nil), snapshot.SkippedReasons...)
 	}
 	if stateErr != nil && !errors.Is(stateErr, fs.ErrNotExist) && status.LastFailure == nil {
 		status.LastFailure = &Failure{Summary: "saved subscription state is unavailable"}
@@ -117,6 +119,7 @@ func SuccessfulSnapshot(configured model.Subscription, previous *Snapshot, old, 
 		FetchedAt:      now.UTC(),
 		Nodes:          merged,
 		Skipped:        parsed.Skipped,
+		SkippedReasons: append([]SkippedReason(nil), parsed.SkippedReasons...),
 		Added:          addedNodeCount(old, merged),
 	}
 	if previous != nil {

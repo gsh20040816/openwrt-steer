@@ -572,6 +572,25 @@ func TestCompileVLESSRealityDoesNotSilentlyDowngrade(t *testing.T) {
 	}
 }
 
+func TestCompileTUICALPN(t *testing.T) {
+	node := model.Node{
+		ID: "tuic", Enabled: true, Type: "tuic", Server: "example.com", ServerPort: 39823,
+		NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeTLS:         model.NodeTLS{TLSServerName: "example.com", ALPN: []string{"h3", "h2"}},
+	}
+	outbound := CompileNodeOutbound(node)
+	tls, ok := outbound["tls"].(map[string]any)
+	if !ok {
+		t.Fatalf("TUIC TLS was not generated: %#v", outbound)
+	}
+	if !reflect.DeepEqual(tls["alpn"], []string{"h3", "h2"}) {
+		t.Fatalf("TUIC ALPN was not projected to sing-box TLS: %#v", tls)
+	}
+	if _, exists := outbound["password"]; exists {
+		t.Fatalf("empty TUIC password must not be fabricated: %#v", outbound)
+	}
+}
+
 func TestCompileDefaultVLESSTransportsAreEquivalent(t *testing.T) {
 	node := model.Node{
 		ID: "vless", Enabled: true, Type: "vless", Server: "proxy.example", ServerPort: 443,

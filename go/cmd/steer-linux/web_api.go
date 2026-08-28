@@ -112,7 +112,8 @@ func (app webApplication) handleNodeImport(writer http.ResponseWriter, request *
 	}
 	writeWebJSON(writer, map[string]any{
 		"node":  parsed.Nodes[0], // 0.8.1 page compatibility during an in-place upgrade.
-		"nodes": parsed.Nodes, "skipped": parsed.Skipped,
+		"nodes": parsed.Nodes, "skipped": parsed.Skipped, "skipped_reasons": parsed.SkippedReasons,
+		"warnings": parsed.SkippedReasons,
 	})
 }
 

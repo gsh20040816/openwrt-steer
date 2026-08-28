@@ -946,6 +946,25 @@
       "placeholder": "server.example.com"
     },
     {
+      "key": "alpn",
+      "label": "ALPN",
+      "control": "string-list",
+      "section": "tls",
+      "types": [
+        "http",
+        "vmess",
+        "hysteria",
+        "vless",
+        "hysteria2",
+        "trojan",
+        "shadowtls",
+        "tuic",
+        "anytls",
+        "naive"
+      ],
+      "placeholder": "h3"
+    },
+    {
       "key": "utls_fingerprint",
       "label": "uTLS fingerprint",
       "control": "select",

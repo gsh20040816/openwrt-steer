@@ -350,6 +350,23 @@ func TestAllSingBox113ProxyOutboundsValidate(t *testing.T) {
 	}
 }
 
+func TestTUICAllowsEmptyPasswordAndValidatesALPN(t *testing.T) {
+	intent := validIntent()
+	intent.Nodes[0] = Node{ID: "proxy", Enabled: true, Type: "tuic", Server: "proxy.example", ServerPort: 443,
+		NodeCredentials: NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeTLS:         NodeTLS{TLSServerName: "proxy.example", ALPN: []string{"h3", "h2"}}}
+	if validation := Validate(intent); !validation.OK {
+		t.Fatalf("TUIC with empty password and ALPN was rejected: %#v", validation.Errors)
+	}
+	for _, alpn := range [][]string{{""}, {"h3,h2"}, {strings.Repeat("a", 256)}} {
+		intent.Nodes[0].ALPN = alpn
+		validation := Validate(intent)
+		if validation.OK || !hasIssueForOption(validation, "INVALID_ALPN", "alpn") {
+			t.Fatalf("invalid ALPN was accepted: %#v", validation)
+		}
+	}
+}
+
 func TestRejectVMessTransportInOutboundNetwork(t *testing.T) {
 	intent := validIntent()
 	intent.Nodes[0] = Node{ID: "proxy", Enabled: true, Type: "vmess", Server: "proxy.example", ServerPort: 443,

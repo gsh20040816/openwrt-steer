@@ -132,9 +132,10 @@ func runParseNodes(args []string, stdout io.Writer) error {
 		return fmt.Errorf("node import contained no valid nodes (%d skipped)", parsed.Skipped)
 	}
 	return writeJSON(stdout, struct {
-		Nodes   []model.Node `json:"nodes"`
-		Skipped int          `json:"skipped"`
-	}{Nodes: parsed.Nodes, Skipped: parsed.Skipped})
+		Nodes          []model.Node                 `json:"nodes"`
+		Skipped        int                          `json:"skipped"`
+		SkippedReasons []subscription.SkippedReason `json:"skipped_reasons,omitempty"`
+	}{Nodes: parsed.Nodes, Skipped: parsed.Skipped, SkippedReasons: parsed.SkippedReasons})
 }
 
 func runValidate(args []string, stdout io.Writer) error {

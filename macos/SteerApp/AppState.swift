@@ -627,6 +627,29 @@ enum RuleDraftPolicy {
 struct NodeImportResult: Decodable, Sendable {
     let nodes: [JSONValue]
     let skipped: Int
+    let skippedReasons: [NodeImportSkippedReason]
+
+    enum CodingKeys: String, CodingKey {
+        case nodes, skipped
+        case skippedReasons = "skipped_reasons"
+    }
+
+    init(nodes: [JSONValue], skipped: Int, skippedReasons: [NodeImportSkippedReason] = []) {
+        self.nodes = nodes
+        self.skipped = skipped
+        self.skippedReasons = skippedReasons
+    }
+}
+
+struct NodeImportSkippedReason: Decodable, Sendable {
+    let scheme: String?
+    let code: String
+    let parameter: String?
+    let detail: String
+
+    enum CodingKeys: String, CodingKey {
+        case scheme, code, parameter, detail
+    }
 }
 
 struct NodeImportPreviewItem: Identifiable {
@@ -655,6 +678,7 @@ struct NodeImportPreviewItem: Identifiable {
             || ["tls", "reality"].contains(security)
             || object["tls_server_name"]?.stringValue?.isEmpty == false
             || object["reality_public_key"]?.stringValue?.isEmpty == false
+            || object["alpn"]?.arrayValue?.isEmpty == false
         if usesTLS {
             tlsVerification = object["insecure"]?.boolValue == true ? "跳过证书验证" : "验证证书"
         } else {
@@ -682,6 +706,13 @@ struct NodeImportPreviewItem: Identifiable {
 struct NodeImportPreview {
     var items: [NodeImportPreviewItem]
     let skipped: Int
+    let skippedReasons: [NodeImportSkippedReason]
+
+    init(items: [NodeImportPreviewItem], skipped: Int, skippedReasons: [NodeImportSkippedReason] = []) {
+        self.items = items
+        self.skipped = skipped
+        self.skippedReasons = skippedReasons
+    }
 
     var skippedSummary: String? {
         skipped == 0 ? nil : "已跳过 \(skipped) 个无法识别或字段不完整的条目"
@@ -1618,7 +1649,8 @@ final class AppModel: ObservableObject {
             let result = try await backend.parseNodes(document: document)
             let preview = NodeImportPreview(
                 items: result.nodes.compactMap(NodeImportPreviewItem.init(value:)),
-                skipped: result.skipped
+                skipped: result.skipped,
+                skippedReasons: result.skippedReasons
             )
             message = result.skipped == 0
                 ? "已解析 \(preview.items.count) 个节点；确认前不会修改工作副本"
