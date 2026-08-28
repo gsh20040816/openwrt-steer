@@ -46,7 +46,7 @@
     udp_relay_mode: 'UDP 中继', udp_over_stream: 'UDP over stream', zero_rtt_handshake: '0-RTT 握手', heartbeat: '心跳',
     quic: 'QUIC', quic_congestion_control: 'QUIC 拥塞控制', insecure_concurrency: '不安全并发', private_key: '私钥',
     host_key: 'Host key', host_key_algorithms: 'Host key algorithms', executable_path: '可执行文件', extra_args: '额外参数',
-    data_directory: '数据目录', tls_server_name: 'TLS 服务器名', utls_fingerprint: 'uTLS 指纹',
+    data_directory: '数据目录', tls_server_name: 'TLS 服务器名', alpn: 'ALPN', utls_fingerprint: 'uTLS 指纹',
     insecure: '跳过证书校验', reality_public_key: 'REALITY 公钥', reality_short_id: 'REALITY Short ID'
   };
   const NODE_OPTION_KEYS = new Set(S.uiSpec.node_fields.map((field) => field.key));

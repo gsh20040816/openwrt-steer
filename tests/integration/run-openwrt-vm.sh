@@ -84,6 +84,14 @@ node_import_rpc "$single_node" > "$TEST_DIR/node-import-single.json"
 [ "$(jsonfilter -q -i "$TEST_DIR/node-import-single.json" -e '@.nodes[0].type')" = 'vless' ]
 [ "$(jsonfilter -q -i "$TEST_DIR/node-import-single.json" -e '@.skipped')" = '0' ]
 
+tuic_node='tuic://00000000-0000-4000-8000-000000000001@example.com:39823?congestion_control=bbr&alpn=h3%2Ch2&sni=example.com&udp_relay_mode=quic&allow_insecure=0#tuic-fixture'
+node_import_rpc "$tuic_node" > "$TEST_DIR/node-import-tuic.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-tuic.json" -e '@.nodes[0].type')" = 'tuic' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-tuic.json" -e '@.nodes[0].uuid')" = '00000000-0000-4000-8000-000000000001' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-tuic.json" -e '@.nodes[0].alpn[0]')" = 'h3' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-tuic.json" -e '@.nodes[0].alpn[1]')" = 'h2' ]
+[ "$(jsonfilter -q -i "$TEST_DIR/node-import-tuic.json" -e '@.skipped')" = '0' ]
+
 multi_node="$single_node
 not-a-node-link
 ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#fixture"

@@ -53,6 +53,30 @@ func TestDecodeCanonicalIntent(t *testing.T) {
 	}
 }
 
+func TestDecodeTUICALPNList(t *testing.T) {
+	config := minimalConfig + `
+config node 'tuic'
+	option enabled '1'
+	option type 'tuic'
+	option server 'example.com'
+	option server_port '443'
+	option uuid '00000000-0000-4000-8000-000000000001'
+	option tls_server_name 'example.com'
+	list alpn 'h3'
+	list alpn 'h2'
+`
+	intent, err := Decode(strings.NewReader(config))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(intent.Nodes) != 1 || !reflect.DeepEqual(intent.Nodes[0].ALPN, []string{"h3", "h2"}) {
+		t.Fatalf("TUIC ALPN list did not survive UCI decode: %#v", intent.Nodes)
+	}
+	if validation := model.Validate(intent); !validation.OK {
+		t.Fatalf("decoded TUIC ALPN node is invalid: %#v", validation.Errors)
+	}
+}
+
 func TestDecodeRealUCIExportWithMultilinePrivateKey(t *testing.T) {
 	configPath := filepath.Join("..", "..", "..", "..", "tests", "fixtures", "multiline-private-key-valid", "steer")
 	content, err := os.ReadFile(configPath)

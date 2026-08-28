@@ -111,6 +111,18 @@ func TestSubscriptionRefreshPreservesDisabledNode(t *testing.T) {
 	}
 }
 
+func TestSubscriptionNodeBatchPersistsTUICALPN(t *testing.T) {
+	node := model.Node{ID: "tuic", Enabled: true, Type: "tuic", Server: "example.com", ServerPort: 443,
+		NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeTLS:         model.NodeTLS{TLSServerName: "example.com", ALPN: []string{"h3", "h2"}}}
+	var batch strings.Builder
+	appendNodeBatch(&batch, node)
+	text := batch.String()
+	if !strings.Contains(text, "add_list steer.tuic.alpn='h3'\n") || !strings.Contains(text, "add_list steer.tuic.alpn='h2'\n") {
+		t.Fatalf("TUIC ALPN list was not persisted to UCI: %s", text)
+	}
+}
+
 func TestSubscriptionDuplicateFingerprintsAreCollapsed(t *testing.T) {
 	first := model.Node{Name: "First", Type: "trojan", Server: "same.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}}
 	second := first

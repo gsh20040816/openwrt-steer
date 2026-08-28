@@ -449,15 +449,18 @@ func compileNode(node model.Node) map[string]any {
 		}
 	case "hysteria":
 		result["auth_str"], result["hop_interval"], result["up_mbps"], result["down_mbps"] = node.Password, node.HopInterval, node.UpMbps, node.DownMbps
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "", node.ALPN)
 		if node.ObfsPassword != "" {
 			result["obfs"] = node.ObfsPassword
 		}
 	case "shadowtls":
 		result["version"], result["password"] = node.Version, node.Password
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "", node.ALPN)
 	case "tuic":
-		result["uuid"], result["password"] = node.UUID, node.Password
+		result["uuid"] = node.UUID
+		if node.Password != "" {
+			result["password"] = node.Password
+		}
 		result["congestion_control"] = node.CongestionControl
 		if node.UDPRelayMode != "" {
 			result["udp_relay_mode"] = node.UDPRelayMode
@@ -465,16 +468,16 @@ func compileNode(node model.Node) map[string]any {
 			result["udp_over_stream"] = true
 		}
 		result["zero_rtt_handshake"], result["heartbeat"] = node.ZeroRTTHandshake, node.Heartbeat
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "", node.ALPN)
 	case "hysteria2":
 		result["password"], result["hop_interval"], result["up_mbps"], result["down_mbps"] = node.Password, node.HopInterval, node.UpMbps, node.DownMbps
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "", node.ALPN)
 		if node.ObfsType != "" {
 			result["obfs"] = map[string]any{"type": node.ObfsType, "password": node.ObfsPassword}
 		}
 	case "anytls":
 		result["password"] = node.Password
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "", node.ALPN)
 	case "naive":
 		result["username"], result["password"] = node.Username, node.Password
 		if node.InsecureConcurrency != 0 {
@@ -486,7 +489,7 @@ func compileNode(node model.Node) map[string]any {
 		if node.QUICCongestionControl != "" {
 			result["quic_congestion_control"] = node.QUICCongestionControl
 		}
-		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "")
+		result["tls"] = compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, "", "", node.ALPN)
 	case "ssh":
 		result["user"], result["password"] = node.Username, node.Password
 		if node.PrivateKey != "" {
@@ -553,10 +556,10 @@ func compileRouteOutbound(route model.Route, nodes map[string]model.Node) map[st
 }
 
 func compileTLSIfConfigured(node model.Node) map[string]any {
-	if node.TLSServerName == "" && node.RealityPublicKey == "" && node.RealityShortID == "" && !node.Insecure && node.UTLSFingerprint == "" {
+	if node.TLSServerName == "" && len(node.ALPN) == 0 && node.RealityPublicKey == "" && node.RealityShortID == "" && !node.Insecure && node.UTLSFingerprint == "" {
 		return nil
 	}
-	return compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, node.RealityPublicKey, node.RealityShortID)
+	return compileTLS(node.TLSServerName, node.Insecure, node.UTLSFingerprint, node.RealityPublicKey, node.RealityShortID, node.ALPN)
 }
 
 func compileTransport(node model.Node) map[string]any {
@@ -584,8 +587,11 @@ func compileTransport(node model.Node) map[string]any {
 	}
 }
 
-func compileTLS(serverName string, insecure bool, fingerprint, publicKey, shortID string) map[string]any {
+func compileTLS(serverName string, insecure bool, fingerprint, publicKey, shortID string, alpn ...[]string) map[string]any {
 	result := map[string]any{"enabled": true, "server_name": serverName, "insecure": insecure}
+	if len(alpn) > 0 && len(alpn[0]) > 0 {
+		result["alpn"] = append([]string(nil), alpn[0]...)
+	}
 	if fingerprint != "" {
 		result["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
 	}

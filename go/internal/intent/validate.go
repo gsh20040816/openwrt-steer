@@ -439,9 +439,7 @@ func validateNode(value Node, err, warn issueFn) {
 		}
 	case "tuic":
 		validateUUID(value.UUID, "TUIC", value.ID, err)
-		if value.Password == "" {
-			err("REQUIRED", "node", value.ID, "password", "TUIC password is required")
-		}
+		validateALPN(value.ALPN, value.ID, err)
 		if !oneOf(value.CongestionControl, "", "cubic", "new_reno", "bbr") {
 			err("INVALID_CONGESTION_CONTROL", "node", value.ID, "congestion_control", "TUIC congestion control must be cubic, new_reno or bbr")
 		}
@@ -479,6 +477,9 @@ func validateNode(value Node, err, warn issueFn) {
 		if value.Server != "" || value.ServerPort != 0 {
 			err("UNEXPECTED_NODE_OPTION", "node", value.ID, "server", "Tor uses a local executable and does not accept a remote server")
 		}
+	}
+	if len(value.ALPN) > 0 && !oneOf(value.Type, "http", "vmess", "hysteria", "vless", "hysteria2", "trojan", "shadowtls", "tuic", "anytls", "naive") {
+		err("UNSUPPORTED_NODE_OPTION", "node", value.ID, "alpn", "ALPN is only supported by TLS outbounds")
 	}
 	if value.Insecure {
 		warn("INSECURE_TLS", "node", value.ID, "insecure", "TLS certificate verification is disabled")
@@ -531,6 +532,24 @@ func validateUUID(value, protocol, objectID string, err issueFn) {
 	}
 	if !regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(value) {
 		err("INVALID_UUID", "node", objectID, "uuid", protocol+" UUID is invalid")
+	}
+}
+
+func validateALPN(values []string, objectID string, err issueFn) {
+	for _, value := range values {
+		if value == "" {
+			err("INVALID_ALPN", "node", objectID, "alpn", "ALPN entries must be non-empty")
+			continue
+		}
+		if strings.Contains(value, ",") {
+			err("INVALID_ALPN", "node", objectID, "alpn", "ALPN entries must not contain commas")
+		}
+		if len([]byte(value)) > 255 {
+			err("INVALID_ALPN", "node", objectID, "alpn", "ALPN entries must be at most 255 bytes")
+		}
+		if strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			err("CONTROL_CHARACTER", "node", objectID, "alpn", "ALPN entries cannot contain control characters")
+		}
 	}
 }
 

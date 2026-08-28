@@ -362,6 +362,9 @@ func appendNodeBatch(batch *strings.Builder, node model.Node) {
 	setString("obfs_password", node.ObfsPassword)
 	setInt("up_mbps", node.UpMbps)
 	setInt("down_mbps", node.DownMbps)
+	for _, value := range node.ALPN {
+		fmt.Fprintf(batch, "add_list steer.%s.alpn=%s\n", node.ID, uciQuote(value))
+	}
 	setString("tls_server_name", node.TLSServerName)
 	setBool("insecure", node.Insecure)
 	setString("reality_public_key", node.RealityPublicKey)

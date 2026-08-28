@@ -399,6 +399,7 @@ func ContractValue() Contract {
 		{Key: "extra_args", Label: "Extra arguments", Control: "string-list", Section: "protocol", Types: []string{"tor"}},
 		stringField("data_directory", "Data directory", "protocol", "tor"),
 		{Key: "tls_server_name", Label: "TLS server name", Control: "text", Section: "tls", Types: tlsTypes, RequiredTypes: []string{"hysteria", "hysteria2", "trojan", "shadowtls", "tuic", "anytls", "naive"}, Placeholder: "server.example.com"},
+		{Key: "alpn", Label: "ALPN", Control: "string-list", Section: "tls", Types: tlsTypes, Placeholder: "h3"},
 		{Key: "utls_fingerprint", Label: "uTLS fingerprint", Control: "select", Section: "tls", Types: tlsTypes, Options: choices("", "System default", "chrome", "chrome", "firefox", "firefox", "safari", "safari", "edge", "edge", "random", "random")},
 		{Key: "insecure", Label: "Skip certificate verification", Control: "boolean", Section: "tls", Types: tlsTypes},
 		stringField("reality_public_key", "REALITY public key", "tls", "vless"),

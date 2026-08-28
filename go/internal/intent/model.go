@@ -100,11 +100,12 @@ type NodeProtocol struct {
 }
 
 type NodeTLS struct {
-	TLSServerName    string `json:"tls_server_name,omitempty"`
-	Insecure         bool   `json:"insecure,omitempty"`
-	RealityPublicKey string `json:"reality_public_key,omitempty"`
-	RealityShortID   string `json:"reality_short_id,omitempty"`
-	UTLSFingerprint  string `json:"utls_fingerprint,omitempty"`
+	TLSServerName    string   `json:"tls_server_name,omitempty"`
+	ALPN             []string `json:"alpn,omitempty"`
+	Insecure         bool     `json:"insecure,omitempty"`
+	RealityPublicKey string   `json:"reality_public_key,omitempty"`
+	RealityShortID   string   `json:"reality_short_id,omitempty"`
+	UTLSFingerprint  string   `json:"utls_fingerprint,omitempty"`
 }
 
 type NodeSource struct {

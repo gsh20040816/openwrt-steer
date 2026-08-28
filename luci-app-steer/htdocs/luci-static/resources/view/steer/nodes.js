@@ -882,6 +882,7 @@ function showImportDialog() {
 			const nameInput = nodes.length == 1 ? E('input', {
 				'class': 'cbi-input-text', 'value': nodes[0].name, 'autocomplete': 'off'
 			}) : null;
+			const skippedReasons = (parsed?.skipped_reasons || []).slice(0, 3);
 			const save = function(saveEvent) {
 				saveEvent.preventDefault();
 				if (nameInput)
@@ -910,7 +911,10 @@ function showImportDialog() {
 			preview.replaceChildren(E('div', {}, [
 				E('h4', {}, _('%d node(s) ready to import').format(nodes.length)),
 				E('p', {}, _('Review every node below. Credentials are reported only as present or absent and their contents stay hidden.')),
-				parsed.skipped ? E('p', { 'class': 'alert-message warning' }, _('%d invalid node(s) were skipped; the complete valid batch is listed below.').format(parsed.skipped)) : '',
+				parsed.skipped ? E('div', { 'class': 'alert-message warning' }, [
+					E('p', {}, _('%d invalid node(s) were skipped; the complete valid batch is listed below.').format(parsed.skipped)),
+					skippedReasons.length ? E('ul', {}, skippedReasons.map((reason) => E('li', {}, reason.detail))) : ''
+				]) : '',
 				E('div', { 'class': 'steer-test-grid' }, nodes.map((node, index) => renderImportPreview(node, index, nameInput))),
 				E('div', { 'class': 'right' }, E('button', {
 					'class': 'cbi-button cbi-button-positive', click: save

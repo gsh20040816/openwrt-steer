@@ -4,6 +4,7 @@ package intent
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -53,5 +54,21 @@ func TestJSONDNSProfileOptionsRemainSubjectToSemanticValidation(t *testing.T) {
 		if !hasIssueForOption(validation, "UNSUPPORTED_DNS_OPTION", option) {
 			t.Fatalf("raw JSON retained unsupported %q without a stable error: %#v", option, validation.Errors)
 		}
+	}
+}
+
+func TestJSONRoundTripPreservesTLSALPN(t *testing.T) {
+	value := validIntent()
+	value.Nodes[0].ALPN = []string{"h3", "h2"}
+	var encoded bytes.Buffer
+	if err := EncodeJSON(&encoded, value); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeJSON(&encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded.Nodes[0].ALPN, value.Nodes[0].ALPN) {
+		t.Fatalf("TLS ALPN changed during JSON round trip: %#v", decoded.Nodes[0].ALPN)
 	}
 }

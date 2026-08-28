@@ -274,6 +274,7 @@ struct NodeImportSheet: View {
     @State private var errorMessage = ""
     @State private var previewItems: [NodeImportPreviewItem] = []
     @State private var skipped = 0
+    @State private var skippedReasons: [NodeImportSkippedReason] = []
     @State private var hasPreview = false
 
     private var selectedCount: Int { previewItems.filter(\.selected).count }
@@ -301,10 +302,17 @@ struct NodeImportSheet: View {
                             }
                         }
                         if skipped > 0 {
-                            Label(
-                                "已跳过 \(skipped) 个无法识别或字段不完整的条目",
-                                systemImage: "exclamationmark.triangle.fill"
-                            )
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label(
+                                    "已跳过 \(skipped) 个无法识别或字段不完整的条目",
+                                    systemImage: "exclamationmark.triangle.fill"
+                                )
+                                ForEach(Array(skippedReasons.prefix(3).enumerated()), id: \.offset) { _, reason in
+                                    Text(reason.detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             .foregroundStyle(.orange)
                         }
                         Text("预览只显示安全摘要；密码、Token、私钥及其他凭据不会显示。")
@@ -356,10 +364,11 @@ struct NodeImportSheet: View {
                         hasPreview = false
                         previewItems = []
                         skipped = 0
+                        skippedReasons = []
                         errorMessage = ""
                     }
                     Button("导入所选（\(selectedCount)）") {
-                        let preview = NodeImportPreview(items: previewItems, skipped: skipped)
+                        let preview = NodeImportPreview(items: previewItems, skipped: skipped, skippedReasons: skippedReasons)
                         if model.confirmNodeImport(preview) {
                             dismiss()
                         } else {
@@ -376,6 +385,7 @@ struct NodeImportSheet: View {
                             if let preview = await model.previewNodeImport(document) {
                                 previewItems = preview.items
                                 skipped = preview.skipped
+                                skippedReasons = preview.skippedReasons
                                 hasPreview = true
                             } else {
                                 errorMessage = model.message
@@ -507,7 +517,7 @@ private struct SharedNodeDraftForm: View {
             "zero_rtt_handshake": "Zero-RTT handshake", "heartbeat": "Heartbeat", "quic_congestion_control": "QUIC congestion control",
             "insecure_concurrency": "Insecure concurrency", "private_key": "Private key", "host_key": "Host key",
             "host_key_algorithms": "Host key algorithms", "executable_path": "可执行文件", "extra_args": "额外参数",
-            "data_directory": "数据目录", "tls_server_name": "TLS 服务器名", "utls_fingerprint": "uTLS 指纹",
+            "data_directory": "数据目录", "tls_server_name": "TLS 服务器名", "alpn": "ALPN", "utls_fingerprint": "uTLS 指纹",
             "insecure": "跳过证书验证", "reality_public_key": "REALITY Public key", "reality_short_id": "REALITY Short ID",
         ]
         return labels[field.key] ?? field.label
@@ -1190,5 +1200,5 @@ private let nodeOptionFields: Set<String> = [
     "congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat",
     "quic", "quic_congestion_control", "insecure_concurrency", "server_ports", "hop_interval",
     "obfs_type", "obfs_password", "up_mbps", "down_mbps", "executable_path", "extra_args", "data_directory",
-    "tls_server_name", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint",
+    "tls_server_name", "alpn", "insecure", "reality_public_key", "reality_short_id", "utls_fingerprint",
 ]

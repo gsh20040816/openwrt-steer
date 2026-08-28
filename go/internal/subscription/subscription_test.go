@@ -5,9 +5,61 @@ package subscription
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/gsh20040816/steer/go/internal/compiler"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
+
+func TestParseTUICALPNAllowInsecureAndEmptyPassword(t *testing.T) {
+	raw := "tuic://00000000-0000-4000-8000-000000000001@example.com:39823?congestion_control=bbr&alpn=h3%2Ch2&sni=example.com&udp_relay_mode=quic&allow_insecure=0#singbox_tuic"
+	node, err := ParseURI(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if node.Type != "tuic" || node.UUID != "00000000-0000-4000-8000-000000000001" || node.Password != "" || node.ServerPort != 39823 {
+		t.Fatalf("unexpected TUIC credentials/endpoint: %#v", node)
+	}
+	if !reflect.DeepEqual(node.ALPN, []string{"h3", "h2"}) || node.CongestionControl != "bbr" || node.UDPRelayMode != "quic" || node.TLSServerName != "example.com" || node.Insecure {
+		t.Fatalf("TUIC compatibility fields were not lowered: %#v", node)
+	}
+	result, err := ParseList(raw)
+	if err != nil || result.Skipped != 0 || len(result.Nodes) != 1 {
+		t.Fatalf("TUIC link was not accepted by ParseList: result=%#v err=%v", result, err)
+	}
+}
+
+func TestParseTUICAllowInsecureAliases(t *testing.T) {
+	for _, value := range []string{"0", "1", "true", "false"} {
+		raw := "tuic://00000000-0000-4000-8000-000000000001@example.com:443?allow_insecure=" + value
+		node, err := ParseURI(raw)
+		if err != nil {
+			t.Fatalf("allow_insecure=%s: %v", value, err)
+		}
+		want := value == "1" || value == "true"
+		if node.Insecure != want {
+			t.Fatalf("allow_insecure=%s normalized to %v, want %v", value, node.Insecure, want)
+		}
+	}
+	for _, raw := range []string{
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443?allow_insecure=1&insecure=0",
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443?allow_insecure=maybe",
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443?alpn=",
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443?alpn=h3,,h2",
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443?alpn=h3%0Ah2",
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443?alpn=" + strings.Repeat("a", 256),
+	} {
+		if _, err := ParseURI(raw); err == nil {
+			t.Fatalf("invalid TUIC URI was accepted: %s", raw)
+		}
+	}
+	if _, err := ParseURI("tuic://00000000-0000-4000-8000-000000000001@example.com:443?allow_insecure=0&insecure=false"); err != nil {
+		t.Fatalf("equivalent boolean aliases should be accepted: %v", err)
+	}
+}
 
 func TestParseStandardURIs(t *testing.T) {
 	result, err := ParseList("vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example.com&type=ws&path=%2Fproxy\n" +
@@ -84,6 +136,8 @@ func TestRejectInvalidAndConflictingParameters(t *testing.T) {
 		"vless://00000000-0000-4000-8000-000000000001@example.com:443?sni=a.example&serverName=b.example",
 		"trojan://secret@example.com:443?sni=a.example&peer=b.example",
 		"anytls://secret@example.com:443?type=ws",
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443?sni=%ZZ",
+		"tuic://00000000-0000-4000-8000-000000000001@example.com:443#bad%0Aname",
 	} {
 		if _, err := ParseURI(raw); err == nil {
 			t.Fatalf("invalid URI was accepted: %s", raw)
@@ -117,8 +171,14 @@ func TestParseListSkipsOnlyInvalidNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Skipped != 2 || len(result.Nodes) != 1 || result.Nodes[0].Type != "socks" {
+	if result.Skipped != 2 || len(result.Nodes) != 1 || len(result.SkippedReasons) != 2 || result.Nodes[0].Type != "socks" {
 		t.Fatalf("unexpected lenient parse result: %#v", result)
+	}
+	if result.SkippedReasons[0].Scheme != "unknown" || result.SkippedReasons[0].Code == "" || result.SkippedReasons[0].Detail == "" {
+		t.Fatalf("skipped node lacks safe stable reason: %#v", result.SkippedReasons)
+	}
+	if strings.Contains(result.SkippedReasons[1].Detail, "bad") {
+		t.Fatalf("skipped reason leaked raw fragment: %#v", result.SkippedReasons[1])
 	}
 }
 
@@ -153,6 +213,25 @@ func TestParseOpaqueBase64PayloadsContainingSlash(t *testing.T) {
 	}
 }
 
+func TestParseVMessCommonTLSFieldsAndRejectUnknownJSON(t *testing.T) {
+	raw := `{"v":"2","ps":"fixture","add":"vmess.example.com","port":"443","id":"00000000-0000-0000-0000-000000000001","aid":"0","scy":"auto","net":"ws","tls":"tls","sni":"edge.example.com","host":"edge.example.com","path":"/ws","type":"none","alpn":"h2,http/1.1","fp":"chrome","allowInsecure":"0"}`
+	// Use a valid version-4 UUID as required by the shared validator.
+	raw = strings.Replace(raw, "00000000-0000-0000-0000-000000000001", "00000000-0000-4000-8000-000000000001", 1)
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(raw))
+	node, err := ParseURI("vmess://" + encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(node.ALPN, []string{"h2", "http/1.1"}) || node.UTLSFingerprint != "chrome" || node.Insecure {
+		t.Fatalf("VMess TLS fields were not lowered: %#v", node)
+	}
+	unknown := strings.Replace(raw, `,"fp":"chrome"`, `,"unknown":"value","fp":"chrome"`, 1)
+	unknownEncoded := base64.StdEncoding.EncodeToString([]byte(unknown))
+	if _, err := ParseURI("vmess://" + unknownEncoded); err == nil {
+		t.Fatal("unknown VMess JSON field was silently accepted")
+	}
+}
+
 func TestParseCompleteSIP002Forms(t *testing.T) {
 	for name, raw := range map[string]string{
 		"plaintext 2022":     "ss://2022-blake3-aes-128-gcm:password@example.com:8388#SS2022",
@@ -177,6 +256,83 @@ func TestParseCompleteSIP002Forms(t *testing.T) {
 		if name == "standard plugin" && (node.Plugin != "obfs-local" || node.PluginOptions != "obfs=http;obfs-host=example.com") {
 			t.Fatalf("standard plugin was not split: %#v", node)
 		}
+	}
+}
+
+func TestCompatibilityMatrixCoversEveryShareScheme(t *testing.T) {
+	vmessJSON := `{"v":"2","ps":"vmess","add":"vmess.example","port":"443","id":"00000000-0000-4000-8000-000000000001","aid":"0","scy":"auto","net":"ws","tls":"tls","sni":"edge.example","host":"edge.example","path":"/ws","type":"none","alpn":"h2,http/1.1","fp":"chrome","allowInsecure":"false"}`
+	vmess := "vmess://" + base64.RawURLEncoding.EncodeToString([]byte(vmessJSON))
+	fixtures := []struct {
+		name      string
+		source    string
+		raw       string
+		want      string
+		canonical []string
+	}{
+		{"socks", "SOCKS RFC 1928", "socks://user:pass@example.com:1080", "socks", []string{"server", "server_port", "username", "password"}},
+		{"socks5", "SOCKS5 alias", "socks5://user:pass@example.com:1080", "socks", []string{"server", "server_port", "username", "password"}},
+		{"http", "HTTP CONNECT", "http://user:pass@example.com:8080", "http", []string{"server", "server_port", "username", "password"}},
+		{"https", "HTTPS CONNECT", "https://user:pass@example.com:443?sni=edge.example", "http", []string{"server", "server_port", "tls_server_name"}},
+		{"shadowsocks SIP002", "SIP002", "ss://aes-256-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp", "shadowsocks", []string{"server", "server_port", "method", "password", "plugin_options"}},
+		{"vmess Base64", "VMess v2 JSON", vmess, "vmess", []string{"server", "server_port", "uuid", "transport", "tls_server_name", "alpn"}},
+		{"vless", "VLESS URI v1", "vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example&alpn=h2", "vless", []string{"server", "server_port", "uuid", "tls_server_name", "alpn"}},
+		{"trojan", "Trojan URI", "trojan://secret@example.com:443?sni=edge.example&alpn=h2", "trojan", []string{"server", "server_port", "password", "tls_server_name", "alpn"}},
+		{"hysteria", "Hysteria v1 URI", "hysteria://secret@example.com:443?sni=edge.example&upmbps=100&downmbps=100&obfs=obfs-secret", "hysteria", []string{"server", "server_port", "password", "up_mbps", "down_mbps", "obfs_password"}},
+		{"hysteria2", "Hysteria2 URI", "hysteria2://secret@example.com:443?sni=edge.example&obfs=salamander&obfs-password=obfs-secret", "hysteria2", []string{"server", "server_port", "password", "tls_server_name", "obfs_type", "obfs_password"}},
+		{"hy2 alias", "Hysteria2 hy2 alias", "hy2://secret@example.com:443?sni=edge.example", "hysteria2", []string{"server", "server_port", "password", "tls_server_name"}},
+		{"shadowtls", "ShadowTLS URI", "shadowtls://secret@example.com:443?version=3&sni=edge.example", "shadowtls", []string{"server", "server_port", "password", "version", "tls_server_name"}},
+		{"tuic", "TUIC v5 URI", "tuic://00000000-0000-4000-8000-000000000001@example.com:443?sni=edge.example&alpn=h3%2Ch2", "tuic", []string{"server", "server_port", "uuid", "tls_server_name", "alpn"}},
+		{"anytls", "AnyTLS URI", "anytls://secret@example.com:443?sni=edge.example", "anytls", []string{"server", "server_port", "password", "tls_server_name"}},
+		{"naive", "NaiveProxy HTTPS URI", "naive+https://user:secret@example.com:443?sni=edge.example", "naive", []string{"server", "server_port", "username", "password", "tls_server_name"}},
+		{"ssh", "SSH URI", "ssh://user:secret@example.com:22", "ssh", []string{"server", "server_port", "username", "password"}},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			node, err := ParseURI(fixture.raw)
+			if err != nil {
+				t.Fatalf("ParseURI: %v", err)
+			}
+			if node.Type != fixture.want {
+				t.Fatalf("type=%q, want %q", node.Type, fixture.want)
+			}
+			encoded, err := json.Marshal(node)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var canonical map[string]any
+			if err := json.Unmarshal(encoded, &canonical); err != nil {
+				t.Fatal(err)
+			}
+			for _, field := range fixture.canonical {
+				if _, ok := canonical[field]; !ok {
+					t.Fatalf("%s (%s) lost canonical field %q: %s", fixture.source, fixture.name, field, encoded)
+				}
+			}
+			if outbound := compiler.CompileNodeOutbound(node); outbound["type"] != fixture.want {
+				t.Fatalf("%s did not lower to matching sing-box outbound: %#v", fixture.source, outbound)
+			}
+			if validation := model.ValidateNode(node); !validation.OK {
+				t.Fatalf("canonical validation failed: %#v", validation.Errors)
+			}
+		})
+	}
+}
+
+func TestParseBase64WrappedCRLFDocument(t *testing.T) {
+	document := "# generated subscription\r\n\r\nvless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example\r\nnot-a-node\r\n"
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(document))
+	var wrapped strings.Builder
+	for index := 0; index < len(encoded); index += 17 {
+		end := index + 17
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		wrapped.WriteString(encoded[index:end])
+		wrapped.WriteString("\r\n")
+	}
+	result, err := ParseList(wrapped.String())
+	if err != nil || len(result.Nodes) != 1 || result.Skipped != 1 {
+		t.Fatalf("Base64 wrapped CRLF document was not parsed independently: result=%#v err=%v", result, err)
 	}
 }
 

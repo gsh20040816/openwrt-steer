@@ -226,9 +226,10 @@ func runParseNodes(args []string) error {
 		return fmt.Errorf("node import contained no valid nodes (%d skipped)", parsed.Skipped)
 	}
 	encoded, err := json.Marshal(struct {
-		Nodes   []model.Node `json:"nodes"`
-		Skipped int          `json:"skipped"`
-	}{Nodes: parsed.Nodes, Skipped: parsed.Skipped})
+		Nodes          []model.Node                 `json:"nodes"`
+		Skipped        int                          `json:"skipped"`
+		SkippedReasons []subscription.SkippedReason `json:"skipped_reasons,omitempty"`
+	}{Nodes: parsed.Nodes, Skipped: parsed.Skipped, SkippedReasons: parsed.SkippedReasons})
 	if err != nil {
 		return err
 	}

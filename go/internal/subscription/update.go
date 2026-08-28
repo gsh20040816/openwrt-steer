@@ -38,13 +38,14 @@ func Persist(ctx context.Context, store Store, changes []Change) error {
 }
 
 type Snapshot struct {
-	SubscriptionID string       `json:"subscription_id"`
-	URL            string       `json:"url"`
-	FetchedAt      time.Time    `json:"fetched_at"`
-	Nodes          []model.Node `json:"nodes"`
-	Skipped        int          `json:"skipped"`
-	Added          int          `json:"added,omitempty"`
-	LastFailure    *Failure     `json:"last_failure,omitempty"`
+	SubscriptionID string          `json:"subscription_id"`
+	URL            string          `json:"url"`
+	FetchedAt      time.Time       `json:"fetched_at"`
+	Nodes          []model.Node    `json:"nodes"`
+	Skipped        int             `json:"skipped"`
+	SkippedReasons []SkippedReason `json:"skipped_reasons,omitempty"`
+	Added          int             `json:"added,omitempty"`
+	LastFailure    *Failure        `json:"last_failure,omitempty"`
 }
 
 // AutomaticUpdateDue applies the shared scheduling semantics used by every
