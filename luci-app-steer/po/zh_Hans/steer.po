@@ -1517,3 +1517,6 @@ msgstr "警告分组"
 
 msgid "Working copy scale"
 msgstr "工作副本规模"
+
+msgid "ALPN"
+msgstr "ALPN"
