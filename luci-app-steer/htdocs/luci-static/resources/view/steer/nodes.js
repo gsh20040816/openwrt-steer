@@ -1019,6 +1019,7 @@ return view.extend({
 			if (nodeReferences.length) {
 				o = s.option(form.RichListValue, 'node', _('Node'));
 				o.depends('kind', 'single');
+				o.editable = true;
 				o.rmempty = false;
 				addNodeValues(o, nodeReferences);
 				o.textvalue = function(sectionId) {
@@ -1029,6 +1030,7 @@ return view.extend({
 			if (routeReferences.length) {
 				o = s.option(form.RichListValue, 'detour', _('Detour route'));
 				o.depends('kind', 'single');
+				o.editable = true;
 				o.optional = true;
 				o.rmempty = true;
 				o.value('', _('Direct connection'));
