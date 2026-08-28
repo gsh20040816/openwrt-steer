@@ -48,8 +48,8 @@ func (backend *Backend) Finalize(_ context.Context, candidate generation.Candida
 }
 
 func (backend *Backend) Disable(ctx context.Context) error {
-	if _, err := backend.runner.Output(ctx, backend.options.InitScript, "stop"); err != nil {
-		return fmt.Errorf("stop Steer while disabling: %w", err)
+	if _, err := backend.runner.Output(ctx, backend.options.InitScript, "stop_runtime"); err != nil {
+		return fmt.Errorf("stop Steer runtime while disabling: %w", err)
 	}
 	if err := os.Remove(filepath.Join(backend.options.RunDirectory, "current")); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove disabled current generation: %w", err)

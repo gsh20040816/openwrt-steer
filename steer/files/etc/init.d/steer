@@ -15,6 +15,31 @@ CONTROL=/usr/sbin/steer
 SING_BOX=/usr/bin/sing-box
 RUN_DIRECTORY=/run/steer
 
+# Disable Apply must stop the sing-box instance without deleting the procd
+# service object. The object owns the config.change trigger used by the next
+# LuCI commit to re-enable Steer.
+extra_command "stop_runtime" "Stop the Steer runtime without removing its procd triggers"
+
+stop_runtime() {
+	if ubus call service state '{"name":"steer","spawn":false}' >/dev/null 2>&1; then
+		local attempt services
+		for attempt in 1 2 3 4 5; do
+			services="$(ubus call service list '{"name":"steer"}' 2>/dev/null)" || return 1
+			if ! echo "$services" | grep -q '"running":true'; then
+				return 0
+			fi
+			sleep 1
+		done
+		return 1
+	fi
+
+	# A disabled service may not have been started since boot. Treat that
+	# expected absence as success, but propagate a real procd/list failure.
+	local services
+	services="$(ubus call service list '{"name":"steer"}' 2>/dev/null)" || return 1
+	! echo "$services" | grep -q '"steer"'
+}
+
 steer_enabled() {
 	config_load steer || return 2
 	local count=0 enabled=0

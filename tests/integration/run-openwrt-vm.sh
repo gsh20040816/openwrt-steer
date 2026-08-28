@@ -228,10 +228,17 @@ fi
 uci -q delete steer.main.router_proxy
 uci commit steer
 
+disabled_sequence_before="$(ubus call luci.steer status | jsonfilter -q -e '@.last_apply.sequence')"
 uci set steer.main.enabled='0'
 uci commit steer
-/usr/sbin/steer apply > "$TEST_DIR/disabled.json"
-[ "$(jsonfilter -q -i "$TEST_DIR/disabled.json" -e '@.ok')" = 'true' ]
+for wait_attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+	sleep 1
+	ubus call luci.steer status > "$TEST_DIR/disabled-status.json"
+	disabled_sequence="$(jsonfilter -q -i "$TEST_DIR/disabled-status.json" -e '@.last_apply.sequence' || true)"
+	[ -z "$disabled_sequence" ] || [ "$disabled_sequence" = "$disabled_sequence_before" ] || break
+done
+[ -n "$disabled_sequence" ] && [ "$disabled_sequence" != "$disabled_sequence_before" ]
+[ "$(jsonfilter -q -i "$TEST_DIR/disabled-status.json" -e '@.last_apply.result.ok')" = 'true' ]
 if nft list table inet steer >/dev/null 2>&1; then
 	echo 'Disabled Apply retained the Steer nftables table.' >&2
 	exit 1
@@ -240,8 +247,13 @@ fi
 
 # Disabling removes runtime resources but must not unregister the config
 # trigger needed for the next LuCI commit to enable Steer again.
-ubus call luci.steer status > "$TEST_DIR/disabled-status.json"
-disabled_sequence="$(jsonfilter -q -i "$TEST_DIR/disabled-status.json" -e '@.last_apply.sequence')"
+disabled_service="$(ubus call service list '{"name":"steer","verbose":true}')"
+echo "$disabled_service" | grep -q '"steer"'
+echo "$disabled_service" | grep -q '"triggers"'
+if echo "$disabled_service" | grep -q '"running":true'; then
+	echo 'Disabled Apply left the sing-box instance running.' >&2
+	exit 1
+fi
 reenable_session="$(ubus call session login '{"username":"root","password":"","timeout":300}' | jsonfilter -e '@.ubus_rpc_session')"
 ubus call uci set "{\"config\":\"steer\",\"section\":\"main\",\"values\":{\"enabled\":\"1\"},\"ubus_rpc_session\":\"$reenable_session\"}"
 ubus call luci.steer commit_candidate "{\"ubus_rpc_session\":\"$reenable_session\"}" > "$TEST_DIR/reenable-commit.json"
