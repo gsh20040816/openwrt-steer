@@ -100,8 +100,11 @@ for bundled in ("sing-box", "geoview", "geosite.dat", "geoip.dat"):
 workflow = (ROOT / ".github/workflows/release.yml").read_text()
 ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 geodata_workflow = (ROOT / ".github/workflows/geodata.yml").read_text()
+geodata_contract = (ROOT / "go/internal/geodata/geodata.go").read_text()
 sing_box_version = "1.14.0-rc.2"
 sing_box_linux_sha256 = "e3ba239bd4bccaa2cbfc44a5536fcc6f7a8f5f5ff710b345c32aa594756aee89"
+if f'SingBoxCompiler       = "{sing_box_version}"' not in geodata_contract:
+    fail("Geo manifest compiler identity does not match the verified sing-box baseline")
 for name, content in (("CI", ci_workflow), ("Geo", geodata_workflow)):
     for required in (
         f"SING_BOX_VERSION: {sing_box_version}",

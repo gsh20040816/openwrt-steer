@@ -30,6 +30,12 @@ phase() {
   echo 'SING_BOX_UPSTREAM_SHA256 is required.' >&2
   exit 1
 }
+case "${SING_BOX_MIRROR_PACKAGE_VERSION:-}" in
+  ''|*[!0-9A-Za-z._-]*)
+    echo 'SING_BOX_MIRROR_PACKAGE_VERSION must be a safe package version.' >&2
+    exit 1
+    ;;
+esac
 
 old_umask="$(umask)"
 umask 077
@@ -170,7 +176,7 @@ printf '%s  %s\n' "$SING_BOX_UPSTREAM_SHA256" "$SING_BOX_UPSTREAM_APK" | sha256s
 package_arch="$(make --no-print-directory val.ARCH_PACKAGES)"
 repository_dir="bin/packages/$package_arch/$FEEDNAME"
 mkdir -p "$repository_dir"
-mirrored_sing_box="$repository_dir/sing-box-1.14.0_rc1-r0.apk"
+mirrored_sing_box="$repository_dir/sing-box-${SING_BOX_MIRROR_PACKAGE_VERSION}.apk"
 cp "$SING_BOX_UPSTREAM_APK" "$mirrored_sing_box"
 upstream_dump="$(mktemp)"
 mirrored_dump="$(mktemp)"

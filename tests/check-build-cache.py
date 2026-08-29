@@ -156,6 +156,7 @@ required_release_fragments = (
     "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     "actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
     '--env PACKAGES="steer luci-app-steer"',
+    '--env SING_BOX_MIRROR_PACKAGE_VERSION',
     "./scripts/collect-openwrt-artifacts.sh",
     "./scripts/collect-openwrt-repository.sh",
     "./scripts/collect-linux-artifacts.sh",
@@ -190,6 +191,8 @@ required_entrypoint_fragments = (
     'make "package/$package/download" V=s',
     'make package/luci-app-steer/compile V="${V:-s}" -j "$(nproc)"',
     "OPENWRT_APK_PRIVATE_KEY is required",
+    "SING_BOX_MIRROR_PACKAGE_VERSION must be a safe package version",
+    'mirrored_sing_box="$repository_dir/sing-box-${SING_BOX_MIRROR_PACKAGE_VERSION}.apk"',
     "cmp generated-public-key.pem /feed/keys/steer-apk.pem",
     'verify "$repository_dir/packages.adb"',
 )
