@@ -20,9 +20,11 @@
   });
   document.addEventListener('mouseup', (event) => {
     if (collectionDragState?.input !== 'mouse') return;
-    updateCollectionDropTargetFromPoint(collectionDragState, event);
     commitCollectionDrag();
   });
+  window.addEventListener('pointermove', handleCollectionPointerMove, { passive: false });
+  window.addEventListener('pointerup', handleCollectionPointerUp, { passive: false });
+  window.addEventListener('pointercancel', handleCollectionPointerCancel);
   window.addEventListener('blur', () => cancelCollectionDrag());
 
   function disposeRender(root) {
@@ -900,6 +902,49 @@
     else collectionSelections.delete(collection);
   }
 
+  function syncCollectionRowSelection(collection, selectedRow) {
+    collectionRows(collection).forEach((row) => {
+      const selected = row === selectedRow;
+      row.classList.toggle('is-selected', selected);
+      row.setAttribute?.('aria-selected', String(selected));
+    });
+  }
+
+  function collectionRows(collection) {
+    return Array.from(document.querySelectorAll?.('[data-collection-id]') || [])
+      .filter((row) => row.dataset?.collection === collection);
+  }
+
+  function captureCollectionRowPositions(collection) {
+    return new Map(collectionRows(collection).map((row) => [
+      row.dataset.collectionId, row.getBoundingClientRect()
+    ]));
+  }
+
+  function animateCollectionRows(collection, positions) {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    collectionRows(collection).forEach((row) => {
+      const previous = positions.get(row.dataset.collectionId);
+      if (!previous) return;
+      const current = row.getBoundingClientRect();
+      const offsetX = previous.left - current.left;
+      const offsetY = previous.top - current.top;
+      if (Math.abs(offsetX) < 1 && Math.abs(offsetY) < 1) return;
+      row.animate?.([
+        { transform: `translate3d(${offsetX}px, ${offsetY}px, 0)` },
+        { transform: 'translate3d(0, 0, 0)' }
+      ], { duration: 160, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    });
+  }
+
+  function moveCollectionWithAnimation(collection, mutate, rerender) {
+    const positions = captureCollectionRowPositions(collection);
+    if (!mutate()) return false;
+    rerender();
+    animateCollectionRows(collection, positions);
+    return true;
+  }
+
   function collectionDragCompatible(state, item) {
     if (!state || !collectionItemMovable(state.collection, item)) return false;
     const policy = S.uiSpec.collection_ordering?.[state.collection];
@@ -917,9 +962,34 @@
     state?.preview?.remove?.();
   }
 
+  function restoreCollectionDragPreview(state) {
+    if (!state?.sourceRow || !state.originalParent) return;
+    const reference = state.originalNextSibling?.parentNode === state.originalParent
+      ? state.originalNextSibling : null;
+    if (state.sourceRow.parentNode === state.originalParent && state.sourceRow.nextElementSibling === reference)
+      return;
+    const positions = captureCollectionRowPositions(state.collection);
+    state.originalParent.insertBefore(state.sourceRow, reference);
+    animateCollectionRows(state.collection, positions);
+  }
+
   function cancelCollectionDrag() {
-    clearCollectionDragVisuals();
+    const state = collectionDragState;
+    restoreCollectionDragPreview(state);
+    clearCollectionDragVisuals(state);
     collectionDragState = null;
+  }
+
+  function previewCollectionDrop(state, row, after) {
+    const source = state?.sourceRow;
+    const parent = row?.parentNode;
+    if (!source || !parent || source === row) return false;
+    const reference = after ? row.nextElementSibling : row;
+    if (reference === source || (!after && source.nextElementSibling === row)) return false;
+    const positions = captureCollectionRowPositions(state.collection);
+    parent.insertBefore(source, reference);
+    animateCollectionRows(state.collection, positions);
+    return true;
   }
 
   function markCollectionDropTarget(state, row, item, after) {
@@ -936,20 +1006,63 @@
     state.targetRow = row;
     state.targetID = item.id;
     state.after = after;
+    previewCollectionDrop(state, row, after);
     return true;
   }
 
   function updateCollectionDropTargetFromPoint(state, event) {
-    const row = document.elementFromPoint?.(event.clientX, event.clientY)?.closest?.('[data-collection-id]');
+    let row = document.elementFromPoint?.(event.clientX, event.clientY)?.closest?.('[data-collection-id]');
+    if (row === state.sourceRow)
+      return true;
+    if (!row || row.dataset?.collection !== state.collection) {
+      row = collectionRows(state.collection).filter((candidate) => candidate !== state.sourceRow)
+        .find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          const bottom = rect.bottom ?? rect.top + rect.height;
+          return event.clientY >= rect.top && event.clientY <= bottom;
+        });
+    }
     const target = row && state.items.find((candidate) => candidate.id === row.dataset.collectionId);
     if (target) {
       const rect = row.getBoundingClientRect();
       markCollectionDropTarget(state, row, target, event.clientY >= rect.top + rect.height / 2);
-      return;
+      return true;
     }
+    const scopeRect = state.sourceRow?.parentElement?.getBoundingClientRect?.();
+    if (scopeRect && event.clientX >= scopeRect.left && event.clientX <= (scopeRect.right ?? scopeRect.left + scopeRect.width) &&
+        event.clientY >= scopeRect.top && event.clientY <= (scopeRect.bottom ?? scopeRect.top + scopeRect.height))
+      return true;
     state.targetRow?.classList?.remove('is-drop-before', 'is-drop-after');
     state.targetRow = null;
     state.targetID = '';
+    return false;
+  }
+
+  function handleCollectionPointerMove(event) {
+    const state = collectionDragState;
+    if (!state || state.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    if (state.preview) {
+      state.preview.style.left = `${event.clientX - state.grabOffsetX}px`;
+      state.preview.style.top = `${event.clientY - state.grabOffsetY}px`;
+    }
+    updateCollectionDropTargetFromPoint(state, event);
+    const edge = 48;
+    if (event.clientY < edge) window.scrollBy?.({ top: -18, behavior: 'auto' });
+    else if (event.clientY > (window.innerHeight || 0) - edge) window.scrollBy?.({ top: 18, behavior: 'auto' });
+  }
+
+  function handleCollectionPointerUp(event) {
+    const state = collectionDragState;
+    if (!state || state.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    commitCollectionDrag();
+  }
+
+  function handleCollectionPointerCancel(event) {
+    if (!collectionDragState || collectionDragState.pointerId !== event.pointerId) return;
+    cancelCollectionDrag();
   }
 
   function orderingToast(collection) {
@@ -966,15 +1079,35 @@
       cancelCollectionDrag();
       return false;
     }
+    selectCollectionItem(state.collection, state.itemID);
     const moved = S.store.moveCollectionItemTo(
       state.collection, state.itemID, state.targetID, state.after, state.visibleIDs
     );
-    clearCollectionDragVisuals(state);
+    if (!moved) {
+      cancelCollectionDrag();
+      return false;
+    }
     collectionDragState = null;
-    if (!moved) return false;
-    selectCollectionItem(state.collection, state.itemID);
+    state.targetRow?.classList?.remove('is-drop-before', 'is-drop-after');
+    state.handle?.setAttribute?.('aria-grabbed', 'false');
+    state.sourceRow?.classList?.remove('is-dragging');
+    const finish = () => {
+      state.sourceRow?.classList?.remove('is-placeholder');
+      state.preview?.remove?.();
+      state.rerender();
+    };
+    if (state.preview && state.sourceRow && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      const previewRect = state.preview.getBoundingClientRect();
+      const targetRect = state.sourceRow.getBoundingClientRect();
+      state.preview.animate?.([
+        { transform: 'translate3d(0, 0, 0)' },
+        { transform: `translate3d(${targetRect.left - previewRect.left}px, ${targetRect.top - previewRect.top}px, 0)` }
+      ], { duration: 160, easing: 'cubic-bezier(.2, .8, .2, 1)', fill: 'forwards' });
+      setTimeout(finish, 160);
+    } else {
+      finish();
+    }
     orderingToast(state.collection);
-    state.rerender();
     return true;
   }
 
@@ -982,12 +1115,14 @@
     if (!collectionItemMovable(collection, item) || !row) return false;
     cancelCollectionDrag();
     selectCollectionItem(collection, item.id);
-    row.classList.add('is-selected', 'is-dragging');
-    row.setAttribute?.('aria-selected', 'true');
+    syncCollectionRowSelection(collection, row);
+    row.classList.add('is-dragging');
     handle?.setAttribute?.('aria-grabbed', 'true');
     const rect = row.getBoundingClientRect();
     const previewRow = row.cloneNode(true);
     previewRow.removeAttribute('draggable');
+    delete previewRow.dataset.collection;
+    delete previewRow.dataset.collectionId;
     previewRow.querySelectorAll?.('[id]').forEach((element) => element.removeAttribute('id'));
     const preview = h('div', { class: 'collection-drag-preview', 'aria-hidden': 'true' }, previewRow);
     Object.assign(preview.style, {
@@ -998,6 +1133,8 @@
       collection, itemID: item.id, items: asList(items),
       visibleIDs: asList(items).map((candidate) => candidate.id),
       rerender, sourceRow: row, handle, input: event.pointerType || 'mouse', preview,
+      pointerId: event.pointerId,
+      originalParent: row.parentNode, originalNextSibling: row.nextElementSibling,
       grabOffsetX: event.clientX - rect.left, grabOffsetY: event.clientY - rect.top,
       targetRow: null, targetID: '', after: false
     };
@@ -1024,34 +1161,6 @@
         if (!startCollectionDrag(collection, item, items, rerender, row, event.currentTarget, event)) return;
         event.preventDefault();
         event.stopPropagation();
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-      },
-      onpointermove: (event) => {
-        const state = collectionDragState;
-        if (!state || state.handle !== event.currentTarget) return;
-        event.preventDefault();
-        if (state.preview) {
-          state.preview.style.left = `${event.clientX - state.grabOffsetX}px`;
-          state.preview.style.top = `${event.clientY - state.grabOffsetY}px`;
-        }
-        updateCollectionDropTargetFromPoint(state, event);
-        const edge = 48;
-        if (event.clientY < edge) window.scrollBy?.({ top: -18, behavior: 'auto' });
-        else if (event.clientY > (window.innerHeight || 0) - edge) window.scrollBy?.({ top: 18, behavior: 'auto' });
-      },
-      onpointerup: (event) => {
-        const state = collectionDragState;
-        if (!state || state.handle !== event.currentTarget) return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.currentTarget.releasePointerCapture?.(event.pointerId);
-        updateCollectionDropTargetFromPoint(state, event);
-        commitCollectionDrag();
-      },
-      onpointercancel: (event) => {
-        if (collectionDragState?.handle !== event.currentTarget) return;
-        event.currentTarget.releasePointerCapture?.(event.pointerId);
-        cancelCollectionDrag();
       }
     }, '⠿');
   }
@@ -1078,8 +1187,9 @@
     const peers = values.filter((item) => collectionItemMovable(collection, item));
     const position = peers.findIndex((item) => item.id === selectedID);
     const move = (offset) => {
-      if (disabledReason || !selected || !S.store.moveCollectionItem(collection, selected.id, offset, values.map((item) => item.id))) return;
-      rerender();
+      if (disabledReason || !selected || !moveCollectionWithAnimation(collection, () =>
+        S.store.moveCollectionItem(collection, selected.id, offset, values.map((item) => item.id)), rerender)) return;
+      orderingToast(collection);
     };
     return h('div', { class: 'collection-order', role: 'group', 'aria-label': '调整当前工作副本顺序' }, [
       h('span', { class: 'collection-order__selection', title: disabledReason || null },

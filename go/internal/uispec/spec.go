@@ -422,10 +422,10 @@ func ContractValue() Contract {
 		},
 		NodeDisplaySorting: NodeDisplaySortingContract{
 			Modes:                []string{"default", "connect", "download"},
-			HeaderColumns:        []string{"order", "connect", "download"},
+			HeaderColumns:        []string{"connect", "download"},
 			DirectionModes:       []string{"best_first", "worst_first"},
 			DefaultDirection:     "best_first",
-			RepeatClick:          "toggle_direction",
+			RepeatClick:          "best_worst_default_cycle",
 			ResultSource:         "probe_results.latest_results",
 			MetricField:          "summary",
 			ConnectMetricSuffix:  "ms",

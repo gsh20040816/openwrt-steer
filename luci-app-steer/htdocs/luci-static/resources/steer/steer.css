@@ -517,15 +517,28 @@
 .steer-probe-latest.is-stale { color: #8a5a00; }
 .steer-probe-latest.is-error { color: #b42318; }
 
-.steer-order-buttons {
-	display: inline-flex;
-	gap: .25rem;
-	margin-inline-end: .35rem;
+[data-page^="admin-services-steer-"] .cbi-button-up,
+[data-page^="admin-services-steer-"] .cbi-button-down {
+	display: none !important;
 }
 
-.steer-order-buttons .cbi-button-neutral {
+[data-page^="admin-services-steer-"] .drag-handle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	min-width: 2rem;
-	padding-inline: .45rem;
+	padding: 0 !important;
+	background: transparent;
+	font-size: 1.25rem;
+	font-weight: 400;
+	cursor: grab;
+	touch-action: none;
+	user-select: none;
+}
+
+[data-page^="admin-services-steer-"] .drag-handle:hover,
+[data-page^="admin-services-steer-"] .drag-handle:focus-visible {
+	background: color-mix(in srgb, var(--steer-route) 8%, transparent);
 }
 
 .steer-node-sort-header {
@@ -557,12 +570,36 @@
 	color: var(--steer-route);
 }
 
-.steer-node-sort-header small {
-	padding: .1rem .35rem;
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--steer-route) 12%, transparent);
-	font-size: .68rem;
-	font-weight: 700;
+.steer-node-sort-arrow {
+	font-size: .9rem;
+	font-weight: 800;
+	line-height: 1;
+}
+
+.steer-lightweight-node-section .table-responsive {
+	overflow-x: auto;
+}
+
+.steer-lightweight-node-table {
+	width: 100%;
+	table-layout: auto;
+}
+
+.steer-lightweight-node-table th,
+.steer-lightweight-node-table td {
+	vertical-align: middle;
+}
+
+.steer-lightweight-node-table th:first-child,
+.steer-lightweight-node-table td:first-child {
+	width: 3rem;
+	text-align: center;
+}
+
+.steer-lightweight-node-table .steer-node-endpoint {
+	max-width: 24rem;
+	font-family: var(--steer-monospace);
+	overflow-wrap: anywhere;
 }
 
 [data-page^="admin-services-steer-"] .cbi-section-table-row {
@@ -610,9 +647,12 @@
 	background: inherit;
 }
 
-.touchsort-element.steer-touchsort-whole-row .steer-order-buttons,
 .touchsort-element.steer-touchsort-whole-row .drag-handle {
 	pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-page^="admin-services-steer-"] .cbi-section-table-row { transition: none; }
 }
 
 @media (max-width: 1100px) {

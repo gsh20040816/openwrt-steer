@@ -92,7 +92,7 @@ def main() -> None:
     assert 'func overviewState() async throws -> OverviewLifecycleState' in state
     assert 'model.overviewLifecycle.saved' in content and 'model.overviewLifecycle.pendingApply' in content
     assert 'navigationSplitViewColumnWidth(min: 200' in content
-    assert 'Table(of: DraftItem.self, selection: $selection)' in content
+    assert 'List(selection: $selection)' in content
     assert 'identifiedBy: item.identifier' in content
     assert 'at: item.index, enabled:' not in content
     assert 'get: { item.enabled }' not in content
@@ -102,12 +102,18 @@ def main() -> None:
     assert 'let installationFacts = facts.filter(\\.requiredForInstallation)' in state
     assert '运行服务未激活不影响系统组件安装完整性' in content
     assert 'var ordered: Bool { SteerUISpec.orderingPolicy(for: key) != nil }' in content
-    assert 'dragProvider(for: item)' in content
+    assert 'rowDragEnabled(item)' in content
+    assert '.onDrag {' in content and 'CollectionListDropDelegate' in content
+    assert 'collectionDragPreviewOrder' in content
     assert 'contract.feedback == "whole_row_placeholder"' in content
     assert 'contract.singleMutationPerDrop' in content
+    assert content.count('withAnimation(.snappy(duration: 0.16))') >= 2
+    assert 'if model.moveDraftItem(' in content and 'selection = item.id' in content
+    assert 'nodeSortWorstFirst = true' in content and 'nodeSortMode = "default"' in content
+    assert 'nodeSortColumnTitle' not in content and '好 → 坏' not in content and '坏 → 好' not in content
     assert 'visibleIDs: movableItems.map(\\.identifier)' in content
     assert 'SteerUISpec.isMovable(collection: descriptor.key, object: object)' in content
-    assert '.dropDestination(for: String.self)' in content
+    assert '.onDrop(' in content and 'DropProposal(operation: .move)' in content
     assert '"line.3.horizontal"' in content and '"pin.fill"' in content
     assert 'List {' in content and 'Section {' in content
     assert 'GroupBox' not in content

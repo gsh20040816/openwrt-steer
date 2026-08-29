@@ -133,6 +133,19 @@ final class CollectionOrderingTests: XCTestCase {
         XCTAssertEqual(SteerUISpec.orderingPolicy(for: "rules")?.pinnedLastBooleanField, "default")
     }
 
+    func testDragPreviewMakesRowsYieldWithoutMutatingTheDraft() {
+        let original = ["alpha", "bravo", "charlie", "delta"]
+        XCTAssertEqual(
+            collectionDragPreviewOrder(original, moving: "alpha", over: "bravo"),
+            ["bravo", "alpha", "charlie", "delta"]
+        )
+        XCTAssertEqual(
+            collectionDragPreviewOrder(original, moving: "delta", over: "bravo"),
+            ["alpha", "delta", "bravo", "charlie"]
+        )
+        XCTAssertEqual(collectionDragPreviewOrder(original, moving: "alpha", over: "alpha"), original)
+    }
+
     func testEveryCollectionMovesByStableIDWithoutChangingObjectIdentity() throws {
         for testCase in try fixture().cases {
             let model = AppModel()
@@ -212,7 +225,8 @@ final class CollectionOrderingTests: XCTestCase {
         XCTAssertEqual(document.modes, contract.modes)
         XCTAssertEqual(document.directionModes, contract.directionModes)
         XCTAssertEqual(contract.defaultDirection, "best_first")
-        XCTAssertEqual(contract.headerColumns, ["order", "connect", "download"])
+        XCTAssertEqual(contract.headerColumns, ["connect", "download"])
+        XCTAssertEqual(contract.repeatClick, "best_worst_default_cycle")
         XCTAssertEqual(contract.unrankedPlacement, "last_stable")
         XCTAssertFalse(contract.mutatesDraft)
 

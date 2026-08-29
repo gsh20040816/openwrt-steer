@@ -48,15 +48,32 @@ class Element {
   setClasses(names) { this.className = [...new Set(names.filter(Boolean))].join(' '); }
   append(...children) {
     const values = children.flat(Infinity).filter((child) => child != null);
-    values.forEach((child) => { if (child instanceof Element) child.parentElement = this; });
+    values.forEach((child) => { if (child instanceof Element) child.parentElement = child.parentNode = this; });
     this.children.push(...values);
     this.syncSelectValue();
   }
   replaceChildren(...children) {
-    this.children.forEach((child) => { if (child instanceof Element) child.parentElement = null; });
+    this.children.forEach((child) => { if (child instanceof Element) child.parentElement = child.parentNode = null; });
     this.children = children.flat(Infinity).filter((child) => child != null);
-    this.children.forEach((child) => { if (child instanceof Element) child.parentElement = this; });
+    this.children.forEach((child) => { if (child instanceof Element) child.parentElement = child.parentNode = this; });
     this.syncSelectValue();
+  }
+  insertBefore(child, reference) {
+    if (!(child instanceof Element)) return child;
+    const previousParent = child.parentElement;
+    if (previousParent) {
+      const previousIndex = previousParent.children.indexOf(child);
+      if (previousIndex >= 0) previousParent.children.splice(previousIndex, 1);
+    }
+    const index = reference == null ? this.children.length : this.children.indexOf(reference);
+    this.children.splice(index < 0 ? this.children.length : index, 0, child);
+    child.parentElement = child.parentNode = this;
+    return child;
+  }
+  get nextElementSibling() {
+    const siblings = this.parentElement?.children || [];
+    const index = siblings.indexOf(this);
+    return index >= 0 ? (siblings.slice(index + 1).find((item) => item instanceof Element) || null) : null;
   }
   setAttribute(name, value) {
     const normalized = String(value);
@@ -70,7 +87,12 @@ class Element {
   removeAttribute(name) { delete this.attributes[name]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   removeEventListener() {}
-  remove() { this.removed = true; }
+  remove() {
+    const index = this.parentElement?.children.indexOf(this) ?? -1;
+    if (index >= 0) this.parentElement.children.splice(index, 1);
+    this.parentElement = this.parentNode = null;
+    this.removed = true;
+  }
   focus() {}
   setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
   contains(candidate) {
@@ -82,6 +104,10 @@ class Element {
     return null;
   }
   getBoundingClientRect() { return this.rect || { top: 0, left: 0, width: 600, height: 40, bottom: 40, right: 600 }; }
+  animate(frames, options) {
+    (this.animations ||= []).push({ frames, options });
+    return { cancel() {} };
+  }
   cloneNode(deep = false) {
     const clone = new Element(this.tag);
     clone.attributes = { ...this.attributes };
@@ -237,7 +263,10 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
   const libSource = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/lib.js'), 'utf8');
   new Function('window', 'document', 'Node', libSource)(window, document, Element);
   const source = fs.readFileSync(path.join(root, 'go/cmd/steer-linux/web/js/ui.js'), 'utf8');
-  new Function('window', 'document', 'setTimeout', 'requestAnimationFrame', source)(window, document, () => 0, (callback) => callback());
+  new Function('window', 'document', 'setTimeout', 'requestAnimationFrame', source)(
+    window, document, options.immediateTimers ? (callback) => { callback(); return 0; } : () => 0,
+    (callback) => callback()
+  );
   return {
     S, window, document, body, side, strip, toasts, view, drawerRoot,
     dispatchDocument: (name, event) => dispatch(documentListeners, name, event),
@@ -936,22 +965,29 @@ async function testSharedCollectionDragCommitsOnceAndCancellationDoesNotMutate()
 }
 
 async function testCollectionDragInteractionCommitsOnDropOnly() {
-  const environment = createEnvironment(async () => ({ ok: true }), runtimeTestIntent());
+  const environment = createEnvironment(async () => ({ ok: true }), runtimeTestIntent(), { immediateTimers: true });
   const items = [ { id: 'node_a', name: 'Node A' }, { id: 'node_b', name: 'Node B' } ];
   const moveCalls = [];
   let rerenders = 0;
   environment.S.store.moveCollectionItemTo = (...args) => { moveCalls.push(args); return true; };
   const rerender = () => { rerenders++; };
-  const makeRow = (item, top) => {
+  const makeRow = (item) => {
     const row = environment.S.h('tr', environment.S.ui.collectionRowAttributes('nodes', item, items, rerender), [
       environment.S.h('td', {}, environment.S.ui.collectionDragHandle('nodes', item, items, rerender))
     ]);
-    row.rect = { top, left: 0, width: 600, height: 40, bottom: top + 40, right: 600 };
+    row.rectTops = [];
+    row.getBoundingClientRect = () => {
+      const top = environment.view.children.indexOf(row) * 40;
+      row.rectTops.push(top);
+      return { top, left: 0, width: 600, height: 40, bottom: top + 40, right: 600 };
+    };
     return row;
   };
-  const rowA = makeRow(items[0], 0);
-  const rowB = makeRow(items[1], 40);
+  const rowA = makeRow(items[0]);
+  const rowB = makeRow(items[1]);
   environment.view.append(rowA, rowB);
+  rowA.classList.add('is-selected');
+  rowA.setAttribute('aria-selected', 'true');
   const handleB = rowB.querySelector('.collection-drag-handle');
   const preventDefault = () => {};
   const stopPropagation = () => {};
@@ -961,12 +997,34 @@ async function testCollectionDragInteractionCommitsOnDropOnly() {
     button: 0, pointerType: 'mouse', pointerId: 1, currentTarget: handleB,
     clientX: 10, clientY: 50, preventDefault, stopPropagation
   });
+  assert.ok(!classSet(rowA).has('is-selected') && classSet(rowB).has('is-selected') &&
+    rowA.getAttribute('aria-selected') === 'false' && rowB.getAttribute('aria-selected') === 'true',
+    'starting a drag synchronizes one selected row without waiting for a rerender');
   assert.ok(classSet(rowB).has('is-placeholder'), 'desktop drag keeps a full-row placeholder');
-  handleB.listeners.pointermove({
+  await environment.dispatchWindow('pointermove', {
     pointerType: 'mouse', pointerId: 1, currentTarget: handleB, clientX: 20, clientY: 5, preventDefault
   });
   assert.ok(classSet(rowA).has('is-drop-before'), 'desktop drag exposes the target insertion edge');
-  handleB.listeners.pointerup({
+  assert.deepEqual(environment.view.children.slice(-2), [ rowB, rowA ],
+    'every Linux collection previews the target order before pointer release');
+  const floatingPreview = environment.body.querySelector('.collection-drag-preview');
+  const previewTopAfterReorder = floatingPreview.style.top;
+  environment.document.elementFromPoint = () => rowB;
+  await environment.dispatchWindow('pointermove', {
+    pointerType: 'mouse', pointerId: 1, clientX: 24, clientY: 15, preventDefault
+  });
+  assert.notEqual(floatingPreview.style.top, previewTopAfterReorder,
+    'window-level pointer tracking continues after moving the captured handle row in the DOM');
+  assert.ok(classSet(rowA).has('is-drop-before'),
+    'hovering the source placeholder after live reordering preserves the last valid drop target');
+  assert.equal(moveCalls.length, 0, 'live whole-row preview does not mutate the Draft');
+  assert.ok(rowA.rectTops.includes(0) && rowA.rectTops.includes(40) &&
+    rowB.rectTops.includes(40) && rowB.rectTops.includes(0),
+    'FLIP measures every affected row before and after live reordering');
+  assert.ok(rowA.animations?.some((animation) => animation.options.duration === 160) &&
+    rowB.animations?.some((animation) => animation.options.duration === 160),
+    'the dragged row and every displaced peer share the same FLIP animation');
+  await environment.dispatchWindow('pointerup', {
     pointerType: 'mouse', pointerId: 1, currentTarget: handleB, preventDefault, stopPropagation
   });
   assert.deepEqual(moveCalls, [ [ 'nodes', 'node_b', 'node_a', false, [ 'node_a', 'node_b' ] ] ]);
@@ -979,24 +1037,27 @@ async function testCollectionDragInteractionCommitsOnDropOnly() {
   await environment.dispatchDocument('keydown', { key: 'Escape', preventDefault });
   assert.equal(moveCalls.length, 1, 'desktop Escape cancellation does not mutate the Draft');
 
+  environment.document.elementFromPoint = () => rowA;
   handleB.listeners.pointerdown({
     button: 0, pointerType: 'touch', pointerId: 7, currentTarget: handleB,
     clientX: 10, clientY: 50, preventDefault, stopPropagation
   });
-  handleB.listeners.pointermove({
-    pointerType: 'touch', pointerId: 7, currentTarget: handleB, clientX: 20, clientY: 5, preventDefault
+  await environment.dispatchWindow('pointermove', {
+    pointerType: 'touch', pointerId: 7, currentTarget: handleB, clientX: 20, clientY: 75, preventDefault
   });
-  handleB.listeners.pointercancel({ pointerId: 7, currentTarget: handleB });
+  assert.deepEqual(environment.view.children.slice(-2), [ rowA, rowB ], 'touch drag uses the same live row preview');
+  await environment.dispatchWindow('pointercancel', { pointerId: 7, currentTarget: handleB });
   assert.equal(moveCalls.length, 1, 'touch cancellation restores the row without a Draft mutation');
+  assert.deepEqual(environment.view.children.slice(-2), [ rowB, rowA ], 'touch cancellation restores the original DOM order');
 
   handleB.listeners.pointerdown({
     button: 0, pointerType: 'touch', pointerId: 8, currentTarget: handleB,
     clientX: 10, clientY: 50, preventDefault, stopPropagation
   });
-  handleB.listeners.pointermove({
-    pointerType: 'touch', pointerId: 8, currentTarget: handleB, clientX: 20, clientY: 5, preventDefault
+  await environment.dispatchWindow('pointermove', {
+    pointerType: 'touch', pointerId: 8, currentTarget: handleB, clientX: 20, clientY: 45, preventDefault
   });
-  handleB.listeners.pointerup({
+  await environment.dispatchWindow('pointerup', {
     pointerType: 'touch', pointerId: 8, currentTarget: handleB, preventDefault, stopPropagation
   });
   assert.equal(moveCalls.length, 2, 'touch release commits exactly one shared stable-ID move');
@@ -1032,20 +1093,28 @@ function testNodeDisplaySortingHeadersNeverMutateTheDraft() {
   button('连接测速').listeners.click();
   assert.deepEqual(renderedIDs(), [ 'fast', 'tie', 'slow', 'stale', 'failed', 'missing', 'invalid' ],
     'first Connection header click defaults to good-to-bad latency');
-  assert.ok(text(button('连接测速')).includes('好 → 坏'));
+  assert.ok(text(button('连接测速')).includes('↑') && !/[好坏原始]/.test(text(button('连接测速'))),
+    'Linux uses only the active header direction arrow');
   assert.equal(environment.view.querySelector('.collection-drag-handle').disabled, true,
     'manual ordering is disabled while a display-only sort is active');
 
   button('连接测速').listeners.click();
   assert.deepEqual(renderedIDs(), [ 'slow', 'fast', 'tie', 'stale', 'failed', 'missing', 'invalid' ],
     'second Connection header click reverses ranked metrics only');
-  assert.ok(text(button('连接测速')).includes('坏 → 好'));
+  assert.ok(text(button('连接测速')).includes('↓') && !/[好坏原始]/.test(text(button('连接测速'))));
+
+  button('连接测速').listeners.click();
+  assert.deepEqual(renderedIDs(), [ 'slow', 'stale', 'fast', 'failed', 'tie', 'missing', 'invalid' ],
+    'third Connection header click restores configured order');
+  assert.equal(button('连接测速').attributes['aria-pressed'], 'false');
 
   button('下载测速').listeners.click();
   assert.deepEqual(renderedIDs(), [ 'slow', 'fast', 'tie', 'stale', 'failed', 'missing', 'invalid' ],
     'switching to Download resets its direction to good-to-bad throughput');
-  button('顺序').listeners.click();
+  button('下载测速').listeners.click();
+  button('下载测速').listeners.click();
   assert.deepEqual(renderedIDs(), [ 'slow', 'stale', 'fast', 'failed', 'tie', 'missing', 'invalid' ]);
+  assert.equal(button('顺序'), null, 'configured order is not exposed as a redundant sortable header');
   assert.deepEqual(intent.nodes.map((node) => node.id), originalIDs, 'header sorting never reorders Intent nodes');
   assert.equal(environment.touchCount, 0, 'header sorting never marks the Draft dirty');
 }

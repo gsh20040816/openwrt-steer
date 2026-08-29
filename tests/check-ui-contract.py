@@ -124,10 +124,10 @@ node_sorting = contract.get("node_display_sorting", {})
 if (
     node_display_sorting_fixtures.get("schema_version") != 1
     or node_sorting.get("modes") != node_display_sorting_fixtures.get("modes")
-    or node_sorting.get("header_columns") != ["order", "connect", "download"]
+    or node_sorting.get("header_columns") != ["connect", "download"]
     or node_sorting.get("direction_modes") != node_display_sorting_fixtures.get("direction_modes")
     or node_sorting.get("default_direction") != "best_first"
-    or node_sorting.get("repeat_click") != "toggle_direction"
+    or node_sorting.get("repeat_click") != "best_worst_default_cycle"
     or node_sorting.get("result_source") != "probe_results.latest_results"
     or node_sorting.get("metric_field") != "summary"
     or node_sorting.get("connect_direction") != "ascending"
@@ -512,15 +512,17 @@ require(linux_ui, "collectionDragHandle", "Linux whole-row drag controls")
 require((ROOT / "go/cmd/steer-linux/web/js/store.js").read_text(), "moveCollectionItemTo", "Linux shared drop mutation")
 require(luci_helper, "steer-touchsort-whole-row", "LuCI whole-row touch preview")
 require(luci_helper, "handleTouchCancel", "LuCI touch cancellation")
-require(macos_content, "dragProvider", "macOS native row drag")
+require(macos_content, "CollectionListDropDelegate", "macOS whole-row List drag")
+require(macos_content, "collectionDragPreviewOrder", "macOS live row-yield preview")
 require(macos_content, ".snappy(duration: 0.16)", "macOS native move animation")
 require(linux_nodes, "sortNodesForDisplay", "Linux Node display sorting")
 require(linux_nodes, "table-sort__direction", "Linux clickable sort headers")
 require(luci_nodes, "sortNodeSectionIDs", "LuCI Node display sorting")
 require(luci_nodes, "decorateNodeSortHeaders", "LuCI clickable sort headers")
 require(luci_nodes, "s.handleSort = function() {}", "LuCI display-only header sorting")
-require(macos_content, "sortOrder: $nodeSortOrder", "macOS clickable native Node table headers")
-require(macos_content, "sortUsing: NodeTableSortComparator", "macOS per-column Node sorting")
+require(macos_content, "nodeListHeader", "macOS clickable Node list headers")
+require(macos_content, "nodeSortHeader", "macOS per-column Node sorting")
+require(macos_content, "cycleNodeSort", "macOS three-state Node sorting")
 if "nodeSortBar" in macos_content:
     raise SystemExit("check-ui-contract: macOS Node sorting must use actual table headers, not an adjacent sort bar")
 require((ROOT / "macos/SteerApp/AppState.swift").read_text(), "NodeDisplaySorting.sortedIDs", "macOS Node display sorting")
