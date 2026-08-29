@@ -39,7 +39,7 @@ for fragment in (
     "grep -E '^(macOS SDK|Xcode|Swift|Go): '",
     "CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build",
     "swift build -c release --disable-sandbox",
-    "sing-box-$SING_BOX_VERSION-darwin-${{ matrix.upstream_arch }}.tar.gz",
+    "sing-box-$SING_BOX_MACOS_VERSION-darwin-${{ matrix.upstream_arch }}.tar.gz",
     "7e78dcd25d7edeb1359526c19da33e5eaadac31368cbeaabfa3ead329c3d5e17",
     "82ed6dc6490e87ff5c8145103178133dff7e216e1c5948ea81a5d33f6cbd487b",
     "macos/scripts/build-app-bundle.sh",

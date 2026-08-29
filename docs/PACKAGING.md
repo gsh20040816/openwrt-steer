@@ -8,7 +8,7 @@ Steer 采用三条相互校验的交付链：定时 Geo 工作流发布当前 SR
 2. Geo 工作流每 6 小时检查 Loyalsoldier 最新 release，以固定版本的生成器和 sing-box 把完整 GeoSite/GeoIP 转换成 SRS，并只保留 Pages 上的 `geodata/latest`。
 3. 每份 seed 都有严格 manifest，记录上游版本、DAT SHA-256、转换工具版本以及每个 selector 对应 SRS 的路径、大小和 SHA-256。
 4. 设备 Apply 只校验所引用的 seed 文件；sing-box 通过 `initial_path` 立即启动，并使用 direct HTTP client 每 24 小时后台检查同名 remote SRS。
-5. 控制器只依赖无版本的 `sing-box` 提供者；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求用户指定兼容版本/构建。当前 CI 发布构建和系统验收固定使用官方 `1.14.0-rc.2` 作为验证基线，不构成运行时依赖约束。
+5. 控制器只依赖无版本的 `sing-box` 提供者；Apply 通过实际二进制的 native config check 和 build tags 判断能力，不满足时明确要求用户指定兼容版本/构建。当前 CI/Geo 验证、OpenWrt 软件源镜像和 macOS DMG 固定使用官方 `1.14.0-rc.2`；这不构成 Linux/Arch 的最低运行时版本约束，兼容构建仍由实际能力检查裁决。
 6. master 不构建或保存正式发布包。tag 必须指向 `origin/master` 的祖先；稳定 tag 还要求同一 `head_sha` 已有成功的 master CI push run。GitHub Actions 服务降级时，预发布允许以完整本地发布门替代独立 master CI；tag push 事件丢失时可显式 dispatch 同一版本 tag。两种入口都要求 `GITHUB_REF_TYPE=tag`，并运行完全相同的构建、验收、attest 和发布链。预发布不替换稳定 OpenWrt 软件源。
 
 当前稳定版本是 `v0.9.6`；OpenWrt APK、Arch `pkgver`、Git tag、Linux 与 macOS 构件均使用 `0.9.6`。
