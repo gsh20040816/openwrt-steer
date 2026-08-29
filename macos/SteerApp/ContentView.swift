@@ -650,6 +650,7 @@ private struct CollectionListDropDelegate: DropDelegate {
     let entered: (String) -> Void
     let dropped: () -> Bool
 
+    func validateDrop(info: DropInfo) -> Bool { true }
     func dropEntered(info: DropInfo) { entered(targetID) }
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
     func performDrop(info: DropInfo) -> Bool { dropped() }
@@ -1141,14 +1142,8 @@ struct DraftCollectionView: View {
         return AnyView(
             row
                 .opacity(draggedItemID == item.id ? 0.25 : 1)
-                .onDrag {
-                    draggedItemID = item.id
-                    dragPreviewIDs = configuredItems.map(\.id)
-                    selection = item.id
-                    return NSItemProvider(object: item.id as NSString)
-                }
                 .onDrop(
-                    of: [UTType.plainText],
+                    of: [UTType.utf8PlainText],
                     delegate: CollectionListDropDelegate(
                         targetID: item.id,
                         entered: previewListDrag(over:),
@@ -1156,6 +1151,33 @@ struct DraftCollectionView: View {
                     )
                 )
         )
+    }
+
+    private func beginListDrag(_ item: DraftItem) -> NSItemProvider {
+        draggedItemID = item.id
+        dragPreviewIDs = configuredItems.map(\.id)
+        selection = item.id
+        return NSItemProvider(object: item.id as NSString)
+    }
+
+    private func listDragPreview(_ item: DraftItem) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: item.enabled ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(item.enabled ? Color.green : Color.secondary)
+            Text(item.title).fontWeight(.semibold)
+            Text(kindLabel(item)).font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(runtimeDetail(item))
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(width: 680)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func previewListDrag(over targetID: DraftItem.ID) {
@@ -1335,17 +1357,19 @@ struct DraftCollectionView: View {
         guard descriptor.ordered else { return AnyView(EmptyView()) }
         let movable = orderingEnabled && isMovable(item)
         let help = movable ? "拖动或使用上移/下移调整工作副本顺序" : orderingRestriction(item)
-        return AnyView(
-            HStack(spacing: 7) {
-                Text(item.index + 1, format: .number)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Image(systemName: movable ? "line.3.horizontal" : "pin.fill")
-                    .foregroundStyle(.secondary)
-            }
+        let handle = HStack(spacing: 7) {
+            Text(item.index + 1, format: .number)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Image(systemName: movable ? "line.3.horizontal" : "pin.fill")
+                .foregroundStyle(.secondary)
+        }
             .frame(maxWidth: .infinity)
             .help(help)
             .accessibilityLabel(movable ? "拖动 \(item.title) 调整顺序" : "\(item.title) \(help)")
+        guard rowDragEnabled(item) else { return AnyView(handle) }
+        return AnyView(
+            handle.onDrag { beginListDrag(item) } preview: { listDragPreview(item) }
         )
     }
 
