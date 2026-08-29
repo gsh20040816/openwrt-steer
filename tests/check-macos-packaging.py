@@ -42,6 +42,9 @@ for fragment in (
     "sing-box-$SING_BOX_MACOS_VERSION-darwin-${{ matrix.upstream_arch }}.tar.gz",
     "7e78dcd25d7edeb1359526c19da33e5eaadac31368cbeaabfa3ead329c3d5e17",
     "82ed6dc6490e87ff5c8145103178133dff7e216e1c5948ea81a5d33f6cbd487b",
+    'arm64) expected_sha256="$SING_BOX_DARWIN_ARM64_SHA256"',
+    'x86_64) expected_sha256="$SING_BOX_DARWIN_AMD64_SHA256"',
+    'STEER_SING_BOX_ARCHIVE_SHA256: ${{ steps.sing_box.outputs.sha256 }}',
     "macos/scripts/build-app-bundle.sh",
     "steer-macos-arm64.dmg",
     "steer-macos-x86_64.dmg",
@@ -60,6 +63,9 @@ for forbidden in (
     "Developer ID Application",
     "steer-macos-arm64.zip",
     "steer-macos-x86_64.zip",
+    "matrix.sing_box_sha256",
+    "0c57457917ad529da4af939a3da5e0ad1cfa639c140dd3de7b6248aef2170bcd",
+    "b0c45037c369616e744b8276bfc3be74f246d889531b73ca592a67c0e06bb432",
 ):
     if forbidden in WORKFLOW or forbidden in BUNDLER:
         fail(f"unsupported macOS release behavior present: {forbidden}")

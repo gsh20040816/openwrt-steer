@@ -408,12 +408,10 @@ jobs:
             arch: arm64
             goarch: arm64
             upstream_arch: arm64
-            sing_box_sha256: 0c57457917ad529da4af939a3da5e0ad1cfa639c140dd3de7b6248aef2170bcd
           - runner: macos-26-intel
             arch: x86_64
             goarch: amd64
             upstream_arch: amd64
-            sing_box_sha256: b0c45037c369616e744b8276bfc3be74f246d889531b73ca592a67c0e06bb432
     runs-on: ${{ matrix.runner }}
     env:
       STEER_VERSION: ${{ needs.source-gate.outputs.version }}
@@ -463,13 +461,20 @@ jobs:
           )
 
       - name: Download and verify official sing-box Darwin archive
+        id: sing_box
         run: |
+          case '${{ matrix.arch }}' in
+            arm64) expected_sha256="$SING_BOX_DARWIN_ARM64_SHA256" ;;
+            x86_64) expected_sha256="$SING_BOX_DARWIN_AMD64_SHA256" ;;
+            *) echo 'Unsupported macOS architecture' >&2; exit 1 ;;
+          esac
           archive="$RUNNER_TEMP/sing-box-darwin.tar.gz"
           curl --fail --location --silent --show-error \
             --output "$archive" \
             "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_MACOS_VERSION/sing-box-$SING_BOX_MACOS_VERSION-darwin-${{ matrix.upstream_arch }}.tar.gz"
-          printf '%s  %s\n' '${{ matrix.sing_box_sha256 }}' "$archive" \
+          printf '%s  %s\n' "$expected_sha256" "$archive" \
             | shasum -a 256 -c
+          echo "sha256=$expected_sha256" >> "$GITHUB_OUTPUT"
           mkdir -p "$RUNNER_TEMP/sing-box-darwin"
           tar -xzf "$archive" -C "$RUNNER_TEMP/sing-box-darwin"
           set -- $(find "$RUNNER_TEMP/sing-box-darwin" -type f -name sing-box | sort)
@@ -493,7 +498,7 @@ jobs:
           STEER_SOURCE_TAG: ${{ github.ref_name }}
           STEER_SING_BOX_VERSION: ${{ env.SING_BOX_MACOS_VERSION }}
           STEER_SING_BOX_REVISION: ${{ env.SING_BOX_MACOS_REVISION }}
-          STEER_SING_BOX_ARCHIVE_SHA256: ${{ matrix.sing_box_sha256 }}
+          STEER_SING_BOX_ARCHIVE_SHA256: ${{ steps.sing_box.outputs.sha256 }}
           STEER_GEO_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
         run: |
           export STEER_APP_BINARY="$(cat "$RUNNER_TEMP/swift-bin-path")/SteerApp"
