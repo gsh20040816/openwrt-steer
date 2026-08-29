@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DraftActionButtons: View {
     @ObservedObject var model: AppModel
@@ -644,26 +645,25 @@ private struct DefaultRuleCard: View {
     }
 }
 
-private struct NodeTableSortComparator: SortComparator {
-    var mode: String
-    var order: SortOrder = .forward
+private struct CollectionListDropDelegate: DropDelegate {
+    let targetID: String
+    let entered: (String) -> Void
+    let dropped: () -> Bool
 
-    func compare(_ left: DraftItem, _ right: DraftItem) -> ComparisonResult {
-        let comparison: ComparisonResult
-        if left.index < right.index {
-            comparison = .orderedAscending
-        } else if left.index > right.index {
-            comparison = .orderedDescending
-        } else {
-            comparison = .orderedSame
-        }
-        guard order == .reverse else { return comparison }
-        switch comparison {
-        case .orderedAscending: return .orderedDescending
-        case .orderedDescending: return .orderedAscending
-        case .orderedSame: return .orderedSame
-        }
-    }
+    func dropEntered(info: DropInfo) { entered(targetID) }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { dropped() }
+}
+
+func collectionDragPreviewOrder(_ ids: [String], moving sourceID: String, over targetID: String) -> [String] {
+    guard sourceID != targetID,
+          let sourceIndex = ids.firstIndex(of: sourceID),
+          let targetIndex = ids.firstIndex(of: targetID) else { return ids }
+    var order = ids
+    let source = order.remove(at: sourceIndex)
+    guard let adjustedTarget = order.firstIndex(of: targetID) else { return ids }
+    order.insert(source, at: sourceIndex < targetIndex ? adjustedTarget + 1 : adjustedTarget)
+    return order
 }
 
 struct DraftCollectionView: View {
@@ -676,14 +676,16 @@ struct DraftCollectionView: View {
     @State private var blockedReferences: [UIObjectReference] = []
     @State private var nodeImportPresented = false
     @State private var selectedNodeGroup = "_manual"
-    @State private var nodeSortOrder = [NodeTableSortComparator(mode: "default")]
-    @State private var previousNodeSort = NodeTableSortComparator(mode: "default")
+    @State private var nodeSortMode = "default"
+    @State private var nodeSortWorstFirst = false
+    @State private var draggedItemID: DraftItem.ID?
+    @State private var dragPreviewIDs: [DraftItem.ID] = []
 
     private var allItems: [DraftItem] { model.draftItems(for: descriptor.key) }
     private var activeNodeGroup: String {
         nodeGroups.contains(where: { $0.id == selectedNodeGroup }) ? selectedNodeGroup : "_manual"
     }
-    private var items: [DraftItem] {
+    private var configuredItems: [DraftItem] {
         if descriptor.key == "nodes" {
             let visible = allItems.filter { ($0.sourceSubscription ?? "_manual") == activeNodeGroup }
             return model.nodeItemsSortedForDisplay(visible, mode: nodeSortMode, direction: nodeSortDirection)
@@ -693,11 +695,13 @@ struct DraftCollectionView: View {
         }
         return allItems
     }
-    private var defaultRule: DraftItem? { allItems.first(where: isDefaultRule) }
-    private var nodeSortMode: String { nodeSortOrder.first?.mode ?? "default" }
-    private var nodeSortDirection: String {
-        nodeSortOrder.first?.order == .reverse ? "worst_first" : "best_first"
+    private var items: [DraftItem] {
+        guard !dragPreviewIDs.isEmpty else { return configuredItems }
+        let byID = Dictionary(uniqueKeysWithValues: configuredItems.map { ($0.id, $0) })
+        return dragPreviewIDs.compactMap { byID[$0] }
     }
+    private var defaultRule: DraftItem? { allItems.first(where: isDefaultRule) }
+    private var nodeSortDirection: String { nodeSortWorstFirst ? "worst_first" : "best_first" }
     private var orderingEnabled: Bool { descriptor.key != "nodes" || nodeSortMode == "default" }
     private var enabledVisibleNodeIDs: [String] { items.filter(\.enabled).map(\.identifier) }
 
@@ -808,28 +812,6 @@ struct DraftCollectionView: View {
             }
             .disabled(!model.canEditDraft || model.draftSyntaxError != nil)
             .animation(.snappy(duration: 0.16), value: items.map(\.id))
-            .onChange(of: nodeSortOrder) { requested in
-                guard descriptor.key == "nodes" else { return }
-                guard var primary = requested.first else {
-                    nodeSortOrder = [NodeTableSortComparator(mode: "default")]
-                    return
-                }
-                if previousNodeSort.mode == primary.mode,
-                   previousNodeSort.order == .reverse,
-                   primary.order == .forward {
-                    let restored = NodeTableSortComparator(mode: "default")
-                    previousNodeSort = restored
-                    nodeSortOrder = [restored]
-                    return
-                }
-                if primary.mode == "default" {
-                    primary.order = .forward
-                }
-                if requested.count != 1 || requested.first != primary {
-                    nodeSortOrder = [primary]
-                }
-                previousNodeSort = primary
-            }
             .overlay {
                 if let syntaxError = model.draftSyntaxError {
                     VStack(spacing: 9) {
@@ -966,129 +948,120 @@ struct DraftCollectionView: View {
         }
     }
 
-    @ViewBuilder
     private var nodeTable: some View {
-        if #available(macOS 14.0, *) {
-            makeNodeTable { draggableCollectionTableRows }
-        } else {
-            makeNodeTable { legacyCollectionTableRows }
+        VStack(spacing: 0) {
+            nodeListHeader
+            Divider()
+            collectionList { item in nodeListRow(item) }
         }
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func makeNodeTable<Rows: TableRowContent<DraftItem>>(
-        @TableRowBuilder<DraftItem> rows: () -> Rows
-    ) -> some View {
-        Table(of: DraftItem.self, selection: $selection, sortOrder: $nodeSortOrder) {
-            TableColumn("状态") { item in
-                statusCell(item)
-            }
-            .width(58)
-            TableColumn("名称") { item in
-                nameCell(item)
-            }
-            TableColumn("类型") { item in
-                Text(kindLabel(item))
-                    .font(.caption.weight(.medium))
-            }
-            .width(min: 80, ideal: 110)
-            TableColumn(
-                "连接测速",
-                sortUsing: NodeTableSortComparator(mode: "connect")
-            ) { item in
-                nodeProbeCell(item, download: false)
-            }
-            .width(min: 155, ideal: 195)
-            TableColumn(
-                "下载测速",
-                sortUsing: NodeTableSortComparator(mode: "download")
-            ) { item in
-                nodeProbeCell(item, download: true)
-            }
-            .width(min: 155, ideal: 195)
-            TableColumn("操作") { item in
-                collectionActions(item)
-            }
-            .width(min: 80, ideal: 110)
-            TableColumn("详情") { item in
-                detailCell(item)
-            }
-            TableColumn("顺序") { item in
-                orderingCell(item)
-            }
-            .width(92)
-        } rows: {
-            rows()
-        }
-    }
-
-    @ViewBuilder
     private var standardTable: some View {
-        if #available(macOS 14.0, *) {
-            makeStandardTable { draggableCollectionTableRows }
-        } else {
-            makeStandardTable { legacyCollectionTableRows }
+        VStack(spacing: 0) {
+            standardListHeader
+            Divider()
+            collectionList { item in standardListRow(item) }
         }
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func makeStandardTable<Rows: TableRowContent<DraftItem>>(
-        @TableRowBuilder<DraftItem> rows: () -> Rows
+    private func collectionList<Row: View>(
+        @ViewBuilder row: @escaping (DraftItem) -> Row
     ) -> some View {
-        Table(of: DraftItem.self, selection: $selection) {
-            TableColumn("状态") { item in
-                statusCell(item)
+        List(selection: $selection) {
+            ForEach(items) { item in
+                reorderableListRow(item) { row(item) }
+                    .tag(item.id)
+                    .contentShape(Rectangle())
             }
-            .width(58)
-            TableColumn("名称") { item in
-                nameCell(item)
-            }
-            TableColumn("类型") { item in
-                Text(kindLabel(item))
-                    .font(.caption.weight(.medium))
-            }
-            .width(min: 80, ideal: 110)
-            TableColumn("操作") { item in
-                collectionActions(item)
-            }
-            .width(min: 190, ideal: 230)
-            TableColumn("详情") { item in
-                detailCell(item)
-            }
-            TableColumn(descriptor.ordered ? "顺序" : "") { item in
-                orderingCell(item)
-            }
-            .width(descriptor.ordered ? 78 : 1)
-        } rows: {
-            rows()
         }
+        .listStyle(.inset(alternatesRowBackgrounds: true))
     }
 
-    @available(macOS 14.0, *)
-    @TableRowBuilder<DraftItem>
-    private var draggableCollectionTableRows: some TableRowContent<DraftItem> {
-        ForEach(items) { item in
-            if rowDragEnabled(item) {
-                TableRow(item)
-                    .draggable(item.id)
-            } else {
-                TableRow(item)
-            }
+    private var nodeListHeader: some View {
+        HStack(spacing: 10) {
+            headerLabel("状态", width: 48)
+            headerLabel("名称", width: 130, alignment: .leading)
+            headerLabel("类型", width: 76, alignment: .leading)
+            nodeSortHeader("连接测速", mode: "connect", width: 140)
+            nodeSortHeader("下载测速", mode: "download", width: 140)
+            headerLabel("操作", width: 100, alignment: .leading)
+            headerLabel("详情", alignment: .leading)
+            headerLabel("顺序", width: 62)
         }
-        .dropDestination(for: String.self) { destination, identifiers in
-            if descriptor.ordered { moveItems(identifiers, to: destination) }
-        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
     }
 
-    @TableRowBuilder<DraftItem>
-    private var legacyCollectionTableRows: some TableRowContent<DraftItem> {
-        ForEach(items) { item in
-            TableRow(item)
-                .itemProvider {
-                    rowDragEnabled(item) ? NSItemProvider(object: item.id as NSString) : nil
+    private var standardListHeader: some View {
+        HStack(spacing: 10) {
+            headerLabel("状态", width: 48)
+            headerLabel("名称", width: 180, alignment: .leading)
+            headerLabel("类型", width: 90, alignment: .leading)
+            headerLabel("操作", width: 200, alignment: .leading)
+            headerLabel("详情", alignment: .leading)
+            headerLabel(descriptor.ordered ? "顺序" : "", width: 62)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+    }
+
+    private func headerLabel(
+        _ label: String,
+        width: CGFloat? = nil,
+        alignment: Alignment = .center
+    ) -> some View {
+        Text(label)
+            .frame(width: width, alignment: alignment)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: alignment)
+    }
+
+    private func nodeSortHeader(_ label: String, mode: String, width: CGFloat) -> some View {
+        Button {
+            cycleNodeSort(mode)
+        } label: {
+            HStack(spacing: 4) {
+                Text(label)
+                if nodeSortMode == mode {
+                    Image(systemName: nodeSortWorstFirst ? "arrow.down" : "arrow.up")
                 }
+            }
+            .frame(width: width)
         }
-        .dropDestination(for: String.self) { destination, identifiers in
-            if descriptor.ordered { moveItems(identifiers, to: destination) }
+        .buttonStyle(.plain)
+    }
+
+    private func nodeListRow(_ item: DraftItem) -> some View {
+        HStack(spacing: 10) {
+            statusCell(item).frame(width: 48)
+            nameCell(item).frame(width: 130, alignment: .leading)
+            Text(kindLabel(item)).font(.caption.weight(.medium)).frame(width: 76, alignment: .leading)
+            nodeProbeCell(item, download: false).frame(width: 140, alignment: .leading)
+            nodeProbeCell(item, download: true).frame(width: 140, alignment: .leading)
+            collectionActions(item).frame(width: 100, alignment: .leading)
+            detailCell(item).frame(maxWidth: .infinity, alignment: .leading)
+            orderingCell(item).frame(width: 62)
         }
+        .padding(.vertical, 3)
+    }
+
+    private func standardListRow(_ item: DraftItem) -> some View {
+        HStack(spacing: 10) {
+            statusCell(item).frame(width: 48)
+            nameCell(item).frame(width: 180, alignment: .leading)
+            Text(kindLabel(item)).font(.caption.weight(.medium)).frame(width: 90, alignment: .leading)
+            collectionActions(item).frame(width: 200, alignment: .leading)
+            detailCell(item).frame(maxWidth: .infinity, alignment: .leading)
+            orderingCell(item).frame(width: 62)
+        }
+        .padding(.vertical, 3)
     }
 
     private var selectedItem: DraftItem? {
@@ -1147,6 +1120,80 @@ struct DraftCollectionView: View {
         return true
     }
 
+    private func cycleNodeSort(_ mode: String) {
+        if nodeSortMode != mode {
+            nodeSortMode = mode
+            nodeSortWorstFirst = false
+        } else if !nodeSortWorstFirst {
+            nodeSortWorstFirst = true
+        } else {
+            nodeSortMode = "default"
+            nodeSortWorstFirst = false
+        }
+    }
+
+    private func reorderableListRow<Content: View>(
+        _ item: DraftItem,
+        @ViewBuilder content: () -> Content
+    ) -> AnyView {
+        let row = content()
+        guard rowDragEnabled(item) else { return AnyView(row) }
+        return AnyView(
+            row
+                .opacity(draggedItemID == item.id ? 0.25 : 1)
+                .onDrag {
+                    draggedItemID = item.id
+                    dragPreviewIDs = configuredItems.map(\.id)
+                    selection = item.id
+                    return NSItemProvider(object: item.id as NSString)
+                }
+                .onDrop(
+                    of: [UTType.plainText],
+                    delegate: CollectionListDropDelegate(
+                        targetID: item.id,
+                        entered: previewListDrag(over:),
+                        dropped: commitListDrag
+                    )
+                )
+        )
+    }
+
+    private func previewListDrag(over targetID: DraftItem.ID) {
+        guard let sourceID = draggedItemID, sourceID != targetID else { return }
+        withAnimation(.snappy(duration: 0.16)) {
+            dragPreviewIDs = collectionDragPreviewOrder(dragPreviewIDs, moving: sourceID, over: targetID)
+        }
+    }
+
+    private func commitListDrag() -> Bool {
+        guard let sourceID = draggedItemID,
+              let source = configuredItems.first(where: { $0.id == sourceID }),
+              let index = dragPreviewIDs.firstIndex(of: sourceID) else {
+            cancelListDrag()
+            return false
+        }
+        let nextID = dragPreviewIDs.indices.contains(index + 1) ? dragPreviewIDs[index + 1] : nil
+        let target = nextID.flatMap { id in configuredItems.first(where: { $0.id == id }) }
+        withAnimation(.snappy(duration: 0.16)) {
+            _ = model.moveDraftItem(
+                in: descriptor.key,
+                identifiedBy: source.identifier,
+                before: target?.identifier
+            )
+            selection = source.id
+            draggedItemID = nil
+            dragPreviewIDs = []
+        }
+        return true
+    }
+
+    private func cancelListDrag() {
+        withAnimation(.snappy(duration: 0.16)) {
+            draggedItemID = nil
+            dragPreviewIDs = []
+        }
+    }
+
     private func addItem() {
         if descriptor.key == "nodes" { selectedNodeGroup = "_manual" }
         guard let object = model.newDraftItemObject(for: descriptor.key) else { return }
@@ -1201,21 +1248,6 @@ struct DraftCollectionView: View {
             key: descriptor.key, index: item.index, title: item.title,
             object: object, focusOption: issue.option
         )
-    }
-
-    private func moveItems(_ identifiers: [String], to destination: Int) {
-        guard orderingEnabled, let identifier = identifiers.first,
-              let source = items.first(where: { $0.id == identifier }), isMovable(source) else { return }
-        let candidates = Array(items.dropFirst(min(destination, items.count)))
-        let target = candidates.first(where: { $0.id != source.id && isMovable($0) })
-        withAnimation(.snappy(duration: 0.16)) {
-            _ = model.moveDraftItem(
-                in: descriptor.key,
-                identifiedBy: source.identifier,
-                before: target?.identifier
-            )
-            selection = source.id
-        }
     }
 
     private func isRequiredDirect(_ item: DraftItem) -> Bool {

@@ -133,6 +133,19 @@ final class CollectionOrderingTests: XCTestCase {
         XCTAssertEqual(SteerUISpec.orderingPolicy(for: "rules")?.pinnedLastBooleanField, "default")
     }
 
+    func testDragPreviewMakesRowsYieldWithoutMutatingTheDraft() {
+        let original = ["alpha", "bravo", "charlie", "delta"]
+        XCTAssertEqual(
+            collectionDragPreviewOrder(original, moving: "alpha", over: "bravo"),
+            ["bravo", "alpha", "charlie", "delta"]
+        )
+        XCTAssertEqual(
+            collectionDragPreviewOrder(original, moving: "delta", over: "bravo"),
+            ["alpha", "delta", "bravo", "charlie"]
+        )
+        XCTAssertEqual(collectionDragPreviewOrder(original, moving: "alpha", over: "alpha"), original)
+    }
+
     func testEveryCollectionMovesByStableIDWithoutChangingObjectIdentity() throws {
         for testCase in try fixture().cases {
             let model = AppModel()
