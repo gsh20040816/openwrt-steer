@@ -1154,9 +1154,11 @@ struct DraftCollectionView: View {
     }
 
     private func beginListDrag(_ item: DraftItem) -> NSItemProvider {
-        draggedItemID = item.id
-        dragPreviewIDs = configuredItems.map(\.id)
-        selection = item.id
+        let previewIDs = configuredItems.map(\.id)
+        withTransaction(Transaction(animation: nil)) {
+            draggedItemID = item.id
+            dragPreviewIDs = previewIDs
+        }
         return NSItemProvider(object: item.id as NSString)
     }
 
@@ -1364,7 +1366,12 @@ struct DraftCollectionView: View {
             Image(systemName: movable ? "line.3.horizontal" : "pin.fill")
                 .foregroundStyle(.secondary)
         }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .contentShape(Rectangle())
+            .background(
+                Color.secondary.opacity(movable ? 0.08 : 0),
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
             .help(help)
             .accessibilityLabel(movable ? "拖动 \(item.title) 调整顺序" : "\(item.title) \(help)")
         guard rowDragEnabled(item) else { return AnyView(handle) }

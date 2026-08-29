@@ -1426,6 +1426,7 @@ final class AppModel: ObservableObject {
     private var cachedDraftDocument: String?
     private var cachedDraftValue: JSONValue?
     private var cachedDraftError: String?
+    private var cachedDraftItems: [String: [DraftItem]] = [:]
     private(set) var draftDecodeCount = 0
     private var initialStateLoadInProgress = false
     private var terminationReply: ((Bool) -> Void)?
@@ -2388,6 +2389,7 @@ final class AppModel: ObservableObject {
     }
 
     func nodeItemsSortedForDisplay(_ items: [DraftItem], mode: String, direction: String) -> [DraftItem] {
+        guard mode != "default" else { return items }
         let orderedIDs = NodeDisplaySorting.sortedIDs(
             items.map(\.identifier), mode: mode, direction: direction,
             latestResults: Array(latestProbeResults.values)
@@ -2483,9 +2485,11 @@ final class AppModel: ObservableObject {
     }
 
     func draftItems(for key: String) -> [DraftItem] {
-        guard let root = parseDraft()?.objectValue,
+        guard let root = parseDraft()?.objectValue else { return [] }
+        if let cached = cachedDraftItems[key] { return cached }
+        guard
               case let .array(values)? = root[key] else { return [] }
-        return values.enumerated().map { index, value in
+        let items = values.enumerated().map { index, value in
             let object = value.objectValue ?? [:]
             let identifier = object["id"]?.stringValue ?? "item-\(index + 1)"
             let name = object["name"]?.stringValue ?? ""
@@ -2506,6 +2510,8 @@ final class AppModel: ObservableObject {
                 pinnedStale: pinnedStale
             )
         }
+        cachedDraftItems[key] = items
+        return items
     }
 
     func draftItemObject(for key: String, at index: Int) -> [String: JSONValue]? {
@@ -2992,6 +2998,7 @@ final class AppModel: ObservableObject {
     private func refreshDraftCache() {
         guard cachedDraftDocument != rawJSON else { return }
         cachedDraftDocument = rawJSON
+        cachedDraftItems.removeAll(keepingCapacity: true)
         draftDecodeCount += 1
         guard let data = rawJSON.data(using: .utf8) else {
             cachedDraftValue = nil
