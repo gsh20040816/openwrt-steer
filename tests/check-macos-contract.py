@@ -103,9 +103,7 @@ def main() -> None:
     assert '运行服务未激活不影响系统组件安装完整性' in content
     assert 'var ordered: Bool { SteerUISpec.orderingPolicy(for: key) != nil }' in content
     assert 'rowDragEnabled(item)' in content
-    assert '.onDrag {' in content and 'collectionDragPreview(item)' in content
-    assert 'CollectionRowDropDelegate' in content
-    assert 'previewDrag(over:)' in content and 'commitDragPreview' in content
+    assert '.draggable(item.id)' in content
     assert 'contract.feedback == "whole_row_placeholder"' in content
     assert 'contract.singleMutationPerDrop' in content
     assert content.count('withAnimation(.snappy(duration: 0.16))') >= 2
@@ -114,7 +112,7 @@ def main() -> None:
     assert 'nodeSortColumnTitle' not in content and '好 → 坏' not in content and '坏 → 好' not in content
     assert 'visibleIDs: movableItems.map(\\.identifier)' in content
     assert 'SteerUISpec.isMovable(collection: descriptor.key, object: object)' in content
-    assert '.onDrop(' in content and 'DropProposal(operation: .move)' in content
+    assert '.dropDestination(for: String.self)' in content
     assert '"line.3.horizontal"' in content and '"pin.fill"' in content
     assert 'List {' in content and 'Section {' in content
     assert 'GroupBox' not in content
