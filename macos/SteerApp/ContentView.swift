@@ -677,6 +677,7 @@ struct DraftCollectionView: View {
     @State private var nodeImportPresented = false
     @State private var selectedNodeGroup = "_manual"
     @State private var nodeSortOrder = [NodeTableSortComparator(mode: "default")]
+    @State private var previousNodeSort = NodeTableSortComparator(mode: "default")
 
     private var allItems: [DraftItem] { model.draftItems(for: descriptor.key) }
     private var activeNodeGroup: String {
@@ -813,12 +814,21 @@ struct DraftCollectionView: View {
                     nodeSortOrder = [NodeTableSortComparator(mode: "default")]
                     return
                 }
+                if previousNodeSort.mode == primary.mode,
+                   previousNodeSort.order == .reverse,
+                   primary.order == .forward {
+                    let restored = NodeTableSortComparator(mode: "default")
+                    previousNodeSort = restored
+                    nodeSortOrder = [restored]
+                    return
+                }
                 if primary.mode == "default" {
                     primary.order = .forward
                 }
                 if requested.count != 1 || requested.first != primary {
                     nodeSortOrder = [primary]
                 }
+                previousNodeSort = primary
             }
             .overlay {
                 if let syntaxError = model.draftSyntaxError {
@@ -971,14 +981,14 @@ struct DraftCollectionView: View {
             }
             .width(min: 80, ideal: 110)
             TableColumn(
-                nodeSortColumnTitle("连接测速", mode: "connect"),
+                "连接测速",
                 sortUsing: NodeTableSortComparator(mode: "connect")
             ) { item in
                 nodeProbeCell(item, download: false)
             }
             .width(min: 155, ideal: 195)
             TableColumn(
-                nodeSortColumnTitle("下载测速", mode: "download"),
+                "下载测速",
                 sortUsing: NodeTableSortComparator(mode: "download")
             ) { item in
                 nodeProbeCell(item, download: true)
@@ -991,10 +1001,7 @@ struct DraftCollectionView: View {
             TableColumn("详情") { item in
                 detailCell(item)
             }
-            TableColumn(
-                nodeSortColumnTitle("顺序", mode: "default"),
-                sortUsing: NodeTableSortComparator(mode: "default")
-            ) { item in
+            TableColumn("顺序") { item in
                 orderingCell(item)
             }
             .width(92)
@@ -1074,12 +1081,16 @@ struct DraftCollectionView: View {
     }
 
     private func move(_ item: DraftItem, offset: Int) {
-        _ = model.moveDraftItem(
-            in: descriptor.key,
-            identifiedBy: item.identifier,
-            offset: offset,
-            visibleIDs: movableItems.map(\.identifier)
-        )
+        withAnimation(.snappy(duration: 0.16)) {
+            if model.moveDraftItem(
+                in: descriptor.key,
+                identifiedBy: item.identifier,
+                offset: offset,
+                visibleIDs: movableItems.map(\.identifier)
+            ) {
+                selection = item.id
+            }
+        }
     }
 
     private func orderingRestriction(_ item: DraftItem) -> String {
@@ -1186,13 +1197,6 @@ struct DraftCollectionView: View {
 
     private func isDefaultRule(_ item: DraftItem) -> Bool {
         descriptor.key == "rules" && item.kind.caseInsensitiveCompare("default") == .orderedSame
-    }
-
-    private func nodeSortColumnTitle(_ title: String, mode: String) -> String {
-        guard nodeSortMode == mode else { return title }
-        return mode == "default"
-            ? "\(title) · 原始"
-            : "\(title) · \(nodeSortDirection == "best_first" ? "好 → 坏" : "坏 → 好")"
     }
 
     private func statusCell(_ item: DraftItem) -> AnyView {

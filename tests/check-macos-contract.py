@@ -105,6 +105,10 @@ def main() -> None:
     assert 'dragProvider(for: item)' in content
     assert 'contract.feedback == "whole_row_placeholder"' in content
     assert 'contract.singleMutationPerDrop' in content
+    assert content.count('withAnimation(.snappy(duration: 0.16))') >= 2
+    assert 'if model.moveDraftItem(' in content and 'selection = item.id' in content
+    assert 'previousNodeSort.order == .reverse' in content and 'primary.order == .forward' in content
+    assert 'nodeSortColumnTitle' not in content and '好 → 坏' not in content and '坏 → 好' not in content
     assert 'visibleIDs: movableItems.map(\\.identifier)' in content
     assert 'SteerUISpec.isMovable(collection: descriptor.key, object: object)' in content
     assert '.dropDestination(for: String.self)' in content

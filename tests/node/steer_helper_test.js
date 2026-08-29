@@ -36,6 +36,7 @@ function element(tag, attributes, children) {
 		tag,
 		attributes: attributes || {},
 		children: children == null ? [] : (Array.isArray(children) ? children : [ children ]),
+		style: {},
 		addEventListener(name, listener) { this.listeners = this.listeners || {}; this.listeners[name] = listener; },
 		append(child) { this.children.push(child); },
 		prepend(child) { this.children.unshift(child); },
@@ -146,8 +147,11 @@ function loadHelper(runtime) {
 		resource: (value) => value
 	};
 	const document = {
+		body: { append: (value) => { runtime.bodyElement = value; } },
 		head: { appendChild: () => {} },
-		getElementById: (id) => id == 'steer-lifecycle-global' ? runtime.lifecycleBar : (id == 'maincontent' ? runtime.mainContent : null)
+		elementFromPoint: () => runtime.elementFromPoint || null,
+		getElementById: (id) => id == 'steer-lifecycle-global' ? runtime.lifecycleBar
+			: (id == 'maincontent' ? runtime.mainContent : (runtime.domById?.[id] || null))
 	};
 	const translate = (value) => String(value);
 	const uci = {
@@ -171,6 +175,8 @@ function loadHelper(runtime) {
 		}
 	};
 	const window = {
+		addEventListener: (name, listener) => { (runtime.windowListeners ||= {})[name] = listener; },
+		removeEventListener: (name) => { delete (runtime.windowListeners ||= {})[name]; },
 		setTimeout: (callback) => callback(),
 		requestAnimationFrame: (callback) => callback(),
 		location: { pathname: '/cgi-bin/luci/admin/services/steer/nodes', reload: () => { runtime.reloaded = true; } }
@@ -426,23 +432,53 @@ async function main() {
 	};
 	helper.configureOrdering(orderedNodeSection, 'nodes');
 	const nodeBActions = orderedNodeSection.renderRowActions('node_b');
-	const moveUp = findElement(nodeBActions, (candidate) => candidate.attributes?.['data-steer-order'] == 'up');
-	assert.equal(moveUp.attributes.disabled, false, 'a movable non-boundary row exposes an enabled Move up action');
-	moveUp.attributes.click({ preventDefault() {}, stopPropagation() {} });
-	assert.deepEqual(orderingMoves, [ [ 'steer', 'node_b', 'node_a', false ] ],
-		'the real LuCI ordering helper writes exactly one pending UCI move by stable section ID');
-	assert.deepEqual(nodeOrder, [ 'node_b', 'node_a', 'feed_a' ],
-		'Node moves stay within the visible source group without changing source ownership');
-	const firstActions = orderedNodeSection.renderRowActions('node_b');
-	assert.equal(findElement(firstActions, (candidate) => candidate.attributes?.['data-steer-order'] == 'up').attributes.disabled, true,
-		'the real LuCI ordering helper disables a move at the visible group boundary');
-	const dragRow = (sectionId, top) => {
+	const nodeBDragHandle = findElement(nodeBActions, (candidate) => candidate.attributes?.class?.includes('drag-handle'));
+	assert.ok(nodeBDragHandle,
+		'a movable row exposes one direct drag handle');
+	assert.equal(nodeBDragHandle.attributes.disabled, null,
+		'an enabled LuCI drag handle omits the HTML boolean disabled attribute');
+	assert.equal(findElement(nodeBActions, (candidate) => candidate.attributes?.['data-steer-order'] != null), null,
+		'LuCI ordering does not add separate up/down arrow buttons');
+	const nativeHandle = element('button', { 'class': 'cbi-button drag-handle', draggable: true }, '☰');
+	const nativeSection = {
+		sectiontype: 'node', map: orderedNodeSection.map, cfgsections: orderedNodeSection.cfgsections,
+		renderRowActions: () => element('td', {}, element('div', {}, nativeHandle))
+	};
+	helper.configureOrdering(nativeSection, 'nodes');
+	nativeSection.renderRowActions('node_b');
+	assert.equal(nativeHandle.draggable, false);
+	assert.equal(nativeHandle.textContent, '⠿');
+	assert.equal(typeof nativeHandle.listeners?.pointerdown, 'function',
+		'existing LuCI GridSection handles are rebound to the unified pointer drag path');
+	const animations = [];
+	const tbody = {
+		children: [],
+		insertBefore(child, reference) {
+			const previous = this.children.indexOf(child);
+			if (previous >= 0) this.children.splice(previous, 1);
+			const next = reference == null ? this.children.length : this.children.indexOf(reference);
+			this.children.splice(next < 0 ? this.children.length : next, 0, child);
+			this.children.forEach((row, index) => {
+				row.parentNode = this;
+				row.nextElementSibling = this.children[index + 1] || null;
+			});
+		}
+	};
+	const table = {
+		querySelectorAll: (selector) => selector == 'tr[data-sid]' ? tbody.children : []
+	};
+	const dragRow = (sectionId) => {
 		const classes = new Set();
 		return {
+			cloneNode: () => ({ removeAttribute() {}, querySelectorAll: () => [] }),
 			getAttribute: (name) => name == 'data-sid' ? sectionId : null,
-			getBoundingClientRect: () => ({ top, left: 0, width: 600, height: 40 }),
-			closest: () => null,
+			getBoundingClientRect: function() {
+				const top = tbody.children.indexOf(this) * 40;
+				return { top, bottom: top + 40, left: 0, width: 600, height: 40 };
+			},
+			closest: (selector) => selector == 'table' ? table : null,
 			contains: () => false,
+			animate: (frames, options) => animations.push({ sectionId, frames, options }),
 			classList: {
 				add: (...names) => names.forEach((name) => classes.add(name)),
 				remove: (...names) => names.forEach((name) => classes.delete(name)),
@@ -450,21 +486,35 @@ async function main() {
 			}
 		};
 	};
-	const rowA = dragRow('node_a', 40);
-	const rowB = dragRow('node_b', 0);
-	const dataTransfer = { setData() {}, setDragImage() {}, effectAllowed: '', dropEffect: '' };
-	orderedNodeSection.handleDragStart({ dataTransfer, clientX: 10, clientY: 50, preventDefault() {} }, rowA);
-	orderedNodeSection.handleDragOver({
-		currentTarget: rowB, clientY: 5, dataTransfer, preventDefault() {}
+	const rowA = dragRow('node_a');
+	const rowB = dragRow('node_b');
+	tbody.children = [ rowA, rowB ];
+	tbody.children.forEach((row, index) => { row.parentNode = tbody; row.nextElementSibling = tbody.children[index + 1] || null; });
+	runtime.domById = { 'cbi-steer-node_a': rowA, 'cbi-steer-node_b': rowB };
+	const pointerEvent = (overrides = {}) => ({
+		button: 0, pointerId: 7, clientX: 10, clientY: 50,
+		preventDefault() {}, stopPropagation() {}, ...overrides
 	});
-	orderedNodeSection.handleDrop({ preventDefault() {}, stopPropagation() {} });
-	assert.deepEqual(orderingMoves.at(-1), [ 'steer', 'node_a', 'node_b', false ],
-		'desktop drag and explicit buttons share the same stable-ID UCI move path');
-	assert.deepEqual(nodeOrder, [ 'node_a', 'node_b', 'feed_a' ]);
+	orderedNodeSection.handleTouchStart(pointerEvent(), rowB, {});
+	runtime.elementFromPoint = rowA;
+	orderedNodeSection.handleTouchMove(pointerEvent({ clientY: 5 }));
+	assert.deepEqual(tbody.children, [ rowB, rowA ], 'dragover moves the whole row before Drop so peers yield in real time');
+	assert.equal(orderingMoves.length, 0, 'drag preview does not mutate UCI');
+	assert.ok(new Set(animations.map((entry) => entry.sectionId)).has('node_a') &&
+		new Set(animations.map((entry) => entry.sectionId)).has('node_b'),
+		'all displaced rows receive the same FLIP animation');
+	orderedNodeSection.handleTouchEnd(pointerEvent({ clientY: 5 }));
+	assert.deepEqual(orderingMoves, [ [ 'steer', 'node_b', 'node_a', false ] ],
+		'pointer Drop writes exactly one stable-ID UCI move');
+	assert.deepEqual(nodeOrder, [ 'node_b', 'node_a', 'feed_a' ]);
 	const movesBeforeCancel = orderingMoves.length;
-	orderedNodeSection.handleDragStart({ dataTransfer, clientX: 10, clientY: 10, preventDefault() {} }, rowB);
-	orderedNodeSection.handleDragEnd({}, rowB);
+	orderedNodeSection.handleTouchStart(pointerEvent({ clientY: 10 }), rowB, {});
+	runtime.elementFromPoint = rowA;
+	orderedNodeSection.handleTouchMove(pointerEvent({ clientY: 75 }));
+	orderedNodeSection.handleTouchCancel(pointerEvent({ clientY: 75 }));
 	assert.equal(orderingMoves.length, movesBeforeCancel, 'a cancelled LuCI drag never mutates pending UCI');
+	assert.deepEqual(tbody.children, [ rowB, rowA ], 'a cancelled LuCI drag restores the original DOM order');
+	assert.deepEqual(runtime.windowListeners, {}, 'pointer completion and cancellation remove global drag listeners');
 	const sortedNodeSection = {
 		sectiontype: 'node', map: orderedNodeSection.map,
 		cfgsections: orderedNodeSection.cfgsections,
@@ -475,9 +525,9 @@ async function main() {
 	});
 	const sortedActions = sortedNodeSection.renderRowActions('node_a');
 	assert.equal(sortedNodeSection.sortable, false, 'display sorting disables native persistent header/drag sorting');
-	assert.ok(findElement(sortedActions, (candidate) => candidate.attributes?.['data-steer-order'] == 'up').attributes.disabled);
 	assert.equal(findElement(sortedActions, (candidate) => candidate.attributes?.class?.includes('drag-handle')).attributes.disabled, true,
-		'display sorting disables drag and explicit moves with one clear reason');
+		'display sorting disables drag with one compact accessible reason');
+	runtime.domById = null;
 	delete runtime.uciSections;
 
 	runtime.status = { healthy: true };

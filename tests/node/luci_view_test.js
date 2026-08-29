@@ -329,6 +329,18 @@ function createEnvironment(sections) {
 			const section = Object.values(sections).flat()
 				.find((candidate) => candidate['.name'] == sectionId);
 			delete section[option];
+		},
+		move: (config, sectionId, targetId, after) => {
+			for (const values of Object.values(sections)) {
+				const sourceIndex = values.findIndex((section) => section['.name'] == sectionId);
+				const targetIndex = values.findIndex((section) => section['.name'] == targetId);
+				if (sourceIndex < 0 || targetIndex < 0) continue;
+				const [ source ] = values.splice(sourceIndex, 1);
+				const adjustedTarget = values.findIndex((section) => section['.name'] == targetId);
+				values.splice(adjustedTarget + (after ? 1 : 0), 0, source);
+				return true;
+			}
+			return false;
 		}
 	};
 	const view = { extend: (value) => value };
@@ -372,16 +384,18 @@ function createEnvironment(sections) {
 		configureOrdering: (section, collection, options) => {
 			const policy = uiSpec.collection_ordering[collection];
 			const disabledReason = options?.disabledReason || '';
+			const sectionType = section.sectionType || section.sectiontype;
 			section.sortable = !disabledReason;
 			section.orderingDisabledReason = disabledReason;
 			section.orderingPolicy = policy;
 			section.dragFeedback = uiSpec.collection_drag.feedback;
-			section.cfgsections = () => (sections[section.sectionType] || [])
-				.filter((item) => !section.filter || section.filter(item['.name']))
-				.map((item) => item['.name']);
+			if (typeof(section.cfgsections) != 'function')
+				section.cfgsections = () => (sections[sectionType] || [])
+					.filter((item) => !section.filter || section.filter(item['.name']))
+					.map((item) => item['.name']);
 			section.dropItem = (sectionId, targetId, after, cancel = false) => {
 				if (cancel) return false;
-				const values = sections[section.sectionType] || [];
+				const values = sections[sectionType] || [];
 				const source = values.find((item) => item['.name'] == sectionId);
 				const target = values.find((item) => item['.name'] == targetId);
 				const movable = (item) => item &&
@@ -405,7 +419,7 @@ function createEnvironment(sections) {
 				return true;
 			};
 			section.moveItem = (sectionId, offset) => {
-				const values = sections[section.sectionType] || [];
+				const values = sections[sectionType] || [];
 				const source = values.find((item) => item['.name'] == sectionId);
 				const group = policy.group_field ? (source?.[policy.group_field] || '') : '';
 				const peers = values.filter((item) => (!section.filter || section.filter(item['.name'])) &&
@@ -416,13 +430,9 @@ function createEnvironment(sections) {
 				const target = peers[position + offset];
 				return !!target && section.dropItem(sectionId, target['.name'], offset > 0);
 			};
-			section.renderRowActions = (sectionId) => {
-				const values = sections[section.sectionType] || [];
-				const visible = values.filter((item) => !section.filter || section.filter(item['.name']));
-				const position = visible.findIndex((item) => item['.name'] == sectionId);
+			section.renderRowActions = () => {
 				return element('td', {}, [
-						element('button', { disabled: !!disabledReason || position <= 0 }, 'Move up'),
-						element('button', { disabled: !!disabledReason || position < 0 || position >= visible.length - 1 }, 'Move down'),
+					element('button', { 'class': 'drag-handle', disabled: !!disabledReason }, '⠿'),
 					options?.baseActions === false ? '' : element('button', {}, 'Edit')
 				]);
 			};
@@ -1090,9 +1100,9 @@ async function main() {
 			section.type == 'GridSection' && section.sectionType == sectionType);
 		assert.ok(ordered?.sortable && ordered.orderingPolicy?.stable_id_field == 'id',
 			`${fixture.collection} consumes the shared stable-ID ordering policy`);
-		assert.ok(elementText(ordered.renderRowActions(fixture.move_id)).includes('Move up') &&
-			elementText(ordered.renderRowActions(fixture.move_id)).includes('Move down'),
-			`${fixture.collection} exposes explicit up/down controls`);
+		assert.ok(elementText(ordered.renderRowActions(fixture.move_id)).includes('⠿') &&
+			!elementText(ordered.renderRowActions(fixture.move_id)).includes('Move up'),
+			`${fixture.collection} exposes one direct whole-row drag handle without arrow buttons`);
 		assert.equal(ordered.moveItem(fixture.move_id, fixture.offset), true, fixture.name);
 		assert.deepEqual((sections[sectionType] || []).map((item) => item['.name']), fixture.expected_ids, fixture.name);
 	}
@@ -1139,10 +1149,18 @@ async function main() {
 		);
 		const nodeSection = sortingEnvironment.maps[0].sections.find((section) =>
 			section.type == 'GridSection' && section.sectionType == 'node');
-		assert.deepEqual(nodeSection.cfgsections(), fixture.expected_ids, fixture.name);
-		assert.equal(nodeSection.sortable, fixture.mode == 'default',
-			`${fixture.name} disables configured reordering only while display sorting`);
-		assert.equal(!!nodeSection.orderingDisabledReason, fixture.mode != 'default');
+		if (fixture.group) {
+			const rows = findElements(sortingEnvironment.rendered, (node) =>
+				node.tag == 'tr' && node.attributes?.['data-sid']);
+			assert.deepEqual(rows.map((row) => row.attributes['data-sid']), fixture.expected_ids, fixture.name);
+			assert.equal(nodeSection, undefined, 'subscription groups bypass the heavyweight LuCI GridSection');
+		}
+		else {
+			assert.deepEqual(nodeSection.cfgsections(), fixture.expected_ids, fixture.name);
+			assert.equal(nodeSection.sortable, fixture.mode == 'default',
+				`${fixture.name} disables configured reordering only while display sorting`);
+			assert.equal(!!nodeSection.orderingDisabledReason, fixture.mode != 'default');
+		}
 		assert.deepEqual(sections.node.map((item) => item['.name']), originalIDs,
 			`${fixture.name} never mutates UCI section order`);
 	}
@@ -1158,14 +1176,45 @@ async function main() {
 	const sortForm = element('form', {}, element('table', {}, element('thead', {},
 		element('tr', {}, [ orderHeader, connectHeader, downloadHeader, actionsHeader ]))));
 	headerEnvironment.nodeView.decorateNodeSortHeaders(sortForm);
-	assert.ok(elementText(connectHeader).includes('Best to worst'),
-		'active LuCI metric header shows its current direction');
+	assert.equal(elementText(orderHeader), 'Order', 'configured order is a plain non-sortable header');
+	assert.equal(findElements(orderHeader, (node) => node.tag == 'button').length, 0,
+		'configured order does not expose a redundant sort action');
+	assert.ok(elementText(connectHeader).includes('↑') &&
+		!/(Best|Worst|Configured|好|坏)/.test(elementText(connectHeader)),
+		'active LuCI metric header shows only the normal direction arrow');
 	const connectButton = findElements(connectHeader, (node) => node.tag == 'button')[0];
 	connectButton.attributes.click({ preventDefault() {}, stopPropagation() {} });
 	assert.ok(headerEnvironment.window.location.href.includes('node_sort=connect') &&
 		headerEnvironment.window.location.href.includes('node_sort_direction=worst_first'),
 		'repeated LuCI header click reverses display direction without a UCI move');
+	const thirdClickEnvironment = await renderNodes(
+		headerSections, '?node_group=_manual&node_sort=connect&node_sort_direction=worst_first',
+		undefined, 'nodes', [], {}, { latest_results: nodeDisplaySortingFixtures.latest_results, warnings: [] }
+	);
+	const thirdConnectHeader = element('th', { 'data-widget': 'CBI.ButtonValue' }, 'Connection test');
+	const thirdForm = element('form', {}, element('table', {}, element('thead', {}, element('tr', {}, [
+		element('th', {}, 'Order'), thirdConnectHeader,
+		element('th', { 'data-widget': 'CBI.ButtonValue' }, 'Download test')
+	]))));
+	thirdClickEnvironment.nodeView.decorateNodeSortHeaders(thirdForm);
+	findElements(thirdConnectHeader, (node) => node.tag == 'button')[0].attributes.click({ preventDefault() {}, stopPropagation() {} });
+	assert.ok(!thirdClickEnvironment.window.location.href.includes('node_sort='),
+		'the third click restores configured order instead of requiring a separate Order sorter');
 	assert.deepEqual(headerSections.node.map((item) => item['.name']), [ 'slow', 'stale' ]);
+	const largeSubscriptionSections = {
+		subscription: [ { '.name': 'large_feed', name: 'Large feed' } ],
+		node: Array.from({ length: 750 }, (_, index) => ({
+			'.name': `feed_node_${index}`, source_subscription: 'large_feed', enabled: '1',
+			name: `Feed node ${index}`, type: 'vless', server: `node-${index}.example`, server_port: '443'
+		}))
+	};
+	const largeEnvironment = await renderNodes(largeSubscriptionSections, '?node_group=large_feed');
+	assert.equal(largeEnvironment.maps[0].sections.some((section) => section.sectionType == 'node'), false,
+		'large subscription groups do not instantiate a LuCI Form section per generated Node');
+	assert.equal(findElements(largeEnvironment.rendered, (node) => node.tag == 'tr' && node.attributes?.['data-sid']).length, 750,
+		'the lightweight table renders exactly the selected subscription group');
+	assert.equal(findElements(largeEnvironment.rendered, (node) => [ 'input', 'select', 'textarea' ].includes(node.tag)).length, 0,
+		'the read-only subscription inventory creates no hidden generated edit widgets');
 	testCommittedUcodePreviewAndObservedCandidateGuard();
 	testOverviewStateSeparatesPendingSavedAndActiveFacts();
 	testSubscriptionRPCRejectsPendingSession();
@@ -1845,39 +1894,23 @@ async function main() {
 		subscription: [ { '.name': 'jdub', name: 'Jdub' } ]
 	}, '?node_group=jdub');
 	const subscriptionNodes = environment.maps[0].sections.find((section) => section.sectionType == 'node');
-	assert.ok(subscriptionNodes && subscriptionNodes.addremove === false && !subscriptionNodes.filter('cfg_manual') && subscriptionNodes.filter('jdub_0123456789ab'),
-		'A subscription group renders only that subscription and cannot create manual nodes inside it');
-	assert.equal(subscriptionNodes.readonly, true,
-		'Subscription nodes render as a compact read-only summary');
-	const subscriptionRowActions = elementText(subscriptionNodes.renderRowActions('jdub_0123456789ab'));
-	assert.ok(!subscriptionRowActions.includes('Edit') && subscriptionRowActions.includes('Move up') && subscriptionRowActions.includes('Move down'),
-		'Subscription rows expose ordering controls without an editor for generated node fields');
-	[ 'enabled', 'type', 'server', 'server_port' ].forEach((name) => {
-		const option = subscriptionNodes.options.find((candidate) => candidate.name == name);
-		assert.equal(option && option.editable, false,
-			`Subscription node option ${name} does not create an editable widget per row`);
-	});
-	[ '_connect_speedtest', '_download_speedtest' ].forEach((name) => {
-		const option = subscriptionNodes.options.find((candidate) => candidate.name == name);
-		assert.equal(option && option.editable, true,
-			`Subscription node exposes the ${name} action`);
-		assert.equal(option.default, undefined,
-			`Speed-test action ${name} has no value for LuCI to persist`);
-		assert.equal(option.write('jdub_0123456789ab', '1'), undefined,
-			`Speed-test action ${name} ignores form writes`);
-		assert.equal(option.remove('jdub_0123456789ab'), undefined,
-			`Speed-test action ${name} ignores form removal`);
-		assert.equal(environment.uci.get('steer', 'jdub_0123456789ab', name), undefined,
-			`Speed-test action ${name} never enters the UCI node model`);
-		assert.deepEqual(option.dependencies, [],
-			`Subscription node ${name} is not hidden by a dependency on its read-only enabled summary`);
-		const action = findElements(option.renderWidget('jdub_0123456789ab'), (node) => node.tag == 'button')[0];
-		assert.ok(action && !action.disabled,
-			`Subscription node ${name} renders a visible enabled action in the row DOM`);
-	});
-	const speedtestButton = { disabled: false, textContent: '', title: '', classList: { toggle: () => {} } };
-	const connectSpeedtest = subscriptionNodes.options.find((candidate) => candidate.name == '_connect_speedtest');
-	await connectSpeedtest.onclick({ currentTarget: speedtestButton }, 'jdub_0123456789ab');
+	assert.equal(subscriptionNodes, undefined,
+		'a subscription group bypasses the heavyweight editable LuCI Node section');
+	const subscriptionRows = findElements(environment.rendered,
+		(node) => node.tag == 'tr' && node.attributes?.['data-sid']);
+	assert.deepEqual(subscriptionRows.map((row) => row.attributes['data-sid']), [ 'jdub_0123456789ab' ],
+		'a subscription group renders only that subscription');
+	assert.equal(findElements(environment.rendered,
+		(node) => [ 'input', 'select', 'textarea' ].includes(node.tag)).length, 0,
+		'subscription rows do not create generated edit widgets');
+	const subscriptionRowText = elementText(subscriptionRows[0]);
+	assert.ok(subscriptionRowText.includes('⠿') && !subscriptionRowText.includes('Edit') &&
+		!subscriptionRowText.includes('Move up') && !subscriptionRowText.includes('Move down'),
+		'subscription rows expose one direct drag handle without editor or arrow buttons');
+	const connectCell = findElements(subscriptionRows[0],
+		(node) => node.tag == 'td' && node.attributes?.['data-title'] == 'Connection test')[0];
+	const speedtestButton = findElements(connectCell, (node) => node.tag == 'button')[0];
+	await speedtestButton.attributes.click({ currentTarget: speedtestButton });
 	assert.deepEqual(environment.speedtestCalls, [ { node: 'jdub_0123456789ab', download: false } ],
 		'Row speed test passes the section ID instead of the click event to RPC');
 	assert.equal(speedtestButton.textContent, '42 ms',
@@ -1889,7 +1922,7 @@ async function main() {
 		error: 'temporary sing-box: outbound/hysteria2[steer-node-internal] context deadline exceeded',
 		results: []
 	};
-	await connectSpeedtest.onclick({ currentTarget: speedtestButton }, 'jdub_0123456789ab');
+	await speedtestButton.attributes.click({ currentTarget: speedtestButton });
 	assert.equal(speedtestButton.textContent, 'Failed');
 	assert.equal(speedtestButton.title, 'See diagnostic logs for details.',
 		'Failed connection tests do not expose backend process or outbound identifiers in the node list');

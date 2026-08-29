@@ -212,7 +212,8 @@ final class CollectionOrderingTests: XCTestCase {
         XCTAssertEqual(document.modes, contract.modes)
         XCTAssertEqual(document.directionModes, contract.directionModes)
         XCTAssertEqual(contract.defaultDirection, "best_first")
-        XCTAssertEqual(contract.headerColumns, ["order", "connect", "download"])
+        XCTAssertEqual(contract.headerColumns, ["connect", "download"])
+        XCTAssertEqual(contract.repeatClick, "best_worst_default_cycle")
         XCTAssertEqual(contract.unrankedPlacement, "last_stable")
         XCTAssertFalse(contract.mutatesDraft)
 

@@ -491,15 +491,14 @@ function subscriptionOperationGate(initialChanges, formNode, permissions) {
 function probeOperationGate(initialChanges, allowed) {
 	let pending = hasPendingSteerChanges(initialChanges);
 	const buttons = [];
-	const updateButtons = function() {
-		buttons.forEach((entry) => {
-			const reason = !allowed ? _('Your session does not have permission to test committed Nodes or Routes.')
-				: (pending ? _('Pending Steer changes must be applied or discarded before testing committed Nodes or Routes.')
-					: entry.disabledReason);
-			entry.button.disabled = reason != '';
-			entry.button.title = reason || entry.title;
-		});
+	const updateButton = function(entry) {
+		const reason = !allowed ? _('Your session does not have permission to test committed Nodes or Routes.')
+			: (pending ? _('Pending Steer changes must be applied or discarded before testing committed Nodes or Routes.')
+				: entry.disabledReason);
+		entry.button.disabled = reason != '';
+		entry.button.title = reason || entry.button._steerProbeResultTitle || entry.title;
 	};
+	const updateButtons = function() { buttons.forEach(updateButton); };
 	const refresh = function() {
 		return uci.changes().then((changes) => {
 			pending = hasPendingSteerChanges(changes);
@@ -513,8 +512,9 @@ function probeOperationGate(initialChanges, allowed) {
 	return {
 		bind: function(button, title, disabledReason) {
 			if (!button) return button;
-			buttons.push({ button, title: title || button.title || '', disabledReason: disabledReason || '' });
-			updateButtons();
+			const entry = { button, title: title || button.title || '', disabledReason: disabledReason || '' };
+			buttons.push(entry);
+			updateButton(entry);
 			return button;
 		},
 		bindForm: function(formNode) {
@@ -726,6 +726,7 @@ function setSpeedtestButton(button, state, label, detail) {
 	button.classList.toggle('cbi-button-negative', state == 'error');
 	button.textContent = label;
 	button.title = detail || '';
+	button._steerProbeResultTitle = state == 'testing' ? '' : (detail || '');
 }
 
 function latestProbePresentation(result) {
@@ -800,6 +801,8 @@ function nextNodeDisplaySort(mode) {
 	const current = nodeDisplaySortState();
 	const contract = uiSpec.node_display_sorting || {};
 	if (mode == 'default') return { mode: 'default', direction: contract.default_direction || 'best_first' };
+	if (current.mode == mode && current.direction == 'worst_first')
+		return { mode: 'default', direction: contract.default_direction || 'best_first' };
 	return {
 		mode: mode,
 		direction: current.mode == mode
@@ -839,19 +842,104 @@ function decorateNodeSortHeaders(formNode) {
 		if (!header) return;
 		const active = state.mode == mode;
 		const metricMode = mode != 'default';
-		const direction = state.direction == 'best_first' ? _('Best to worst') : _('Worst to best');
+		const direction = state.direction == 'best_first' ? '↑' : '↓';
 		header.replaceChildren(E('button', {
 			'class': 'steer-node-sort-header' + (active ? ' is-active' : ''),
 			'type': 'button', 'aria-pressed': active ? 'true' : 'false',
-			'title': metricMode
-				? (active ? _('%s; click again to reverse direction.').format(direction) : _('Click to sort best to worst.'))
-				: _('Restore configured order.'),
+			'title': metricMode ? label : _('Order'),
+			'aria-label': active ? '%s %s'.format(label, direction) : label,
 			'click': (ev) => { ev.preventDefault(); ev.stopPropagation(); navigateNodeDisplaySort(mode); }
-		}, [ E('span', {}, label), active ? E('small', {}, metricMode ? direction : _('Configured')) : '' ]));
+		}, [ E('span', {}, label), active ? E('span', { 'class': 'steer-node-sort-arrow', 'aria-hidden': 'true' }, metricMode ? direction : '↑') : '' ]));
 	};
-	install(orderHeader, _('Order'), 'default');
+	if (orderHeader)
+		orderHeader.replaceChildren(_('Order'));
 	install(byLabel(_('Connection test'), '_connect_speedtest'), _('Connection test'), 'connect');
 	install(byLabel(_('Download test'), '_download_speedtest'), _('Download test'), 'download');
+}
+
+function lightweightNodeEndpoint(node) {
+	if (!node?.server)
+		return node?.type == 'tor' ? _('Local') : '—';
+	return node.server_port ? '%s:%s'.format(node.server, node.server_port) : node.server;
+}
+
+function renderLightweightNodeProbe(node, download, probeResults, gate) {
+	const sectionId = node['.name'];
+	const kind = download ? 'download' : 'connect';
+	const option = download ? '_download_speedtest' : '_connect_speedtest';
+	const output = E('small', { 'class': 'steer-probe-latest' });
+	renderLatestProbe(output, findLatestProbe(probeResults, 'nodes', sectionId, kind));
+	const button = E('button', {
+		'class': 'cbi-button cbi-button-action',
+		'type': 'button',
+		'click': function(ev) { return runSpeedtest(sectionId, download, ev.currentTarget, gate); }
+	}, _('Test'));
+	button._steerProbeOutput = output;
+	button._steerProbeScope = 'nodes';
+	button._steerProbeObjectID = sectionId;
+	button._steerProbeKind = kind;
+	button._steerProbeDisabledReason = nodeProbeDisabledReason(sectionId);
+	gate.bind(button, _('Test'), button._steerProbeDisabledReason);
+	return E('output', { 'for': 'cbid.steer.%s.%s'.format(sectionId, option) },
+		E('div', { 'class': 'steer-probe-action' }, [ button, output ]));
+}
+
+function renderLightweightNodeTable(nodes, activeGroup, displaySort, probeResults, gate) {
+	const configuredIds = nodes.map((node) => node['.name']);
+	const nodeById = Object.fromEntries(nodes.map((node) => [ node['.name'], node ]));
+	const displayedIds = sortNodeSectionIDs(configuredIds, displaySort.mode, displaySort.direction, probeResults);
+	const orderingDisabledReason = displaySort.mode == 'default' ? '' : _('Order');
+	const orderingSection = {
+		sectiontype: 'node',
+		uciconfig: 'steer',
+		map: { config: 'steer', data: uci, readonly: false },
+		cfgsections: function() {
+			return uci.sections('steer', 'node')
+				.filter((node) => nodeGroupID(node) == activeGroup.id)
+				.map((node) => node['.name']);
+		},
+		renderRowActions: function() { return E('td', {}, E('div')); }
+	};
+	steer.configureOrdering(orderingSection, 'nodes', { baseActions: false, disabledReason: orderingDisabledReason });
+
+	const body = E('tbody', {}, displayedIds.map((sectionId) => {
+		const node = nodeById[sectionId];
+		return E('tr', {
+			'id': 'cbi-steer-' + sectionId,
+			'class': 'tr cbi-section-table-row steer-lightweight-node-row',
+			'data-sid': sectionId,
+			'dragenter': function(ev) { return orderingSection.handleDragEnter(ev); },
+			'dragover': function(ev) { return orderingSection.handleDragOver(ev); },
+			'dragleave': function(ev) { return orderingSection.handleDragLeave(ev); },
+			'drop': function(ev) { return orderingSection.handleDrop(ev); }
+		}, [
+			orderingSection.renderRowActions(sectionId),
+			E('td', { 'data-title': _('Enabled') }, node.enabled == '0' ? _('Disabled') : _('Enabled')),
+			E('td', { 'data-title': _('Name') }, E('strong', {}, node.name || _('Unnamed'))),
+			E('td', { 'data-title': _('Protocol') }, protocolLabel(node.type) || '—'),
+			E('td', { 'data-title': _('Server'), 'class': 'steer-node-endpoint' }, lightweightNodeEndpoint(node)),
+			E('td', { 'data-title': _('Connection test') }, renderLightweightNodeProbe(node, false, probeResults, gate)),
+			E('td', { 'data-title': _('Download test') }, renderLightweightNodeProbe(node, true, probeResults, gate))
+		]);
+	}));
+	const table = E('table', { 'class': 'table cbi-section-table steer-lightweight-node-table' }, [
+		E('thead', {}, E('tr', { 'class': 'tr cbi-section-table-titles' }, [
+			E('th', {}, _('Order')),
+			E('th', {}, _('Enabled')),
+			E('th', {}, _('Name')),
+			E('th', {}, _('Protocol')),
+			E('th', {}, _('Server')),
+			E('th', { 'data-widget': '_connect_speedtest' }, _('Connection test')),
+			E('th', { 'data-widget': '_download_speedtest' }, _('Download test'))
+		])),
+		body
+	]);
+	const section = E('section', { 'class': 'cbi-section steer-lightweight-node-section' }, [
+		E('h3', {}, _('Proxy nodes — %s (%d)').format(activeGroup.label, nodes.length)),
+		E('div', { 'class': 'table-responsive' }, table)
+	]);
+	decorateNodeSortHeaders(section);
+	return section;
 }
 
 function renderLatestProbe(output, result) {
@@ -1202,6 +1290,16 @@ const nodesView = view.extend({
 			}));
 		}
 
+		if (summaryOnly) {
+			const visibleNodes = nodes.filter((node) => nodeGroupID(node) == activeNodeGroup);
+			const contents = [ renderNodeGroupNavigation(nodeGroups, activeNodeGroup) ];
+			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds, probeGate);
+			if (batchSpeedtests)
+				contents.push(batchSpeedtests);
+			contents.push(renderLightweightNodeTable(visibleNodes, activeGroup, displaySort, probeResults, probeGate));
+			return Promise.resolve(E([], contents));
+		}
+
 		s = m.section(form.GridSection, 'node', _('Proxy nodes — %s (%d)').format(activeGroup.label, activeGroup.count));
 		steer.configureNamedSection(s, steer.creationDefaults('nodes'));
 		steer.configureRemovalGuard(s, (sectionId) => steer.collectionReferences('nodes', sectionId),
@@ -1211,8 +1309,7 @@ const nodesView = view.extend({
 		s.readonly = summaryOnly;
 		if (summaryOnly)
 			s.renderRowActions = function() { return E([]); };
-		const orderingDisabledReason = displaySort.mode == 'default' ? ''
-			: _('Speed-test display sorting is active. Click the Order header before changing configured order.');
+		const orderingDisabledReason = displaySort.mode == 'default' ? '' : _('Order');
 		steer.configureOrdering(s, 'nodes', { baseActions: !summaryOnly, disabledReason: orderingDisabledReason });
 		s.nodescriptions = true;
 		s.addbtntitle = _('Add proxy node');

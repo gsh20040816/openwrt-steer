@@ -1651,7 +1651,6 @@ enum GeneratedUISpec {
       "download"
     ],
     "header_columns": [
-      "order",
       "connect",
       "download"
     ],
@@ -1660,7 +1659,7 @@ enum GeneratedUISpec {
       "worst_first"
     ],
     "default_direction": "best_first",
-    "repeat_click": "toggle_direction",
+    "repeat_click": "best_worst_default_cycle",
     "result_source": "probe_results.latest_results",
     "metric_field": "summary",
     "connect_metric_suffix": "ms",

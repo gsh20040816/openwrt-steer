@@ -527,7 +527,6 @@ return baseclass.extend({
 		const disabledReason = options?.disabledReason || '';
 		section.sortable = !disabledReason;
 		const renderRowActions = section.renderRowActions;
-		const nativeTouchMove = section.handleTouchMove;
 		const movable = function(sectionId) {
 			if (disabledReason || section.map?.readonly === true) return false;
 			const object = uci.get('steer', sectionId) || {};
@@ -549,15 +548,24 @@ return baseclass.extend({
 				return movable(candidateId) && (!policy.group_field || (candidate[policy.group_field] || '') == group);
 			});
 		};
-		const refreshButtons = function(table) {
+		const captureRows = function(table) {
+			return new Map(Array.from(table?.querySelectorAll?.('tr[data-sid]') || []).map((row) => [
+				row.getAttribute('data-sid'), row.getBoundingClientRect()
+			]));
+		};
+		const animateRows = function(table, positions) {
+			if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 			Array.from(table?.querySelectorAll?.('tr[data-sid]') || []).forEach((row) => {
-				const sectionId = row.getAttribute('data-sid');
-				const ids = peers(sectionId);
-				const position = ids.indexOf(sectionId);
-				const up = row.querySelector('[data-steer-order="up"]');
-				const down = row.querySelector('[data-steer-order="down"]');
-				if (up) up.disabled = section.map?.readonly === true || position <= 0;
-				if (down) down.disabled = section.map?.readonly === true || position < 0 || position >= ids.length - 1;
+				const previous = positions.get(row.getAttribute('data-sid'));
+				if (!previous) return;
+				const current = row.getBoundingClientRect();
+				const offsetX = previous.left - current.left;
+				const offsetY = previous.top - current.top;
+				if (Math.abs(offsetX) < 1 && Math.abs(offsetY) < 1) return;
+				row.animate?.([
+					{ transform: `translate3d(${offsetX}px, ${offsetY}px, 0)` },
+					{ transform: 'translate3d(0, 0, 0)' }
+				], { duration: 150, easing: 'ease' });
 			});
 		};
 		const clearDragVisuals = function(table) {
@@ -576,15 +584,34 @@ return baseclass.extend({
 			if (sourcePosition < 0 || targetPosition < 0 ||
 				(!after && targetPosition == sourcePosition + 1) ||
 				(after && targetPosition == sourcePosition - 1)) return false;
-			section.map.data.move(section.uciconfig || section.map.config, sectionId, targetId, after === true);
 			const row = document.getElementById('cbi-%s-%s'.format(section.uciconfig || section.map.config, sectionId));
 			const target = document.getElementById('cbi-%s-%s'.format(section.uciconfig || section.map.config, targetId));
+			const table = row?.closest?.('table');
+			const positions = captureRows(table);
+			section.map.data.move(section.uciconfig || section.map.config, sectionId, targetId, after === true);
 			if (row && target)
 				target.parentNode.insertBefore(row, after ? target.nextElementSibling : target);
-			row?.classList?.add('flash');
-			refreshButtons(row?.closest?.('table'));
+			animateRows(table, positions);
 			window.dispatchEvent?.(new Event('steer-uci-state-changed'));
 			return true;
+		};
+		const previewDesktopMove = function(drag, target, after) {
+			const row = drag?.row;
+			const parent = target?.parentNode;
+			if (!row || !parent || row == target) return false;
+			const reference = after ? target.nextElementSibling : target;
+			if (reference == row || (!after && row.nextElementSibling == target)) return false;
+			const positions = captureRows(drag.table);
+			parent.insertBefore(row, reference);
+			animateRows(drag.table, positions);
+			return true;
+		};
+		const restoreDesktopMove = function(drag) {
+			if (!drag?.row || !drag.originalParent) return;
+			const positions = captureRows(drag.table);
+			const reference = drag.originalNextSibling?.parentNode == drag.originalParent ? drag.originalNextSibling : null;
+			drag.originalParent.insertBefore(drag.row, reference);
+			animateRows(drag.table, positions);
 		};
 
 		let desktopDrag = null;
@@ -594,7 +621,11 @@ return baseclass.extend({
 				ev.preventDefault();
 				return false;
 			}
-			desktopDrag = { sectionId: sectionId, row: row, targetRow: null, targetId: '', after: false };
+			desktopDrag = {
+				sectionId: sectionId, row: row, table: row.closest?.('table'),
+				originalParent: row.parentNode, originalNextSibling: row.nextElementSibling,
+				targetRow: null, targetId: '', after: false
+			};
 			ev.dataTransfer.effectAllowed = 'move';
 			ev.dataTransfer.setData('text/plain', sectionId);
 			const rect = row.getBoundingClientRect();
@@ -624,6 +655,7 @@ return baseclass.extend({
 			desktopDrag.targetRow = row;
 			desktopDrag.targetId = targetId;
 			desktopDrag.after = after;
+			previewDesktopMove(desktopDrag, row, after);
 			ev.dataTransfer.dropEffect = 'move';
 			ev.preventDefault();
 			return false;
@@ -642,45 +674,105 @@ return baseclass.extend({
 			return false;
 		};
 		section.handleDragEnd = function(_ev, row) {
+			if (desktopDrag) restoreDesktopMove(desktopDrag);
 			clearDragVisuals(row?.closest?.('table'));
 			desktopDrag = null;
 		};
-		section.handleTouchMove = function(ev) {
-			const row = ev.target?.closest?.('.tr');
+		let touchDrag = null;
+		const touchMoveListener = function(ev) { return section.handleTouchMove(ev); };
+		const touchEndListener = function(ev) { return section.handleTouchEnd(ev); };
+		const touchCancelListener = function(ev) { return section.handleTouchCancel(ev); };
+		const removeTouchListeners = function() {
+			window.removeEventListener?.('pointermove', touchMoveListener);
+			window.removeEventListener?.('pointerup', touchEndListener);
+			window.removeEventListener?.('pointercancel', touchCancelListener);
+		};
+		section.handleTouchStart = function(ev, row, handle) {
+			if (touchDrag || (ev.button != null && ev.button !== 0)) return false;
 			const sectionId = row?.getAttribute?.('data-sid');
-			if (!sectionId || !movable(sectionId)) return;
-			const result = nativeTouchMove.call(this, ev);
-			const preview = document.querySelector('.touchsort-element');
-			if (preview && !preview.classList.contains('steer-touchsort-whole-row')) {
-				const clone = row.cloneNode(true);
-				clone.removeAttribute('id');
-				clone.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
-				clone.querySelectorAll('button, input, select, textarea, a').forEach((element) => {
-					element.disabled = true;
-					element.removeAttribute('href');
-				});
-				preview.replaceChildren(clone);
-				preview.classList.add('steer-touchsort-whole-row');
-				preview.style.height = `${row.getBoundingClientRect().height}px`;
-				row.classList.add('steer-order-placeholder');
+			if (!sectionId || !movable(sectionId)) return false;
+			const rect = row.getBoundingClientRect();
+			const clone = row.cloneNode(true);
+			clone.removeAttribute('id');
+			clone.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+			clone.querySelectorAll('button, input, select, textarea, a').forEach((element) => {
+				element.disabled = true;
+				element.removeAttribute('href');
+			});
+			const preview = E('div', { 'class': 'touchsort-element steer-touchsort-whole-row', 'aria-hidden': 'true' }, clone);
+			Object.assign(preview.style, {
+				position: 'fixed', left: `${rect.left}px`, top: `${rect.top}px`,
+				width: `${rect.width}px`, height: `${rect.height}px`
+			});
+			document.body.append(preview);
+			touchDrag = {
+				sectionId: sectionId, row: row, table: row.closest?.('table'), handle: handle,
+				pointerId: ev.pointerId, preview: preview,
+				originalParent: row.parentNode, originalNextSibling: row.nextElementSibling,
+				grabOffsetX: ev.clientX - rect.left, grabOffsetY: ev.clientY - rect.top,
+				targetRow: null, targetId: '', after: false
+			};
+			row.classList.add('steer-order-dragging');
+			window.requestAnimationFrame(() => {
+				if (touchDrag?.row == row) row.classList.add('steer-order-placeholder');
+			});
+			window.addEventListener?.('pointermove', touchMoveListener, { passive: false });
+			window.addEventListener?.('pointerup', touchEndListener, { passive: false });
+			window.addEventListener?.('pointercancel', touchCancelListener);
+			ev.preventDefault();
+			ev.stopPropagation();
+			return true;
+		};
+		section.handleTouchMove = function(ev) {
+			if (!touchDrag || touchDrag.pointerId != ev.pointerId) return false;
+			touchDrag.preview.style.left = `${ev.clientX - touchDrag.grabOffsetX}px`;
+			touchDrag.preview.style.top = `${ev.clientY - touchDrag.grabOffsetY}px`;
+			let target = document.elementFromPoint?.(ev.clientX, ev.clientY)?.closest?.('tr[data-sid], .tr[data-sid]');
+			if (!target || target == touchDrag.row) {
+				target = Array.from(touchDrag.table?.querySelectorAll?.('tr[data-sid]') || [])
+					.filter((candidate) => candidate != touchDrag.row)
+					.find((candidate) => {
+						const rect = candidate.getBoundingClientRect();
+						return ev.clientY >= rect.top && ev.clientY <= (rect.bottom ?? rect.top + rect.height);
+					});
 			}
-			return result;
+			const targetId = target?.getAttribute?.('data-sid');
+			if (!targetId || !compatible(touchDrag.sectionId, targetId)) return false;
+			const rect = target.getBoundingClientRect();
+			const after = ev.clientY >= rect.top + rect.height / 2;
+			touchDrag.targetRow?.classList?.remove('steer-order-over-before', 'steer-order-over-after');
+			target.classList.add(after ? 'steer-order-over-after' : 'steer-order-over-before');
+			touchDrag.targetRow = target;
+			touchDrag.targetId = targetId;
+			touchDrag.after = after;
+			previewDesktopMove(touchDrag, target, after);
+			ev.preventDefault();
+			return false;
 		};
 		section.handleTouchEnd = function(ev) {
-			const row = ev.target?.closest?.('.tr');
-			const table = row?.closest?.('table');
-			const target = table?.querySelector?.('.drag-over-above, .drag-over-below');
-			if (row && target)
-				moveSection(row.getAttribute('data-sid'), target.getAttribute('data-sid'), target.classList.contains('drag-over-below'));
-			document.querySelector('.touchsort-element')?.remove();
-			clearDragVisuals(table);
+			if (!touchDrag || touchDrag.pointerId != ev.pointerId) return false;
+			const drag = touchDrag;
+			touchDrag = null;
+			removeTouchListeners();
+			if (drag.targetId)
+				moveSection(drag.sectionId, drag.targetId, drag.after);
+			else
+				restoreDesktopMove(drag);
+			drag.preview?.remove();
+			clearDragVisuals(drag.table);
 			ev.stopPropagation();
 			ev.preventDefault();
+			return false;
 		};
 		section.handleTouchCancel = function(ev) {
-			const row = ev.target?.closest?.('.tr');
-			document.querySelector('.touchsort-element')?.remove();
-			clearDragVisuals(row?.closest?.('table'));
+			if (!touchDrag || touchDrag.pointerId != ev.pointerId) return false;
+			const drag = touchDrag;
+			touchDrag = null;
+			removeTouchListeners();
+			restoreDesktopMove(drag);
+			drag.preview?.remove();
+			clearDragVisuals(drag.table);
+			return false;
 		};
 		section.renderRowActions = function(sectionId) {
 			let cell = options?.baseActions === false ? null : renderRowActions.call(this, sectionId);
@@ -689,50 +781,29 @@ return baseclass.extend({
 				container = E('div');
 				cell = E('td', { 'class': 'td cbi-section-table-cell nowrap cbi-section-actions' }, container);
 			}
-			const ids = peers(sectionId);
-			const position = ids.indexOf(sectionId);
-			const move = (offset, ev) => {
-				ev.preventDefault();
-				ev.stopPropagation();
-				const current = peers(sectionId);
-				const index = current.indexOf(sectionId);
-				const targetId = current[index + offset];
-				if (!targetId || !movable(sectionId)) return;
-				moveSection(sectionId, targetId, offset > 0);
-			};
-			if (!container.querySelector('.drag-handle')) {
-				const touchSort = 'ontouchstart' in window;
-				container.append(E('button', {
+			let dragHandle = container.querySelector('.drag-handle');
+			if (!dragHandle) {
+				dragHandle = E('button', {
 					'class': 'cbi-button drag-handle center', 'type': 'button',
 					'title': disabledReason || _('Drag to reorder'),
-					'disabled': !!disabledReason || this.map?.readonly === true,
-					'draggable': !touchSort && !disabledReason && this.map?.readonly !== true,
-					'dragstart': !touchSort ? (ev) => this.handleDragStart(ev, ev.currentTarget.closest('.tr')) : null,
-					'dragend': !touchSort ? (ev) => this.handleDragEnd(ev, ev.currentTarget.closest('.tr')) : null,
-					'touchmove': touchSort ? (ev) => this.handleTouchMove(ev) : null,
-					'touchend': touchSort ? (ev) => this.handleTouchEnd(ev) : null,
-					'touchcancel': touchSort ? (ev) => this.handleTouchCancel(ev) : null
-				}, '☰'));
+					'disabled': disabledReason || this.map?.readonly === true ? true : null,
+					'pointerdown': !disabledReason && this.map?.readonly !== true
+						? (ev) => this.handleTouchStart(ev, ev.currentTarget.closest('.tr'), ev.currentTarget) : null
+				}, '⠿');
+				dragHandle._steerPointerOrderingBound = true;
+				container.append(dragHandle);
 			}
 			else {
-				const dragHandle = container.querySelector('.drag-handle');
 				dragHandle.title = disabledReason || _('Drag to reorder');
 				dragHandle.disabled = !!disabledReason || this.map?.readonly === true;
-				if (disabledReason || this.map?.readonly === true) dragHandle.draggable = false;
-				dragHandle.addEventListener('touchcancel', (ev) => this.handleTouchCancel(ev));
+				dragHandle.textContent = '⠿';
+				dragHandle.draggable = false;
+				dragHandle.removeAttribute?.('draggable');
+				if (!disabledReason && this.map?.readonly !== true && !dragHandle._steerPointerOrderingBound) {
+					dragHandle.addEventListener('pointerdown', (ev) => this.handleTouchStart(ev, ev.currentTarget.closest('.tr'), ev.currentTarget));
+					dragHandle._steerPointerOrderingBound = true;
+				}
 			}
-			container.prepend(E('span', { 'class': 'steer-order-buttons' }, [
-				E('button', {
-					'class': 'btn cbi-button-neutral', 'type': 'button', 'data-steer-order': 'up',
-					'title': disabledReason || _('Move up'), 'aria-label': disabledReason || _('Move up'),
-					'disabled': !!disabledReason || this.map?.readonly === true || position <= 0, 'click': (ev) => move(-1, ev)
-				}, '↑'),
-				E('button', {
-					'class': 'btn cbi-button-neutral', 'type': 'button', 'data-steer-order': 'down',
-					'title': disabledReason || _('Move down'), 'aria-label': disabledReason || _('Move down'),
-					'disabled': !!disabledReason || this.map?.readonly === true || position < 0 || position >= ids.length - 1, 'click': (ev) => move(1, ev)
-				}, '↓')
-			]));
 			return cell;
 		};
 		return section;

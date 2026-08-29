@@ -53,20 +53,17 @@
   function sortHeader(label, mode, root) {
     const active = displaySortMode === mode;
     const metricMode = mode !== 'default';
-    const directionLabel = displaySortDirection === 'best_first' ? '好 → 坏' : '坏 → 好';
-    const title = mode === 'default'
-      ? '恢复工作副本中的节点顺序'
-      : `${label}排序${active ? ` · 当前 ${directionLabel}；再次点击切换方向` : ' · 点击后默认好 → 坏'}`;
+    const direction = displaySortDirection === 'best_first' ? '↑' : '↓';
     return h('button', {
       class: `table-sort ${active ? 'is-active' : ''}`,
-      type: 'button', title, 'aria-pressed': String(active),
-      'aria-label': active && metricMode ? `${label}，${directionLabel}，再次点击切换方向` : title,
+      type: 'button', title: label, 'aria-pressed': String(active),
+      'aria-label': active ? `${label} ${metricMode ? direction : '↑'}` : label,
       onclick: () => {
-        if (mode === 'default') {
+        if (active && displaySortDirection === 'worst_first') {
           displaySortMode = 'default';
           displaySortDirection = S.uiSpec.node_display_sorting?.default_direction || 'best_first';
         } else if (active) {
-          displaySortDirection = displaySortDirection === 'best_first' ? 'worst_first' : 'best_first';
+          displaySortDirection = 'worst_first';
         } else {
           displaySortMode = mode;
           displaySortDirection = S.uiSpec.node_display_sorting?.default_direction || 'best_first';
@@ -75,7 +72,7 @@
       }
     }, [
       h('span', {}, label),
-      active ? h('span', { class: 'table-sort__direction' }, metricMode ? directionLabel : '原始') : null
+      active ? h('span', { class: 'table-sort__direction', 'aria-hidden': 'true' }, metricMode ? direction : '↑') : null
     ]);
   }
 
@@ -456,7 +453,7 @@
       const active = groupList.find((g) => g.id === activeGroup);
       const sourceNodes = intent.nodes.filter((n) => groupOf(n) === activeGroup);
       const nodes = sortNodesForDisplay(sourceNodes, displaySortMode, displaySortDirection, S.store.probeResults);
-      const orderingDisabledReason = displaySortMode === 'default' ? '' : '测速显示排序中；点击“顺序”列后可调整工作副本顺序';
+      const orderingDisabledReason = displaySortMode === 'default' ? '' : '顺序';
       const editable = activeGroup === MANUAL;
 
       const groupNav = h('div', { class: 'node-groups' }, groupList.map((g) => h('button', {
@@ -466,7 +463,7 @@
 
       const table = h('table', { class: 'table' }, [
         h('thead', {}, h('tr', {}, [
-          h('th', { class: 'is-sortable' }, sortHeader('顺序', 'default', root)),
+          h('th', {}, '顺序'),
           h('th', {}, '状态'), h('th', {}, '节点'), h('th', {}, '协议'), h('th', {}, '端点'),
           h('th', { class: 'is-sortable' }, sortHeader('连接测速', 'connect', root)),
           h('th', { class: 'is-sortable' }, sortHeader('下载测速', 'download', root)),

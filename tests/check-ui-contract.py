@@ -124,10 +124,10 @@ node_sorting = contract.get("node_display_sorting", {})
 if (
     node_display_sorting_fixtures.get("schema_version") != 1
     or node_sorting.get("modes") != node_display_sorting_fixtures.get("modes")
-    or node_sorting.get("header_columns") != ["order", "connect", "download"]
+    or node_sorting.get("header_columns") != ["connect", "download"]
     or node_sorting.get("direction_modes") != node_display_sorting_fixtures.get("direction_modes")
     or node_sorting.get("default_direction") != "best_first"
-    or node_sorting.get("repeat_click") != "toggle_direction"
+    or node_sorting.get("repeat_click") != "best_worst_default_cycle"
     or node_sorting.get("result_source") != "probe_results.latest_results"
     or node_sorting.get("metric_field") != "summary"
     or node_sorting.get("connect_direction") != "ascending"
