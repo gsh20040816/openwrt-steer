@@ -102,7 +102,8 @@ def main() -> None:
     assert 'let installationFacts = facts.filter(\\.requiredForInstallation)' in state
     assert '运行服务未激活不影响系统组件安装完整性' in content
     assert 'var ordered: Bool { SteerUISpec.orderingPolicy(for: key) != nil }' in content
-    assert 'dragProvider(for: item)' in content
+    assert 'rowDragEnabled(item)' in content
+    assert '.draggable(item.id)' in content
     assert 'contract.feedback == "whole_row_placeholder"' in content
     assert 'contract.singleMutationPerDrop' in content
     assert content.count('withAnimation(.snappy(duration: 0.16))') >= 2

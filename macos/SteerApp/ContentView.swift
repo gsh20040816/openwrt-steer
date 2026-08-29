@@ -966,7 +966,18 @@ struct DraftCollectionView: View {
         }
     }
 
+    @ViewBuilder
     private var nodeTable: some View {
+        if #available(macOS 14.0, *) {
+            makeNodeTable { draggableCollectionTableRows }
+        } else {
+            makeNodeTable { legacyCollectionTableRows }
+        }
+    }
+
+    private func makeNodeTable<Rows: TableRowContent<DraftItem>>(
+        @TableRowBuilder<DraftItem> rows: () -> Rows
+    ) -> some View {
         Table(of: DraftItem.self, selection: $selection, sortOrder: $nodeSortOrder) {
             TableColumn("状态") { item in
                 statusCell(item)
@@ -1006,11 +1017,22 @@ struct DraftCollectionView: View {
             }
             .width(92)
         } rows: {
-            collectionTableRows
+            rows()
         }
     }
 
+    @ViewBuilder
     private var standardTable: some View {
+        if #available(macOS 14.0, *) {
+            makeStandardTable { draggableCollectionTableRows }
+        } else {
+            makeStandardTable { legacyCollectionTableRows }
+        }
+    }
+
+    private func makeStandardTable<Rows: TableRowContent<DraftItem>>(
+        @TableRowBuilder<DraftItem> rows: () -> Rows
+    ) -> some View {
         Table(of: DraftItem.self, selection: $selection) {
             TableColumn("状态") { item in
                 statusCell(item)
@@ -1036,16 +1058,32 @@ struct DraftCollectionView: View {
             }
             .width(descriptor.ordered ? 78 : 1)
         } rows: {
-            collectionTableRows
+            rows()
+        }
+    }
+
+    @available(macOS 14.0, *)
+    @TableRowBuilder<DraftItem>
+    private var draggableCollectionTableRows: some TableRowContent<DraftItem> {
+        ForEach(items) { item in
+            if rowDragEnabled(item) {
+                TableRow(item)
+                    .draggable(item.id)
+            } else {
+                TableRow(item)
+            }
+        }
+        .dropDestination(for: String.self) { destination, identifiers in
+            if descriptor.ordered { moveItems(identifiers, to: destination) }
         }
     }
 
     @TableRowBuilder<DraftItem>
-    private var collectionTableRows: some TableRowContent<DraftItem> {
+    private var legacyCollectionTableRows: some TableRowContent<DraftItem> {
         ForEach(items) { item in
             TableRow(item)
                 .itemProvider {
-                    dragProvider(for: item)
+                    rowDragEnabled(item) ? NSItemProvider(object: item.id as NSString) : nil
                 }
         }
         .dropDestination(for: String.self) { destination, identifiers in
@@ -1100,13 +1138,13 @@ struct DraftCollectionView: View {
         return "此项目不可移动"
     }
 
-    private func dragProvider(for item: DraftItem) -> NSItemProvider? {
+    private func rowDragEnabled(_ item: DraftItem) -> Bool {
         let contract = SteerUISpec.contract.collectionDrag
         guard descriptor.ordered, orderingEnabled, isMovable(item),
               contract.feedback == "whole_row_placeholder",
               contract.singleMutationPerDrop,
-              contract.orderingPolicySource == "collection_ordering" else { return nil }
-        return NSItemProvider(object: item.id as NSString)
+              contract.orderingPolicySource == "collection_ordering" else { return false }
+        return true
     }
 
     private func addItem() {
