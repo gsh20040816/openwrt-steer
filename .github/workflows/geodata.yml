@@ -16,8 +16,8 @@ permissions:
   id-token: write
 
 env:
-  SING_BOX_VERSION: 1.14.0-rc.1
-  SING_BOX_LINUX_AMD64_MUSL_SHA256: e057d850417b0f86b0da0c169adc552b7fd8b40012884435e9e7aaecf03aa9a8
+  SING_BOX_VERSION: 1.14.0-rc.2
+  SING_BOX_LINUX_AMD64_MUSL_SHA256: e3ba239bd4bccaa2cbfc44a5536fcc6f7a8f5f5ff710b345c32aa594756aee89
 
 jobs:
   publish:

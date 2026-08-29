@@ -17,12 +17,12 @@ permissions:
 env:
   OPENWRT_RELEASE: 25.12.5
   OPENWRT_TARGET: x86/64
-  SING_BOX_VERSION: 1.14.0-rc.1
-  SING_BOX_REVISION: 8dd67a1e49711ce8a9a884bef60a2139ef36446f
-  SING_BOX_LINUX_AMD64_MUSL_SHA256: e057d850417b0f86b0da0c169adc552b7fd8b40012884435e9e7aaecf03aa9a8
-  SING_BOX_OPENWRT_X86_64_SHA256: a1b2581ca4b823cda0e12e6cfafbe94c0ccd473b97d420de15045432f4b3b2f4
-  SING_BOX_DARWIN_ARM64_SHA256: 0c57457917ad529da4af939a3da5e0ad1cfa639c140dd3de7b6248aef2170bcd
-  SING_BOX_DARWIN_AMD64_SHA256: b0c45037c369616e744b8276bfc3be74f246d889531b73ca592a67c0e06bb432
+  SING_BOX_OPENWRT_VERSION: 1.14.0-rc.2
+  SING_BOX_OPENWRT_X86_64_SHA256: 517c1646a5273dc4e6db24936f1e81ab7c96e3e8d24c252f07777fb3af9eba3b
+  SING_BOX_MACOS_VERSION: 1.14.0-rc.2
+  SING_BOX_MACOS_REVISION: f5b8b7a57922084361907a13273f2c88f35ae7c7
+  SING_BOX_DARWIN_ARM64_SHA256: 7e78dcd25d7edeb1359526c19da33e5eaadac31368cbeaabfa3ead329c3d5e17
+  SING_BOX_DARWIN_AMD64_SHA256: 82ed6dc6490e87ff5c8145103178133dff7e216e1c5948ea81a5d33f6cbd487b
 
 jobs:
   source-gate:
@@ -165,7 +165,7 @@ jobs:
         run: |
           curl --fail --location --silent --show-error \
             --output "$RUNNER_TEMP/sing-box-openwrt.apk" \
-            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/sing-box_${SING_BOX_VERSION}_openwrt_x86_64.apk"
+            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_OPENWRT_VERSION/sing-box_${SING_BOX_OPENWRT_VERSION}_openwrt_x86_64.apk"
           printf '%s  %s\n' \
             "$SING_BOX_OPENWRT_X86_64_SHA256" \
             "$RUNNER_TEMP/sing-box-openwrt.apk" \
@@ -465,7 +465,7 @@ jobs:
           archive="$RUNNER_TEMP/sing-box-darwin.tar.gz"
           curl --fail --location --silent --show-error \
             --output "$archive" \
-            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/sing-box-$SING_BOX_VERSION-darwin-${{ matrix.upstream_arch }}.tar.gz"
+            "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_MACOS_VERSION/sing-box-$SING_BOX_MACOS_VERSION-darwin-${{ matrix.upstream_arch }}.tar.gz"
           printf '%s  %s\n' '${{ matrix.sing_box_sha256 }}' "$archive" \
             | shasum -a 256 -c
           mkdir -p "$RUNNER_TEMP/sing-box-darwin"
@@ -489,8 +489,8 @@ jobs:
           STEER_TARGET_ARCH: ${{ matrix.arch }}
           STEER_SOURCE_REVISION: ${{ github.sha }}
           STEER_SOURCE_TAG: ${{ github.ref_name }}
-          STEER_SING_BOX_VERSION: ${{ env.SING_BOX_VERSION }}
-          STEER_SING_BOX_REVISION: ${{ env.SING_BOX_REVISION }}
+          STEER_SING_BOX_VERSION: ${{ env.SING_BOX_MACOS_VERSION }}
+          STEER_SING_BOX_REVISION: ${{ env.SING_BOX_MACOS_REVISION }}
           STEER_SING_BOX_ARCHIVE_SHA256: ${{ matrix.sing_box_sha256 }}
           STEER_GEO_MANIFEST_SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}
         run: |
@@ -618,8 +618,9 @@ jobs:
             echo "OpenWrt target: $OPENWRT_TARGET"
             echo "Geo data version: ${{ needs.geodata.outputs.version }}"
             echo "Geo manifest SHA256: ${{ needs.geodata.outputs.manifest_sha256 }}"
-            echo "sing-box version: $SING_BOX_VERSION"
-            echo "sing-box revision: $SING_BOX_REVISION"
+            echo "OpenWrt mirrored sing-box version: $SING_BOX_OPENWRT_VERSION"
+            echo "macOS bundled sing-box version: $SING_BOX_MACOS_VERSION"
+            echo "macOS bundled sing-box revision: $SING_BOX_MACOS_REVISION"
             echo "Linux targets: x86_64 aarch64"
             echo "Linux build mode: CGO_ENABLED=0"
             echo "macOS targets: arm64 x86_64"
