@@ -100,8 +100,14 @@ for bundled in ("sing-box", "geoview", "geosite.dat", "geoip.dat"):
 workflow = (ROOT / ".github/workflows/release.yml").read_text()
 ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 geodata_workflow = (ROOT / ".github/workflows/geodata.yml").read_text()
+geodata_contract = (ROOT / "go/internal/geodata/geodata.go").read_text()
 sing_box_version = "1.14.0-rc.2"
 sing_box_linux_sha256 = "e3ba239bd4bccaa2cbfc44a5536fcc6f7a8f5f5ff710b345c32aa594756aee89"
+geoview_ref = "3c91926d360b8f49d47520639e574608318baf12"
+if f'SingBoxCompiler       = "{sing_box_version}"' not in geodata_contract:
+    fail("Geo manifest compiler identity does not match the verified sing-box baseline")
+if f'GeoViewCommit         = "{geoview_ref}"' not in geodata_contract:
+    fail("Geo manifest compiler identity does not match the verified geoview baseline")
 for name, content in (("CI", ci_workflow), ("Geo", geodata_workflow)):
     for required in (
         f"SING_BOX_VERSION: {sing_box_version}",
@@ -109,6 +115,16 @@ for name, content in (("CI", ci_workflow), ("Geo", geodata_workflow)):
     ):
         if required not in content:
             fail(f"{name} workflow does not pin the verified sing-box runtime: {required}")
+if f"GEOVIEW_REF: {geoview_ref}" not in geodata_workflow:
+    fail("Geo workflow does not pin the verified geoview compiler identity")
+for required in (
+    ".tools.sing_box_version // empty",
+    ".tools.geoview_ref // empty",
+    '"$current_sing_box_version" = "$SING_BOX_VERSION"',
+    '"$current_geoview_ref" = "$GEOVIEW_REF"',
+):
+    if required not in geodata_workflow:
+        fail(f"Geo workflow does not rebuild on compiler identity changes: {required}")
 for required in (
     "SING_BOX_OPENWRT_VERSION: 1.14.0-rc.2",
     "SING_BOX_OPENWRT_X86_64_SHA256: 517c1646a5273dc4e6db24936f1e81ab7c96e3e8d24c252f07777fb3af9eba3b",

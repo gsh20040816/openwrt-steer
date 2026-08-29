@@ -18,6 +18,7 @@ permissions:
 env:
   SING_BOX_VERSION: 1.14.0-rc.2
   SING_BOX_LINUX_AMD64_MUSL_SHA256: e3ba239bd4bccaa2cbfc44a5536fcc6f7a8f5f5ff710b345c32aa594756aee89
+  GEOVIEW_REF: 3c91926d360b8f49d47520639e574608318baf12
 
 jobs:
   publish:
@@ -43,10 +44,18 @@ jobs:
           published_at="$(jq -r '.published_at' <<<"$release")"
           [ -n "$version" ] && [ "$version" != null ]
           [ -n "$published_at" ] && [ "$published_at" != null ]
-          current_version="$(curl --fail --location --silent --show-error \
+          current_manifest="$(curl --fail --location --silent --show-error \
             https://gsh20040816.github.io/steer/geodata/latest/manifest.json 2>/dev/null \
-            | jq -r '.upstream.version' 2>/dev/null || true)"
-          if [ "$current_version" = "$version" ]; then
+            || true)"
+          current_version="$(jq -r '.upstream.version // empty' \
+            <<<"$current_manifest" 2>/dev/null || true)"
+          current_sing_box_version="$(jq -r '.tools.sing_box_version // empty' \
+            <<<"$current_manifest" 2>/dev/null || true)"
+          current_geoview_ref="$(jq -r '.tools.geoview_ref // empty' \
+            <<<"$current_manifest" 2>/dev/null || true)"
+          if [ "$current_version" = "$version" ] \
+            && [ "$current_sing_box_version" = "$SING_BOX_VERSION" ] \
+            && [ "$current_geoview_ref" = "$GEOVIEW_REF" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"

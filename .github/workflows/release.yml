@@ -211,6 +211,7 @@ jobs:
         env:
           OPENWRT_APK_PRIVATE_KEY: ${{ secrets.OPENWRT_APK_PRIVATE_KEY }}
         run: |
+          export SING_BOX_MIRROR_PACKAGE_VERSION="${SING_BOX_OPENWRT_VERSION/-rc./_rc}-r0"
           source_dir="$RUNNER_TEMP/steer-source"
           mkdir -p "$source_dir"
           git archive --format=tar "$GITHUB_SHA" | tar -xf - -C "$source_dir"
@@ -230,6 +231,7 @@ jobs:
             --env OPENWRT_APK_PRIVATE_KEY \
             --env SING_BOX_UPSTREAM_APK=/upstream/sing-box.apk \
             --env SING_BOX_UPSTREAM_SHA256="$SING_BOX_OPENWRT_X86_64_SHA256" \
+            --env SING_BOX_MIRROR_PACKAGE_VERSION \
             --env BUILD_LOG=1 \
             --env V=s \
             ghcr.io/openwrt/sdk@sha256:c8a248ce2411962a89f227db444bf5cea022829b049e6326c7d1032d9762982a \
