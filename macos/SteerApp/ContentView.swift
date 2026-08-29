@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DraftActionButtons: View {
     @ObservedObject var model: AppModel
@@ -666,6 +667,38 @@ private struct NodeTableSortComparator: SortComparator {
     }
 }
 
+private struct CollectionRowDropDelegate: DropDelegate {
+    let targetID: String
+    let entered: (String) -> Void
+    let dropped: () -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool { true }
+
+    func dropEntered(info: DropInfo) {
+        entered(targetID)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dropped()
+    }
+}
+
+func collectionDragPreviewOrder(_ ids: [String], moving sourceID: String, over targetID: String) -> [String] {
+    guard sourceID != targetID,
+          let sourceIndex = ids.firstIndex(of: sourceID),
+          let targetIndex = ids.firstIndex(of: targetID) else { return ids }
+    var order = ids
+    let source = order.remove(at: sourceIndex)
+    guard let adjustedTarget = order.firstIndex(of: targetID) else { return ids }
+    let insertion = sourceIndex < targetIndex ? adjustedTarget + 1 : adjustedTarget
+    order.insert(source, at: min(insertion, order.count))
+    return order
+}
+
 struct DraftCollectionView: View {
     @ObservedObject var model: AppModel
     let descriptor: DraftCollectionDescriptor
@@ -678,12 +711,15 @@ struct DraftCollectionView: View {
     @State private var selectedNodeGroup = "_manual"
     @State private var nodeSortOrder = [NodeTableSortComparator(mode: "default")]
     @State private var previousNodeSort = NodeTableSortComparator(mode: "default")
+    @State private var draggedItemID: DraftItem.ID?
+    @State private var dragPreviewIDs: [DraftItem.ID] = []
+    @State private var dragInsideTable = false
 
     private var allItems: [DraftItem] { model.draftItems(for: descriptor.key) }
     private var activeNodeGroup: String {
         nodeGroups.contains(where: { $0.id == selectedNodeGroup }) ? selectedNodeGroup : "_manual"
     }
-    private var items: [DraftItem] {
+    private var configuredItems: [DraftItem] {
         if descriptor.key == "nodes" {
             let visible = allItems.filter { ($0.sourceSubscription ?? "_manual") == activeNodeGroup }
             return model.nodeItemsSortedForDisplay(visible, mode: nodeSortMode, direction: nodeSortDirection)
@@ -692,6 +728,13 @@ struct DraftCollectionView: View {
             return allItems.filter { !isDefaultRule($0) }
         }
         return allItems
+    }
+    private var items: [DraftItem] {
+        guard !dragPreviewIDs.isEmpty else { return configuredItems }
+        let byID = Dictionary(uniqueKeysWithValues: configuredItems.map { ($0.id, $0) })
+        let preview = dragPreviewIDs.compactMap { byID[$0] }
+        let previewSet = Set(preview.map(\.id))
+        return preview + configuredItems.filter { !previewSet.contains($0.id) }
     }
     private var defaultRule: DraftItem? { allItems.first(where: isDefaultRule) }
     private var nodeSortMode: String { nodeSortOrder.first?.mode ?? "default" }
@@ -966,128 +1009,94 @@ struct DraftCollectionView: View {
         }
     }
 
-    @ViewBuilder
     private var nodeTable: some View {
-        if #available(macOS 14.0, *) {
-            makeNodeTable { draggableCollectionTableRows }
-        } else {
-            makeNodeTable { legacyCollectionTableRows }
-        }
-    }
-
-    private func makeNodeTable<Rows: TableRowContent<DraftItem>>(
-        @TableRowBuilder<DraftItem> rows: () -> Rows
-    ) -> some View {
         Table(of: DraftItem.self, selection: $selection, sortOrder: $nodeSortOrder) {
             TableColumn("状态") { item in
-                statusCell(item)
+                draggableCell(item, alignment: .center) { statusCell(item) }
             }
             .width(58)
             TableColumn("名称") { item in
-                nameCell(item)
+                draggableCell(item) { nameCell(item) }
             }
             TableColumn("类型") { item in
-                Text(kindLabel(item))
-                    .font(.caption.weight(.medium))
+                draggableCell(item) {
+                    Text(kindLabel(item)).font(.caption.weight(.medium))
+                }
             }
             .width(min: 80, ideal: 110)
             TableColumn(
                 "连接测速",
                 sortUsing: NodeTableSortComparator(mode: "connect")
             ) { item in
-                nodeProbeCell(item, download: false)
+                draggableCell(item) { nodeProbeCell(item, download: false) }
             }
             .width(min: 155, ideal: 195)
             TableColumn(
                 "下载测速",
                 sortUsing: NodeTableSortComparator(mode: "download")
             ) { item in
-                nodeProbeCell(item, download: true)
+                draggableCell(item) { nodeProbeCell(item, download: true) }
             }
             .width(min: 155, ideal: 195)
             TableColumn("操作") { item in
-                collectionActions(item)
+                draggableCell(item) { collectionActions(item) }
             }
             .width(min: 80, ideal: 110)
             TableColumn("详情") { item in
-                detailCell(item)
+                draggableCell(item) { detailCell(item) }
             }
             TableColumn("顺序") { item in
-                orderingCell(item)
+                draggableCell(item, alignment: .center) { orderingCell(item) }
             }
             .width(92)
         } rows: {
-            rows()
+            collectionTableRows
+        }
+        .onDrop(of: [UTType.plainText], isTargeted: $dragInsideTable) { _ in false }
+        .onChange(of: dragInsideTable) { inside in
+            if !inside, draggedItemID != nil { cancelDragPreview() }
         }
     }
 
-    @ViewBuilder
     private var standardTable: some View {
-        if #available(macOS 14.0, *) {
-            makeStandardTable { draggableCollectionTableRows }
-        } else {
-            makeStandardTable { legacyCollectionTableRows }
-        }
-    }
-
-    private func makeStandardTable<Rows: TableRowContent<DraftItem>>(
-        @TableRowBuilder<DraftItem> rows: () -> Rows
-    ) -> some View {
         Table(of: DraftItem.self, selection: $selection) {
             TableColumn("状态") { item in
-                statusCell(item)
+                draggableCell(item, alignment: .center) { statusCell(item) }
             }
             .width(58)
             TableColumn("名称") { item in
-                nameCell(item)
+                draggableCell(item) { nameCell(item) }
             }
             TableColumn("类型") { item in
-                Text(kindLabel(item))
-                    .font(.caption.weight(.medium))
+                draggableCell(item) {
+                    Text(kindLabel(item)).font(.caption.weight(.medium))
+                }
             }
             .width(min: 80, ideal: 110)
             TableColumn("操作") { item in
-                collectionActions(item)
+                draggableCell(item) { collectionActions(item) }
             }
             .width(min: 190, ideal: 230)
             TableColumn("详情") { item in
-                detailCell(item)
+                draggableCell(item) { detailCell(item) }
             }
             TableColumn(descriptor.ordered ? "顺序" : "") { item in
-                orderingCell(item)
+                draggableCell(item, alignment: .center) { orderingCell(item) }
             }
             .width(descriptor.ordered ? 78 : 1)
         } rows: {
-            rows()
+            collectionTableRows
         }
-    }
-
-    @available(macOS 14.0, *)
-    @TableRowBuilder<DraftItem>
-    private var draggableCollectionTableRows: some TableRowContent<DraftItem> {
-        ForEach(items) { item in
-            if rowDragEnabled(item) {
-                TableRow(item)
-                    .draggable(item.id)
-            } else {
-                TableRow(item)
-            }
-        }
-        .dropDestination(for: String.self) { destination, identifiers in
-            if descriptor.ordered { moveItems(identifiers, to: destination) }
+        .onDrop(of: [UTType.plainText], isTargeted: $dragInsideTable) { _ in false }
+        .onChange(of: dragInsideTable) { inside in
+            if !inside, draggedItemID != nil { cancelDragPreview() }
         }
     }
 
     @TableRowBuilder<DraftItem>
-    private var legacyCollectionTableRows: some TableRowContent<DraftItem> {
+    private var collectionTableRows: some TableRowContent<DraftItem> {
         ForEach(items) { item in
             TableRow(item)
-                .itemProvider {
-                    rowDragEnabled(item) ? NSItemProvider(object: item.id as NSString) : nil
-                }
-        }
-        .dropDestination(for: String.self) { destination, identifiers in
-            if descriptor.ordered { moveItems(identifiers, to: destination) }
         }
     }
 
@@ -1147,6 +1156,111 @@ struct DraftCollectionView: View {
         return true
     }
 
+    private func draggableCell<Content: View>(
+        _ item: DraftItem,
+        alignment: Alignment = .leading,
+        @ViewBuilder content: () -> Content
+    ) -> AnyView {
+        let cell = content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .contentShape(Rectangle())
+        guard rowDragEnabled(item) else { return AnyView(cell) }
+        return AnyView(
+            cell
+                .opacity(draggedItemID == item.id ? 0.24 : 1)
+                .onDrag {
+                    beginDragPreview(item)
+                    return NSItemProvider(object: item.id as NSString)
+                } preview: {
+                    collectionDragPreview(item)
+                }
+                .onDrop(
+                    of: [UTType.plainText],
+                    delegate: CollectionRowDropDelegate(
+                        targetID: item.id,
+                        entered: previewDrag(over:),
+                        dropped: commitDragPreview
+                    )
+                )
+        )
+    }
+
+    private func collectionDragPreview(_ item: DraftItem) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: item.enabled ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(item.enabled ? Color.green : Color.secondary)
+            Text(item.title)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+            Text(kindLabel(item))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 92, alignment: .leading)
+            Text(runtimeDetail(item))
+                .font(.callout.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(item.index + 1, format: .number)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(width: 760, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.5), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
+    }
+
+    private func beginDragPreview(_ item: DraftItem) {
+        draggedItemID = item.id
+        dragPreviewIDs = configuredItems.map(\.id)
+        selection = item.id
+    }
+
+    private func previewDrag(over targetID: DraftItem.ID) {
+        guard let sourceID = draggedItemID, sourceID != targetID,
+              let target = configuredItems.first(where: { $0.id == targetID }), rowDragEnabled(target) else { return }
+        withAnimation(.snappy(duration: 0.16)) {
+            dragPreviewIDs = collectionDragPreviewOrder(dragPreviewIDs, moving: sourceID, over: targetID)
+        }
+    }
+
+    private func commitDragPreview() -> Bool {
+        guard let sourceID = draggedItemID,
+              let source = configuredItems.first(where: { $0.id == sourceID }),
+              let position = dragPreviewIDs.firstIndex(of: sourceID) else {
+            cancelDragPreview()
+            return false
+        }
+        let nextID = dragPreviewIDs.indices.contains(position + 1) ? dragPreviewIDs[position + 1] : nil
+        let target = nextID.flatMap { id in configuredItems.first(where: { $0.id == id }) }
+        withAnimation(.snappy(duration: 0.16)) {
+            _ = model.moveDraftItem(
+                in: descriptor.key,
+                identifiedBy: source.identifier,
+                before: target?.identifier
+            )
+            selection = source.id
+            draggedItemID = nil
+            dragPreviewIDs = []
+        }
+        return true
+    }
+
+    private func cancelDragPreview() {
+        withAnimation(.snappy(duration: 0.16)) {
+            draggedItemID = nil
+            dragPreviewIDs = []
+        }
+    }
+
     private func addItem() {
         if descriptor.key == "nodes" { selectedNodeGroup = "_manual" }
         guard let object = model.newDraftItemObject(for: descriptor.key) else { return }
@@ -1201,21 +1315,6 @@ struct DraftCollectionView: View {
             key: descriptor.key, index: item.index, title: item.title,
             object: object, focusOption: issue.option
         )
-    }
-
-    private func moveItems(_ identifiers: [String], to destination: Int) {
-        guard orderingEnabled, let identifier = identifiers.first,
-              let source = items.first(where: { $0.id == identifier }), isMovable(source) else { return }
-        let candidates = Array(items.dropFirst(min(destination, items.count)))
-        let target = candidates.first(where: { $0.id != source.id && isMovable($0) })
-        withAnimation(.snappy(duration: 0.16)) {
-            _ = model.moveDraftItem(
-                in: descriptor.key,
-                identifiedBy: source.identifier,
-                before: target?.identifier
-            )
-            selection = source.id
-        }
     }
 
     private func isRequiredDirect(_ item: DraftItem) -> Bool {
