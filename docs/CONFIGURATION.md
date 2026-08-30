@@ -146,7 +146,7 @@ steer subscription clean --id public --node <node-id>
 
 三端新增订阅的默认更新周期统一为 `6h`。`update_interval` 留空时订阅仅允许手动更新；平台每 15 分钟运行一次轻量调度器，只有非空周期首次抓取或已到期时才下载。带 `--id` 的显式更新属于手动操作，始终忽略周期限制。
 
-URL 必须是可访问的 HTTP 或 HTTPS 地址，允许私网地址和正常重定向。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。单条无效节点会被跳过并计数；如果没有任何有效节点，更新失败并保留上次成功节点库。非空更新使用稳定 ID，保留本地启用状态；上游消失且仍被 Route 引用的节点保留并标为 `pinned_stale`，必须先解除引用再显式 clean，cleanup 不级联改写 Route。订阅提交节点后不自动 Apply、不创建仅由库存变化触发的 generation；三端提示同时展示 added/current/stale/skipped，并明确当前 Active 配置未改变。
+URL 必须是可访问的 HTTP 或 HTTPS 地址，允许私网地址和正常重定向。订阅内容可为逐行标准代理 URI 或整段 Base64 URI 列表。单条无效节点会被跳过并计数；如果没有任何有效节点，更新失败并保留上次成功节点库。非空更新使用稳定 ID，保留本地启用状态；上游消失且未被 Route 引用的节点在本次更新中自动删除，仍被 Route 引用的节点才会保留并标为 `pinned_stale`，同时产生提醒尽快解除引用的 warning。解除引用后可等待下次更新自动删除，或显式 clean；cleanup 不级联改写 Route。订阅提交节点后不自动 Apply、不创建仅由库存变化触发的 generation；三端提示同时展示 added/current/stale/skipped，并明确当前 Active 配置未改变。
 
 三端共用同一状态契约：`never_fetched`、可空的 `last_success`、独立的 `last_failure`、`node_count`、`current`、`added`、`skipped` 和逐节点 `stale`。失败只写入时间与脱敏摘要，不覆盖上次成功时间和节点库；`stale.referenced_by` 列出阻止清理的 Route。已停用订阅不能 Update。
 

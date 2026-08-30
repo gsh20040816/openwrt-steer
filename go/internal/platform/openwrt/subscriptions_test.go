@@ -80,7 +80,7 @@ func TestConfiguredSubscriptionSchedule(t *testing.T) {
 func TestSubscriptionDisappearanceIsPinnedStale(t *testing.T) {
 	old := model.Node{ID: "public_old", Enabled: false, Type: "vless", Server: "old.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}}
 	fresh := model.Node{Type: "vless", Server: "new.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000002"}}
-	merged := subscription.Merge("public", []model.Node{old}, []model.Node{fresh})
+	merged := subscription.Merge("public", []model.Node{old}, []model.Node{fresh}, []model.Route{{ID: "proxy", Kind: "single", Node: old.ID}})
 	stale := false
 	for _, node := range merged {
 		if node.PinnedStale {
@@ -95,12 +95,21 @@ func TestSubscriptionDisappearanceIsPinnedStale(t *testing.T) {
 	}
 }
 
+func TestSubscriptionDisappearanceDropsUnreferencedNode(t *testing.T) {
+	old := model.Node{ID: "public_old", Enabled: true, Type: "vless", Server: "old.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"}}
+	fresh := model.Node{Type: "vless", Server: "new.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000002"}}
+	merged := subscription.Merge("public", []model.Node{old}, []model.Node{fresh}, nil)
+	if len(merged) != 1 || merged[0].Server != fresh.Server || merged[0].PinnedStale {
+		t.Fatalf("unreferenced disappeared node was retained: %#v", merged)
+	}
+}
+
 func TestSubscriptionRefreshPreservesDisabledNode(t *testing.T) {
 	old := model.Node{ID: "public_node", Enabled: false, Type: "trojan", Server: "same.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}}
 	fresh := old
 	fresh.ID = ""
 	fresh.Enabled = true
-	merged := subscription.Merge("public", []model.Node{old}, []model.Node{fresh})
+	merged := subscription.Merge("public", []model.Node{old}, []model.Node{fresh}, nil)
 	if len(merged) != 1 || merged[0].ID != old.ID || merged[0].Enabled {
 		t.Fatalf("subscription refresh did not preserve the local enabled state: %#v", merged)
 	}
@@ -127,7 +136,7 @@ func TestSubscriptionDuplicateFingerprintsAreCollapsed(t *testing.T) {
 	first := model.Node{Name: "First", Type: "trojan", Server: "same.example", ServerPort: 443, NodeCredentials: model.NodeCredentials{Password: "secret"}}
 	second := first
 	second.Name = "Duplicate label"
-	merged := subscription.Merge("public", nil, []model.Node{first, second})
+	merged := subscription.Merge("public", nil, []model.Node{first, second}, nil)
 	if len(merged) != 1 || merged[0].Name != "First" {
 		t.Fatalf("duplicate subscription identities were not collapsed deterministically: %#v", merged)
 	}
@@ -135,7 +144,7 @@ func TestSubscriptionDuplicateFingerprintsAreCollapsed(t *testing.T) {
 
 func TestSubscriptionNodeIDIsAddressableByUCI(t *testing.T) {
 	node := model.Node{Type: "socks", Server: "proxy.example", ServerPort: 1080}
-	id := subscription.Merge("public", nil, []model.Node{node})[0].ID
+	id := subscription.Merge("public", nil, []model.Node{node}, nil)[0].ID
 	if !strings.HasPrefix(id, "public_") || !uci.IsIdentifier(id) || strings.Contains(id, "-") {
 		t.Fatalf("subscription node ID is not a strict UCI identifier: %q", id)
 	}
@@ -362,7 +371,7 @@ func TestUpdateSubscriptionSkipsControlCharactersBeforeUCI(t *testing.T) {
 
 func TestUpdateSubscriptionStillRejectsGlobalCandidateConflicts(t *testing.T) {
 	fresh := model.Node{Enabled: true, Type: "socks", Server: "example.com", ServerPort: 1080}
-	collisionID := subscription.Merge("public", nil, []model.Node{fresh})[0].ID
+	collisionID := subscription.Merge("public", nil, []model.Node{fresh}, nil)[0].ID
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = response.Write([]byte("socks://example.com:1080\n"))
 	}))

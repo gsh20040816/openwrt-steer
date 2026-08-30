@@ -1623,8 +1623,9 @@ enum GeneratedUISpec {
   },
   "subscription_inventory": {
     "changes_active_generation": false,
+    "unreferenced_nodes": "removed",
     "stale_referenced_nodes": "preserved",
-    "notice": "Subscription inventory updated; current Active configuration was not changed. Nodes still referenced by Routes are preserved as stale."
+    "notice": "Subscription inventory updated; current Active configuration was not changed. Removed unreferenced nodes are deleted automatically, while nodes still referenced by Routes are preserved as stale."
   },
   "probe_results": {
     "key_fields": [

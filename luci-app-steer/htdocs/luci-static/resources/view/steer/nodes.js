@@ -570,9 +570,9 @@ function renderSubscriptionStatus(result, gate) {
 								});
 							}
 							const status = (update.subscriptions || []).find((item) => item.id == subscription.id) || {};
-							const message = _('Subscription nodes updated. The running configuration was not changed, and nodes still used by Routes were kept. Added %d, current %d, unavailable %d, skipped %d.').format(
+							const message = _('Subscription nodes updated. The running configuration was not changed. Removed unreferenced nodes were deleted automatically; nodes still used by Routes were kept and should be unreferenced soon. Added %d, current %d, unavailable %d, skipped %d.').format(
 								status.added || 0, status.current || 0, (status.stale || []).length, status.skipped || 0);
-							ui.addNotification(null, E('p', {}, message), 'warning');
+							ui.addNotification(null, E('p', {}, message), (status.stale || []).length ? 'warning' : 'info');
 							return gate.mayReload(startVersion).then((reload) => {
 								if (reload) window.location.reload();
 								else ui.addNotification(null, E('p', {}, _('Visible edits appeared while the update was running; they were preserved and the page was not reloaded.')), 'warning');

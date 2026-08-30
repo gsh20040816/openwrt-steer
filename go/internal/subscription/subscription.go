@@ -214,14 +214,14 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 	}
 	query := u.Query()
 	allowed := map[string][]string{
-		"vless":       {"encryption", "flow", "security", "sni", "serverName", "fp", "fingerprint", "pbk", "publicKey", "sid", "shortId", "type", "packetEncoding", "packet_encoding", "allowInsecure", "allow_insecure", "insecure", "alpn", "path", "host", "serviceName"},
-		"trojan":      {"sni", "serverName", "peer", "fp", "fingerprint", "type", "allowInsecure", "allow_insecure", "insecure", "alpn", "path", "host", "serviceName"},
+		"vless":       {"encryption", "flow", "security", "sni", "serverName", "fp", "fingerprint", "pcs", "pbk", "publicKey", "sid", "shortId", "type", "packetEncoding", "packet_encoding", "allowInsecure", "allow_insecure", "insecure", "alpn", "path", "host", "serviceName"},
+		"trojan":      {"sni", "serverName", "peer", "fp", "fingerprint", "pcs", "type", "allowInsecure", "allow_insecure", "insecure", "alpn", "path", "host", "serviceName"},
 		"hysteria":    {"sni", "peer", "insecure", "allowInsecure", "allow_insecure", "alpn", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
 		"hysteria2":   {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
 		"hy2":         {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
 		"shadowtls":   {"version", "sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint"},
 		"tuic":        {"congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat", "sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint"},
-		"anytls":      {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint", "type"},
+		"anytls":      {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint", "pcs", "type"},
 		"naive+https": {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "quic", "quic_congestion_control", "fp", "fingerprint"},
 		"ssh":         {},
 	}
@@ -230,6 +230,11 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 	}
 	if err := validateQueryValues(query); err != nil {
 		return model.Node{}, err
+	}
+	for _, value := range query["pcs"] {
+		if value != "" {
+			return model.Node{}, fmt.Errorf("unsupported URI parameter %q with a non-empty certificate pin", "pcs")
+		}
 	}
 	if scheme == "anytls" && query.Get("type") != "" && !strings.EqualFold(query.Get("type"), "tcp") {
 		return model.Node{}, fmt.Errorf("anytls URI parameter %q must be tcp", "type")

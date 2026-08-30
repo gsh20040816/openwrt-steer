@@ -1050,8 +1050,8 @@ msgstr "引用的前置路由不存在。"
 msgid "The referenced detour Route is disabled."
 msgstr "引用的前置路由已停用。"
 
-msgid "The subscription no longer advertises this Node; it is retained until explicitly removed."
-msgstr "订阅已不再提供此节点；在显式移除前会继续保留。"
+msgid "The subscription no longer advertises this Node; remove Route references as soon as possible."
+msgstr "订阅已不再提供此节点；请尽快移除对应的路由引用。"
 
 msgid "The validated Steer configuration could not be committed."
 msgstr "无法提交已校验的 Steer 配置。"
@@ -1332,8 +1332,8 @@ msgstr "运行状态"
 msgid "Stopped"
 msgstr "已停止"
 
-msgid "Subscription nodes updated. The running configuration was not changed, and nodes still used by Routes were kept. Added %d, current %d, unavailable %d, skipped %d."
-msgstr "订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已保留。新增 %d 个，当前 %d 个，已失效 %d 个，已跳过 %d 个。"
+msgid "Subscription nodes updated. The running configuration was not changed. Removed unreferenced nodes were deleted automatically; nodes still used by Routes were kept and should be unreferenced soon. Added %d, current %d, unavailable %d, skipped %d."
+msgstr "订阅节点已更新，当前运行配置未改变；无引用的消失节点已自动删除，仍被路由使用的节点已保留并应尽快解除引用。新增 %d 个，当前 %d 个，已失效 %d 个，已跳过 %d 个。"
 
 msgid "System DNS capture check"
 msgstr "系统 DNS 接管检查"

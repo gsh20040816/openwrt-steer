@@ -88,7 +88,7 @@ func UpdateConfiguredSubscriptions(ctx context.Context, client *http.Client, con
 		}
 		merged := []model.Node{}
 		if len(fetched.Nodes) > 0 {
-			merged = subscription.Merge(configured.ID, old, fetched.Nodes)
+			merged = subscription.Merge(configured.ID, old, fetched.Nodes, value.Routes)
 		}
 		value.Nodes = subscription.Replace(value.Nodes, configured.ID, merged)
 		snapshots = append(snapshots, subscription.SuccessfulSnapshot(configured, previous, old, merged, fetched, time.Now()))

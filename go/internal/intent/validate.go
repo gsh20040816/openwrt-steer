@@ -320,7 +320,7 @@ func validateBootstrap(value Bootstrap, err issueFn) {
 func validateNode(value Node, err, warn issueFn) {
 	validateNodeText(value, err)
 	if value.PinnedStale {
-		warn("SUBSCRIPTION_NODE_STALE", "node", value.ID, "pinned_stale", "subscription no longer advertises this node; remove it explicitly when confirmed")
+		warn("SUBSCRIPTION_NODE_STALE", "node", value.ID, "pinned_stale", "subscription no longer advertises this node; remove Route references as soon as possible")
 	}
 	if !oneOf(value.Type, "socks", "http", "shadowsocks", "vmess", "trojan", "hysteria", "vless", "shadowtls", "tuic", "hysteria2", "anytls", "ssh", "naive", "tor") {
 		err("UNSUPPORTED_NODE_TYPE", "node", value.ID, "type", "node type is not supported by the current sing-box baseline")

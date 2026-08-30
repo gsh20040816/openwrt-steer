@@ -84,7 +84,7 @@ const validationMessages = {
 	DNS_PROJECTION_EMPTY: _('This Rule has only connection-stage conditions, so DNS continues to later Rules.'),
 	DNS_REJECT_PROJECTION_SKIPPED: _('DNS cannot evaluate this Rule’s connection-stage conditions, so DNS continues to later Rules.'),
 	INSECURE_TLS: _('TLS certificate verification is disabled.'),
-	SUBSCRIPTION_NODE_STALE: _('The subscription no longer advertises this Node; it is retained until explicitly removed.'),
+	SUBSCRIPTION_NODE_STALE: _('The subscription no longer advertises this Node; remove Route references as soon as possible.'),
 	PLATFORM_UNSUPPORTED_SOURCE_MAC: _('The current platform cannot match the original source MAC address.'),
 	CANDIDATE_READ_FAILED: _('The pending Steer configuration could not be read.'),
 	CANDIDATE_VALIDATE_FAILED: _('The pending Steer configuration could not be validated.'),

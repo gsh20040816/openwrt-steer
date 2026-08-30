@@ -59,7 +59,7 @@ Advanced JSON textarea 是同一个浏览器 Draft 的原文视图，不是第�
 
 异步 Save 使用请求时的不可变 Intent 快照和 Draft epoch；请求期间继续编辑不会被旧响应清成 clean。Save、Apply Saved 与 reload 串行互斥。订阅更新或 stale 清理期间若 Draft 发生变化，Web 保留本地 Draft 并提示 inventory 已变化，不自动 reload，也不重绘已经离开的订阅页面。订阅列表区分未抓取、最近成功和最近失败，并持久显示 skipped/stale；已停用订阅的 Update 按钮不可用。
 
-状态条、总览和诊断中的 Active generation/digest 只读取 `/run/steer/current`。最近 Apply 作为带时间、candidate 和错误摘要的独立记录展示；失败 candidate 不会被冒充为 Active。三个概览测试从 `/etc/steer/config.json` 读取 Saved URL，并直接使用主机当前网络环境，因此 Steer 未启用时仍可运行。Diagnostics 同时读取 sanitized Overview/Node/Route 报告、Active generation 中 port-53 sing-box/nftables 配置检查，并聚合 `steer`、`steer-web`、`steer-subscription` 三个 systemd unit 的日志。该检查不是流量观察，不证明加密 DNS 被阻断或零泄漏。订阅更新只改变节点库存时显示 warning，不制造 pending Apply；被 Route 引用的消失节点保留为 stale。
+状态条、总览和诊断中的 Active generation/digest 只读取 `/run/steer/current`。最近 Apply 作为带时间、candidate 和错误摘要的独立记录展示；失败 candidate 不会被冒充为 Active。三个概览测试从 `/etc/steer/config.json` 读取 Saved URL，并直接使用主机当前网络环境，因此 Steer 未启用时仍可运行。Diagnostics 同时读取 sanitized Overview/Node/Route 报告、Active generation 中 port-53 sing-box/nftables 配置检查，并聚合 `steer`、`steer-web`、`steer-subscription` 三个 systemd unit 的日志。该检查不是流量观察，不证明加密 DNS 被阻断或零泄漏。订阅更新只改变节点库存时不制造 pending Apply；无引用的消失节点自动删除，被 Route 引用的消失节点保留为 stale 并显示 warning。
 
 页面可见时每 30 秒低频刷新 Saved revision 与 Active status，顶部也提供显式 Refresh。检测到 CLI、timer 或其他页面改写 Saved 时，dirty Draft 始终保留并显示 revision 冲突；clean Draft 提供“一键重载最新 Saved”，成功后同步 Intent、revision、overview 与当前对象页。刷新运行状态本身不会自动替换 Draft。
 

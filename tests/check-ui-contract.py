@@ -180,7 +180,7 @@ if subscription_status_fixtures.get("schema_version") != 1:
 subscription_cases = {item.get("name"): item.get("status", {}) for item in subscription_status_fixtures.get("cases", [])}
 required_subscription_cases = {
     "never-fetched", "success", "success-with-skipped",
-    "failed-after-success-with-partial-stale-block", "disabled",
+    "failed-after-success-with-referenced-stale", "disabled",
 }
 if set(subscription_cases) != required_subscription_cases:
     raise SystemExit(f"check-ui-contract: subscription lifecycle fixture drift: {set(subscription_cases)!r}")
@@ -235,7 +235,9 @@ for platform, boundary in dns_boundaries.items():
     if "does not prove" not in boundary["diagnostic_boundary"] or "Port-53 capture alone" not in boundary["encrypted_dns_boundary"]:
         raise SystemExit(f"check-ui-contract: {platform} DNS boundary makes an unverifiable claim")
 subscription_inventory = contract.get("subscription_inventory", {})
-if subscription_inventory.get("changes_active_generation") is not False or subscription_inventory.get("stale_referenced_nodes") != "preserved":
+if (subscription_inventory.get("changes_active_generation") is not False
+        or subscription_inventory.get("unreferenced_nodes") != "removed"
+        or subscription_inventory.get("stale_referenced_nodes") != "preserved"):
     raise SystemExit("check-ui-contract: subscription inventory lifecycle drifted")
 probe_results_contract = contract.get("probe_results", {})
 if probe_results_contract.get("key_fields") != ["scope", "object_id", "kind"] or probe_results_contract.get("result_fields") != [
@@ -591,7 +593,9 @@ if "服务运行后才能测试" in mac_content or ".disabled(running || !model.
 require(linux_subscriptions, "last_failure", "Linux subscription failure state")
 require(linux_subscriptions, "status.stale", "Linux subscription stale state")
 require(linux_subscriptions, "当前运行配置未改变", "Linux no-Apply inventory warning")
-require(linux_subscriptions, "仍被路由使用的节点已自动保留", "Linux referenced stale inventory warning")
+require(linux_subscriptions, "无引用的消失节点已自动删除", "Linux automatic unreferenced subscription cleanup notice")
+require(linux_subscriptions, "仍被路由使用的节点已自动保留并应尽快解除引用", "Linux referenced stale inventory warning")
+require(luci_nodes, "(status.stale || []).length ? 'warning' : 'info'", "LuCI warns only when referenced stale nodes remain")
 require(luci_nodes, "subscriptionOperationGate", "LuCI pending subscription gate")
 require(luci_nodes, "running configuration was not changed", "LuCI no-Apply inventory warning")
 require(luci_nodes, "nodes still used by Routes were kept", "LuCI referenced stale inventory warning")

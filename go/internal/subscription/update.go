@@ -104,10 +104,16 @@ func Fetch(ctx context.Context, client *http.Client, configured model.Subscripti
 	return parsed, nil
 }
 
-func Merge(subscriptionID string, old, fresh []model.Node) []model.Node {
+func Merge(subscriptionID string, old, fresh []model.Node, routes []model.Route) []model.Node {
 	oldByFingerprint := make(map[string]model.Node, len(old))
 	for _, node := range old {
 		oldByFingerprint[Fingerprint(node)] = node
+	}
+	referencedNodeIDs := make(map[string]bool, len(routes))
+	for _, route := range routes {
+		if route.Node != "" {
+			referencedNodeIDs[route.Node] = true
+		}
 	}
 	seen := make(map[string]bool, len(fresh))
 	merged := make([]model.Node, 0, len(old)+len(fresh))
@@ -131,7 +137,7 @@ func Merge(subscriptionID string, old, fresh []model.Node) []model.Node {
 	}
 	for _, node := range old {
 		fingerprint := Fingerprint(node)
-		if seen[fingerprint] {
+		if seen[fingerprint] || !referencedNodeIDs[node.ID] {
 			continue
 		}
 		node.SourceSubscription, node.SourceFingerprint, node.PinnedStale = subscriptionID, fingerprint, true

@@ -89,14 +89,16 @@ func TestFetchAllowsCredentialsAndFragment(t *testing.T) {
 	}
 }
 
-func TestMergePreservesUserStateAndPinsStaleNodes(t *testing.T) {
+func TestMergePreservesUserStatePinsReferencedStaleAndDropsUnreferencedNodes(t *testing.T) {
 	fresh := model.Node{Enabled: true, Type: "socks", Server: "proxy.example", ServerPort: 1080}
 	fingerprint := Fingerprint(fresh)
 	old := fresh
 	old.ID, old.Enabled, old.SourceFingerprint = "feed_existing", false, fingerprint
-	stale := model.Node{ID: "feed_stale", Enabled: true, Type: "socks", Server: "stale.example", ServerPort: 1080}
-	merged := Merge("feed", []model.Node{old, stale}, []model.Node{fresh})
-	if len(merged) != 2 || merged[0].ID != "feed_existing" || merged[0].Enabled || !merged[1].PinnedStale {
+	referenced := model.Node{ID: "feed_referenced", Enabled: true, Type: "socks", Server: "referenced.example", ServerPort: 1080}
+	unreferenced := model.Node{ID: "feed_unreferenced", Enabled: true, Type: "socks", Server: "unreferenced.example", ServerPort: 1080}
+	routes := []model.Route{{ID: "proxy", Kind: "single", Node: referenced.ID}}
+	merged := Merge("feed", []model.Node{old, referenced, unreferenced}, []model.Node{fresh}, routes)
+	if len(merged) != 2 || merged[0].ID != "feed_existing" || merged[0].Enabled || merged[1].ID != referenced.ID || !merged[1].PinnedStale {
 		t.Fatalf("unexpected merge: %#v", merged)
 	}
 }

@@ -147,6 +147,7 @@ type DNSBoundary struct {
 
 type SubscriptionInventoryContract struct {
 	ChangesActiveGeneration bool   `json:"changes_active_generation"`
+	UnreferencedNodes       string `json:"unreferenced_nodes"`
 	StaleReferencedNodes    string `json:"stale_referenced_nodes"`
 	Notice                  string `json:"notice"`
 }
@@ -412,8 +413,9 @@ func ContractValue() Contract {
 		},
 		SubscriptionInventory: SubscriptionInventoryContract{
 			ChangesActiveGeneration: false,
+			UnreferencedNodes:       "removed",
 			StaleReferencedNodes:    "preserved",
-			Notice:                  "Subscription inventory updated; current Active configuration was not changed. Nodes still referenced by Routes are preserved as stale.",
+			Notice:                  "Subscription inventory updated; current Active configuration was not changed. Removed unreferenced nodes are deleted automatically, while nodes still referenced by Routes are preserved as stale.",
 		},
 		ProbeResults: ProbeResultsContract{
 			KeyFields:    []string{"scope", "object_id", "kind"},

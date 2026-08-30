@@ -799,7 +799,7 @@ struct DraftCollectionView: View {
             }
 
             if descriptor.key == "subscriptions" {
-                Label("订阅会定时刷新节点列表；仍被路由使用的节点将自动保留。", systemImage: "info.circle")
+                Label("订阅会定时刷新节点列表；无引用的消失节点会自动删除，仍被路由使用的节点将保留并告警。", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

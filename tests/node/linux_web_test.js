@@ -2250,8 +2250,7 @@ async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
     id: status.id, enabled: status.enabled, name: status.name, url: status.url, update_interval: status.update_interval
   }));
   intent.nodes.push(
-    { id: 'failed_blocked', enabled: true, name: 'Blocked stale', type: 'socks', server: 'blocked.example', server_port: 1080, source_subscription: 'failed', pinned_stale: true },
-    { id: 'failed_removable', enabled: true, name: 'Removable stale', type: 'socks', server: 'removable.example', server_port: 1080, source_subscription: 'failed', pinned_stale: true }
+    { id: 'failed_blocked', enabled: true, name: 'Blocked stale', type: 'socks', server: 'blocked.example', server_port: 1080, source_subscription: 'failed', pinned_stale: true }
   );
   let updates = 0;
   const environment = createEnvironment(async () => ({ ok: true }), intent, { api: {
@@ -2273,8 +2272,8 @@ async function testSharedSubscriptionStatusLifecycleAndDisabledUpdate() {
     assert.match(rendered, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       `Linux subscription UI must render shared state ${expected}`);
   }
-  assert.match(rendered, /3（当前 1）/, 'failed-after-success keeps the last successful inventory');
-  assert.match(rendered, /1 \/ 2/, 'skipped and stale counts remain persistent');
+  assert.match(rendered, /2（当前 1）/, 'failed-after-success keeps only the referenced stale inventory');
+  assert.match(rendered, /1 \/ 1/, 'skipped and referenced stale counts remain persistent');
 
   const updateButtons = findAll(environment.view, (element) => element.tag === 'button' && text(element) === '立即更新');
   assert.strictEqual(updateButtons.length, statuses.length);

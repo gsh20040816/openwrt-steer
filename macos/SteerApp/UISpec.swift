@@ -303,12 +303,14 @@ struct UIDNSBoundary: Decodable {
 
 struct UISubscriptionInventoryContract: Decodable {
     let changesActiveGeneration: Bool
+    let unreferencedNodes: String
     let staleReferencedNodes: String
     let notice: String
 
     enum CodingKeys: String, CodingKey {
         case notice
         case changesActiveGeneration = "changes_active_generation"
+        case unreferencedNodes = "unreferenced_nodes"
         case staleReferencedNodes = "stale_referenced_nodes"
     }
 }

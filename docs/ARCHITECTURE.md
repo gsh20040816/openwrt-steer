@@ -132,7 +132,7 @@ OpenWrt `status` 同样从 `current` generation 返回 Active generation、Inten
 
 ## 订阅与测试
 
-共享订阅逻辑只依赖窄 `Store`：替换一组订阅节点或删除一个节点。OpenWrt Store 生成单次 UCI batch；JSON Store 使用 revision-guarded 原子写入。订阅只改变 Saved 节点库，提交后不主动 Apply。三端状态都由 `subscription.Status` 生成：最近成功 snapshot 与最近失败独立保存，失败摘要不含 URL/响应内容，stale 节点携带阻止 clean 的 Route 引用。UI 更新响应也使用该状态 DTO，不返回包含节点凭据的内部 snapshot。
+共享订阅逻辑只依赖窄 `Store`：替换一组订阅节点或删除一个节点。OpenWrt Store 生成单次 UCI batch；JSON Store 使用 revision-guarded 原子写入。订阅只改变 Saved 节点库，提交后不主动 Apply。合并时自动删除上游已移除且无 Route 引用的节点，只把仍被 Route 引用的节点保留为 stale 并产生 warning。三端状态都由 `subscription.Status` 生成：最近成功 snapshot 与最近失败独立保存，失败摘要不含 URL/响应内容，stale 节点携带阻止 clean 的 Route 引用。UI 更新响应也使用该状态 DTO，不返回包含节点凭据的内部 snapshot。
 
 共享 probe 负责 HTTP/TLS 测量、报告脱敏和受限持久化。原始 `Report` 是内部排错事实；普通控制面只公开按 `scope/object_id/kind` 唯一索引的 `LatestProbeResult`，字段限定为测试时间、成功/失败、后端计算的 stale、一个核心指标摘要和一个安全错误摘要。读取按每个持久化键无损返回，不做跨对象的全局条数截断；同键写入使用跨进程锁和原子替换，较旧时间戳不得覆盖较新结果。Linux HTTP、OpenWrt ubus/`_probe-results` 与 macOS control/helper 暴露语义一致的批量 latest-result capability，测试动作本身也返回同一个 DTO，业务失败仍能立即呈现刚持久化的失败摘要。
 

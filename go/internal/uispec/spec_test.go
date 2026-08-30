@@ -164,6 +164,7 @@ func TestPageResponsibilitiesDNSBoundariesAndSubscriptionInventoryAreExplicit(t 
 		}
 	}
 	if contract.SubscriptionInventory.ChangesActiveGeneration ||
+		contract.SubscriptionInventory.UnreferencedNodes != "removed" ||
 		contract.SubscriptionInventory.StaleReferencedNodes != "preserved" || contract.SubscriptionInventory.Notice == "" {
 		t.Fatalf("subscription inventory semantics drifted: %#v", contract.SubscriptionInventory)
 	}

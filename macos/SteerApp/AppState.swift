@@ -2211,7 +2211,7 @@ final class AppModel: ObservableObject {
         guard let revisionConflict else { return "" }
         switch revisionConflict.operation {
         case .subscriptionInventory:
-            return "订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留。更新期间本地工作副本也发生了修改；重新载入会丢弃本地修改，覆盖保存会保留本地修改。"
+            return "订阅节点已更新，当前运行配置未改变；无引用的消失节点已自动删除，仍被路由使用的节点已自动保留并应尽快解除引用。更新期间本地工作副本也发生了修改；重新载入会丢弃本地修改，覆盖保存会保留本地修改。"
         case .apply:
             return "服务器配置已在加载后发生变化。重新载入会丢弃本地修改；覆盖保存会保存并应用当前本地工作副本。"
         case .save:
@@ -2444,7 +2444,7 @@ final class AppModel: ObservableObject {
                 let updateSummary = subscriptionStatus(id)?.inventorySummary ?? "节点库存已更新"
                 if !startingWasDirty && draftMutationSequence == startingDraftSequence {
                     replaceDraft(with: snapshot)
-                    message = "订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留。\(updateSummary)"
+                    message = "订阅节点已更新，当前运行配置未改变；无引用的消失节点已自动删除，仍被路由使用的节点已自动保留并应尽快解除引用。\(updateSummary)"
                 } else {
                     presentSubscriptionInventoryConflict(snapshot)
                 }
@@ -2983,7 +2983,7 @@ final class AppModel: ObservableObject {
             operation: .subscriptionInventory
         )
         isDirty = true
-        message = "订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留，更新期间的本地修改也已保留。"
+        message = "订阅节点已更新，当前运行配置未改变；无引用的消失节点已自动删除，仍被路由使用的节点已自动保留并应尽快解除引用，更新期间的本地修改也已保留。"
     }
 
     private func perform(message pendingMessage: String, operation: @escaping () async throws -> Void) {

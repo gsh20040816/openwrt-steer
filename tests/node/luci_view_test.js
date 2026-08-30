@@ -1956,8 +1956,7 @@ async function main() {
 	const sharedStatuses = subscriptionStatusFixtures.cases.map((fixture) => fixture.status);
 	environment = await renderNodes({
 		node: [
-			{ '.name': 'failed_blocked', name: 'Blocked stale', source_subscription: 'failed', pinned_stale: '1' },
-			{ '.name': 'failed_removable', name: 'Removable stale', source_subscription: 'failed', pinned_stale: '1' }
+			{ '.name': 'failed_blocked', name: 'Blocked stale', source_subscription: 'failed', pinned_stale: '1' }
 		],
 		route: [ { '.name': 'proxy', name: 'Proxy route', node: 'failed_blocked' } ],
 		subscription: sharedStatuses.map((status) => ({
@@ -1965,7 +1964,7 @@ async function main() {
 		}))
 	}, '', { subscriptions: sharedStatuses }, 'subscriptions');
 	const sharedText = elementText(environment.rendered);
-	for (const expected of [ 'Not fetched', 'subscription server returned HTTP 503', '1 current / 2 unavailable / 1 skipped' ])
+	for (const expected of [ 'Not fetched', 'subscription server returned HTTP 503', '1 current / 1 unavailable / 1 skipped' ])
 		assert.ok(sharedText.includes(expected), `LuCI must render shared subscription status ${expected}`);
 	const sharedUpdateButtons = findElements(environment.rendered,
 		(node) => node.tag == 'button' && node.children?.[0] == 'Update now');
@@ -2288,7 +2287,7 @@ async function main() {
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
 		nodesSource.includes("_('Update now')") &&
-			nodesSource.includes("_('Subscription nodes updated. The running configuration was not changed, and nodes still used by Routes were kept. Added %d, current %d, unavailable %d, skipped %d.')") &&
+			nodesSource.includes("_('Subscription nodes updated. The running configuration was not changed. Removed unreferenced nodes were deleted automatically; nodes still used by Routes were kept and should be unreferenced soon. Added %d, current %d, unavailable %d, skipped %d.')") &&
 		nodesSource.includes('subscriptionOperationGate') &&
 		nodesSource.includes("_('Connection test')") &&
 		nodesSource.includes("_('Download test')") &&

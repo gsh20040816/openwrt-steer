@@ -21,7 +21,6 @@ func TestBuildStatusKeepsSuccessFailureAndStaleReferencesSeparate(t *testing.T) 
 	nodes := []model.Node{
 		{ID: "feed_current", Name: "Current", NodeSource: model.NodeSource{SourceSubscription: "feed"}},
 		{ID: "feed_blocked", Name: "Blocked", NodeSource: model.NodeSource{SourceSubscription: "feed", PinnedStale: true}},
-		{ID: "feed_removable", Name: "Removable", NodeSource: model.NodeSource{SourceSubscription: "feed", PinnedStale: true}},
 	}
 	status := BuildStatus(
 		model.Subscription{ID: "feed", Enabled: true, Name: "Feed", URL: "https://example.test/sub"},
@@ -33,14 +32,11 @@ func TestBuildStatusKeepsSuccessFailureAndStaleReferencesSeparate(t *testing.T) 
 	if status.NeverFetched || status.LastSuccess == nil || !status.LastSuccess.Equal(success) || status.LastFailure == nil {
 		t.Fatalf("success/failure facts drifted: %#v", status)
 	}
-	if status.NodeCount != 3 || status.Current != 1 || status.Added != 1 || status.Skipped != 2 || len(status.Stale) != 2 {
+	if status.NodeCount != 2 || status.Current != 1 || status.Added != 1 || status.Skipped != 2 || len(status.Stale) != 1 {
 		t.Fatalf("inventory facts drifted: %#v", status)
 	}
 	if status.Stale[0].ID != "feed_blocked" || len(status.Stale[0].ReferencedBy) != 1 || status.Stale[0].ReferencedBy[0].ID != "proxy" {
 		t.Fatalf("stale references drifted: %#v", status.Stale)
-	}
-	if status.Stale[1].ID != "feed_removable" || len(status.Stale[1].ReferencedBy) != 0 {
-		t.Fatalf("independent stale cleanup fact drifted: %#v", status.Stale)
 	}
 }
 

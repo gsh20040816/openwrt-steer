@@ -162,7 +162,7 @@ func UpdateConfiguredSubscriptionsWithWriter(ctx context.Context, client *http.C
 		}
 		merged := []model.Node{}
 		if len(fetched.Nodes) > 0 {
-			merged = subscription.Merge(configured.ID, old, fetched.Nodes)
+			merged = subscription.Merge(configured.ID, old, fetched.Nodes, intent.Routes)
 		}
 		for _, node := range merged {
 			if !uci.IsIdentifier(node.ID) {

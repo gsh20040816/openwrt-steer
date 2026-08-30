@@ -130,6 +130,30 @@ func TestRejectUnknownParameter(t *testing.T) {
 	}
 }
 
+func TestParseEmptyPCSCertificatePinCompatibilityMarker(t *testing.T) {
+	raw := strings.Join([]string{
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example&pcs=",
+		"trojan://secret@example.com:443?sni=edge.example&pcs",
+		"anytls://secret@example.com:443?sni=edge.example&type=tcp&pcs=",
+	}, "\n")
+	result, err := ParseList(raw)
+	if err != nil || result.Skipped != 0 || len(result.Nodes) != 3 {
+		t.Fatalf("empty pcs compatibility markers were not ignored: result=%#v err=%v", result, err)
+	}
+}
+
+func TestRejectNonEmptyPCSCertificatePin(t *testing.T) {
+	for _, raw := range []string{
+		"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=edge.example&pcs=abcdef",
+		"trojan://secret@example.com:443?sni=edge.example&pcs=abcdef",
+		"anytls://secret@example.com:443?sni=edge.example&type=tcp&pcs=abcdef",
+	} {
+		if _, err := ParseURI(raw); err == nil || !strings.Contains(err.Error(), `unsupported URI parameter "pcs"`) {
+			t.Fatalf("non-empty pcs certificate pin was not rejected safely: %v", err)
+		}
+	}
+}
+
 func TestRejectInvalidAndConflictingParameters(t *testing.T) {
 	for _, raw := range []string{
 		"tuic://00000000-0000-4000-8000-000000000001:secret@example.com:443?insecure=maybe",

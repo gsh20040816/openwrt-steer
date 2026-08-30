@@ -35,7 +35,7 @@ final class SubscriptionStatusTests: XCTestCase {
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertEqual(Set(document.cases.map(\.name)), Set([
             "never-fetched", "success", "success-with-skipped",
-            "failed-after-success-with-partial-stale-block", "disabled",
+            "failed-after-success-with-referenced-stale", "disabled",
         ]))
 
         let byName = Dictionary(uniqueKeysWithValues: document.cases.map { ($0.name, $0.status) })
@@ -44,12 +44,11 @@ final class SubscriptionStatusTests: XCTestCase {
         XCTAssertEqual(byName["success-with-skipped"]?.stateLabel, "成功 · 跳过 2")
         XCTAssertEqual(byName["disabled"]?.stateLabel, "已停用")
 
-        let failed = try XCTUnwrap(byName["failed-after-success-with-partial-stale-block"])
+        let failed = try XCTUnwrap(byName["failed-after-success-with-referenced-stale"])
         XCTAssertEqual(failed.stateLabel, "最近失败")
         XCTAssertEqual(failed.lastSuccess, "2026-08-26T02:00:00Z")
         XCTAssertEqual(failed.lastFailure?.summary, "subscription server returned HTTP 503")
-        XCTAssertEqual(failed.inventorySummary, "新增 0 · 当前 1 · 已失效 2 · 已跳过 1")
+        XCTAssertEqual(failed.inventorySummary, "新增 0 · 当前 1 · 已失效 1 · 已跳过 1")
         XCTAssertEqual(failed.stale[0].referencedBy.first?.id, "proxy")
-        XCTAssertTrue(failed.stale[1].referencedBy.isEmpty)
     }
 }

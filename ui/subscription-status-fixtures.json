@@ -56,7 +56,7 @@
       }
     },
     {
-      "name": "failed-after-success-with-partial-stale-block",
+      "name": "failed-after-success-with-referenced-stale",
       "status": {
         "id": "failed",
         "name": "Failed after success",
@@ -69,7 +69,7 @@
           "at": "2026-08-26T03:00:00Z",
           "summary": "subscription server returned HTTP 503"
         },
-        "node_count": 3,
+        "node_count": 2,
         "current": 1,
         "added": 0,
         "skipped": 1,
@@ -80,11 +80,6 @@
             "referenced_by": [
               { "object_type": "route", "id": "proxy", "name": "Proxy route" }
             ]
-          },
-          {
-            "id": "failed_removable",
-            "name": "Removable stale",
-            "referenced_by": []
           }
         ]
       }

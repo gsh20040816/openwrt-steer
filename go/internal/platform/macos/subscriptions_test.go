@@ -113,6 +113,43 @@ func TestConfiguredSubscriptionUpdatePersistsStatus(t *testing.T) {
 	}
 }
 
+func TestConfiguredSubscriptionUpdateDropsOnlyUnreferencedDisappearedNodes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("socks://user:pass@new.example:1080#New\n"))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.json")
+	stateDirectory := filepath.Join(root, "state")
+	value := validIntent()
+	value.Subscriptions = []model.Subscription{{ID: "public", Enabled: true, URL: server.URL}}
+	referenced := model.Node{ID: "public_referenced", Enabled: true, Type: "socks", Server: "referenced.example", ServerPort: 1080, NodeSource: model.NodeSource{SourceSubscription: "public"}}
+	unreferenced := model.Node{ID: "public_unreferenced", Enabled: true, Type: "socks", Server: "unreferenced.example", ServerPort: 1080, NodeSource: model.NodeSource{SourceSubscription: "public"}}
+	value.Nodes = append(value.Nodes, referenced, unreferenced)
+	value.Routes = append(value.Routes, model.Route{ID: "subscription_route", Enabled: true, Kind: "single", Node: referenced.ID})
+	if _, err := (IntentStore{Paths: Paths{ConfigPath: configPath}}).Save(value, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpdateConfiguredSubscriptions(context.Background(), server.Client(), configPath, stateDirectory, "public"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := (IntentStore{Paths: Paths{ConfigPath: configPath}}).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]model.Node, len(loaded.Nodes))
+	for _, node := range loaded.Nodes {
+		byID[node.ID] = node
+	}
+	if !byID[referenced.ID].PinnedStale || byID[unreferenced.ID].ID != "" {
+		t.Fatalf("subscription disappearance lifecycle drifted: %#v", loaded.Nodes)
+	}
+	statuses, err := ReadSubscriptionStatus(configPath, stateDirectory)
+	if err != nil || len(statuses) != 1 || len(statuses[0].Stale) != 1 || len(statuses[0].Stale[0].ReferencedBy) != 1 {
+		t.Fatalf("referenced stale status drifted: %#v %v", statuses, err)
+	}
+}
+
 func TestFailedRefreshKeepsLastSuccessfulSubscriptionStatus(t *testing.T) {
 	var fail atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

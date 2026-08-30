@@ -29,7 +29,7 @@
 
   function updateNotice(status) {
     const counts = status ? ` ${updateSummary(status)}。` : '';
-    return `订阅节点已更新，当前运行配置未改变；仍被路由使用的节点已自动保留。${counts}`;
+    return `订阅节点已更新，当前运行配置未改变；无引用的消失节点已自动删除，仍被路由使用的节点已自动保留并应尽快解除引用。${counts}`;
   }
 
   function requestDelete(subscription) {
