@@ -184,6 +184,38 @@ final class DraftCacheAndRouteGraphTests: XCTestCase {
 
 @MainActor
 final class NodeImportPreviewTests: XCTestCase {
+    func testZeroSkipTUICResultDecodesWhenHelperOmitsSkippedReasons() throws {
+        let response = #"""
+        {
+          "nodes": [
+            {
+              "id": "",
+              "enabled": true,
+              "name": "singbox_tuic",
+              "type": "tuic",
+              "server": "laxeb.shgao.top",
+              "server_port": 39823,
+              "uuid": "e410ea86-9009-4654-8c87-f2dcd442b75e",
+              "password": "e410ea86-9009-4654-8c87-f2dcd442b75e",
+              "congestion_control": "bbr",
+              "udp_relay_mode": "quic",
+              "tls_server_name": "laxeb.shgao.top",
+              "alpn": ["h3"]
+            }
+          ],
+          "skipped": 0
+        }
+        """#
+
+        let result = try JSONDecoder().decode(NodeImportResult.self, from: Data(response.utf8))
+
+        XCTAssertEqual(result.nodes.count, 1)
+        XCTAssertEqual(result.skipped, 0)
+        XCTAssertTrue(result.skippedReasons.isEmpty)
+        XCTAssertEqual(result.nodes[0].objectValue?["type"]?.stringValue, "tuic")
+        XCTAssertEqual(result.nodes[0].objectValue?["server_port"]?.numberValue, 39_823)
+    }
+
     func testParsePreviewsSafeFieldsWithoutMutatingDraftThenImportsOnlySelection() async throws {
         let first: JSONValue = .object([
             "name": .string("First"), "type": .string("trojan"),

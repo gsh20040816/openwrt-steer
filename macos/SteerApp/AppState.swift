@@ -681,6 +681,16 @@ struct NodeImportResult: Decodable, Sendable {
         self.skipped = skipped
         self.skippedReasons = skippedReasons
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        nodes = try container.decode([JSONValue].self, forKey: .nodes)
+        skipped = try container.decode(Int.self, forKey: .skipped)
+        skippedReasons = try container.decodeIfPresent(
+            [NodeImportSkippedReason].self,
+            forKey: .skippedReasons
+        ) ?? []
+    }
 }
 
 struct NodeImportSkippedReason: Decodable, Sendable {
