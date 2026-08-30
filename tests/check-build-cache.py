@@ -13,6 +13,7 @@ CI = CI_PATH.read_text(encoding="utf-8")
 RELEASE = RELEASE_PATH.read_text(encoding="utf-8")
 ENTRYPOINT = (ROOT / ".github/actions/openwrt-sdk/entrypoint.sh").read_text(encoding="utf-8")
 REPOSITORY_COLLECTOR = (ROOT / "scripts/collect-openwrt-repository.sh").read_text(encoding="utf-8")
+SYSTEMD_STARTER = (ROOT / "tests/integration/start-linux-system-container.sh").read_text(encoding="utf-8")
 
 
 def fail(message: str) -> None:
@@ -50,6 +51,7 @@ for fragment in (
     'CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build',
     "CGO_ENABLED=0 GOOS=darwin GOARCH=${{ matrix.goarch }} go build",
     "/workspace/tests/integration/run-linux-system.sh",
+    "tests/integration/start-linux-system-container.sh",
     "swift test --disable-sandbox",
     "swift build -c release --disable-sandbox",
     "python3 tests/check-macos-packaging.py",
@@ -62,6 +64,19 @@ if "branches:" in ci_trigger or "tags:" in ci_trigger:
     fail("CI push trigger must cover every branch commit")
 if "concurrency:" in CI:
     fail("CI must not impose a concurrency group or cancel older commits")
+
+for fragment in (
+    "max_start_attempts=3",
+    "readiness_checks=30",
+    "running|degraded",
+    "systemctl is-active --quiet systemd-resolved",
+    "systemctl --failed --no-pager",
+    "journalctl -b --no-pager -n 200",
+):
+    if fragment not in SYSTEMD_STARTER:
+        fail(f"Linux system container starter is missing bounded readiness behavior: {fragment}")
+if "run-linux-system.sh" in SYSTEMD_STARTER:
+    fail("Linux system container starter must not retry the product integration test")
 
 for forbidden in (
     "actions/upload-artifact@",

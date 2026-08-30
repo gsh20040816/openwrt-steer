@@ -20,6 +20,7 @@ for path in (
     ROOT / "scripts/collect-linux-artifacts.sh",
     ROOT / "tests/integration/linux-system.Dockerfile",
     ROOT / "tests/integration/run-linux-system.sh",
+    ROOT / "tests/integration/start-linux-system-container.sh",
     ROOT / "go/cmd/steer-openwrt/main.go",
     ROOT / "go/cmd/steer-linux/commands.go",
     ROOT / "go/cmd/steer-linux/command_apply.go",
@@ -146,7 +147,11 @@ for required in (
 for archive in ("steer-linux-x86_64.tar.zst", "steer-linux-aarch64.tar.zst"):
     if workflow.count(archive) < 2:
         fail(f"release pipeline does not enforce archive: {archive}")
-for required in ("name: Test Linux system integration", "/workspace/tests/integration/run-linux-system.sh"):
+for required in (
+    "name: Test Linux system integration",
+    "/workspace/tests/integration/run-linux-system.sh",
+    "tests/integration/start-linux-system-container.sh",
+):
     if required not in ci_workflow:
         fail(f"all-commit CI is missing Linux integration coverage: {required}")
     if required in workflow:

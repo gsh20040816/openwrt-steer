@@ -64,6 +64,8 @@ swift test --disable-sandbox
 
 `tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器，不能用于生产主机。发布 CI 使用 `tests/integration/linux-system.Dockerfile` 构建固定 Debian 环境，挂载本次构建的 Steer、同次验证的 SRS seed 和校验过 SHA-256 的 sing-box 1.14.0-rc.2 musl 二进制。
 
+CI 只对容器基础设施启动做有限重试：镜像只构建一次，容器最多重建 3 次，每次最多等待 30 秒，必须等到 systemd 可响应且 `systemd-resolved` active；每次失败输出容器状态、failed units 和本次 boot journal。真正的 `run-linux-system.sh` 产品集成只运行一次，失败不会重试或被掩盖。
+
 脚本建立 upstream/client 两个 netns，固定 client MAC 后先验证隔离拓扑，再把默认路由切到无公网出口的 upstream。启用配置实际引用 `geosite:cn` 和 native `source_mac_address`，所以服务在 Pages 不可达时仍必须通过包内 `initial_path` 启动；随后覆盖主机和转发流量的 IPv4/IPv6 TCP、UDP、UDP/TCP53。DNS 请求使用不存在的原目标地址，只有经过 Steer redirect 和独立 DNS upstream 才能成功；测试同时检查 nft DNS counter 增长，并确认 `steer0` 没有被注册为 systemd-resolved DNS route。它还确认 1053/1054 不能被直接当作 LAN resolver 访问，并覆盖服务重启、`nftables.service` 重启、禁用和重新启用。
 
 ## 发布前完整检查
