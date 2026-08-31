@@ -5,9 +5,15 @@ import XCTest
 
 private actor DraftEditorBackend: BackendClient {
     let importResult: NodeImportResult
+    let exportResult: String
+    private var exportedNodes: [JSONValue] = []
 
-    init(importResult: NodeImportResult = NodeImportResult(nodes: [], skipped: 0)) {
+    init(
+        importResult: NodeImportResult = NodeImportResult(nodes: [], skipped: 0),
+        exportResult: String = "socks://user:secret@proxy.example:1080#Edge"
+    ) {
         self.importResult = importResult
+        self.exportResult = exportResult
     }
 
     func componentStatus() async -> SystemComponentsStatus {
@@ -34,6 +40,11 @@ private actor DraftEditorBackend: BackendClient {
     func logs() async throws -> String { "" }
     func versions() async throws -> RuntimeVersions { RuntimeVersions() }
     func parseNodes(document: String) async throws -> NodeImportResult { importResult }
+    func exportNode(node: JSONValue) async throws -> String {
+        exportedNodes.append(node)
+        return exportResult
+    }
+    func lastExportedNode() -> JSONValue? { exportedNodes.last }
     func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeLatestResult {
         ProbeLatestResult(
             scope: "overview", objectID: nil, kind: kind, testedAt: "2026-08-26T00:00:00Z",
@@ -282,5 +293,21 @@ final class NodeImportPreviewTests: XCTestCase {
         XCTAssertNotNil(preview)
         XCTAssertEqual(model.itemCount(for: "nodes"), 0)
         XCTAssertFalse(model.isDirty)
+    }
+
+    func testNodeExportUsesTheCurrentUnsavedDraftNode() async throws {
+        let backend = DraftEditorBackend()
+        let model = AppModel(backend: backend)
+        model.rawJSON = #"{"main":{"schema_version":9},"nodes":[{"id":"edge","enabled":true,"name":"Unsaved name","type":"socks","server":"proxy.example","server_port":1080,"username":"user","password":"unsaved-secret"}]}"#
+        model.isDirty = true
+        let item = try XCTUnwrap(model.draftItems(for: "nodes").first)
+
+        let link = await model.exportNode(item)
+
+        XCTAssertEqual(link, "socks://user:secret@proxy.example:1080#Edge")
+        let exported = await backend.lastExportedNode()?.objectValue
+        XCTAssertEqual(exported?["name"]?.stringValue, "Unsaved name")
+        XCTAssertEqual(exported?["password"]?.stringValue, "unsaved-secret")
+        XCTAssertTrue(model.isDirty, "export must not save or mutate the working copy")
     }
 }

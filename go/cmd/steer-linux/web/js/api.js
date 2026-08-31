@@ -110,6 +110,9 @@
     async importNodes(document) {
       const data = (await request('/api/v1/nodes/import', { method: 'POST', body: JSON.stringify({ document }) })).data;
       return { ...data, warnings: data.warnings || [] };
+    },
+    async exportNode(node) {
+      return (await request('/api/v1/nodes/export', { method: 'POST', body: JSON.stringify({ node }) })).data;
     }
   };
 

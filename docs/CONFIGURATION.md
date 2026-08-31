@@ -68,7 +68,7 @@ config route 'block'
 
 `detour` 可留空，表示节点直接拨号；非空时必须引用另一条启用的 single Route。链可以多级，但不能自环或间接成环。Direct/Reject 不能携带或充当前置 Route。为兼容已有配置，Reject 仍写为 `kind 'block'`；编译后为 sing-box route/DNS `action: reject`，不生成已废弃的 block outbound。后端是唯一语义裁决者，Apply 会拒绝完整非法路径。
 
-支持的节点类型：`socks http shadowsocks vmess vless trojan hysteria shadowtls tuic hysteria2 anytls ssh naive tor`。具体字段由协议决定；未知字段、错误字段形态和该协议不支持的选项都会明确失败。分享链接的输入格式、参数闭环和 manual-only 类型见[分享链接兼容矩阵](SUBSCRIPTION_COMPATIBILITY.md)。
+支持的节点类型：`socks http shadowsocks vmess vless trojan hysteria shadowtls tuic hysteria2 anytls ssh naive tor`。具体字段由协议决定；未知字段、错误字段形态和该协议不支持的选项都会明确失败。三端节点列表都可以把可表示的当前节点导出为分享链接；分享链接的输入/输出格式、参数闭环和 manual-only 类型见[分享链接兼容矩阵](SUBSCRIPTION_COMPATIBILITY.md)。
 
 ## DNS Profile
 

@@ -1535,3 +1535,59 @@ msgstr "工作副本规模"
 
 msgid "ALPN"
 msgstr "ALPN"
+msgid "Automatic copy failed. Copy the selected link manually."
+msgstr "自动复制失败，请手动复制已选中的链接。"
+
+msgid "Automatic copy is unavailable. Copy the selected link manually."
+msgstr "当前无法自动复制，请手动复制已选中的链接。"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Copy Node link"
+msgstr "复制节点链接"
+
+msgid "Copy link"
+msgstr "复制链接"
+
+msgid "Export Node link"
+msgstr "导出节点链接"
+
+msgid "Export link"
+msgstr "导出链接"
+
+msgid "Generating the Node share link…"
+msgstr "正在生成节点分享链接…"
+
+msgid "Node export is unavailable"
+msgstr "节点导出不可用"
+
+msgid "Node link copied"
+msgstr "节点链接已复制"
+
+msgid "SSH Nodes that only use a private key cannot be exported as share links."
+msgstr "仅使用私钥的 SSH 节点无法导出为分享链接。"
+
+msgid "Share link"
+msgstr "分享链接"
+
+msgid "Share links contain the complete Node credentials. Store and share them only through trusted channels."
+msgstr "分享链接包含完整节点凭据，请仅通过可信渠道保存或分享。"
+
+msgid "The Node share link could not be exported."
+msgstr "无法导出节点分享链接。"
+
+msgid "The Node share link was copied to the clipboard."
+msgstr "节点分享链接已复制到剪贴板。"
+
+msgid "The requested Node does not exist."
+msgstr "请求的节点不存在。"
+
+msgid "This Node cannot be represented as a supported share link."
+msgstr "此节点无法表示为受支持的分享链接。"
+
+msgid "Tor Nodes do not have a share-link format."
+msgstr "Tor 节点没有分享链接格式。"
+
+msgid "Your session does not have permission to export Nodes."
+msgstr "当前会话没有导出节点的权限。"

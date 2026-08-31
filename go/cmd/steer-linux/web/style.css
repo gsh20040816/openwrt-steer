@@ -110,6 +110,7 @@ body {
 .validation-head { margin-top: 12px; }
 .import-title { margin: 8px 0 4px; }
 .import-warnings { margin: 4px 0 0; padding-left: 16px; }
+.export-link { box-sizing: border-box; width: 100%; font-family: var(--mono); overflow-wrap: anywhere; }
 .command-block { margin: 6px 0 0; }
 .diagnostics-log { max-height: 360px; overflow: auto; white-space: pre-wrap; }
 

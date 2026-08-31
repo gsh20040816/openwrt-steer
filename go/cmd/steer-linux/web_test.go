@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -22,6 +23,7 @@ import (
 	model "github.com/gsh20040816/steer/go/internal/intent"
 	linuxplatform "github.com/gsh20040816/steer/go/internal/platform/linux"
 	"github.com/gsh20040816/steer/go/internal/probe"
+	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
 type webRuntimeRunner struct{}
@@ -554,6 +556,37 @@ func TestWebNodeImportUsesSharedMultiNodeParser(t *testing.T) {
 	}
 	if response.Code != http.StatusOK || len(result.Nodes) != 2 || result.Skipped != 1 || result.Nodes[0].Type != "vless" || result.Nodes[1].Type != "socks" {
 		t.Fatalf("multi-node import = %#v status=%d body=%s", result, response.Code, response.Body.String())
+	}
+}
+
+func TestWebNodeExportUsesSharedSerializer(t *testing.T) {
+	node := model.Node{
+		ID: "edge", Enabled: true, Name: "Edge", Type: "vless", Server: "proxy.example", ServerPort: 443,
+		NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeTLS:         model.NodeTLS{TLSServerName: "edge.example"},
+	}
+	body, err := json.Marshal(map[string]any{"node": node})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	webApplication{}.handleNodeExport(response, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/export", bytes.NewReader(body)))
+	var result struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	parsed, parseErr := subscription.ParseURI(result.URI)
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || parseErr != nil || parsed.Type != "vless" || parsed.UUID != node.UUID {
+		t.Fatalf("node export = %#v parsed=%#v parseErr=%v status=%d headers=%v", result, parsed, parseErr, response.Code, response.Header())
+	}
+
+	unsupportedBody, _ := json.Marshal(map[string]any{"node": model.Node{Enabled: true, Type: "tor"}})
+	unsupported := httptest.NewRecorder()
+	webApplication{}.handleNodeExport(unsupported, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/export", bytes.NewReader(unsupportedBody)))
+	if unsupported.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("Tor export status=%d body=%s", unsupported.Code, unsupported.Body.String())
 	}
 }
 

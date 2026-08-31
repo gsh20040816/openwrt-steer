@@ -676,6 +676,7 @@ struct DraftCollectionView: View {
     @State private var actionError = ""
     @State private var blockedReferences: [UIObjectReference] = []
     @State private var nodeImportPresented = false
+    @State private var nodeExportTarget: DraftItem?
     @State private var selectedNodeGroup = "_manual"
     @State private var nodeSortMode = "default"
     @State private var nodeSortWorstFirst = false
@@ -853,6 +854,11 @@ struct DraftCollectionView: View {
                             .disabled(!canMove(item, offset: 1))
                         Divider()
                     }
+                    if descriptor.key == "nodes" {
+                        Button("导出链接") { nodeExportTarget = item }
+                            .disabled(model.isBusy)
+                        Divider()
+                    }
                     Button("编辑") { edit(item) }
                         .disabled(item.subscriptionOwned)
                     if !isSystemRoute(item) && !isDefaultRule(item) {
@@ -924,6 +930,9 @@ struct DraftCollectionView: View {
         }
         .sheet(isPresented: $nodeImportPresented) {
             NodeImportSheet(model: model)
+        }
+        .sheet(item: $nodeExportTarget) { item in
+            NodeExportSheet(model: model, item: item)
         }
         .onAppear { openValidationFocus() }
         .onChange(of: model.validationFocus?.id) { _ in openValidationFocus() }
@@ -1382,6 +1391,14 @@ struct DraftCollectionView: View {
 
     private func collectionActions(_ item: DraftItem) -> AnyView {
         AnyView(HStack(spacing: 8) {
+            if descriptor.key == "nodes" {
+                Button { nodeExportTarget = item } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isBusy)
+                .help("导出节点分享链接")
+            }
             if descriptor.key == "routes", item.kind == "single" {
                 probeButton(item: item, scope: "routes", download: false)
                 probeButton(item: item, scope: "routes", download: true)

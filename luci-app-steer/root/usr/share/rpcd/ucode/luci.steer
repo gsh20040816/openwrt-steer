@@ -539,6 +539,22 @@ const methods = {
 				return failure('MISSING_NODE_DOCUMENT', 'At least one node share link is required.');
 			return command_json_input(document);
 		}
+	},
+	node_export: {
+		args: { node: '' },
+		call: function(request) {
+			const node = request?.args?.node;
+			if (!node)
+				return failure('MISSING_NODE_ID', 'A Node ID is required.');
+			return with_candidate(request, function(error, candidate) {
+				if (error) {
+					request.reply(failure('NODE_EXPORT_FAILED', error));
+					return;
+				}
+				const result = run_candidate(candidate.document, '_export-node --id ' + shellquote(node));
+				request.reply(result || failure('NODE_EXPORT_FAILED', 'Unable to export the Node share link.'));
+			});
+		}
 	}
 };
 

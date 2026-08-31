@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* 节点：订阅分组 + 行内/批量测速 + 协议抽屉编辑 + 分享链接导入。 */
+/* 节点：订阅分组 + 行内/批量测速 + 协议抽屉编辑 + 分享链接导入/导出。 */
 'use strict';
 (function () {
   const S = window.S;
@@ -308,6 +308,50 @@
     });
   }
 
+  function exportUnavailableReason(node) {
+    if (node.type === 'tor') return 'Tor 节点没有分享链接格式';
+    if (node.type === 'ssh' && !node.password) return '仅使用私钥的 SSH 节点不能导出为分享链接';
+    return '';
+  }
+
+  function openExport(node) {
+    const result = h('div', {}, h('p', { class: 'spinning' }, '正在生成分享链接…'));
+    const { close } = ui.dialog({
+      title: '导出节点链接',
+      body: h('div', {}, [
+        h('div', { class: 'alert alert--warn' }, '分享链接包含完整节点凭据，请仅通过可信渠道保存或分享。'),
+        result,
+        h('div', { class: 'dialog-inline-actions u-mt-10' }, h('button', { class: 'btn', onclick: () => close() }, '关闭'))
+      ])
+    });
+    Promise.resolve(S.api.exportNode(node)).then((exported) => {
+      if (!exported?.uri) throw new Error('后端没有返回分享链接');
+      const textarea = h('textarea', {
+        class: 'textarea export-link', rows: 5, readonly: true,
+        autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false'
+      });
+      textarea.value = exported.uri;
+      const copy = h('button', { class: 'btn btn--primary', onclick: async () => {
+        try {
+          if (!window.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable');
+          await window.navigator.clipboard.writeText(textarea.value);
+          ui.toast('节点分享链接已复制到剪贴板', 'ok');
+        } catch (_) {
+          textarea.focus?.();
+          textarea.select?.();
+          ui.toast('无法自动复制，请手动复制已选中的链接', 'warn');
+        }
+      } }, '复制链接');
+      result.replaceChildren(
+        h('p', { class: 'muted' }, node.name || node.id),
+        textarea,
+        h('div', { class: 'dialog-inline-actions u-mt-10' }, copy)
+      );
+    }).catch((error) => {
+      result.replaceChildren(h('div', { class: 'alert alert--err' }, `导出失败：${error.message}`));
+    });
+  }
+
   /* ---------- 节点编辑抽屉 ---------- */
   function openNodeEditor(node, focusOption) {
     const isNew = !S.store.intent.nodes.includes(node);
@@ -475,6 +519,11 @@
           const down = testButton('下载', true, node.id, eligible);
           rowButtons.set(node.id, { conn, down });
           const edit = editable ? h('button', { class: 'btn btn--sm', onclick: () => openNodeEditor(node) }, '编辑') : h('span', { class: 'badge' }, '订阅');
+          const exportReason = exportUnavailableReason(node);
+          const exportLink = h('button', {
+            class: 'btn btn--sm', disabled: !!exportReason, title: exportReason || '导出包含完整凭据的节点分享链接',
+            onclick: () => openExport(node)
+          }, '导出链接');
           const del = editable ? h('button', { class: 'btn btn--sm btn--danger', onclick: () => {
             if (!ui.guardCollectionDeletion('nodes', node.id, node.name || node.id)) return;
             S.store.intent.nodes = S.store.intent.nodes.filter((n) => n.id !== node.id);
@@ -499,7 +548,7 @@
             h('td', { class: 'mono' }, nodeEndpoint(node)),
             h('td', { class: 'probe-sort-cell' }, probeAction(conn)),
             h('td', { class: 'probe-sort-cell' }, probeAction(down)),
-            h('td', {}, h('div', { class: 'row-actions' }, edit, del))
+            h('td', {}, h('div', { class: 'row-actions row-actions--wrap' }, edit, exportLink, del))
           ]);
         }))
       ]);

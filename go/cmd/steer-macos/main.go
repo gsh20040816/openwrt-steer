@@ -59,6 +59,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runCompile(args[1:], stdout)
 	case "parse-nodes":
 		return runParseNodes(args[1:], stdout)
+	case "export-node":
+		return runExportNode(args[1:], stdout)
 	case "probe":
 		return runProbe(args[1:], stdout)
 	case "_diagnostics":
@@ -136,6 +138,41 @@ func runParseNodes(args []string, stdout io.Writer) error {
 		Skipped        int                          `json:"skipped"`
 		SkippedReasons []subscription.SkippedReason `json:"skipped_reasons,omitempty"`
 	}{Nodes: parsed.Nodes, Skipped: parsed.Skipped, SkippedReasons: parsed.SkippedReasons})
+}
+
+func runExportNode(args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("export-node", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	inputPath := flags.String("input", "", "file containing one Canonical node")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *inputPath == "" {
+		return errors.New("export-node requires --input")
+	}
+	file, err := os.Open(*inputPath)
+	if err != nil {
+		return fmt.Errorf("read node export: %w", err)
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, (2<<20)+1))
+	decoder.DisallowUnknownFields()
+	var node model.Node
+	if err := decoder.Decode(&node); err != nil {
+		return fmt.Errorf("decode node export: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("decode node export: trailing value")
+		}
+		return fmt.Errorf("decode node export: %w", err)
+	}
+	uri, err := subscription.EncodeURI(node)
+	if err != nil {
+		return fmt.Errorf("export node: %w", err)
+	}
+	return writeJSON(stdout, map[string]string{"uri": uri})
 }
 
 func runValidate(args []string, stdout io.Writer) error {

@@ -348,6 +348,7 @@ function createEnvironment(sections) {
 	const routeSpeedtestCalls = [];
 	const overviewProbeCalls = [];
 	const importNodeCalls = [];
+	const exportNodeCalls = [];
 	const cleanSubscriptionCalls = [];
 	const updateSubscriptionCalls = [];
 	const notifications = [];
@@ -497,6 +498,10 @@ function createEnvironment(sections) {
 			importNodeCalls.push(document);
 			return Promise.resolve(environment.importNodesResult);
 		},
+		exportNode: (node) => {
+			exportNodeCalls.push(node);
+			return Promise.resolve(environment.exportNodeResult);
+		},
 		applyPending: () => Promise.resolve({ ok: true }),
 		applySaved: () => Promise.resolve({ ok: true }),
 		discardPending: () => Promise.resolve(),
@@ -515,11 +520,12 @@ function createEnvironment(sections) {
 
 	const environment = {
 		form, uci, view, steer, ui, window, maps, translate,
-		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, importNodeCalls, cleanSubscriptionCalls, updateSubscriptionCalls, notifications,
+		speedtestCalls, routeSpeedtestCalls, overviewProbeCalls, importNodeCalls, exportNodeCalls, cleanSubscriptionCalls, updateSubscriptionCalls, notifications,
 		setPendingChanges: (changes) => { pendingChanges = changes; },
 		get statusRenderCalls() { return statusRenderCalls; },
 		cleanSubscriptionResult: { ok: true },
 		updateSubscriptionResult: { ok: true, subscriptions: [] },
+		exportNodeResult: { ok: true, uri: 'socks://user:secret@node.example:1080#Manual' },
 		statusResult: {},
 		runtimeResult: {},
 		diagnosticsResult: JSON.parse(JSON.stringify(probeDiagnosticsFixtures.diagnostics)),
@@ -609,9 +615,11 @@ function loadUcodeRPC(runtime) {
 			? (runtime.applyResult || { ok: true })
 			: command.includes(' validate --config ')
 			? runtime.validation
-			: (command.includes(' _state')
+			: (command.includes(' _export-node ')
+				? (runtime.exportNodeResult || { ok: true, uri: 'socks://user:secret@node.example:1080#Manual' })
+				: (command.includes(' _state')
 				? (command.includes(' --config ') ? runtime.desiredState : runtime.savedState)
-				: (command.includes(' _export-intent') ? runtime.intent : {}));
+				: (command.includes(' _export-intent') ? runtime.intent : {})));
 		return { read: () => JSON.stringify(result), close: () => 0 };
 	};
 	const open = (file, mode) => {
@@ -864,6 +872,31 @@ function testNodeImportUcodeUsesTargetCompatibleStringPopen() {
 	assert.equal(callUcodeMethod(methods.node_import, { document }).error_code, 'IMPORT_PROGRAM_NOT_EXECUTABLE');
 }
 
+function testNodeExportUcodeUsesCurrentCandidateSnapshot() {
+	const runtime = {
+		values: {
+			manual: {
+				'.type': 'node', '.name': 'manual', '.index': 0, enabled: '1', name: 'Manual',
+				type: 'socks', server: 'node.example', server_port: '1080', username: 'user', password: 'candidate-secret'
+			}
+		},
+		changes: [ [ 'set', 'manual', 'password', 'candidate-secret' ] ],
+		validation: { ok: true, errors: [], warnings: [] }, intent: {},
+		ubusCalls: [], commands: [], documents: [], commitCalls: 0,
+		exportNodeResult: { ok: true, uri: 'socks://user:candidate-secret@node.example:1080#Manual' }
+	};
+	const methods = loadUcodeRPC(runtime);
+	const exported = callUcodeMethod(methods.node_export, { node: 'manual' });
+	assert.equal(exported.ok, true);
+	assert.equal(exported.uri, runtime.exportNodeResult.uri);
+	assert.ok(runtime.documents[0].includes("option 'password' 'candidate-secret'"),
+		'Node export snapshots the current LuCI candidate, including unsaved field edits');
+	const command = runtime.commands.find((value) => value.includes(' _export-node '));
+	assert.ok(command.includes("--id 'manual'") && command.includes("--config '/tmp/test-candidate-0/steer'"));
+	assert.ok(!command.includes('candidate-secret'), 'Node credentials never enter the shell command');
+	assert.equal(callUcodeMethod(methods.node_export, {}).error_code, 'MISSING_NODE_ID');
+}
+
 function allOptions(environment) {
 	return environment.maps.flatMap((map) => map.sections.flatMap((section) => section.options));
 }
@@ -912,7 +945,7 @@ async function renderNodes(sections, search = '', subscriptionStatus, page = 'no
 	environment.rendered = await view.render([ null, subscriptionStatus, { steer: pendingChanges },
 		environment.probeResultsResult,
 		{
-			...Object.fromEntries([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import' ]
+			...Object.fromEntries([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import', 'node_export' ]
 				.map((method) => [ method, environment.permissions[method] !== false ])),
 			uci_write: environment.permissions.uci_write !== false
 		} ]);
@@ -1219,6 +1252,7 @@ async function main() {
 	testOverviewStateSeparatesPendingSavedAndActiveFacts();
 	testSubscriptionRPCRejectsPendingSession();
 	testNodeImportUcodeUsesTargetCompatibleStringPopen();
+	testNodeExportUcodeUsesCurrentCandidateSnapshot();
 	const freshSections = parseUCIConfig(fs.readFileSync(path.join(root, 'steer/files/etc/config/steer'), 'utf8'));
 	assert.deepEqual(freshSections.route.map((route) => [ route['.name'], route.enabled, route.kind ]), [
 		[ 'direct', undefined, 'direct' ],
@@ -2184,7 +2218,7 @@ async function main() {
 	const deniedNodes = await renderNodes({
 		node: [ { '.name': 'manual', enabled: '1', name: 'Manual', type: 'socks', server: 'node.example', server_port: '1080' } ],
 		route: [], subscription: []
-	}, '', { subscriptions: [] }, 'nodes', [], { node_speedtest: false, node_import: false });
+	}, '', { subscriptions: [] }, 'nodes', [], { node_speedtest: false, node_import: false, node_export: false });
 	const deniedNodeProbe = allOptions(deniedNodes).find((option) => option.name == '_connect_speedtest');
 	await deniedNodeProbe.onclick({ currentTarget: { classList: { toggle() {} } } }, 'manual');
 	assert.deepEqual(deniedNodes.speedtestCalls, [], 'read-only sessions never invoke Node speed-test RPC');
@@ -2193,6 +2227,9 @@ async function main() {
 	assert.equal(deniedImport.disabled, true);
 	deniedImport.attributes.click({ preventDefault() {} });
 	assert.equal(deniedNodes.modal, null, 'read-only sessions cannot open the Node import workflow');
+	const deniedExport = allOptions(deniedNodes).find((option) => option.name == '_export_link');
+	const deniedExportWidget = deniedExport.renderWidget('manual', 0, null);
+	assert.equal(deniedExportWidget.disabled, true, 'read-only sessions see Node export disabled');
 
 	const deniedRoutes = await renderNodes({
 		node: [ { '.name': 'manual', enabled: '1', name: 'Manual' } ],
@@ -2217,6 +2254,20 @@ async function main() {
 	assert.deepEqual(deniedSubscriptions.updateSubscriptionCalls, []);
 	assert.deepEqual(deniedSubscriptions.cleanSubscriptionCalls, [],
 		'read-only sessions never invoke Subscription update or clean RPC');
+
+	const exportEnvironment = await renderNodes({
+		node: [ { '.name': 'manual', enabled: '1', name: 'Manual', type: 'socks', server: 'node.example', server_port: '1080', username: 'user', password: 'secret' } ],
+		route: [], subscription: []
+	});
+	const exportOption = allOptions(exportEnvironment).find((option) => option.name == '_export_link');
+	await exportOption.onclick({ preventDefault() {} }, 'manual');
+	assert.deepEqual(exportEnvironment.exportNodeCalls, [ 'manual' ]);
+	const exportModal = element('div', {}, exportEnvironment.modal.content);
+	const exportTextArea = findElements(exportModal, (node) => node.tag == 'textarea')[0];
+	assert.ok(exportTextArea.value.startsWith('socks://'));
+	assert.equal(exportTextArea.attributes.readonly, true);
+	assert.ok(elementText(exportModal).includes('Share links contain the complete Node credentials'),
+		'LuCI export warns before revealing the credential-bearing link');
 
 	const importSections = { subscription: [], node: [], route: [] };
 	environment = await renderNodes(importSections, '', { subscriptions: [] });

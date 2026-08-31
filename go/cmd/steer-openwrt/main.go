@@ -67,6 +67,8 @@ func run(args []string) error {
 		return runCleanup(args[1:])
 	case "_parse-nodes":
 		return runParseNodes(args[1:])
+	case "_export-node":
+		return runExportNode(args[1:])
 	case "_export-intent":
 		return runExportIntent(args[1:])
 	case "_runtime":
@@ -171,6 +173,38 @@ func runExportIntent(args []string) error {
 		return errors.New("configuration decode failed")
 	}
 	writeJSON(value)
+	return nil
+}
+
+func runExportNode(args []string) error {
+	flags := flag.NewFlagSet("_export-node", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
+	nodeID := flags.String("id", "", "node ID")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *nodeID == "" {
+		return errors.New("_export-node requires --id")
+	}
+	value, decodeValidation := loadIntent(*configPath)
+	if !decodeValidation.OK {
+		writeJSON(map[string]any{"ok": false, "error_code": "NODE_EXPORT_FAILED", "error": "Unable to decode the node configuration."})
+		return nil
+	}
+	for _, node := range value.Nodes {
+		if node.ID != *nodeID {
+			continue
+		}
+		uri, err := subscription.EncodeURI(node)
+		if err != nil {
+			writeJSON(map[string]any{"ok": false, "error_code": "NODE_EXPORT_UNSUPPORTED", "error": err.Error()})
+			return nil
+		}
+		writeJSON(map[string]any{"ok": true, "uri": uri})
+		return nil
+	}
+	writeJSON(map[string]any{"ok": false, "error_code": "NODE_NOT_FOUND", "error": "The requested Node does not exist."})
 	return nil
 }
 

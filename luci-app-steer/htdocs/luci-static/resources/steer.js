@@ -26,6 +26,7 @@ const callNodeSpeedtest = rpc.declare({ object: 'luci.steer', method: 'node_spee
 const callRouteSpeedtest = rpc.declare({ object: 'luci.steer', method: 'route_speedtest', params: [ 'route', 'download' ], expect: { '': {} } });
 const callOverviewProbe = rpc.declare({ object: 'luci.steer', method: 'overview_probe', params: [ 'kind' ], expect: { '': {} } });
 const callNodeImport = rpc.declare({ object: 'luci.steer', method: 'node_import', params: [ 'document' ], expect: { '': {} } });
+const callNodeExport = rpc.declare({ object: 'luci.steer', method: 'node_export', params: [ 'node' ], expect: { '': {} } });
 const callSessionAccess = rpc.declare({
 	object: 'session', method: 'access', params: [ 'scope', 'object', 'function' ], expect: { access: false }
 });
@@ -137,7 +138,10 @@ const rpcErrorMessages = {
 	MISSING_NODE_ID: _('A Node ID is required.'),
 	MISSING_ROUTE_ID: _('A Route ID is required.'),
 	INVALID_PROBE_KIND: _('Choose the direct, proxy, or speed-test probe.'),
-	MISSING_NODE_DOCUMENT: _('Paste at least one node share link.')
+	MISSING_NODE_DOCUMENT: _('Paste at least one node share link.'),
+	NODE_NOT_FOUND: _('The requested Node does not exist.'),
+	NODE_EXPORT_UNSUPPORTED: _('This Node cannot be represented as a supported share link.'),
+	NODE_EXPORT_FAILED: _('The Node share link could not be exported.')
 };
 
 function validationMessage(issue) {
@@ -458,6 +462,7 @@ return baseclass.extend({
 	routeSpeedtest: function(route, download) { return callRouteSpeedtest(route, download); },
 	overviewProbe: function(kind) { return callOverviewProbe(kind); },
 	importNodes: function(document) { return callNodeImport(document); },
+	exportNode: function(node) { return callNodeExport(node); },
 	creationDefaults: function(collection, overrides) { return uciCreationDefaults(collection, overrides); },
 	disambiguateReferences: function(references) { return disambiguateReferences(references); },
 

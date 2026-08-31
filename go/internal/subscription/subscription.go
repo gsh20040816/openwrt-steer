@@ -180,7 +180,7 @@ func parseCredentialProxy(u *url.URL, scheme string) (model.Node, error) {
 	if node.Name == "" {
 		node.Name = node.Type + " " + u.Host
 	}
-	if err := rejectUnknown(u.Query(), map[string]bool{"sni": true, "insecure": true}); err != nil {
+	if err := rejectUnknown(u.Query(), map[string]bool{"sni": true, "insecure": true, "alpn": true, "fp": true, "fingerprint": true}); err != nil {
 		return model.Node{}, err
 	}
 	if err := validateQueryValues(u.Query()); err != nil {
@@ -192,6 +192,12 @@ func parseCredentialProxy(u *url.URL, scheme string) (model.Node, error) {
 	if value := u.Query().Get("insecure"); value != "" {
 		node.Insecure, _ = strconv.ParseBool(value)
 	}
+	alpn, err := parseALPN(u.Query())
+	if err != nil {
+		return model.Node{}, err
+	}
+	node.ALPN = alpn
+	node.UTLSFingerprint = first(u.Query().Get("fp"), u.Query().Get("fingerprint"))
 	return node, nil
 }
 
@@ -216,13 +222,13 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 	allowed := map[string][]string{
 		"vless":       {"encryption", "flow", "security", "sni", "serverName", "fp", "fingerprint", "pcs", "pbk", "publicKey", "sid", "shortId", "type", "packetEncoding", "packet_encoding", "allowInsecure", "allow_insecure", "insecure", "alpn", "path", "host", "serviceName"},
 		"trojan":      {"sni", "serverName", "peer", "fp", "fingerprint", "pcs", "type", "allowInsecure", "allow_insecure", "insecure", "alpn", "path", "host", "serviceName"},
-		"hysteria":    {"sni", "peer", "insecure", "allowInsecure", "allow_insecure", "alpn", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
-		"hysteria2":   {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
-		"hy2":         {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
+		"hysteria":    {"sni", "peer", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
+		"hysteria2":   {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
+		"hy2":         {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint", "obfs", "obfs-password", "hop-interval", "hopInterval", "mport", "upmbps", "upMbps", "downmbps", "downMbps"},
 		"shadowtls":   {"version", "sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint"},
 		"tuic":        {"congestion_control", "udp_relay_mode", "udp_over_stream", "zero_rtt_handshake", "heartbeat", "sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint"},
 		"anytls":      {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "fp", "fingerprint", "pcs", "type"},
-		"naive+https": {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "quic", "quic_congestion_control", "fp", "fingerprint"},
+		"naive+https": {"sni", "insecure", "allowInsecure", "allow_insecure", "alpn", "quic", "quic_congestion_control", "insecure_concurrency", "fp", "fingerprint"},
 		"ssh":         {},
 	}
 	if err := rejectUnknown(query, setAllowed(allowed[scheme])); err != nil {
@@ -329,6 +335,7 @@ func parseCredentialNode(u *url.URL, scheme string) (model.Node, error) {
 		node.Type, node.Username, node.Password = "naive", username, password
 		node.TLSServerName, node.Insecure = first(query.Get("sni"), node.Server), boolValue(first(query.Get("insecure"), query.Get("allow_insecure"), query.Get("allowInsecure")))
 		node.QUIC, node.QUICCongestionControl = boolValue(query.Get("quic")), query.Get("quic_congestion_control")
+		node.InsecureConcurrency = intValue(query.Get("insecure_concurrency"))
 	case "ssh":
 		node.Type, node.Username, node.Password = "ssh", username, password
 	}
@@ -440,6 +447,7 @@ func parseVMessPayload(decoded string) (model.Node, error) {
 		Type           string          `json:"type"`
 		ALPN           json.RawMessage `json:"alpn"`
 		FP             string          `json:"fp"`
+		PacketEncoding string          `json:"packetEncoding"`
 		AllowInsecure  json.RawMessage `json:"allowInsecure"`
 		SkipCertVerify json.RawMessage `json:"skip-cert-verify"`
 	}
@@ -462,9 +470,12 @@ func parseVMessPayload(decoded string) (model.Node, error) {
 	}
 	node := model.Node{Enabled: true, Type: "vmess", Name: value.Name, Server: value.Add, ServerPort: serverPort,
 		NodeCredentials: model.NodeCredentials{UUID: value.UUID},
-		NodeTransport:   model.NodeTransport{Transport: value.Network, TransportHost: value.Host, TransportPath: value.Path},
+		NodeTransport:   model.NodeTransport{Transport: value.Network, TransportHost: value.Host, TransportPath: value.Path, PacketEncoding: value.PacketEncoding},
 		NodeProtocol:    model.NodeProtocol{AlterID: rawInt(value.AlterID), Security: value.Security},
 		NodeTLS:         model.NodeTLS{TLSServerName: value.SNI, UTLSFingerprint: value.FP}}
+	if node.Transport == "grpc" {
+		node.ServiceName, node.TransportPath = value.Path, ""
+	}
 	if len(value.ALPN) > 0 {
 		var alpnValue string
 		if err := json.Unmarshal(value.ALPN, &alpnValue); err == nil {
@@ -641,7 +652,7 @@ func validateQueryValues(values url.Values) error {
 			return err
 		}
 	}
-	for _, key := range []string{"version", "upmbps", "upMbps", "downmbps", "downMbps"} {
+	for _, key := range []string{"version", "upmbps", "upMbps", "downmbps", "downMbps", "insecure_concurrency"} {
 		if value := values.Get(key); value != "" {
 			parsed, err := strconv.Atoi(value)
 			if err != nil || parsed < 0 {

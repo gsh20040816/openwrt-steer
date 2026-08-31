@@ -693,6 +693,10 @@ struct NodeImportResult: Decodable, Sendable {
     }
 }
 
+private struct NodeExportResult: Decodable {
+    let uri: String
+}
+
 struct NodeImportSkippedReason: Decodable, Sendable {
     let scheme: String?
     let code: String
@@ -807,6 +811,7 @@ protocol BackendClient: Sendable {
     func logs() async throws -> String
     func versions() async throws -> RuntimeVersions
     func parseNodes(document: String) async throws -> NodeImportResult
+    func exportNode(node: JSONValue) async throws -> String
     func probe(kind: String, nodeID: String?, routeID: String?, download: Bool) async throws -> ProbeLatestResult
     func diagnostics() async throws -> ProbeDiagnostics
     func probeResults() async throws -> ProbeLatestResults
@@ -822,6 +827,9 @@ extension BackendClient {
     func overviewState() async throws -> OverviewLifecycleState {
         let active = try await status()
         return OverviewLifecycleState(active: active)
+    }
+    func exportNode(node: JSONValue) async throws -> String {
+        throw BackendClientError.helperUnavailable
     }
 }
 
@@ -1111,6 +1119,24 @@ struct HelperBackendClient: BackendClient {
                 throw result.status == 0 ? BackendClientError.invalidResponse : result.error
             }
             return parsed
+        }
+    }
+
+    func exportNode(node: JSONValue) async throws -> String {
+        let helper = URL(fileURLWithPath: Self.installedHelperPath)
+        try requireExecutable(helper)
+        let data = try JSONEncoder.pretty.encode(node)
+        guard let document = String(data: data, encoding: .utf8) else {
+            throw BackendClientError.invalidResponse
+        }
+        return try await withTemporaryDocument(document) { url in
+            let result = try await Self.execute(helper, ["export-node", "--input", url.path])
+            guard result.status == 0,
+                  let exported = try? JSONDecoder().decode(NodeExportResult.self, from: result.stdout),
+                  !exported.uri.isEmpty else {
+                throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+            }
+            return exported.uri
         }
     }
 
@@ -1711,6 +1737,22 @@ final class AppModel: ObservableObject {
             return preview
         } catch {
             message = "导入节点失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func exportNode(_ item: DraftItem) async -> String? {
+        guard !isBusy, pendingDraftAction == nil,
+              let object = draftItemObject(for: "nodes", at: item.index) else { return nil }
+        isBusy = true
+        message = "正在导出节点分享链接…"
+        defer { isBusy = false }
+        do {
+            let link = try await backend.exportNode(node: .object(object))
+            message = "已生成 \(item.title) 的分享链接"
+            return link
+        } catch {
+            message = "导出节点失败：\(error.localizedDescription)"
             return nil
         }
     }

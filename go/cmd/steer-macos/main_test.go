@@ -26,7 +26,7 @@ func TestRunVersion(t *testing.T) {
 func TestRunRequiresExplicitPaths(t *testing.T) {
 	for _, args := range [][]string{
 		{"validate", "unexpected"}, {"compile", "unexpected"}, {"prepare", "unexpected"},
-		{"parse-nodes"}, {"verify-geodata"}, {"control"}, {"_state", "unexpected"}, {"_control", "unexpected"},
+		{"parse-nodes"}, {"export-node"}, {"verify-geodata"}, {"control"}, {"_state", "unexpected"}, {"_control", "unexpected"},
 	} {
 		if err := run(args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 			t.Fatalf("expected explicit path error for %v", args)
@@ -105,6 +105,35 @@ func TestRunParseNodes(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("parsed node output is missing %s:\n%s", expected, output.String())
 		}
+	}
+}
+
+func TestRunExportNode(t *testing.T) {
+	inputPath := filepath.Join(t.TempDir(), "node.json")
+	node := model.Node{
+		ID: "edge", Enabled: true, Name: "Edge", Type: "vless", Server: "proxy.example", ServerPort: 443,
+		NodeCredentials: model.NodeCredentials{UUID: "00000000-0000-4000-8000-000000000001"},
+		NodeTLS:         model.NodeTLS{TLSServerName: "edge.example"},
+	}
+	content, err := json.Marshal(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := run([]string{"export-node", "--input", inputPath}, &output, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(result.URI, "vless://") || !strings.Contains(result.URI, "Edge") {
+		t.Fatalf("unexpected exported node link: %s", output.String())
 	}
 }
 

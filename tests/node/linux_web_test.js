@@ -758,6 +758,33 @@ function testNodeEditorUsesSharedDefaultWithoutMutatingDraft() {
     'opening an existing node must not materialize the editor fallback into the Draft');
 }
 
+async function testNodeExportShowsSharedBackendLink() {
+  const node = {
+    id: 'edge', enabled: true, name: 'Edge', type: 'vless', server: 'proxy.example', server_port: 443,
+    uuid: '00000000-0000-4000-8000-000000000001', tls_server_name: 'edge.example'
+  };
+  const calls = [];
+  const environment = createEnvironment(async () => ({ ok: true }), {
+    main: { enabled: true }, subscriptions: [], nodes: [node], routes: [], dns_profiles: [], local_proxies: [], rules: []
+  }, { api: {
+    exportNode: async (value) => {
+      calls.push(value);
+      return { uri: 'vless://00000000-0000-4000-8000-000000000001@proxy.example:443?security=tls&sni=edge.example#Edge' };
+    }
+  } });
+  loadView(environment, 'nodes');
+  environment.S.views.nodes.render(environment.view);
+  const button = buttonWithText(environment.view, '导出链接');
+  assert.ok(button, 'every shareable Linux node exposes Export link');
+  button.listeners.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepStrictEqual(calls, [node], 'Linux exports the current Draft node through the shared backend serializer');
+  const textarea = find(environment.body, (element) => element.tag === 'textarea' && classSet(element).has('export-link'));
+  assert.ok(textarea?.value.startsWith('vless://'));
+  assert.ok(Object.hasOwn(textarea.attributes, 'readonly'), 'the credential-bearing link is displayed read-only');
+  assert.match(text(environment.body), /包含完整节点凭据/, 'the export dialog warns that the link contains credentials');
+}
+
 async function testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit() {
   const intent = representativeIntent('key');
   intent.local_proxies.push({ id: 'proxy-last', enabled: true, name: 'Local proxy', protocol: 'socks', listen: '127.0.0.1', listen_port: 1080 });
@@ -2304,6 +2331,7 @@ Promise.resolve()
   .then(testChipsCommitPendingTokensConsistently)
   .then(testNodeStringListSubmitAndPrivateKeyRoundTrip)
   .then(testNodeEditorUsesSharedDefaultWithoutMutatingDraft)
+  .then(testNodeExportShowsSharedBackendLink)
   .then(testRuleChoicesAreRestrictedAndSavedOnDrawerSubmit)
   .then(testSubscriptionCreationDefaultUsesSharedSpec)
   .then(testSharedCreationDefaultsAutomaticIDsAndReferenceLabels)

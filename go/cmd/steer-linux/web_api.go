@@ -117,6 +117,29 @@ func (app webApplication) handleNodeImport(writer http.ResponseWriter, request *
 	})
 }
 
+func (app webApplication) handleNodeExport(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload struct {
+		Node model.Node `json:"node"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 2<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		writeWebError(writer, errors.New("request requires a Canonical node"), http.StatusBadRequest)
+		return
+	}
+	uri, err := subscription.EncodeURI(payload.Node)
+	if err != nil {
+		writeWebError(writer, err, http.StatusUnprocessableEntity)
+		return
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	writeWebJSON(writer, map[string]any{"uri": uri})
+}
+
 func (app webApplication) handleProbes(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)

@@ -56,7 +56,7 @@ for attempt in 1 2 3 4 5; do
 	sleep 1
 done
 ubus -v list luci.steer > "$TEST_DIR/rpc-methods.txt"
-for method in commit_candidate geodata_catalog node_import node_speedtest overview_probe probe_results route_speedtest status subscriptions validate; do
+for method in commit_candidate geodata_catalog node_export node_import node_speedtest overview_probe probe_results route_speedtest status subscriptions validate; do
 	grep -q "\"$method\"" "$TEST_DIR/rpc-methods.txt"
 done
 for removed in plan rollback; do
@@ -115,6 +115,26 @@ node_import_rpc 'not-a-node-link' > "$TEST_DIR/node-import-invalid.json"
 /usr/sbin/steer validate --config "$REPO_DIR/tests/fixtures/detour-valid/steer" > "$TEST_DIR/detour-validation.json"
 
 cp "$REPO_DIR/tests/fixtures/m1-openwrt-direct-valid/steer" /etc/config/steer
+uci set steer.export_fixture='node'
+uci set steer.export_fixture.enabled='1'
+uci set steer.export_fixture.name='Export fixture'
+uci set steer.export_fixture.type='vless'
+uci set steer.export_fixture.server='proxy.example'
+uci set steer.export_fixture.server_port='443'
+uci set steer.export_fixture.uuid='00000000-0000-4000-8000-000000000001'
+uci set steer.export_fixture.tls_server_name='edge.example'
+uci commit steer
+export_session="$(ubus call session login '{"username":"root","password":"","timeout":300}' | jsonfilter -e '@.ubus_rpc_session')"
+ubus call luci.steer node_export "{\"node\":\"export_fixture\",\"ubus_rpc_session\":\"$export_session\"}" > "$TEST_DIR/node-export.json"
+[ "$(jsonfilter -q -i "$TEST_DIR/node-export.json" -e '@.ok')" = 'true' ]
+exported_node="$(jsonfilter -q -i "$TEST_DIR/node-export.json" -e '@.uri')"
+case "$exported_node" in
+	vless://*) ;;
+	*) echo 'Node export did not return a VLESS share link.' >&2; exit 1 ;;
+esac
+ubus call session destroy "{\"ubus_rpc_session\":\"$export_session\"}"
+uci delete steer.export_fixture
+uci commit steer
 
 # Package installation/boot establishes the procd service and its config
 # trigger before LuCI can edit an already running configuration.

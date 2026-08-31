@@ -16,6 +16,7 @@ import (
 
 	coreapply "github.com/gsh20040816/steer/go/internal/apply"
 	model "github.com/gsh20040816/steer/go/internal/intent"
+	"github.com/gsh20040816/steer/go/internal/subscription"
 )
 
 func TestExportPackagedFreshDefaultsAsCanonicalIntent(t *testing.T) {
@@ -112,6 +113,42 @@ func TestParseNodesWritesPrivateExclusiveResult(t *testing.T) {
 	}
 	if err := runWithDocument(); err == nil || !strings.Contains(err.Error(), "create private node import result") {
 		t.Fatalf("existing result was not protected by exclusive creation: %v", err)
+	}
+}
+
+func TestRunExportNodeSerializesConfiguredNode(t *testing.T) {
+	defaults, err := os.ReadFile(filepath.Join("..", "..", "..", "steer", "files", "etc", "config", "steer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "steer")
+	configured := string(defaults) + `
+
+config node 'node_main'
+	option enabled '1'
+	option name 'Edge'
+	option type 'vless'
+	option server 'proxy.example'
+	option server_port '443'
+	option uuid '00000000-0000-4000-8000-000000000001'
+	option tls_server_name 'edge.example'
+`
+	if err := os.WriteFile(configPath, []byte(configured), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := captureStdout(t, func() error {
+		return runExportNode([]string{"--config", configPath, "--id", "node_main"})
+	})
+	var result struct {
+		OK  bool   `json:"ok"`
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := subscription.ParseURI(result.URI)
+	if err != nil || !result.OK || parsed.Type != "vless" {
+		t.Fatalf("unexpected node export: result=%#v parsed=%#v err=%v output=%s", result, parsed, err, output)
 	}
 }
 

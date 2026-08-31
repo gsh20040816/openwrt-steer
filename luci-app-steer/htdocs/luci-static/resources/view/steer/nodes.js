@@ -717,6 +717,75 @@ function renderImportButton(allowed) {
 	]);
 }
 
+function nodeExportDisabledReason(sectionId, allowed) {
+	if (!allowed)
+		return _('Your session does not have permission to export Nodes.');
+	const type = uci.get('steer', sectionId, 'type');
+	if (type == 'tor')
+		return _('Tor Nodes do not have a share-link format.');
+	if (type == 'ssh' && !uci.get('steer', sectionId, 'password'))
+		return _('SSH Nodes that only use a private key cannot be exported as share links.');
+	return '';
+}
+
+function showNodeExportDialog(sectionId) {
+	const content = E('div', {}, E('p', { 'class': 'spinning' }, _('Generating the Node share link…')));
+	ui.showModal(_('Export Node link'), [
+		E('p', { 'class': 'alert-message warning' }, _('Share links contain the complete Node credentials. Store and share them only through trusted channels.')),
+		content,
+		E('div', { 'class': 'right' }, E('button', { 'class': 'cbi-button', 'click': ui.hideModal }, _('Close')))
+	]);
+	return steer.exportNode(sectionId).then((result) => {
+		if (result?.ok === false || !result?.uri)
+			throw new Error(steer.rpcErrorText(result));
+		const input = E('textarea', {
+			'class': 'cbi-input-textarea steer-machine-input', 'rows': 5, 'readonly': true,
+			'autocomplete': 'off', 'autocapitalize': 'off', 'spellcheck': 'false'
+		});
+		input.value = result.uri;
+		const copy = E('button', {
+			'class': 'cbi-button cbi-button-positive',
+			'click': function() {
+				if (window.navigator?.clipboard?.writeText) {
+					return window.navigator.clipboard.writeText(input.value).then(() => {
+						ui.addNotification(_('Node link copied'), E('p', {}, _('The Node share link was copied to the clipboard.')), 'info');
+					}).catch(() => {
+						input.focus();
+						input.select();
+						ui.addNotification(_('Copy Node link'), E('p', {}, _('Automatic copy failed. Copy the selected link manually.')), 'warning');
+					});
+				}
+				input.focus();
+				input.select();
+				ui.addNotification(_('Copy Node link'), E('p', {}, _('Automatic copy is unavailable. Copy the selected link manually.')), 'warning');
+			}
+		}, _('Copy link'));
+		content.replaceChildren(E('div', {}, [
+			E('p', {}, uci.get('steer', sectionId, 'name') || _('Unnamed')),
+			input,
+			E('div', { 'class': 'right' }, copy)
+		]));
+	}).catch((error) => {
+		content.replaceChildren(E('p', { 'class': 'alert-message danger' }, String(error)));
+	});
+}
+
+function decorateNodeExportOption(option, allowed) {
+	const renderWidget = option.renderWidget;
+	option.renderWidget = function(sectionId, optionIndex, cfgvalue) {
+		const widget = typeof(renderWidget) == 'function'
+			? renderWidget.call(this, sectionId, optionIndex, cfgvalue)
+			: E('button', { 'class': 'cbi-button cbi-button-action' }, this.inputtitle || _('Export link'));
+		const button = widget?.matches?.('button') ? widget : widget?.querySelector?.('button');
+		const reason = nodeExportDisabledReason(sectionId, allowed);
+		if (button && reason) {
+			button.disabled = true;
+			button.title = reason;
+		}
+		return widget;
+	};
+}
+
 function setSpeedtestButton(button, state, label, detail) {
 	if (!button)
 		return;
@@ -884,7 +953,7 @@ function renderLightweightNodeProbe(node, download, probeResults, gate) {
 		E('div', { 'class': 'steer-probe-action' }, [ button, output ]));
 }
 
-function renderLightweightNodeTable(nodes, activeGroup, displaySort, probeResults, gate) {
+function renderLightweightNodeTable(nodes, activeGroup, displaySort, probeResults, gate, exportAllowed) {
 	const configuredIds = nodes.map((node) => node['.name']);
 	const nodeById = Object.fromEntries(nodes.map((node) => [ node['.name'], node ]));
 	const displayedIds = sortNodeSectionIDs(configuredIds, displaySort.mode, displaySort.direction, probeResults);
@@ -904,6 +973,12 @@ function renderLightweightNodeTable(nodes, activeGroup, displaySort, probeResult
 
 	const body = E('tbody', {}, displayedIds.map((sectionId) => {
 		const node = nodeById[sectionId];
+		const exportReason = nodeExportDisabledReason(sectionId, exportAllowed);
+		const exportButton = E('button', {
+			'class': 'cbi-button cbi-button-action', 'type': 'button',
+			'disabled': exportReason ? true : null, 'title': exportReason,
+			'click': function(ev) { ev.preventDefault(); return showNodeExportDialog(sectionId); }
+		}, _('Export link'));
 		return E('tr', {
 			'id': 'cbi-steer-' + sectionId,
 			'class': 'tr cbi-section-table-row steer-lightweight-node-row',
@@ -919,7 +994,8 @@ function renderLightweightNodeTable(nodes, activeGroup, displaySort, probeResult
 			E('td', { 'data-title': _('Protocol') }, protocolLabel(node.type) || '—'),
 			E('td', { 'data-title': _('Server'), 'class': 'steer-node-endpoint' }, lightweightNodeEndpoint(node)),
 			E('td', { 'data-title': _('Connection test') }, renderLightweightNodeProbe(node, false, probeResults, gate)),
-			E('td', { 'data-title': _('Download test') }, renderLightweightNodeProbe(node, true, probeResults, gate))
+			E('td', { 'data-title': _('Download test') }, renderLightweightNodeProbe(node, true, probeResults, gate)),
+			E('td', { 'data-title': _('Share link') }, exportButton)
 		]);
 	}));
 	const table = E('table', { 'class': 'table cbi-section-table steer-lightweight-node-table' }, [
@@ -930,7 +1006,8 @@ function renderLightweightNodeTable(nodes, activeGroup, displaySort, probeResult
 			E('th', {}, _('Protocol')),
 			E('th', {}, _('Server')),
 			E('th', { 'data-widget': '_connect_speedtest' }, _('Connection test')),
-			E('th', { 'data-widget': '_download_speedtest' }, _('Download test'))
+			E('th', { 'data-widget': '_download_speedtest' }, _('Download test')),
+			E('th', {}, _('Share link'))
 		])),
 		body
 	]);
@@ -1158,7 +1235,7 @@ const nodesView = view.extend({
 	load: function() {
 		return Promise.all([
 			uci.load('steer'), steer.subscriptions(), uci.changes(), steer.probeResults(),
-			steer.permissions([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import' ], true)
+			steer.permissions([ 'subscription_update', 'subscription_clean', 'node_speedtest', 'route_speedtest', 'node_import', 'node_export' ], true)
 		]);
 	},
 
@@ -1296,7 +1373,8 @@ const nodesView = view.extend({
 			const batchSpeedtests = renderBatchSpeedtests(enabledNodeIds, probeGate);
 			if (batchSpeedtests)
 				contents.push(batchSpeedtests);
-			contents.push(renderLightweightNodeTable(visibleNodes, activeGroup, displaySort, probeResults, probeGate));
+			contents.push(renderLightweightNodeTable(visibleNodes, activeGroup, displaySort, probeResults, probeGate,
+				permissions.node_export === true));
 			return Promise.resolve(E([], contents));
 		}
 
@@ -1343,6 +1421,22 @@ const nodesView = view.extend({
 		o.remove = function() {};
 		o.onclick = function(ev, sectionId) { return runSpeedtest(sectionId, true, ev.currentTarget, probeGate); };
 		decorateProbeOption(o, 'nodes', 'download', probeResults, nodeProbeDisabledReason);
+
+		o = s.option(form.Button, '_export_link', _('Share link'));
+		o.editable = true;
+		o.inputtitle = _('Export link');
+		o.inputstyle = 'action';
+		o.write = function() {};
+		o.remove = function() {};
+		o.onclick = function(ev, sectionId) {
+			const reason = nodeExportDisabledReason(sectionId, permissions.node_export === true);
+			if (reason) {
+				ui.addNotification(_('Node export is unavailable'), E('p', {}, reason), 'warning');
+				return;
+			}
+			return showNodeExportDialog(sectionId);
+		};
+		decorateNodeExportOption(o, permissions.node_export === true);
 
 		o = s.option(form.Value, 'name', _('Name'));
 		o.rmempty = true;

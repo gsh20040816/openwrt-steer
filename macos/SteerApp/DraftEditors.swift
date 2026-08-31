@@ -3,6 +3,7 @@
 import Foundation
 import SwiftUI
 import Darwin
+import AppKit
 
 enum LocalProxyListenClassification: String, Codable {
     case loopback
@@ -400,6 +401,78 @@ struct NodeImportSheet: View {
             .padding(16)
         }
         .frame(minWidth: 720, minHeight: 560)
+    }
+}
+
+struct NodeExportSheet: View {
+    @ObservedObject var model: AppModel
+    let item: DraftItem
+    @Environment(\.dismiss) private var dismiss
+    @State private var link = ""
+    @State private var errorMessage = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("导出节点链接")
+                    .font(.title2.weight(.semibold))
+                Text(item.title)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Label("分享链接包含完整节点凭据，请仅通过可信渠道保存或分享。", systemImage: "exclamationmark.shield.fill")
+                    .foregroundStyle(.orange)
+                if link.isEmpty && errorMessage.isEmpty {
+                    HStack {
+                        ProgressView()
+                        Text("正在生成分享链接…")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !errorMessage.isEmpty {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(link)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    }
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+            }
+            .padding(20)
+            Divider()
+            HStack {
+                Spacer()
+                Button("关闭") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("复制链接") {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(link, forType: .string)
+                    model.message = "节点分享链接已复制到剪贴板"
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(link.isEmpty)
+            }
+            .padding(16)
+        }
+        .frame(minWidth: 680, minHeight: 340)
+        .task {
+            guard link.isEmpty else { return }
+            if let exported = await model.exportNode(item) {
+                link = exported
+            } else {
+                errorMessage = model.message
+            }
+        }
     }
 }
 

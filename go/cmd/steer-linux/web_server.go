@@ -73,6 +73,7 @@ func webHandler(app webApplication) http.Handler {
 	mux.HandleFunc("/api/v1/validate", app.auth(app.handleValidate))
 	mux.HandleFunc("/api/v1/apply", app.auth(app.handleApply))
 	mux.HandleFunc("/api/v1/nodes/import", app.auth(app.handleNodeImport))
+	mux.HandleFunc("/api/v1/nodes/export", app.auth(app.handleNodeExport))
 	mux.HandleFunc("/api/v1/probes/", app.auth(app.handleProbes))
 	mux.HandleFunc("/api/v1/subscriptions", app.auth(app.handleSubscriptions))
 	mux.HandleFunc("/api/v1/subscriptions/", app.auth(app.handleSubscriptions))

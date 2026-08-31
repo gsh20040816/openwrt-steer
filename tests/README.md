@@ -39,7 +39,7 @@ cd macos
 swift test --disable-sandbox
 ```
 
-- `internal/subscription` Go 测试：三端共享的代理 URI、多行与 Base64 解析；
+- `internal/subscription` Go 测试：三端共享的代理 URI、多行与 Base64 解析，以及逐协议非丢失导出闭环；
 - `subscription-status-fixtures.json`：三端共享的 never-fetched、success、skipped、failed-after-success、disabled 与部分 stale 引用状态；
 - `probe-diagnostics-fixtures.json`：三端共享的内部 sanitized probe 事实、普通 UI 最近结果摘要边界、Active port-53 配置检查与 enabled/disabled 操作事实；
 - `state-lifecycle-fixtures.json`：三端共享的 fresh、pending-disable、failed-Apply 与 active Draft/Saved/Active 状态；
