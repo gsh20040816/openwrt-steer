@@ -102,8 +102,8 @@ workflow = (ROOT / ".github/workflows/release.yml").read_text()
 ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 geodata_workflow = (ROOT / ".github/workflows/geodata.yml").read_text()
 geodata_contract = (ROOT / "go/internal/geodata/geodata.go").read_text()
-sing_box_version = "1.14.0-rc.2"
-sing_box_linux_sha256 = "e3ba239bd4bccaa2cbfc44a5536fcc6f7a8f5f5ff710b345c32aa594756aee89"
+sing_box_version = "1.14.0"
+sing_box_linux_sha256 = "d2d6b4543d850269214ced70ffe41b13b1595baa1b6f9c016466abfba162c4d4"
 geoview_ref = "3c91926d360b8f49d47520639e574608318baf12"
 if f'SingBoxCompiler       = "{sing_box_version}"' not in geodata_contract:
     fail("Geo manifest compiler identity does not match the verified sing-box baseline")
@@ -127,10 +127,10 @@ for required in (
     if required not in geodata_workflow:
         fail(f"Geo workflow does not rebuild on compiler identity changes: {required}")
 for required in (
-    "SING_BOX_OPENWRT_VERSION: 1.14.0-rc.2",
-    "SING_BOX_OPENWRT_X86_64_SHA256: 517c1646a5273dc4e6db24936f1e81ab7c96e3e8d24c252f07777fb3af9eba3b",
-    "SING_BOX_MACOS_VERSION: 1.14.0-rc.2",
-    "SING_BOX_MACOS_REVISION: f5b8b7a57922084361907a13273f2c88f35ae7c7",
+    "SING_BOX_OPENWRT_VERSION: 1.14.0",
+    "SING_BOX_OPENWRT_X86_64_SHA256: 928adcc81192623408b1378d7d4e4745da0d5acb09a42b28e7e3e787fbec3d8c",
+    "SING_BOX_MACOS_VERSION: 1.14.0",
+    "SING_BOX_MACOS_REVISION: 0b8995879f29a9b98ee027bc17b75e101445b238",
 ):
     if required not in workflow:
         fail(f"release workflow does not pin the verified sing-box runtime: {required}")

@@ -62,7 +62,7 @@ swift test --disable-sandbox
 
 ## Linux systemd 容器
 
-`tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器，不能用于生产主机。发布 CI 使用 `tests/integration/linux-system.Dockerfile` 构建固定 Debian 环境，挂载本次构建的 Steer、同次验证的 SRS seed 和校验过 SHA-256 的 sing-box 1.14.0-rc.2 musl 二进制。
+`tests/integration/run-linux-system.sh` 只能运行在显式设置 `STEER_LINUX_SYSTEM_TEST=1` 的一次性 privileged systemd 容器，不能用于生产主机。发布 CI 使用 `tests/integration/linux-system.Dockerfile` 构建固定 Debian 环境，挂载本次构建的 Steer、同次验证的 SRS seed 和校验过 SHA-256 的 sing-box 1.14.0 musl 二进制。
 
 CI 只对容器基础设施启动做有限重试：镜像只构建一次，容器最多重建 3 次，每次最多等待 30 秒，必须等到 systemd 可响应且 `systemd-resolved` active；每次失败输出容器状态、failed units 和本次 boot journal。真正的 `run-linux-system.sh` 产品集成只运行一次，失败不会重试或被掩盖。
 

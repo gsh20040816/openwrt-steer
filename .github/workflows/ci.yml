@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  SING_BOX_VERSION: 1.14.0-rc.2
-  SING_BOX_LINUX_AMD64_MUSL_SHA256: e3ba239bd4bccaa2cbfc44a5536fcc6f7a8f5f5ff710b345c32aa594756aee89
+  SING_BOX_VERSION: 1.14.0
+  SING_BOX_LINUX_AMD64_MUSL_SHA256: d2d6b4543d850269214ced70ffe41b13b1595baa1b6f9c016466abfba162c4d4
 
 jobs:
   linux-openwrt:
