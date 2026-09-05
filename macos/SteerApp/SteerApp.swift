@@ -75,8 +75,8 @@ private struct MenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button(model.draftEnabled ? "停用 Steer" : "启用 Steer") {
-            model.setEnabledAndApply(!model.draftEnabled)
+        Button(model.savedEnabled ? "停用 Steer" : "启用 Steer") {
+            model.setEnabledAndApply(!model.savedEnabled)
         }
         .disabled(!model.canToggleEnabled)
         Divider()

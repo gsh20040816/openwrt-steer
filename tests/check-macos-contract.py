@@ -144,7 +144,9 @@ def main() -> None:
     assert 'Toggle("Steer"' in content and 'Toggle("启用配置"' not in content
     assert 'func setEnabledAndApply' in state
     assert 'var canToggleEnabled' in state and 'canSaveAndApplyDraft' in state
-    assert '保存当前工作副本并应用启用状态' in state
+    assert 'self.backend.setEnabled(enabled)' in state
+    assert 'controlOperation(["state"])' in state
+    assert 'controlOperation(["status"])' in state
     assert 'guard !isDirty else {' not in state
     assert 'initialStateLoadInProgress' in state
     assert 'guard !hasInitializedDraft, !initialStateLoadInProgress,' in state
@@ -160,9 +162,9 @@ def main() -> None:
     assert 'testInitialLoadRunsOnceAndWindowReopenPreservesDirtyDraft' in lifecycle_tests
     assert 'testInitialLoadFailureCanRetryWithoutOverwritingLaterEdits' in lifecycle_tests
     assert 'testFirstInstallCanSaveAndPreserveAnEditedDraft' in lifecycle_tests
-    assert 'testDirtyEnableSavesAndAppliesTheEntireCurrentDraft' in lifecycle_tests
+    assert 'testDirtyEnablePreservesDraftAndAppliesLatestSaved' in lifecycle_tests
     assert 'testEnableApplyFailureKeepsSavedToggleSeparateFromActiveState' in lifecycle_tests
-    assert 'testInvalidDraftBlocksEnableAndKeepsExistingEdits' in lifecycle_tests
+    assert 'testInvalidDraftDoesNotBlockSavedToggle' in lifecycle_tests
     assert 'testApplySavedPreservesAnIndependentDirtyDraft' in lifecycle_tests
     assert 'testSaveAndApplyDoesNotMarkNewerInFlightEditsClean' in lifecycle_tests
     assert 'testTerminationGuardCancelAndSaveReplyWithoutApplying' in lifecycle_tests
@@ -212,7 +214,7 @@ def main() -> None:
     assert 'Self.command(arguments)' in state and '"--remove-user-data"' in state
     assert 'SystemComponentFact' in state and 'control_socket' in state and 'runtime_service' in state
     assert 'Data(contentsOf: url)' in state
-    assert 'Self.execute(helper, ["status"])' in state
+    assert 'controlOperation(["status"])' in state
     assert '"apply"' in state and '"status"' in state
     assert '/Library/Application Support/Steer/config/config.json' in state
     assert 'openWindow(id: "main")' in app

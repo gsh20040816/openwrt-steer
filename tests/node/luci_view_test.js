@@ -2332,8 +2332,8 @@ async function main() {
 		assert.ok(source.includes('steer.loadStyle(this)'), `${relative} mounts the shared global status area with its current form view`);
 	}
 	assert.equal(uiSpec.global_status.visible_on_every_page, true);
-	assert.equal(uiSpec.global_status.enable_action, 'save_and_apply_current_draft');
-	assert.equal(uiSpec.global_status.includes_current_draft, true);
+	assert.equal(uiSpec.global_status.enable_action, 'set_enabled_on_latest_saved');
+	assert.equal(uiSpec.global_status.includes_current_draft, false);
 	const nodesSource = fs.readFileSync(path.join(root,
 		'luci-app-steer/htdocs/luci-static/resources/view/steer/nodes.js'), 'utf8');
 	assert.ok(nodesSource.includes('steer.updateSubscription(subscription.id)') &&
@@ -2352,9 +2352,9 @@ async function main() {
 		steerSource.includes("return uci.get('steer', sectionId, 'name') || _('Unnamed');"),
 		'all named GridSections share one user-name title policy with a safe unnamed fallback');
 	assert.ok(steerSource.includes('setGlobalEnabled: function(enabled, view)') &&
-		steerSource.indexOf("view.handleSave()") < steerSource.indexOf("uci.set('steer', 'main', 'enabled'") &&
-		steerSource.includes("this.permissions([ 'commit_candidate', 'discard_candidate', 'apply_saved' ], true)"),
-		'the global LuCI Enable action captures the current form before changing and applying the complete UCI candidate');
+		steerSource.includes("return callSetEnabled(enabled)") &&
+		steerSource.includes("this.permissions([ 'commit_candidate', 'discard_candidate', 'apply_saved', 'set_enabled' ], true)"),
+		'the global LuCI Enable action uses its dedicated RPC and permission');
 	assert.ok(!nodesSource.includes("|| sectionId") &&
 		!nodesSource.includes("|| uci.get('steer', sectionId, 'url')"),
 		'ordinary Node, Route and Subscription rows never expose IDs or URLs as fallback names');

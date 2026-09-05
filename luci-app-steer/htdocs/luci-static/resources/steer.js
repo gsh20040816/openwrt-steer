@@ -9,6 +9,7 @@
 
 const callStatus = rpc.declare({ object: 'luci.steer', method: 'status', expect: { '': {} } });
 const callOverviewState = rpc.declare({ object: 'luci.steer', method: 'overview_state', expect: { '': {} } });
+const callSetEnabled = rpc.declare({ object: 'luci.steer', method: 'set_enabled', params: [ 'enabled' ], expect: { '': {} } });
 const callApplySaved = rpc.declare({ object: 'luci.steer', method: 'apply_saved', expect: { '': {} } });
 const callValidate = rpc.declare({ object: 'luci.steer', method: 'validate', expect: { '': {} } });
 const callCommitCandidate = rpc.declare({ object: 'luci.steer', method: 'commit_candidate', expect: { '': {} } });
@@ -330,19 +331,19 @@ return baseclass.extend({
 		if (!host?.prepend) return;
 		return Promise.all([
 			this.overviewState(),
-			this.permissions([ 'commit_candidate', 'discard_candidate', 'apply_saved' ], true)
+			this.permissions([ 'commit_candidate', 'discard_candidate', 'apply_saved', 'set_enabled' ], true)
 		]).then(([ state, permissions ]) => {
 			if (mountSequence != this._lifecycleMountSequence) return;
 			if (state?.ok !== true) return;
 			const desired = state.desired || {};
 			const saved = state.saved || {};
 			const active = state.active || {};
-			const desiredEnabled = desired.enabled === true;
+			const desiredEnabled = saved.enabled === true;
 			const desiredValid = desired.validation?.ok === true;
 			const canApplyPending = permissions.commit_candidate === true && permissions.uci_write === true;
 			const canApplySaved = permissions.apply_saved === true;
 			const operationBusy = this._lifecycleOperationBusy === true;
-			const toggleAllowed = canApplyPending && desiredValid && !operationBusy && this._globalEnableBusy !== true;
+			const toggleAllowed = permissions.set_enabled === true && !operationBusy && this._globalEnableBusy !== true;
 			const actions = [];
 			const controls = [];
 			const run = (button, operation) => {
@@ -380,8 +381,7 @@ return baseclass.extend({
 				'role': 'switch',
 				'aria-checked': desiredEnabled ? 'true' : 'false',
 				'disabled': toggleAllowed ? null : true,
-				'title': !canApplyPending ? _('You do not have permission to change Steer.')
-					: (!desiredValid ? _('Fix validation errors before changing Steer.') : '')
+				'title': permissions.set_enabled !== true ? _('You do not have permission to change Steer.') : _('Apply Saved configuration')
 			}, desiredEnabled ? _('Enabled') : _('Disabled'));
 			controls.push(toggle);
 			toggle.addEventListener('click', () => run(toggle, () => this.setGlobalEnabled(!desiredEnabled, this._lifecycleView)));
@@ -410,21 +410,16 @@ return baseclass.extend({
 	setGlobalEnabled: function(enabled, view) {
 		if (this._globalEnableBusy === true) return Promise.resolve({ busy: true });
 		this._globalEnableBusy = true;
-		const current = uci.get('steer', 'main', 'enabled');
-		let candidateSaved = false;
-		const capture = typeof(view?.handleSave) == 'function' ? view.handleSave() : Promise.resolve();
-		return Promise.resolve(capture)
-			.then(() => {
-				uci.set('steer', 'main', 'enabled', enabled ? '1' : '0');
-				return uci.save();
-			})
-			.then(() => { candidateSaved = true; })
-			.then(() => this.applyPending())
-			.catch((error) => {
-				if (!candidateSaved) uci.set('steer', 'main', 'enabled', current);
-				throw error;
-			})
-			.finally(() => { this._globalEnableBusy = false; });
+        return callSetEnabled(enabled).then((result) => {
+            if (result?.ok !== true) {
+                if (result?.saved === true) {
+                    ui.addNotification(_('Configuration saved; application failed'), resultMessage(result), 'danger');
+                    return result;
+                }
+                throw result;
+            }
+            return result;
+        }).finally(() => { this._globalEnableBusy = false; });
 	},
 
 	status: function() { return L.resolveDefault(callStatus(), {}); },

@@ -247,9 +247,9 @@ if probe_results_contract.get("key_fields") != ["scope", "object_id", "kind"] or
 global_status = contract.get("global_status", {})
 if (
     global_status.get("visible_on_every_page") is not True
-    or global_status.get("enable_action") != "save_and_apply_current_draft"
-    or global_status.get("includes_current_draft") is not True
-    or global_status.get("blocking_conditions") != ["invalid_draft", "revision_conflict", "write_in_progress"]
+    or global_status.get("enable_action") != "set_enabled_on_latest_saved"
+    or global_status.get("includes_current_draft") is not False
+    or global_status.get("blocking_conditions") != ["write_in_progress"]
     or global_status.get("facts") != ["draft", "saved_enabled", "active", "pending_apply"]
     or global_status.get("actions") != ["enable", "save", "apply_saved", "save_and_apply", "discard"]
 ):

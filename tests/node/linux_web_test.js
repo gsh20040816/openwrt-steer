@@ -240,6 +240,7 @@ function createEnvironment(save, intent = { main: { enabled: true } }, options =
       dirty: false,
       pendingApply: options.pendingApply === true,
       save,
+      setEnabled: (enabled) => save(enabled),
       applySaved: options.applySaved || (async () => ({ ok: true })),
       installProbeResult(result) {
         const key = (value) => `${value.scope}:${value.object_id || ''}:${value.kind}`;
@@ -461,54 +462,31 @@ async function testFailedToggleRestoresDraft() {
 }
 
 async function testGlobalEnableContractUsesTheCompleteDirtyDraft() {
-  assert.strictEqual(uiSpec.global_status.visible_on_every_page, true);
-  assert.strictEqual(uiSpec.global_status.enable_action, 'save_and_apply_current_draft');
-  assert.strictEqual(uiSpec.global_status.includes_current_draft, true);
+  assert.strictEqual(uiSpec.global_status.enable_action, 'set_enabled_on_latest_saved');
+  assert.strictEqual(uiSpec.global_status.includes_current_draft, false);
   const intent = draftLifecycleIntent();
   intent.main.log_level = 'debug';
-  let captured;
-  const environment = createEnvironment(async (apply) => {
-    captured = JSON.parse(JSON.stringify(intent));
-    return { ok: true, res: { applied: apply } };
+  let requested;
+  const environment = createEnvironment(async (enabled) => {
+    requested = enabled;
+    return { ok: true, res: { applied: true } };
   }, intent);
   environment.S.store.dirty = true;
-
+  environment.S.store.draftValid = false;
+  environment.S.store.draftError = 'invalid JSON';
   await environment.S.ui.onToggleEnabled(false);
-
-  assert.strictEqual(captured.main.enabled, false);
-  assert.strictEqual(captured.main.log_level, 'debug');
-  assert.strictEqual(captured.nodes.length, intent.nodes.length);
-  assert.strictEqual(captured.rules.length, intent.rules.length);
-
-  let invalidCalls = 0;
-  const invalid = createEnvironment(async () => { invalidCalls++; return { ok: true }; }, draftLifecycleIntent());
-  invalid.S.store.draftValid = false;
-  invalid.S.store.draftError = 'invalid JSON';
-  await invalid.S.ui.onToggleEnabled(false);
-  assert.strictEqual(invalidCalls, 0, 'an invalid Draft blocks the global Enable action');
-  assert.strictEqual(invalid.S.store.intent.main.enabled, true);
+  assert.strictEqual(requested, false);
+  assert.strictEqual(intent.main.enabled, true);
+  assert.strictEqual(intent.main.log_level, 'debug');
+  assert.strictEqual(environment.S.store.dirty, true);
 }
 
 async function testConflictRestoresUntilOverwriteIsChosen() {
-  const calls = [];
-  const environment = createEnvironment(async (apply, force) => {
-    calls.push({ apply, force });
-    if (calls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
-    return { ok: true, res: { applied: true } };
-  });
+  const environment = createEnvironment(async () => ({ ok: true, res: { applied: true } }));
   await environment.S.ui.onToggleEnabled(false);
-  assert.strictEqual(environment.S.store.intent.main.enabled, true, 'conflicted toggle must restore the prior draft value');
-
-  const overwrite = find(environment.body, (element) => element.tag === 'button' && text(element).includes('覆盖保存'));
-  assert.ok(overwrite, 'conflict dialog must offer an explicit overwrite action');
-  overwrite.listeners.click();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.strictEqual(environment.S.store.intent.main.enabled, false, 'overwrite must reapply the requested toggle');
-  assert.strictEqual(environment.touchCount, 1, 'overwrite must mark the reapplied toggle dirty before saving');
-  assert.deepStrictEqual(calls, [{ apply: true, force: undefined }, { apply: true, force: true }],
-    'Disable conflict overwrite must preserve Apply intent');
+  assert.strictEqual(environment.S.store.intent.main.enabled, true);
+  assert.strictEqual(environment.touchCount, 0);
+  assert.ok(!find(environment.body, (element) => element.tag === 'button' && text(element).includes('覆盖保存')));
 }
 
 async function testConflictOverwritePreservesEverySaveIntent() {
@@ -530,17 +508,7 @@ async function testConflictOverwritePreservesEverySaveIntent() {
   assert.deepStrictEqual(await exercise(true), [{ apply: true, force: undefined }, { apply: true, force: true }],
     'Save and Apply conflict overwrite must still Apply');
 
-  const enableCalls = [];
-  const enabled = createEnvironment(async (apply, force) => {
-    enableCalls.push({ apply, force });
-    if (enableCalls.length === 1) return { ok: false, conflict: { serverRevision: 'revision-2', external: {} } };
-    return { ok: true, res: { applied: true } };
-  }, { main: { enabled: false } });
-  await enabled.S.ui.onToggleEnabled(true);
-  lastButtonWithText(enabled.body, '覆盖保存（保留本地修改）').listeners.click();
-  await flushUI();
-  assert.deepStrictEqual(enableCalls, [{ apply: true, force: undefined }, { apply: true, force: true }],
-    'Enable conflict overwrite must preserve Apply intent');
+
 }
 
 async function testApplyFailureNotificationsTakePrecedenceOverStaleDraft() {
@@ -1449,8 +1417,7 @@ async function testExternalRevisionRefreshPreservesDraftAndLifecycleFacts() {
     assert.match(strip, /配置开关/);
     assert.match(strip, /运行状态/);
     if (fixture.name === 'pending-disable') {
-      assert.match(strip, /配置开关禁用/);
-      assert.match(strip, /已保存开关启用/);
+      assert.match(strip, /配置开关启用/);
       assert.match(strip, /正常运行/,
         'pending disable must keep the service state visible');
     }
@@ -1724,44 +1691,57 @@ async function testSaveAndApplySurviveOverviewRefreshFailure() {
 }
 
 async function testEnableConflictUsesCurrentDraftObject() {
+  for (const dirty of [false, true]) {
+    const backend = createDraftBackend();
+    const environment = createEnvironment(async () => ({ ok: true }));
+    attachRealStore(environment, backend.api);
+    await environment.S.store.init();
+    const originalRevision = environment.S.store.revision;
+    const local = draftLifecycleIntent();
+    local.main.log_level = 'debug';
+    if (dirty) environment.S.store.editJSON(JSON.stringify(local));
+    // A subscription update happened after this browser loaded its draft.
+    backend.intent.nodes.push({ id: 'fresh-feed-node', enabled: true });
+    const gate = deferred();
+    backend.api.setEnabled = async (enabled) => {
+      await gate.promise;
+      backend.intent.main.enabled = enabled;
+      return { saved: true, applied: true, intent: backend.intent, revision: '"new-revision"' };
+    };
+    const toggling = environment.S.store.setEnabled(false);
+    assert.strictEqual((await environment.S.store.setEnabled(true)).busy, true);
+    gate.resolve();
+    await toggling;
+    if (dirty) {
+      assert.strictEqual(environment.S.store.intent.main.log_level, 'debug');
+      assert.strictEqual(environment.S.store.intent.main.enabled, true);
+      assert.strictEqual(environment.S.store.revision, originalRevision);
+      assert.strictEqual(environment.S.store.dirty, true);
+    } else {
+      assert.strictEqual(environment.S.store.intent.main.enabled, false);
+      assert.ok(environment.S.store.intent.nodes.some((n) => n.id === 'fresh-feed-node'));
+      assert.strictEqual(environment.S.store.revision, '"new-revision"');
+      assert.strictEqual(environment.S.store.dirty, false);
+    }
+    assert.strictEqual(backend.puts.length, 0);
+  }
   const backend = createDraftBackend();
   const environment = createEnvironment(async () => ({ ok: true }));
   attachRealStore(environment, backend.api);
   await environment.S.store.init();
-  const conflictGate = deferred();
-  const requests = [];
-  backend.api.putConfig = async (snapshot, _revision, apply) => {
-    requests.push({ snapshot: JSON.parse(JSON.stringify(snapshot)), apply });
-    if (requests.length === 1) {
-      await conflictGate.promise;
-      const error = new Error('revision conflict');
-      error.code = 'CONFLICT';
-      error.serverRevision = '"revision-2"';
-      error.external = {};
-      throw error;
-    }
-    return { saved: true, applied: true, revision: '"revision-3"' };
+  const gate = deferred();
+  backend.api.setEnabled = async () => {
+    await gate.promise;
+    return { saved: true, applied: false, intent: backend.intent, revision: '"new-revision"' };
   };
-
-  const toggling = environment.S.ui.onToggleEnabled(false);
-  await Promise.resolve();
-  const replacement = draftLifecycleIntent();
-  replacement.main.enabled = true;
-  replacement.main.log_level = 'debug';
-  environment.S.store.editJSON(JSON.stringify(replacement, null, 2));
-  const currentMain = environment.S.store.intent.main;
-  conflictGate.resolve();
-  await toggling;
-  assert.strictEqual(environment.S.store.intent.main, currentMain, 'conflict must not roll back through a stale main object');
-  assert.strictEqual(environment.S.store.intent.main.log_level, 'debug', 'newer Advanced Draft must survive the conflict response');
-
-  lastButtonWithText(environment.body, '覆盖保存（保留本地修改）').listeners.click();
-  await flushUI();
-  assert.strictEqual(environment.S.store.intent.main, currentMain);
-  assert.strictEqual(environment.S.store.intent.main.enabled, false, 'overwrite callback must mutate the current Draft main');
-  assert.strictEqual(requests[1].snapshot.main.log_level, 'debug');
-  assert.strictEqual(requests[1].snapshot.main.enabled, false);
-  assert.strictEqual(requests[1].apply, true, 'Enable/Disable overwrite must retain Apply intent');
+  const toggling = environment.S.store.setEnabled(false);
+  environment.S.store.editJSON('{invalid concurrent edit');
+  gate.resolve();
+  const result = await toggling;
+  assert.strictEqual(result.res.applied, false);
+  assert.strictEqual(environment.S.store.dirty, true);
+  assert.strictEqual(environment.S.store.draftText, '{invalid concurrent edit');
+  assert.strictEqual(environment.S.store.revision, '"revision-1"');
 }
 
 async function testAdvancedRouterDiscardAndGuardedActions() {

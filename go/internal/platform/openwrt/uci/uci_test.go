@@ -64,3 +64,35 @@ func TestParsePreservesMultilineSingleQuotedOption(t *testing.T) {
 		t.Fatalf("multiline private key changed: %q", got)
 	}
 }
+
+func TestSetEnabledPreservesOtherSavedBytes(t *testing.T) {
+	content := "# configuration\nconfig steer 'main'\n\toption enabled '1'\n\toption log_level 'debug'\n\nconfig node 'feed_node'\n\toption enabled '1'\n\toption private_key 'line one\nline two'\n"
+	disabled, err := SetEnabled(content, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := strings.Replace(content, "option enabled '1'", "option enabled '0'", 1)
+	if disabled != expected {
+		t.Fatalf("changed unrelated saved bytes: %q", disabled)
+	}
+	enabled, err := SetEnabled(disabled, true)
+	if err != nil || enabled != content {
+		t.Fatalf("roundtrip: %q %v", enabled, err)
+	}
+	for _, input := range []string{"config steer 'main'", "config steer 'main'\n\nconfig node 'feed'\n\toption enabled '0'\n"} {
+		updated, err := SetEnabled(input, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := Parse(strings.NewReader(updated))
+		if err != nil || parsed.Sections[0].Options["enabled"] != "1" {
+			t.Fatalf("insert missing option: %q %v", updated, err)
+		}
+	}
+	if _, err := SetEnabled("config node 'main'\n", false); err == nil {
+		t.Fatal("accepted missing main")
+	}
+	if _, err := SetEnabled("config steer 'main'\noption enabled 'unterminated", false); err == nil {
+		t.Fatal("accepted malformed saved file")
+	}
+}

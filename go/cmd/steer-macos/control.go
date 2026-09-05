@@ -48,6 +48,7 @@ type controlRequest struct {
 	NodeID           string `json:"node_id,omitempty"`
 	RouteID          string `json:"route_id,omitempty"`
 	Download         bool   `json:"download,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
 }
 
 type controlResponse struct {
@@ -83,11 +84,12 @@ func runControlClient(args []string, stdout io.Writer) error {
 	inputPath := flags.String("input", "", "canonical JSON input file")
 	expectedRevision := flags.String("expected-revision", "", "expected Saved configuration revision")
 	id := flags.String("id", "", "subscription ID for a restricted subscription operation")
+	enabledText := flags.String("enabled", "", "desired enabled state: true or false")
 	nodeID := flags.String("node", "", "stale node ID for a restricted subscription operation")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	allowed := *operation == "save" || *operation == "apply" || *operation == "subscription-update" || *operation == "subscription-clean"
+	allowed := *operation == "status" || *operation == "state" || *operation == "set-enabled" || *operation == "save" || *operation == "apply" || *operation == "subscription-update" || *operation == "subscription-clean"
 	if flags.NArg() != 0 || !allowed {
 		return errors.New("control requires a supported restricted operation")
 	}
@@ -101,12 +103,19 @@ func runControlClient(args []string, stdout io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("read control input: %w", err)
 		}
-	} else if *id == "" || (*operation == "subscription-clean" && *nodeID == "") {
+	} else if (*operation == "subscription-update" || *operation == "subscription-clean") && (*id == "" || (*operation == "subscription-clean" && *nodeID == "")) {
 		return errors.New("control subscription operation requires --id and clean also requires --node")
 	}
 	request := controlRequest{
 		SchemaVersion: controlSchemaVersion, Operation: *operation, Document: string(document),
 		ExpectedRevision: *expectedRevision, ID: *id, NodeID: *nodeID,
+	}
+	if *operation == "set-enabled" {
+		if *enabledText != "true" && *enabledText != "false" {
+			return errors.New("set-enabled requires --enabled true or false")
+		}
+		enabled := *enabledText == "true"
+		request.Enabled = &enabled
 	}
 	response, err := sendControlRequest(*socketPath, request)
 	if err != nil {
@@ -247,7 +256,7 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 		response.Error = fmt.Sprintf("unsupported control request schema %d", request.SchemaVersion)
 		return response
 	}
-	if request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" && request.Operation != "probe" && request.Operation != "diagnostics" && request.Operation != "probe-results" {
+	if request.Operation != "status" && request.Operation != "state" && request.Operation != "set-enabled" && request.Operation != "save" && request.Operation != "apply" && request.Operation != "subscription-update" && request.Operation != "subscription-clean" && request.Operation != "probe" && request.Operation != "diagnostics" && request.Operation != "probe-results" {
 		response.Error = "unsupported control operation"
 		return response
 	}
@@ -260,6 +269,53 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			return response
 		}
 		defer lock.Close()
+	}
+	if request.Operation != "set-enabled" && request.Enabled != nil {
+		response.Error = "enabled is only accepted by set-enabled"
+		return response
+	}
+	if request.Operation == "status" || request.Operation == "state" || request.Operation == "set-enabled" {
+		if request.Document != "" || request.ExpectedRevision != "" || request.ID != "" || request.Kind != "" || request.NodeID != "" || request.RouteID != "" || request.Download {
+			response.Error = "unexpected operation arguments"
+			return response
+		}
+		if request.Operation == "status" {
+			status := service.readRuntimeStatus()
+			response.Status = &status
+			response.OK = true
+			return response
+		}
+		if request.Operation == "state" {
+			response.Payload, _ = json.Marshal(readUIState(service.configPath, service.options))
+			response.OK = true
+			return response
+		}
+		if request.Enabled == nil {
+			response.Error = "set-enabled requires enabled"
+			return response
+		}
+		// Read and change only the desired state while holding the same lock as
+		// subscription inventory updates. Never accept a client's stale document.
+		value, err := loadIntent(service.configPath)
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		value.Main.Enabled = *request.Enabled
+		var encoded bytes.Buffer
+		if err := model.EncodeJSON(&encoded, value); err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		request.Document = encoded.String()
+		response.Payload = json.RawMessage(encoded.Bytes())
+		revision, err := currentControlRevision(service.configPath)
+		if err != nil {
+			response.Error = err.Error()
+			return response
+		}
+		request.ExpectedRevision = revision
+		request.Operation = "apply"
 	}
 	if request.Operation == "diagnostics" {
 		if request.Document != "" || request.ExpectedRevision != "" || request.ID != "" || request.Kind != "" || request.NodeID != "" || request.RouteID != "" || request.Download {
@@ -441,6 +497,8 @@ func (service *controlService) handle(request controlRequest) controlResponse {
 			apply = applyControlConfiguration
 		}
 		if err := apply(value, service.options); err != nil {
+			status := service.readRuntimeStatus()
+			response.Status = &status
 			response.Error = err.Error()
 			return response
 		}

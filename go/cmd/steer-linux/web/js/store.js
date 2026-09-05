@@ -260,6 +260,33 @@
       }
     },
 
+    async setEnabled(enabled) {
+      if (saving || reloading || applying) return { ok: false, busy: true };
+      const startedMutation = mutationEpoch;
+      const wasDirty = dirty;
+      ++stateEpoch;
+      applying = true;
+      emit();
+      try {
+        const res = await S.api.setEnabled(enabled);
+        overview = { ...overview, saved_enabled: enabled, saved_revision: res.revision };
+        if (!wasDirty && startedMutation === mutationEpoch) {
+          installIntent(res.intent);
+          revision = res.revision;
+          externalRevision = '';
+          dirty = false;
+        }
+        // Preserve the original revision for dirty drafts: advancing it would
+        // allow a later save to silently overwrite new subscription inventory.
+        let overviewError = null;
+        try { await store.refreshOverview(); } catch (error) { overviewError = error; }
+        return { ok: true, res, staleDraft: dirty, overviewError };
+      } finally {
+        applying = false;
+        emit();
+      }
+    },
+
     async applySaved() {
       if (saving || reloading || applying) return { ok: false, busy: true };
       ++stateEpoch;

@@ -124,8 +124,17 @@ func (backend *Backend) ReadStatus(ctx context.Context) Status {
 			}
 			file.Close()
 		}
-		if backend.checkHealthyOnce(ctx, filepath.Join(backend.options.RunDirectory, "generations", current.Directory)) == nil {
+		activeBackend := NewBackend(backend.runner, value, backend.options)
+		if healthErr := activeBackend.checkHealthyOnce(ctx, filepath.Join(backend.options.RunDirectory, "generations", current.Directory)); healthErr == nil {
 			status.Healthy = true
+		} else {
+			status.Error = healthErr.Error()
+		}
+	} else {
+		// Only a missing current pointer means stopped. Missing/corrupt generation
+		// files and permission failures are status errors.
+		if _, pointerErr := os.Stat(filepath.Join(backend.options.RunDirectory, "current.json")); !os.IsNotExist(pointerErr) {
+			status.Error = err.Error()
 		}
 	}
 	return status

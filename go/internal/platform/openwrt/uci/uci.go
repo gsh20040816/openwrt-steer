@@ -192,3 +192,49 @@ func splitLine(line string) ([]string, error) {
 	flush()
 	return tokens, nil
 }
+
+// SetEnabled changes only the saved main switch. It never loads UCI delta paths,
+// and preserves all other source bytes, including comments and multiline keys.
+func SetEnabled(content string, enabled bool) (string, error) {
+	if _, err := Parse(strings.NewReader(content)); err != nil {
+		return "", err
+	}
+	replacement := "\toption enabled '0'\n"
+	if enabled {
+		replacement = "\toption enabled '1'\n"
+	}
+	offset, start, insertion := 0, 0, -1
+	inMain := false
+	var statement strings.Builder
+	for _, line := range strings.SplitAfter(content, "\n") {
+		if statement.Len() == 0 {
+			start = offset
+		}
+		statement.WriteString(line)
+		offset += len(line)
+		tokens, err := splitLine(statement.String())
+		if errors.Is(err, errUnterminatedValue) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if len(tokens) > 0 && tokens[0] == "config" {
+			inMain = len(tokens) == 3 && tokens[1] == "steer" && tokens[2] == "main"
+			if inMain {
+				insertion = offset
+			}
+		}
+		if inMain && len(tokens) == 3 && tokens[0] == "option" && tokens[1] == "enabled" {
+			return content[:start] + replacement + content[offset:], nil
+		}
+		statement.Reset()
+	}
+	if insertion < 0 {
+		return "", errors.New("saved Steer main section is missing")
+	}
+	if insertion > 0 && content[insertion-1] != '\n' {
+		replacement = "\n" + replacement
+	}
+	return content[:insertion] + replacement + content[insertion:], nil
+}

@@ -1425,9 +1425,6 @@ msgstr "规则"
 msgid "Active configuration"
 msgstr "运行配置"
 
-msgid "Fix validation errors before changing Steer."
-msgstr "请先修复配置校验错误，再切换 Steer。"
-
 msgid "Running abnormally"
 msgstr "运行异常"
 

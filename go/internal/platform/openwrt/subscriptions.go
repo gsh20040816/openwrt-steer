@@ -394,3 +394,20 @@ func readSubscriptionSnapshot(path string) (SubscriptionSnapshot, error) {
 	}
 	return snapshot, nil
 }
+
+// SetSavedEnabled modifies the committed file without reading or committing any
+// CLI or LuCI pending delta. The caller holds the shared operation lock.
+func SetSavedEnabled(ctx context.Context, configPath string, enabled bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	updated, err := uci.SetEnabled(string(content), enabled)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(configPath, []byte(updated))
+}

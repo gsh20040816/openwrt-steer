@@ -409,6 +409,12 @@ const methods = {
 	overview_state: {
 		call: overview_state
 	},
+	set_enabled: {
+        args: { enabled: false },
+        call: function(request) {
+            return command_json('/usr/sbin/steer apply --enabled ' + (request.args.enabled === true ? 'true' : 'false'));
+        }
+    },
 	apply_saved: {
 		call: function(request) {
 			return with_committed_configuration(request, function() {

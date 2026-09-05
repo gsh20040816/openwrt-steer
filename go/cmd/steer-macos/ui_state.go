@@ -32,14 +32,18 @@ func runUIState(args []string, stdout io.Writer) error {
 		return errors.New("_state accepts flags only")
 	}
 
-	value, loadErr := loadIntent(*configPath)
+	return writeJSON(stdout, readUIState(*configPath, options.value()))
+}
+
+func readUIState(configPath string, options macosplatform.BackendOptions) macUILifecycleState {
+	value, loadErr := loadIntent(configPath)
 	validation := model.Validation{OK: false, Errors: []model.Issue{}, Warnings: []model.Issue{}, WarningGroups: []model.WarningGroup{}}
 	saved := uistate.IntentState{Counts: uistate.Counts{}, Validation: validation}
-	backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, options.value())
+	backend := macosplatform.NewBackend(macosplatform.ExecRunner{}, value, options)
 	if loadErr == nil {
-		validation = macosplatform.ValidateWithGeoDataDirectory(value, options.geoDataDirectory)
+		validation = macosplatform.ValidateWithGeoDataDirectory(value, options.GeoDataDirectory)
 		saved = uistate.FromIntent(value, validation, compiler.Options{
-			StateDirectory: options.stateDirectory, GeoDataDirectory: options.geoDataDirectory,
+			StateDirectory: options.StateDirectory, GeoDataDirectory: options.GeoDataDirectory,
 			Target: macosplatform.NewPlan(value).CompilerTarget(),
 		})
 	} else {
@@ -49,5 +53,5 @@ func runUIState(args []string, stdout io.Writer) error {
 	}
 	active := backend.ReadStatus(context.Background())
 	pendingApply := uistate.PendingApply(saved, active.GenerationID, active.RuntimeDigest, active.LastApply)
-	return writeJSON(stdout, macUILifecycleState{Saved: saved, Active: active, PendingApply: pendingApply})
+	return macUILifecycleState{Saved: saved, Active: active, PendingApply: pendingApply}
 }

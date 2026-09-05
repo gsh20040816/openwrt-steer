@@ -64,6 +64,7 @@ func webHandler(app webApplication) http.Handler {
 	mux.HandleFunc("/app.js", app.handleAsset)
 	mux.HandleFunc("/style.css", app.handleAsset)
 	mux.HandleFunc("/js/", app.handleAsset)
+	mux.HandleFunc("/api/v1/enabled", app.auth(app.handleEnabled))
 	mux.HandleFunc("/api/v1/config", app.auth(app.handleConfig))
 	mux.HandleFunc("/api/v1/runtime", app.auth(app.handleRuntime))
 	mux.HandleFunc("/api/v1/logs", app.auth(app.handleLogs))

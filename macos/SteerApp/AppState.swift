@@ -806,6 +806,7 @@ protocol BackendClient: Sendable {
     func loadConfiguration() async throws -> ConfigurationSnapshot
     func save(document: String, expectedRevision: String) async throws -> SaveOutcome
     func apply(document: String, expectedRevision: String) async throws -> ApplyOutcome
+    func setEnabled(_ enabled: Bool) async throws -> (ApplyOutcome, ConfigurationSnapshot)
     func status() async throws -> RuntimeStatus
     func overviewState() async throws -> OverviewLifecycleState
     func logs() async throws -> String
@@ -822,6 +823,9 @@ protocol BackendClient: Sendable {
 }
 
 extension BackendClient {
+    func setEnabled(_ enabled: Bool) async throws -> (ApplyOutcome, ConfigurationSnapshot) {
+        throw BackendClientError.helperUnavailable
+    }
     func diagnostics() async throws -> ProbeDiagnostics { .empty }
     func probeResults() async throws -> ProbeLatestResults { .empty }
     func overviewState() async throws -> OverviewLifecycleState {
@@ -1033,23 +1037,39 @@ struct HelperBackendClient: BackendClient {
         }
     }
 
-    func status() async throws -> RuntimeStatus {
+    func setEnabled(_ enabled: Bool) async throws -> (ApplyOutcome, ConfigurationSnapshot) {
+        let response = try await controlOperation(["set-enabled", "--enabled", enabled ? "true" : "false"])
+        guard response.saved == true, let revision = response.revision,
+              let payload = response.payload, let status = response.status else {
+            throw BackendClientError.processFailed(response.error ?? "启用状态未保存")
+        }
+        let document = String(decoding: try JSONEncoder.pretty.encode(payload), as: UTF8.self)
+        return (ApplyOutcome(status: status, saved: true, applied: response.applied == true,
+                             revision: revision, error: response.error ?? "", validation: response.validation),
+                ConfigurationSnapshot(document: document, revision: revision))
+    }
+
+    private func controlOperation(_ arguments: [String]) async throws -> ControlResponse {
         let helper = URL(fileURLWithPath: Self.installedHelperPath)
         try requireExecutable(helper)
-        let result = try await Self.execute(helper, ["status"])
-        guard let status = try? JSONDecoder().decode(RuntimeStatus.self, from: result.stdout) else {
-            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        let result = try await Self.execute(helper, ["control", "--operation"] + arguments)
+        return try Self.decodeControlResponse(result)
+    }
+
+    func status() async throws -> RuntimeStatus {
+        let response = try await controlOperation(["status"])
+        guard response.ok, let status = response.status else {
+            throw BackendClientError.processFailed(response.error ?? "状态获取失败")
         }
         return status
     }
 
     func overviewState() async throws -> OverviewLifecycleState {
-        try requireExecutable(validationHelperURL)
-        let result = try await Self.execute(validationHelperURL, ["_state"])
-        guard let state = try? JSONDecoder().decode(OverviewLifecycleState.self, from: result.stdout) else {
-            throw result.status == 0 ? BackendClientError.invalidResponse : result.error
+        let response = try await controlOperation(["state"])
+        guard response.ok, let payload = response.payload else {
+            throw BackendClientError.processFailed(response.error ?? "状态获取失败")
         }
-        return state
+        return try JSONDecoder().decode(OverviewLifecycleState.self, from: JSONEncoder().encode(payload))
     }
 
     func logs() async throws -> String {
@@ -1501,17 +1521,20 @@ final class AppModel: ObservableObject {
 
     var canEditDraft: Bool { !isBusy && pendingDraftAction == nil }
 
-    var canToggleEnabled: Bool {
-        canSaveAndApplyDraft && revisionConflict == nil
+    var savedEnabled: Bool { overviewLifecycle.saved.available ? overviewLifecycle.saved.enabled : draftEnabled }
+
+    var canToggleEnabled: Bool { canApplySaved }
+
+    var runtimeStatusText: String {
+        if !runtime.error.isEmpty { return "服务状态异常" }
+        return runtime.healthy ? "服务运行正常" : (runtime.generationID.isEmpty ? "服务未运行" : "服务运行异常")
     }
 
     var enableToggleHelp: String {
         if isBusy { return "保存或应用操作正在进行" }
         if pendingDraftAction != nil { return "请先完成当前工作副本确认" }
-        if revisionConflict != nil { return "请先处理配置冲突" }
         if savedRevision.isEmpty { return "尚未加载已保存配置" }
-        if draftSyntaxError != nil { return "请先修复工作副本格式错误" }
-        return isDirty ? "保存当前工作副本并应用启用状态" : "立即保存并应用启用状态"
+        return "使用最新已保存配置切换运行状态，保留未保存修改"
     }
 
     var hasActiveGeneration: Bool {
@@ -1650,6 +1673,7 @@ final class AppModel: ObservableObject {
                         : (self.runtime.generationID.isEmpty ? "已连接服务，Steer 当前未运行" : "Steer 运行异常")
                 }
             } catch {
+                self.runtime.error = "状态获取失败：\(error.localizedDescription)"
                 self.message = "连接 Steer 服务失败：\(error.localizedDescription)"
             }
         }
@@ -1691,10 +1715,13 @@ final class AppModel: ObservableObject {
             async let lifecycle = self.backend.overviewState()
             let components = await self.backend.componentStatus()
             self.updateComponentStatus(components)
-            self.installOverviewLifecycle(try await lifecycle)
-            self.message = self.runtime.healthy
-                ? "Steer 运行正常"
-                : (self.runtime.generationID.isEmpty ? "Steer 当前未运行" : "Steer 运行异常")
+            do {
+                self.installOverviewLifecycle(try await lifecycle)
+            } catch {
+                self.runtime.error = "状态获取失败：\(error.localizedDescription)"
+                throw error
+            }
+            self.message = self.runtimeStatusText
         }
     }
 
@@ -1901,94 +1928,26 @@ final class AppModel: ObservableObject {
     }
 
     func setEnabledAndApply(_ enabled: Bool) {
-        guard !isBusy, pendingDraftAction == nil, revisionConflict == nil, enabled != draftEnabled else { return }
-        guard savedRevision.isEmpty == false else {
-            message = "尚未加载已保存配置，无法切换运行状态"
-            return
-        }
-        guard var root = parseDraft()?.objectValue else {
-            message = "当前工作副本不是合法的 JSON，无法切换运行状态"
-            return
-        }
-        let previousDocument = rawJSON
-        let previousDirty = isDirty
-        let expectedRevision = savedRevision
-        var main = root["main"]?.objectValue ?? [:]
-        main["enabled"] = .bool(enabled)
-        root["main"] = .object(main)
-        guard let data = try? JSONEncoder.pretty.encode(JSONValue.object(root)) else {
-            message = "写回启用状态失败"
-            return
-        }
-
-        let updatedDocument = String(decoding: data, as: UTF8.self)
-        rawJSON = updatedDocument
-        draftMutationSequence &+= 1
-        let operationDraftSequence = draftMutationSequence
-        isDirty = true
-        validation = nil
-        validationFocus = nil
-        isBusy = true
-        message = enabled ? "正在启用并应用 Steer…" : "正在停用并清理 Steer…"
-        Task {
-            defer { isBusy = false }
-            do {
-                let outcome = try await backend.apply(document: updatedDocument, expectedRevision: expectedRevision)
-                runtime = outcome.status
-                await refreshOverviewLifecycleIfAvailable()
-                await refreshProbeResultsIfAvailable()
-                updateComponentStatus(await backend.componentStatus())
-                guard outcome.saved else {
-                    throw BackendClientError.processFailed(
-                        outcome.error.isEmpty ? "启用状态未保存" : outcome.error
-                    )
-                }
-                let draftStayedAtAppliedCandidate: Bool
-                draftStayedAtAppliedCandidate = adoptSavedRevision(
-                    outcome.revision,
-                    document: updatedDocument,
-                    draftSequence: operationDraftSequence
-                )
-                if draftStayedAtAppliedCandidate, let writeValidation = outcome.validation {
-                    validation = writeValidation
-                }
-                if outcome.applied {
-                    message = draftStayedAtAppliedCandidate
-                        ? (enabled ? "Steer 已启用并应用" : "Steer 已停用并清理运行资源")
-                        : "启用状态已应用；操作期间产生的新修改仍未保存"
-                } else {
-                    message = draftStayedAtAppliedCandidate
-                        ? "启用状态已保存，但应用失败：\(outcome.error)"
-                        : "启用状态已保存但应用失败；操作期间产生的新修改仍未保存"
-                }
-            } catch {
-                if let backendError = error as? BackendClientError,
-                   case let .validationFailed(result) = backendError {
-                    if draftMatches(document: updatedDocument, sequence: operationDraftSequence) {
-                        rawJSON = previousDocument
-                        isDirty = previousDirty
-                        validation = result
-                        validationFocus = nil
-                        message = "当前工作副本校验失败：\(result.errors.count) 个错误；启用状态未保存，运行配置未改变"
-                    } else {
-                        isDirty = true
-                        message = "切换时校验失败，但工作副本已变化；旧问题结果已丢弃"
-                    }
-                    return
-                }
-                if recordRevisionConflict(error, operation: .apply) {
-                    isDirty = true
-                    return
-                }
-                if draftMatches(document: updatedDocument, sequence: operationDraftSequence) {
-                    rawJSON = previousDocument
-                    isDirty = previousDirty
-                    message = "切换 Steer 状态失败：\(error.localizedDescription)"
-                } else {
-                    isDirty = true
-                    message = "切换 Steer 状态失败；操作期间产生的新修改已保留"
-                }
+        guard canToggleEnabled else { return }
+        let document = rawJSON
+        let sequence = draftMutationSequence
+        let wasDirty = isDirty
+        perform(message: enabled ? "正在启用 Steer…" : "正在停用 Steer…") {
+            let (outcome, snapshot) = try await self.backend.setEnabled(enabled)
+            self.runtime = outcome.status
+            self.overviewLifecycle.saved.available = true
+            self.overviewLifecycle.saved.enabled = enabled
+            if !wasDirty, self.draftMatches(document: document, sequence: sequence) {
+                self.replaceDraft(with: snapshot)
             }
+            // Dirty drafts keep their original revision so a later save cannot
+            // overwrite subscription changes that were not present in the draft.
+            await self.refreshOverviewLifecycleIfAvailable()
+            await self.refreshProbeResultsIfAvailable()
+            self.message = outcome.applied
+                ? (enabled ? "Steer 已启用" : "Steer 已停用并清理运行资源")
+                : "启用状态已保存，但应用失败：\(outcome.error)"
+            if self.isDirty { self.message += "；未保存修改已保留" }
         }
     }
 
@@ -2910,8 +2869,10 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshOverviewLifecycleIfAvailable() async {
-        if let lifecycle = try? await backend.overviewState() {
-            installOverviewLifecycle(lifecycle)
+        do {
+            installOverviewLifecycle(try await backend.overviewState())
+        } catch {
+            runtime.error = "状态刷新失败：\(error.localizedDescription)"
         }
     }
 

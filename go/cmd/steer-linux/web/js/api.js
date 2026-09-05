@@ -81,6 +81,13 @@
     config,
     putConfig,
     applySaved,
+    async setEnabled(enabled) {
+      const { response, data } = await fetchJSON('/api/v1/enabled', {
+        method: 'POST', body: JSON.stringify({ enabled: !!enabled })
+      });
+      if (!response.ok && data.saved !== true) throw responseError(response, data);
+      return data;
+    },
     async validate(intent) {
       return (await request('/api/v1/validate', { method: 'POST', body: JSON.stringify({ intent }) })).data;
     },

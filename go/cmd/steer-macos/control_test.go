@@ -589,3 +589,69 @@ func TestRunProbeReturnsFlatActiveDTO(t *testing.T) {
 		t.Fatalf("probe leaked the control envelope: %s", output.String())
 	}
 }
+
+func TestControlSwitchUsesLatestSavedAndReturnsFailedApplyStatus(t *testing.T) {
+	document, err := os.ReadFile(filepath.Join("..", "..", "..", "linux", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, document, 0600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := loadIntent(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value.Main.LogLevel = "debug" // represents a newer external configuration
+	var latest bytes.Buffer
+	if err := model.EncodeJSON(&latest, value); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, latest.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	service := &controlService{
+		configPath: path, options: macosplatform.BackendOptions{RunDirectory: t.TempDir()},
+		write: func(path string, content []byte, _ int) error { return os.WriteFile(path, content, 0600) },
+		apply: func(value model.Intent, _ macosplatform.BackendOptions) error {
+			if value.Main.Enabled || value.Main.LogLevel != "debug" {
+				t.Fatalf("lost latest saved configuration: %+v", value.Main)
+			}
+			return errors.New("stop failed")
+		},
+		status: func(macosplatform.BackendOptions) macosplatform.Status {
+			return macosplatform.Status{Healthy: true, GenerationID: "still-running"}
+		},
+	}
+	enabled := false
+	response := service.handle(controlRequest{SchemaVersion: controlSchemaVersion, Operation: "set-enabled", Enabled: &enabled})
+	if !response.Saved || response.Applied || response.OK || response.Status == nil || response.Status.GenerationID != "still-running" || len(response.Payload) == 0 {
+		t.Fatalf("partial success must retain actual status and saved snapshot: %+v", response)
+	}
+	saved, err := loadIntent(path)
+	if err != nil || saved.Main.Enabled || saved.Main.LogLevel != "debug" {
+		t.Fatalf("saved state: %+v %v", saved.Main, err)
+	}
+	// Full-document saves still enforce their original revision.
+	stale := service.handle(controlRequest{SchemaVersion: controlSchemaVersion, Operation: "save", Document: string(document), ExpectedRevision: controlRevision(document)})
+	if stale.ErrorCode != controlRevisionConflict {
+		t.Fatalf("stale save accepted: %+v", stale)
+	}
+}
+
+func TestControlStatusReadsAuthoritativeServiceStatus(t *testing.T) {
+	service := &controlService{status: func(macosplatform.BackendOptions) macosplatform.Status {
+		return macosplatform.Status{Healthy: true, GenerationID: "active"}
+	}}
+	result := service.handle(controlRequest{SchemaVersion: controlSchemaVersion, Operation: "status"})
+	if !result.OK || result.Status == nil || !result.Status.Healthy || result.Status.GenerationID != "active" {
+		t.Fatalf("status: %+v", result)
+	}
+	for _, operation := range []string{"status", "state", "set-enabled"} {
+		result = service.handle(controlRequest{SchemaVersion: controlSchemaVersion, Operation: operation, Document: `{}`})
+		if result.OK {
+			t.Fatalf("%s accepted a document", operation)
+		}
+	}
+}

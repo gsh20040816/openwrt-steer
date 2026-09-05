@@ -625,3 +625,51 @@ func writeWebSeed(t *testing.T, root string) string {
 	}
 	return seedDirectory
 }
+
+func TestWebEnabledUsesLatestSavedAndPreservesPartialFailure(t *testing.T) {
+	for _, failStop := range []bool{false, true} {
+		root := t.TempDir()
+		store := linuxplatform.IntentStore{Path: filepath.Join(root, "config.json")}
+		value := webTestIntent()
+		value.Main.Enabled = true
+		oldRevision, err := store.Save(value, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		value.Main.LogLevel = "debug"
+		if _, err = store.Save(value, oldRevision); err != nil {
+			t.Fatal(err)
+		}
+		app := webApplication{ConfigPath: store.Path, RunDirectory: filepath.Join(root, "run"), StateDirectory: filepath.Join(root, "state"), Runner: webApplyRunner{failStop: failStop}}
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/enabled", strings.NewReader(`{"enabled":false}`))
+		request.Header.Set("If-Match", oldRevision) // switch never submits an old document
+		response := httptest.NewRecorder()
+		app.handleEnabled(response, request)
+		var result struct {
+			Saved    bool
+			Applied  bool
+			Revision string
+			Intent   model.Intent
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if !result.Saved || result.Applied == failStop || result.Intent.Main.Enabled || result.Intent.Main.LogLevel != "debug" {
+			t.Fatalf("switch result: %s", response.Body)
+		}
+		saved, revision, err := store.Load()
+		if err != nil || revision != result.Revision || saved.Main.Enabled || saved.Main.LogLevel != "debug" {
+			t.Fatalf("saved: %+v %s %v", saved.Main, revision, err)
+		}
+		if _, err := store.Save(webTestIntent(), oldRevision); err != linuxplatform.ErrRevisionConflict {
+			t.Fatalf("stale full save must still conflict: %v", err)
+		}
+		for _, body := range []string{`{}`, `{"enabled":"false"}`, `{"enabled":false,"intent":{}}`, `{"enabled":false} {}`} {
+			response = httptest.NewRecorder()
+			app.handleEnabled(response, httptest.NewRequest(http.MethodPost, "/api/v1/enabled", strings.NewReader(body)))
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("accepted invalid command %s", body)
+			}
+		}
+	}
+}

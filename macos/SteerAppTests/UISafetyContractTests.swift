@@ -227,10 +227,10 @@ final class UISafetyContractTests: XCTestCase {
 
     func testGlobalEnableUsesTheSharedToolbarAndOneAppModelAction() throws {
         XCTAssertTrue(SteerUISpec.contract.globalStatus.visibleOnEveryPage)
-        XCTAssertTrue(SteerUISpec.contract.globalStatus.includesCurrentDraft)
-        XCTAssertEqual(SteerUISpec.contract.globalStatus.enableAction, "save_and_apply_current_draft")
+        XCTAssertFalse(SteerUISpec.contract.globalStatus.includesCurrentDraft)
+        XCTAssertEqual(SteerUISpec.contract.globalStatus.enableAction, "set_enabled_on_latest_saved")
         XCTAssertEqual(SteerUISpec.contract.globalStatus.blockingConditions,
-                       ["invalid_draft", "revision_conflict", "write_in_progress"])
+                       ["write_in_progress"])
         let content = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/ContentView.swift"))
         let overviewStart = try XCTUnwrap(content.range(of: "struct OverviewView: View")).lowerBound
         let overviewEnd = try XCTUnwrap(content.range(of: "struct ConfigurationView: View")).lowerBound
@@ -254,7 +254,7 @@ final class UISafetyContractTests: XCTestCase {
                        "Overview reuses the global toolbar instead of duplicating lifecycle actions")
 
         let app = try String(contentsOf: repositoryRoot.appendingPathComponent("macos/SteerApp/SteerApp.swift"))
-        XCTAssertTrue(app.contains("model.setEnabledAndApply(!model.draftEnabled)"),
+        XCTAssertTrue(app.contains("model.setEnabledAndApply(!model.savedEnabled)"),
                       "the menu bar must use the same global Enable action")
     }
 

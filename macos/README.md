@@ -16,7 +16,7 @@ steer-macos helper
 
 GUI 与 OpenWrt LuCI、Linux Web 同级：它编辑同一份 Canonical Intent，并调用平台后端完成校验、保存、Apply 和状态读取。GUI 不包含代理数据面，也不复制 Go 核心语义。
 
-日常配置使用原生字段编辑器：基础设置覆盖 Main、探测、DNS 缓存与 Bootstrap；节点、路由、DNS Profile、本地代理、规则和订阅分别使用原生 Form。内部 Canonical ID 由 GUI 管理，不出现在普通列表或弹窗；完整 JSON 仅保留为侧栏“高级”区域的兜底入口。所有页面和菜单栏共用明确分离的 Save、Apply Saved、Save and Apply；Enable 只在 Draft clean 时可用，避免把其他未完成修改一起静默保存和部署。
+日常配置使用原生字段编辑器：基础设置覆盖 Main、探测、DNS 缓存与 Bootstrap；节点、路由、DNS Profile、本地代理、规则和订阅分别使用原生 Form。内部 Canonical ID 由 GUI 管理，不出现在普通列表或弹窗；完整 JSON 仅保留为侧栏“高级”区域的兜底入口。所有页面和菜单栏共用明确分离的 Save、Apply Saved、Save and Apply；Enable 使用最新 Saved 配置独立启停，保留未保存或格式错误的 Draft。
 
 当前源码入口：
 
@@ -69,7 +69,7 @@ swift build --disable-sandbox
 swift run SteerApp
 ```
 
-安装器把配置设为 `root:admin 0640`，并公开不含密钥的 generation 摘要，因此 GUI 启动、刷新状态、Validate、探测和 Geo catalog 不会弹出管理员授权。概览探测经受限 control socket 从 Saved 配置读取目标，并直接使用 Mac 当前网络环境；没有 Active 时仍可运行。报告绑定 Saved digest、测试时可用的 Active identity 和 tested_at，Saved 或网络环境改变后旧结果显示为过期。开发安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，并安装 control 与订阅调度服务；后续 Save/Apply、探测与订阅更新/清理和正式 App 使用同一受限免密 IPC。
+安装器把配置设为 `root:admin 0640`，运行配置继续保持 root 私有；GUI 启动及状态刷新通过受限 control socket 获取权威 Saved/Active 摘要，读取失败会明确显示异常，Validate、探测和 Geo catalog 也不会弹出管理员授权。概览探测经受限 control socket 从 Saved 配置读取目标，并直接使用 Mac 当前网络环境；没有 Active 时仍可运行。报告绑定 Saved digest、测试时可用的 Active identity 和 tested_at，Saved 或网络环境改变后旧结果显示为过期。开发安装脚本会根据 `command -v sing-box` 自动处理 Apple Silicon 与 Intel Homebrew 前缀，把选中的构件复制为 root-owned `/usr/local/libexec/steer/sing-box`，并安装 control 与订阅调度服务；后续 Save/Apply、探测与订阅更新/清理和正式 App 使用同一受限免密 IPC。
 
 GUI Load 会保存当前 Saved revision，后续 Save/Apply 通过 `expected_revision` 做乐观并发保护。订阅 timer 或手动更新先改变 Saved 节点库存时，旧 Draft 不能覆盖它；GUI 会让用户选择 Reload Saved、保留本地 Draft 或显式覆盖。手动更新期间的新编辑不会被完成后的 reload 清除，订阅库存更新也不会自动 Apply。
 
@@ -80,3 +80,5 @@ GUI Load 会保存当前 Saved revision，后续 Save/Apply 通过 `expected_rev
 sing-box 负责 Darwin utun 和 `auto_route`；macOS plan 不设置 `auto_redirect`、nftables 或 pf，也不修改系统 DNS。平台层静态接管 IPv4 RFC1918、CGNAT 与 IPv6 ULA。route 顺序固定为：`steer-tun + TCP/UDP + 目标端口 53 -> hijack-dns`、上述私网 `-> Direct`、sniff、用户公网规则。回环、链路本地、组播和文档/保留地址仍排除；普通 global IPv6 on-link 地址按公网规则处理，DoH/DoT 不属于 Do53 劫持。该 plan 不依赖接口或 DHCP 状态，网络变化不会隐式 Apply Saved config。
 
 Geo 不是 macOS 语义限制。正式 DMG 已内置并校验 tag workflow 使用的精确 `geodata-seed/`；源码开发需把相同 seed 放入 `/Library/Application Support/Steer/geodata-seed/`。Apply 会按 manifest 校验所需 SRS；目标机不安装 geoview，也不读取 DAT。
+
+从旧版升级到 0.9.13 后，在“系统”页更新/修复系统组件，使常驻 control 服务与新客户端同步。新启停命令只修改最新 Saved 的 enabled，订阅自动更新不会导致开关弹出整份配置覆盖选择；普通 Save/Save and Apply 继续执行版本冲突保护。

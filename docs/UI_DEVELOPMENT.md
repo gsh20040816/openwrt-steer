@@ -180,6 +180,8 @@ UI 不得显示后端未声明的操作。不可用能力应隐藏或禁用并�
 
 如果配置已经保存而 Apply 失败，UI 必须明确报告部分成功，并把工作副本 revision 更新到磁盘事实。不得恢复成“未保存”状态，也不得暗示旧配置仍是持久化真相。
 
+三端全局 Enable 只操作最新 Saved，并在与订阅更新共用的锁内执行读取、修改 enabled、保存和应用。Draft 格式错误不阻止启停。无修改的 Draft 在操作完成后同步返回的 Saved；有修改的 Draft 保留原始版本，后续显式保存仍检查冲突。
+
 Linux Web 将 Draft、Saved 与 Active 分开显示：`dirty` 只表示浏览器工作副本，revision 属于已保存配置，Active generation/digest 只来自 `/run/steer/current`。Save 后即使 Draft 已 clean，只要已保存配置的编译运行投影与 Active 不同，或最近一次同投影 Apply 失败，全局 `Apply 已保存配置` 仍保持可用。订阅刷新产生但未被 Route 引用的节点库存不进入该运行投影，只显示库存 warning，不制造 pending Apply。
 
 Linux Advanced JSON 与结构化页面必须共享同一个 Draft。textarea 输入立即进入 store 并触发 dirty；语法无效时保留原文、阻止 Save 和结构化导航，不能退回一份旧的解析对象冒充当前表单。顶部与 Advanced 页内的 Save / Save and Apply 调用同一动作。dirty 时全局必须提供带确认的“放弃修改”，确认后通过唯一 reload 路径同步 Intent、JSON 文本、revision、overview 与当前页面；取消不得改变 Draft。
@@ -194,9 +196,9 @@ Linux 页面可见时低频刷新服务器 Saved revision 与 Active status。�
 
 macOS Load 必须同时返回 Saved revision，Save/Apply 必须携带 `expected_revision`。revision conflict 不得修改 Saved、Active 或本地 Draft；UI 必须提供 Reload Saved、保留本地 Draft 和显式覆盖。订阅手动更新完成时只能在 Draft 未发生变化的情况下自动 reload，否则保留 Draft 并进入同一冲突选择；订阅库存变更始终不自动 Apply。
 
-macOS 每个 App 生命周期只初始化一次 Draft。所有页面与菜单栏共用 Save、Apply Saved、Save and Apply；Apply Saved 只部署磁盘 Saved，不得夹带 dirty Draft。窗口 toolbar 在所有页面提供全局 Enable；切换时把合法的当前 Draft 连同新开关状态一起 Save and Apply，不能因 dirty 而静默忽略用户修改。Reload、安装/Repair 和退出等会替换或结束 Draft 的动作必须走同一个 Save / Discard / Cancel guard。安装完成默认保留编辑中的 Draft，Apply 失败时必须分别显示 Saved 开关与后端实际 Active 状态。
+macOS 每个 App 生命周期只初始化一次 Draft。所有页面与菜单栏共用 Save、Apply Saved、Save and Apply；Apply Saved 只部署磁盘 Saved，不得夹带 dirty Draft。窗口 toolbar 在所有页面提供全局 Enable；切换时通过独立 control 命令，只修改最新 Saved 的 enabled 并应用，未保存的 Draft 保留原文和原始 revision。状态查询同样经 control 服务读取受保护的 Active 文件，读取失败不能当作服务停止。Reload、安装/Repair 和退出等会替换或结束 Draft 的动作必须走同一个 Save / Discard / Cancel guard。安装完成默认保留编辑中的 Draft，Apply 失败时必须分别显示 Saved 开关与后端实际 Active 状态。
 
-LuCI 必须从当前 rpcd session 的 candidate、committed UCI 与 `/run/steer/current` 分别构造 Pending desired、Saved 与 Active。每个 Steer 页面共用包含全局 Enable 的状态区域；切换时将当前合法 pending UCI 连同新开关状态 Save and Apply，基础设置页不再维护重复的服务总开关。pending disable 不能隐藏仍运行的 Active generation；失败 Apply 在无 pending UCI 时必须提供 Apply Saved 重试。`pending_apply` 比较编译运行投影，不能由全文 Intent digest 推导，因此未引用的订阅节点库存变化不制造 pending Apply，也不产生运行 Warning。
+LuCI 必须从当前 rpcd session 的 candidate、committed UCI 与 `/run/steer/current` 分别构造 Pending desired、Saved 与 Active。每个 Steer 页面共用包含全局 Enable 的状态区域；切换时通过独立 RPC 只修改 committed UCI 的 enabled，并直接 Apply；不保存页面表单或 session pending UCI，基础设置页不再维护重复的服务总开关。pending disable 不能隐藏仍运行的 Active generation；失败 Apply 在无 pending UCI 时必须提供 Apply Saved 重试。`pending_apply` 比较编译运行投影，不能由全文 Intent digest 推导，因此未引用的订阅节点库存变化不制造 pending Apply，也不产生运行 Warning。
 
 ## 生成与测试门
 

@@ -309,23 +309,16 @@
   }
 
   async function onToggleEnabled(next) {
-    const main = S.store.intent?.main;
-    if (!main || enabledToggleBusy || Boolean(main.enabled) === Boolean(next)) return;
-    if (S.store.draftValid === false) {
-      toast(`请先修复或放弃格式有误的配置：${S.store.draftError}`, 'err');
-      return;
-    }
+    if (enabledToggleBusy) return;
     if (S.store.saving === true || S.store.reloading === true || S.store.applying === true) {
       toast('已有保存、应用或重新载入操作正在进行，请等待完成。', 'warn');
       return;
     }
 
-    const previous = Boolean(main.enabled);
-    main.enabled = Boolean(next);
     enabledToggleBusy = true;
     renderStatusStrip();
     try {
-      const res = await S.store.save(true);
+      const res = await S.store.setEnabled(next);
       if (res.ok) {
         const overviewWarning = res.overviewError ? `；状态刷新失败：${res.overviewError.message}` : '';
         if (res.res.applied === false) {
@@ -337,16 +330,8 @@
         } else {
           toast(next ? 'Steer 已启用并应用。' : 'Steer 已禁用并清理运行资源。', 'ok');
         }
-      } else if (res.conflict) {
-        if (!res.staleDraft && S.store.intent?.main) S.store.intent.main.enabled = previous;
-        conflictDialog(res.conflict, () => {
-          if (!S.store.intent?.main) return;
-          S.store.intent.main.enabled = Boolean(next);
-          S.store.touch();
-        }, true);
       }
     } catch (error) {
-      if (!error.staleDraft && S.store.intent?.main) S.store.intent.main.enabled = previous;
       toast(`切换 Steer 状态失败：${error.message}`, 'err');
     } finally {
       enabledToggleBusy = false;
@@ -421,7 +406,7 @@
     const status = ov.status || {};
     const lastApply = status.last_apply || null;
     const lastResult = lastApply?.result || lastApply;
-    const desiredEnabled = S.store.intent?.main?.enabled === true;
+    const desiredEnabled = ov.saved_enabled === true;
     const savedEnabled = ov.saved_enabled === true;
     const healthy = !!status.healthy;
     const active = !!status.generation;
@@ -456,7 +441,7 @@
         h('button', { class: `btn ${!dirty && pendingApply && !busy ? 'btn--primary' : ''}`, onclick: onApplySaved, disabled: !pendingApply || busy, title: pendingApply ? '应用当前已保存配置' : '已保存配置与运行配置一致' }, '应用已保存配置')
       ])
     );
-    strip.querySelector('.strip__toggle .switch').disabled = enabledToggleBusy || !draftValid;
+    strip.querySelector('.strip__toggle .switch').disabled = enabledToggleBusy || S.store.saving || S.store.reloading || S.store.applying;
   }
 
   /* ---------- 通知 ---------- */

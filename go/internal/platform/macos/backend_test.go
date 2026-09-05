@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gsh20040816/steer/go/internal/compiler"
+	model "github.com/gsh20040816/steer/go/internal/intent"
 )
 
 type launchdFakeRunner struct {
@@ -131,5 +132,19 @@ func TestBackendUsesLaunchdGenerationLifecycle(t *testing.T) {
 	}
 	if strings.Contains(string(platformPlan), "active_lan_prefixes") {
 		t.Fatalf("generation persisted retired active-LAN state: %s", platformPlan)
+	}
+}
+
+func TestReadStatusDoesNotReportBrokenGenerationAsStopped(t *testing.T) {
+	root := t.TempDir()
+	backend := NewBackend(ExecRunner{}, model.Intent{}, BackendOptions{RunDirectory: root})
+	if status := backend.ReadStatus(context.Background()); status.Error != "" || status.Healthy {
+		t.Fatalf("missing pointer: %+v", status)
+	}
+	if err := os.WriteFile(filepath.Join(root, "current.json"), []byte(`{broken`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if status := backend.ReadStatus(context.Background()); status.Error == "" || status.Healthy {
+		t.Fatalf("broken pointer must surface error: %+v", status)
 	}
 }

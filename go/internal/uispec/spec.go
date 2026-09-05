@@ -443,9 +443,9 @@ func ContractValue() Contract {
 		},
 		GlobalStatus: GlobalStatusContract{
 			VisibleOnEveryPage:   true,
-			EnableAction:         "save_and_apply_current_draft",
-			IncludesCurrentDraft: true,
-			BlockingConditions:   []string{"invalid_draft", "revision_conflict", "write_in_progress"},
+			EnableAction:         "set_enabled_on_latest_saved",
+			IncludesCurrentDraft: false,
+			BlockingConditions:   []string{"write_in_progress"},
 			Facts:                []string{"draft", "saved_enabled", "active", "pending_apply"},
 			Actions:              []string{"enable", "save", "apply_saved", "save_and_apply", "discard"},
 		},

@@ -47,11 +47,11 @@ struct ContentView: View {
                 }
                 Label(
                     model.runtime.healthy ? "运行正常" : (model.runtime.generationID.isEmpty ? "未运行" : "运行异常"),
-                    systemImage: model.runtime.healthy ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty ? "circle" : "exclamationmark.triangle.fill")
+                    systemImage: model.runtime.healthy && model.runtime.error.isEmpty ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty && model.runtime.error.isEmpty ? "circle" : "exclamationmark.triangle.fill")
                 )
-                .foregroundStyle(model.runtime.healthy ? .green : (model.runtime.generationID.isEmpty ? .secondary : .orange))
+                .foregroundStyle(model.runtime.healthy && model.runtime.error.isEmpty ? .green : (model.runtime.generationID.isEmpty && model.runtime.error.isEmpty ? .secondary : .orange))
                 Toggle("Steer", isOn: Binding(
-                    get: { model.draftEnabled },
+                    get: { model.savedEnabled },
                     set: { model.setEnabledAndApply($0) }
                 ))
                 .toggleStyle(.switch)
@@ -138,10 +138,10 @@ private struct SidebarView: View {
         .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 8) {
-                Image(systemName: model.runtime.healthy ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty ? "circle" : "exclamationmark.triangle.fill"))
-                    .foregroundStyle(model.runtime.healthy ? .green : (model.runtime.generationID.isEmpty ? .secondary : .orange))
+                Image(systemName: model.runtime.healthy && model.runtime.error.isEmpty ? "checkmark.circle.fill" : (model.runtime.generationID.isEmpty && model.runtime.error.isEmpty ? "circle" : "exclamationmark.triangle.fill"))
+                    .foregroundStyle(model.runtime.healthy && model.runtime.error.isEmpty ? .green : (model.runtime.generationID.isEmpty && model.runtime.error.isEmpty ? .secondary : .orange))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(model.runtime.healthy ? "服务运行正常" : (model.runtime.generationID.isEmpty ? "服务未运行" : "服务运行异常"))
+                    Text(model.runtimeStatusText)
                         .font(.caption.weight(.medium))
                     Text(model.isDirty ? "有未保存修改" : "配置已保存")
                         .font(.caption2)

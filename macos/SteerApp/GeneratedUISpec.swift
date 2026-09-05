@@ -1681,11 +1681,9 @@ enum GeneratedUISpec {
   },
   "global_status": {
     "visible_on_every_page": true,
-    "enable_action": "save_and_apply_current_draft",
-    "includes_current_draft": true,
+    "enable_action": "set_enabled_on_latest_saved",
+    "includes_current_draft": false,
     "blocking_conditions": [
-      "invalid_draft",
-      "revision_conflict",
       "write_in_progress"
     ],
     "facts": [

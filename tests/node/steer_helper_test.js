@@ -119,6 +119,7 @@ function loadHelper(runtime) {
 			}
 			if (method == 'overview_state')
 				return Promise.resolve(runtime.lifecycleState);
+			if (method == 'set_enabled') { runtime.sequence.push('set-enabled-rpc'); runtime.enabled = args[0] ? '1' : '0'; return Promise.resolve({ ok: true }); }
 			if (method == 'apply_saved') {
 				runtime.applySavedCalls++;
 				return Promise.resolve(runtime.applySavedResult);
@@ -270,8 +271,8 @@ async function main() {
 	runtime.lifecycleState.pending = false;
 	runtime.lifecycleState.pending_apply = false;
 	await helper.setGlobalEnabled(false, currentView);
-	assert.deepEqual(runtime.sequence, [ 'capture-form', 'set-enabled', 'save-candidate', 'validate', 'commit' ],
-		'global Enable captures the current form, writes main.enabled, then validates, commits and applies one complete candidate');
+	assert.deepEqual(runtime.sequence, [ 'set-enabled-rpc' ],
+		'global Enable only changes the committed enabled field and preserves pending edits');
 	assert.equal(runtime.enabled, '0');
 	runtime.lifecycleState = {
 		ok: true, pending: true, pending_apply: false,
@@ -281,8 +282,8 @@ async function main() {
 	helper.loadStyle(currentView);
 	await new Promise((resolve) => setImmediate(resolve));
 	const invalidToggle = findElement(runtime.lifecycleBar, (node) => node.attributes?.role == 'switch');
-	assert.equal(invalidToggle.attributes.disabled, true);
-	assert.equal(invalidToggle.attributes.title, 'Fix validation errors before changing Steer.',
+	assert.equal(invalidToggle.attributes.disabled, null);
+	assert.equal(invalidToggle.attributes.title, 'Apply Saved configuration',
 		'an invalid candidate blocks global Enable with a stable reason');
 	runtime.lifecycleState = {
 		ok: true, pending: false, pending_apply: true,

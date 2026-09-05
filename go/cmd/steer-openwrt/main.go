@@ -303,6 +303,7 @@ func runValidate(args []string) error {
 
 func runApply(args []string) error {
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
+	enabledText := flags.String("enabled", "", "change only the saved enabled state before applying")
 	configPath := flags.String("config", "/etc/config/steer", "UCI configuration file")
 	singBoxPath := flags.String("sing-box", "/usr/bin/sing-box", "sing-box binary")
 	runDirectory := flags.String("run-dir", "/run/steer", "runtime state directory")
@@ -316,24 +317,51 @@ func runApply(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("apply accepts flags only")
 	}
-	return runLockedApply(*runDirectory, func() (coreapply.Result, error) {
+	if *enabledText != "" && *enabledText != "true" && *enabledText != "false" {
+		return errors.New("enabled must be true or false")
+	}
+	saved := false
+	return runLockedApplyOutput(*runDirectory, func() (coreapply.Result, error) {
 		value, decodeValidation := loadIntent(*configPath)
 		if !decodeValidation.OK {
 			return coreapply.Result{Validation: &decodeValidation}, errors.New("configuration decode failed")
 		}
+		if *enabledText != "" {
+			value.Main.Enabled = *enabledText == "true"
+		}
 		validation := openwrt.ValidateWithGeoDataDirectory(value, *seedDirectory)
 		if !validation.OK {
 			return coreapply.Result{Validation: &validation}, openwrt.ValidationError{Validation: validation}
+		}
+		if *enabledText != "" {
+			if err := openwrt.SetSavedEnabled(context.Background(), *configPath, value.Main.Enabled); err != nil {
+				return coreapply.Result{}, err
+			}
+			saved = true
 		}
 		backend := openwrt.NewBackend(openwrt.ExecRunner{}, value, openwrt.BackendOptions{
 			RunDirectory: *runDirectory, StateDirectory: *stateDirectory, SingBoxBinary: *singBoxPath,
 			GeoDataDirectory: *seedDirectory, NFTBinary: *nftBinary, InitScript: *initScript,
 		})
 		return coreapply.Run(context.Background(), value, backend.CompilerOptions(), backend)
+	}, func(result coreapply.Result) {
+		if *enabledText == "" {
+			writeJSON(result)
+			return
+		}
+		writeJSON(struct {
+			coreapply.Result
+			Saved   bool `json:"saved"`
+			Applied bool `json:"applied"`
+		}{Result: result, Saved: saved, Applied: result.OK})
 	})
 }
 
 func runLockedApply(runDirectory string, operation func() (coreapply.Result, error)) error {
+	return runLockedApplyOutput(runDirectory, operation, func(result coreapply.Result) { writeJSON(result) })
+}
+
+func runLockedApplyOutput(runDirectory string, operation func() (coreapply.Result, error), output func(coreapply.Result)) error {
 	lock, err := acquireApplyLock(runDirectory)
 	if err != nil {
 		return err
@@ -351,10 +379,10 @@ func runLockedApply(runDirectory string, operation func() (coreapply.Result, err
 		}
 		result.OK = false
 		result.Error = combined.Error()
-		writeJSON(result)
+		output(result)
 		return combined
 	}
-	writeJSON(result)
+	output(result)
 	return err
 }
 
